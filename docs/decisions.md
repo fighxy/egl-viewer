@@ -158,7 +158,10 @@ locked folder has its own password, Argon2id salt, age identity, and recovery se
 wraps the identity; the recovery secret wraps it a second time and is shown once at creation
 (a 128-bit key, the same bits as a word phrase, or an optional plaintext file outside the
 `.eglib` folder). The secret itself is not stored. Unlocking one folder does not unlock the
-others. Name and label stay plaintext and appear in the sidebar section "Locked folders".
+others. An item in two locked folders has its own item key, wrapped separately by each
+folder identity, so folder A's password does not unlock folder B. Each locked folder has its own user-editable name and tag (a label and a colour),
+stored in plaintext on the folder row. The left sidebar has an expandable "Locked folders"
+section that lists them with that name and tag. Choosing a row prompts for that folder only.
 The whole database, settings, and the Eagle token are not encrypted. The token stays in
 Windows Credential Manager. An optional YubiKey PIV slot 9d (via `age-plugin-yubikey`)
 is a third wrap of the same identity: the card holds a P-256 PIV key, not the X25519
