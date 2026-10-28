@@ -307,29 +307,154 @@ Changing chips or sort on the same scope does not reload the scope.
 
 ## 7. Screens
 
-One window with client-side routing. Desktop-first layout: a sidebar, the grid, a detail panel. The layout is responsive, so a phone layout can be added later without restructuring. UI text is English (D-007).
+One window with client-side routing and one library per window (D-024). The layout is desktop-first and responsive, so a phone layout can be added later without restructuring. **v1 ships in English only** (D-007): every string goes through one place per screen, and other languages come later (section 9, "Later"). The UI is built with shadcn/ui (D-006); how the menu, the commands, motion and desktop behaviour are built is in arch §8.
 
-1. **Welcome** (no library open; the first screen after login, D-017). The login gate is section 13.
-   - Primary: **Create library** (name and location; makes `Name.eglib`; the location starts at the default folder, `%USERPROFILE%\egl-library` unless changed, and sync folders and network paths are refused), **Open library** (folder picker; an Eagle library folder gets its own message), **Recent libraries** (name, path, last opened; a missing library is marked and can be removed from the list).
-   - Secondary, under "Eagle": **Import an Eagle library** (section 8.2) and **Connect to a running Eagle** (section 8.3).
-   - On start the app reopens the last library unless it was closed explicitly, the user holds `Shift`, or another instance has it open (then Welcome says so).
-2. **Library.**
-   - Sidebar: All, Uncategorized, Untagged, Trash; the folder tree with counts (direct items with subfolders off, items including subfolders with it on); an expandable **Locked folders** section that lists each locked folder with its name and tag (label and colour); smart folders; tags; tag groups. Choosing a row prompts for that folder only.
-   - Top bar: search, sort, filter chips, layout and size, Add files.
-   - Grid: thumbnails, or the first palette colour and the extension until the thumbnail exists; star and type badges. Multi-select with `Ctrl` and `Shift`, a rubber band, `Ctrl+A`.
-   - Keyboard: arrows, `Enter` opens the detail, `Space` the full-size preview, `Delete` to trash (with confirmation), `Ctrl+F` search, `Ctrl+Z` undo.
-   - The window title shows the library name; a read-only library and a connected Eagle show a badge. A read-only library also shows a banner with the reason: open in another instance (with **Open for editing**), inside a sync folder, or on a read-only medium.
-3. **Item detail** (side panel). Large preview, name, ext, size, dimensions, dates, EXIF, palette, rating editor, tag editor (vocabulary suggestions, new names), folder checklist (the tree with multi-select), note, link (opens in the system browser), comments read-only.
-4. **Full-size preview.** The original at window size, zoom and pan, previous and next in the current view.
-5. **Tag sheet.** Search box over the vocabulary, mode segment Any / All / Exact / None, counts, recent tags, groups as sections; rename, merge and delete from a context menu.
-6. **Filter sheet.** The v1 chips of section 5. Clear all. Save as smart folder.
-7. **Smart folder editor.** Name, AND/OR, the rules of the v1 subset.
-8. **Folder dialogs.** Create, rename, move, delete (with the item count and the trash option), lock and unlock. Lock and unlock, password change, and recovery are for the chosen folder. The lock dialog edits that folder's name and tag.
-9. **Imports panel.** Running and finished imports, progress, failures, duplicates.
-10. **Library settings.** Name, location (reveal in Explorer), size on disk, backups (make one now, restore), rebuild thumbnails, check library.
-11. **Eagle screens:** the import wizard (section 8.2), Connect (section 8.3), export (section 8.4).
+### 7.1 Window and menu
 
-Empty states: a new library with no items (with a big drop target), a folder without items, a search without results, an empty trash.
+- **Frame.** The native Windows title bar: the window title (`My Library — egl-viewer`), minimize, maximize with Snap Layouts, close, light or dark with the app theme. Under it the app's own **menu bar**, not the classic Win32 menu. A custom title bar that merges both rows is an option for phase 12 (D-025).
+- **Menu.** Every item and shortcut comes from one command registry (arch §8). Items of later phases do not exist before their phase, and a menu without items is hidden. In a read-only library, write commands are disabled, with a tooltip that says why.
+
+| Menu | Items (phase) |
+|---|---|
+| **File** | New Library… (1), Open Library… `Ctrl+O` (1), Open Recent ▸ (1), Close Library `Ctrl+W` (1) · Add Files… (2) · Import Eagle Library… (8), Connect to Eagle… (9), Export to Eagle… (11) · Settings… `Ctrl+,` (1) · Exit `Alt+F4` (1) |
+| **Edit** | Undo `Ctrl+Z` (7), Select All `Ctrl+A` (3), Copy File `Ctrl+C` (7), Move to Trash `Delete` (7), Find `Ctrl+F` (6) |
+| **View** | Theme ▸ System / Light / Dark (1), Full Screen `F11` (1) · Sidebar `Ctrl+B` (1), Details Panel `Ctrl+I` (1), Filter Bar (6) · Grid / List (3), Thumbnail Size ▸ `Ctrl+=` / `Ctrl+-` (3), Show Names (3), Sort By ▸ (3) · Include Subfolders (4) |
+| **Library** | New Folder `Ctrl+Shift+N` (4) · Library Settings… (7), Back Up Now (7), Check Library (7), Rebuild Thumbnails (7), Show in Explorer (7) |
+| **Help** | Keyboard Shortcuts `F1` (1), About egl-viewer (1), Open Log Folder (12) |
+
+- **Closing the window quits the app**: there is one window and no tray icon (arch §9). Running imports are confirmed first. **Close Library** returns to Welcome and does not quit.
+
+### 7.2 Welcome
+
+No library open; the first screen after login (D-017). The login gate is section 13.
+
+- Primary: **Create library** (name and location; makes `Name.eglib`; the location starts at the default folder, `%USERPROFILE%\egl-library` unless changed, and sync folders and network paths are refused), **Open library** (folder picker; an Eagle library folder gets its own message), **Recent libraries** (name, path, last opened; a missing library is marked and can be removed from the list).
+- Secondary, under "Eagle": **Import an Eagle library** (section 8.2) and **Connect to a running Eagle** (section 8.3).
+- On start the app reopens the last library unless it was closed explicitly, the user holds `Shift`, or another instance has it open (then Welcome says so).
+
+### 7.3 Library screen
+
+```
+┌ My Library — egl-viewer ──────────────────────────────── ─ □ ✕ ┐
+│ File  Edit  View  Library  Help                                 │
+├─────────────┬──────────────────────────────────────┬────────────┤
+│ left bar    │ toolbar                              │ right bar  │
+│             ├──────────────────────────────────────┤ (metadata) │
+│             │ filter bar (when shown)              │            │
+│             ├──────────────────────────────────────┤            │
+│             │ grid or list                         │            │
+├─────────────┴──────────────────────────────────────┴────────────┤
+│ status bar                                                      │
+└─────────────────────────────────────────────────────────────────┘
+```
+
+- The left bar is 200–360 px wide and the right bar 280–480 px; both can be resized and are toggled with `Ctrl+B` and `Ctrl+I`. Widths and open state are remembered. Below about 1200 px of window width the right bar slides over the grid instead of taking space. The smallest window is 900 × 600.
+- A read-only library shows a banner above the toolbar with the reason: open in another instance (with **Open for editing**), inside a sync folder, or on a read-only medium. The window title and the status bar show a badge; so does a connected Eagle.
+
+**Left bar**, top to bottom:
+
+```
+My Library            ⋯
+All                12 480
+Uncategorized         312
+Untagged            1 004
+Trash                  27
+▾ Folders          ⊕  ⇲
+   ● Posters          210
+     ▸ 2024            88
+▸ Locked folders
+▸ Smart folders    ⊕
+▸ Tag groups
+▸ Recent tags
+```
+
+- The library name, with a menu (Library Settings, Show in Explorer, Close Library) and the read-only badge.
+- All, Uncategorized, Untagged and Trash with their counts.
+- **Folders:** the tree with colour dots and counts (direct items with subfolders off, items including subfolders with it on). ⊕ creates a folder. ⇲ is the **Include subfolders** switch, also in the View menu; it changes the counts, so it sits next to the tree. Items dropped on a folder are added to it (phase 4).
+- **Locked folders:** each locked folder with its name, its tag (label and colour) and a lock. Choosing a row prompts for that folder only.
+- **Smart folders:** their own tree.
+- **Tag groups** and **Recent tags.** The full tag vocabulary is not in the left bar, because it grows to thousands of tags; it is in the Tags filter (7.4). Choosing a tag here opens All with that tag as a filter: tags are filters, not scopes (section 5).
+- Sections collapse and stay collapsed. Arrow keys and `Enter` move through the rows.
+
+**Toolbar**, one row over the grid:
+
+```
+Posters › 2024   88 items │ Search… │ Filter (2) │ Date added ↓ │ Grid List │ ━━●━━ │ + Add files │ ⓘ
+```
+
+- Where the user is (a nested folder shows its path) and the item count.
+- Search (`Ctrl+F`, section 5); **Filter** with the number of active filters; sort (key and direction); grid or list; the thumbnail size slider (also `Ctrl` + mouse wheel); **Add files** as the primary button, disabled with a tooltip in a read-only library; the right bar toggle.
+
+**Filter bar**, under the toolbar. The Filter button shows and hides it, and it appears on its own while a filter is active:
+
+```
+[Tags: Poster, Logo · Any ▾] [Folders ▾] [Type ▾] [Rating ▾] [Shape ▾]        Clear all   Save as smart folder
+```
+
+Each filter is a button with a dropdown panel. Later filters (size, dates, colour) join the same row.
+
+**Grid**, in the middle:
+
+- v1 has uniform square cells with the image fitted on a neutral background; the column count follows the width and the size slider. Masonry and justified rows can come later as View modes, since width and height are stored. **List** shows a small thumbnail, name, type, size, dimensions, date added, rating and tags.
+- A cell shows the thumbnail, or the first palette colour and the extension until the thumbnail exists; stars when rated; the name under the image when View → Show Names is on. Selection is an outline.
+- Click, `Ctrl`, `Shift`, a rubber band and `Ctrl+A` select. Double-click or `Space` opens the full-size preview. `Enter` moves focus to the right bar and opens it if hidden. `Delete` moves the selection to the trash after a confirmation.
+- Files dragged onto the window show an overlay "Add to <scope>".
+- Empty states: a new library ("Drop images here", a big drop target and Add files), a folder without items, no results (with Clear filters), an empty trash.
+
+**Right bar** (metadata):
+
+```
+[ preview — click for full size ]
+■■■■■■                        palette
+Name     IMG_1042             edited in place
+★★★★☆
+Tags     [Poster ×] [Logo ×] [+ add…]
+Folders  [Posters ×] [+ add…]
+Note     …
+Link     https://…  ↗
+▾ Info      JPG · 2.4 MB · 4000 × 3000 · Added · Created · Modified
+▸ EXIF      camera, lens, ISO, aperture, shutter, focal length, date
+▸ Comments  read-only
+[Show in Explorer]  [Open with default app]
+```
+
+- **One item:** as above. A field saves on `Enter` or when focus leaves it, and `Esc` reverts it; there is no Save button. The UI shows the change at once and rolls back on an error (section 6). Tags get vocabulary suggestions and accept new names; the folder picker is the tree with multi-select; the link opens in the system browser. Fields are disabled in a read-only library.
+- **Several items:** "N items selected" with a stack of thumbnails. Tags on every selected item look normal, tags on only some of them are dimmed. Batch rating, add or remove tags, add to or remove from folders, move to the trash; the total size.
+- **Nothing selected:** the open folder's properties (name, description, colour, folder tags, sort override) from phase 4; before that, "Select an item".
+
+**Status bar:** the item count, the selection count, import progress (a click opens the Imports panel), the read-only badge.
+
+**What each phase adds to this screen:**
+
+| Phase | Adds |
+|---|---|
+| 1 | The whole frame: menu bar, both bars with resizable widths, toolbar, status bar. The left bar with All, Uncategorized, Untagged and Trash; the grid area with the new-library empty state; the right bar with "Select an item" |
+| 2 | Add Files, files dropped on the window, import progress in the status bar, the Imports panel |
+| 3 | The grid and the list, selection, sort, thumbnail size, the read-only right bar, the full-size preview |
+| 4 | The folder tree, Locked folders, Include subfolders, folder properties in the right bar |
+| 5 | The Tags filter, tag groups and recent tags, editing tags |
+| 6 | Search, the filter bar, Save as smart folder, Smart folders |
+| 7 | Editing the other fields, batch edits, the trash, file actions |
+
+### 7.4 Other screens and dialogs
+
+1. **Full-size preview.** A layer over the whole window, not a new window. The original at window size, zoom and pan, previous and next in the current view; `Esc` closes it. It opens with a short zoom out of its cell (arch §8).
+2. **Tags filter** (the tag sheet): the dropdown panel of the Tags filter. Search box over the vocabulary, mode segment Any / All / Exact / None, counts, recent tags, groups as sections; rename, merge and delete from a context menu.
+3. **Smart folder editor.** Name, AND/OR, the rules of the v1 subset.
+4. **Folder dialogs.** Create, rename, move, delete (with the item count and the trash option), lock and unlock. Lock and unlock, password change, and recovery are for the chosen folder. The lock dialog edits that folder's name and tag.
+5. **Imports panel.** Opened from the status bar: running and finished imports, progress, failures, duplicates.
+6. **Library settings** (dialog, Library menu). Name, location (reveal in Explorer), size on disk, backups (make one now, restore), rebuild thumbnails, check library.
+7. **Settings** (`Ctrl+,`; a dialog with its sections on the left). Phase 1 has **General**: theme (System, Light, Dark), reopen the last library on start, and the default folder for new libraries (`%USERPROFILE%\egl-library`, checked like any library location, D-021). Later sections arrive with their features, for example the Eagle connection and the language.
+8. **About egl-viewer** (dialog). Icon, name, version, build date and commit, WebView2 version, links, and **Third-party licenses**: a file generated by the release build (phase 12), because the MIT and Apache licences of the dependencies require showing their texts.
+9. **Keyboard Shortcuts** (`F1`): every command with its shortcut, read from the command registry.
+10. **Eagle screens:** the import wizard (section 8.2), Connect (section 8.3), export (section 8.4).
+
+### 7.5 Look and motion
+
+- **Theme:** follows Windows by default; View → Theme and Settings override it. The grid background is a neutral grey, so it does not tint the images.
+- **Desktop density**, not web density: rows in the left bar and in menus about 28–32 px high, body text 13–14 px.
+- **Motion is short and only where it helps:** menus, popovers and dialogs fade and scale (120–150 ms), panels slide (150–200 ms), a thumbnail fades in when it loads, the full-size preview grows out of its cell. Scrolling, sorting, filtering, selection and hover never animate. All motion is off when Windows animation effects are off. Rules in arch §8.
+- **A desktop app, not a web page:** no browser context menu, reload, printing, page zoom or text selection in the chrome (arch §8).
 
 ---
 
@@ -744,11 +869,11 @@ Done: the desktop app starts on Windows and shows its first screen.
 - `library-native`: `add_file` for one file (temp copy with BLAKE3, flush, duplicate check, the `pending_file` journal, rename, insert), with tests; no command and no UI yet.
 - `app-store`: the location check (OneDrive variables, sync roots registered with Windows, Dropbox and Syncthing markers, network paths) and the default location; settings and recent libraries as JSON files in the app's local data folder.
 - Commands `create_library`, `open_library`, `close_library`, `recent_libraries`, `forget_recent_library`, `default_library_location`.
-- UI: the Welcome screen (section 7) with working Create, Open and Recent; an empty Library screen with the library name, the sidebar rows and the read-only banner.
+- UI: the Welcome screen (section 7.2) with working Create, Open and Recent; the frame of the Library screen (section 7.3): the menu bar from the command registry with this phase's items, the left bar with the library name and the four fixed rows, the empty grid area, the right bar, the status bar and the read-only banner; the Settings (General), About and Keyboard Shortcuts dialogs; the desktop behaviour of arch §8 (no WebView2 context menu, reload, printing or page zoom; the window starts hidden; its size and position are remembered).
 - Reopen the last library on start.
 - One window, one library. App login (section 13) and locked folders (phase 4) are not part of this phase.
 
-Done when: a library created in a chosen folder reopens from Recent after a restart; a second instance opens it read-only and says so; a folder that is not a library, an Eagle library folder, and a library from a newer format version are refused with clear messages; a library cannot be created in a OneDrive folder or on a network path, and one found in a sync folder opens read-only; killing the app releases the lock, and the next start reports the unclean close and checks the database; `add_file` tests show that a crash at any step leaves neither a row without a file nor a file without a row, and that the same file added again is reported as a duplicate.
+Done when: a library created in a chosen folder reopens from Recent after a restart; a second instance opens it read-only and says so; a folder that is not a library, an Eagle library folder, and a library from a newer format version are refused with clear messages; a library cannot be created in a OneDrive folder or on a network path, and one found in a sync folder opens read-only; killing the app releases the lock, and the next start reports the unclean close and checks the database; `add_file` tests show that a crash at any step leaves neither a row without a file nor a file without a row, and that the same file added again is reported as a duplicate; the menu and its shortcuts (`Ctrl+O`, `Ctrl+W`, `Ctrl+,`, `F11`, `F1`) work; the theme follows Windows and can be overridden; `F5`, `Ctrl+R`, `Ctrl+P` and `Ctrl` + mouse wheel do nothing browser-like.
 
 ### Phase 2 — Adding files and the media pipeline
 
@@ -763,14 +888,14 @@ Done when: 1 000 mixed files (all v1 formats plus a few others) are added with t
 - `load_scope` in SQL for All, Uncategorized, Untagged, Trash; the local pipeline, the sorter and views from `library-core` (arch §6.4, §6.5).
 - Commands `open_view` (with a progress `Channel`), `view_range`, `close_view`, `item`.
 - The `thumb` URI scheme serving `thumbs/` with the palette placeholder while missing (arch §11).
-- UI: the virtualized grid (TanStack Virtual, windows of 100–200 cells), multi-select, sort menu, layout and size, the read-only detail panel, the full-size preview.
+- UI: the virtualized grid (TanStack Virtual, windows of 100–200 cells), multi-select, sort menu, layout and size, the read-only right bar, the full-size preview (section 7.3).
 
 Done when: a 10 000-item library scrolls smoothly at every thumbnail size; every sort key gives the expected order and stays stable while scrolling; random order stays the same until the query changes.
 
 ### Phase 4 — Folders
 
 - The folder tree with counts, create, rename, description, colour, move (cycle guard), reorder siblings, delete (section 3), lock and unlock. Locking encrypts the folder at rest (D-018): its own age identity, wrapped by Argon2id(password) and by a recovery secret shown once. Several locked folders stay independent. Each has its own user-editable name and tag (a label and a colour), stored in plaintext on the folder row. The sidebar has an expandable **Locked folders** section that lists them with that name and tag. Choosing a row prompts for that folder only.
-- Item membership: folder checklist in the detail, drag items onto a folder, add files into the open folder (with folder tags added to new items).
+- Item membership: folder picker in the right bar, drag items onto a folder, add files into the open folder (with folder tags added to new items).
 - The "Include subfolders" switch.
 - Per-folder sort override; manual order with drag to reorder.
 
@@ -778,8 +903,8 @@ Done when: folder A does not show items that exist only in a child of A, and doe
 
 ### Phase 5 — Tags
 
-- Tag editor in the detail (vocabulary suggestions, new names), batch tagging of a selection.
-- The tag sheet: vocabulary with counts, modes Any / All / Exact / None, recent tags, groups.
+- Tag editor in the right bar (vocabulary suggestions, new names), batch tagging of a selection.
+- The Tags filter (the tag sheet): vocabulary with counts, modes Any / All / Exact / None, recent tags, groups; tag groups and recent tags in the left bar.
 - Rename, merge, delete everywhere (with confirmations); tag groups.
 
 Done when: two tags in Any mode show the union, All shows only items that have both, Exact hides items with an extra tag, None hides items with either; `"Poster"` does not match `"poster"`; a rename changes the chip on every item; removing one tag does not touch the others.
@@ -787,7 +912,7 @@ Done when: two tags in Any mode show the union, All shows only items that have b
 ### Phase 6 — Search, filters and smart folders
 
 - FTS5 search with the Eagle-style syntax, within the scope.
-- Filter chips: type, rating, shape; the filter sheet.
+- The filter bar (section 7.3): type, rating, shape.
 - Smart folders: the local evaluator for the v1 subset (section 5), the editor, "Save as smart folder", the smart folder tree.
 
 Done when: search inside a folder never shows items from other folders; `a OR b`, `-a` and parentheses behave like Eagle's search on the same data; a smart folder made from chips shows exactly the items the chips showed.
@@ -857,6 +982,7 @@ Done when the installer from CI installs and runs on a clean Windows 10 and Wind
 - Writing comments; a longer undo history.
 - Sync between devices and remote access to a native library (arch §15.8).
 - The Eagle extras of section 8.5.
+- **Localisation:** Russian first, then other languages, through the message catalogue of D-007. v1 is English only.
 - **macOS:** the same app; Keychain for the token, signing and notarization.
 - **Android:** `tauri android init`; a small Kotlin plugin for `ACCESS_LOCAL_NETWORK` (target SDK 37+) and the Keystore; camera and gallery through the file input.
 - **iOS:** a Mac with Xcode; `NSLocalNetworkUsageDescription`, `NSCameraUsageDescription`, Keychain.
@@ -954,7 +1080,7 @@ Running Eagle (`eagle-api`), unit tests and HTTP tests with `wiremock` and `fixt
 | Nested page | Parsed from `body.data.data` |
 | Same-PC thumbnail path outside the library folder | Refused, nothing is read |
 
-UI tests: Vitest and Testing Library with `mockIPC` from `@tauri-apps/api/mocks`: the Welcome screen, the read-only banner, Connect error copy, the grid window loading, dialogs and empty states.
+UI tests: Vitest and Testing Library with `mockIPC` from `@tauri-apps/api/mocks`: the Welcome screen, the read-only banner, the menu and shortcuts built from the command registry (no items of later phases, write commands disabled in a read-only library), the Settings and About dialogs, Connect error copy, the grid window loading, dialogs and empty states.
 
 Manual checks on Windows:
 
@@ -974,6 +1100,8 @@ General:
 - Folder membership is direct. Subfolders are a union, computed in the core; a parent does not contain its children's items.
 - Folder tags are not item tags; they reach an item only when a file is added into the folder.
 - Never send a whole item list over Tauri IPC. Serve windows of a view.
+- Never animate a re-sort or a filter change of the grid, and never let WebView2 reload, print or zoom the page (arch §8).
+- Menu items and shortcuts come only from the command registry; never bind a key inside a component.
 - Never copy or sync a library folder while it is open; use the backups.
 - Never create or write a library on a network path or in a cloud-synced folder: WAL needs a local disk, and sync tools copy a live database mid-write.
 - `item_fts` is keyed by `item.seq`, an explicit `INTEGER PRIMARY KEY`. Implicit rowids change on `VACUUM` and in backups.
