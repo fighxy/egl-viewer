@@ -11,6 +11,8 @@ Guidance for agents working in this repository.
 - [`docs/architecture.md`](docs/architecture.md): how it is built. The native library format is
   §15.3, the media pipeline §15.4. Section 1 lists 41 numbered corrections about Eagle's real
   behaviour; the docs refer to them as "correction N".
+- [`docs/library-format.md`](docs/library-format.md): the on-disk format of a native library: the
+  schema, the lock, opening and closing, adding a file. It is the reference for the format.
 - [`docs/decisions.md`](docs/decisions.md): decisions taken while building. Add an entry for
   every decision that the spec or the architecture does not already cover.
 - If spec and architecture disagree, the architecture wins and the spec gets fixed.
@@ -32,9 +34,12 @@ Guidance for agents working in this repository.
 Native library:
 
 - `library.db` is the single source of truth; no per-item metadata files.
-- One writer per library (`library.lock`); a second instance opens read-only.
-- Adding a file: copy into `files/.tmp/`, hash, rename into place, then insert the row. A row
-  never points at a missing file.
+- One writer per library (an OS file lock on `library.lock`); a second instance opens read-only
+  and writes nothing.
+- Libraries live on local disks: never create one in a cloud-synced folder or on a network path.
+- Adding a file: copy into `files/.tmp/` while hashing, flush, record the target in
+  `pending_file`, rename into place, then insert the row and clear the journal entry. A row never
+  points at a missing file, and no file stays without a row.
 - Migrations only forward, always after a backup. Refuse libraries from a newer format version.
 - Tags are case-sensitive strings. Never lowercase them.
 - The `thumb` scheme and file commands only touch files inside the open library folder.
