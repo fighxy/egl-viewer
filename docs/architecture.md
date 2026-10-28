@@ -24,7 +24,7 @@ Live verification (2026-10-27): two test JPEGs were added to the open library th
 | Core | Rust workspace: `library-core` (no IO), `library-native` (the native library), `media` (thumbnails, palettes, hashes), `app-store` (settings, recent libraries, secrets), and for Eagle `eagle-folder` and `eagle-api`; the Tauri app crate is a thin layer of commands |
 | Library sources | One `LibrarySource` trait in `library-core`. Implementations: the native library, an Eagle library folder on disk (read only), a running Eagle (API) (§15.2) |
 | Library format | A folder `Name.eglib` (D-016): SQLite (`library.db`) as the single source of truth, the original files copied in (D-014), regenerable thumbnails; documented in `library-format.md` and versioned (§15.3) |
-| Media | v1 previews for JPEG, PNG, GIF, WebP, AVIF, SVG, TIFF, BMP and PSD composites; other files are stored with a placeholder (D-015, §15.4) |
+| Media | v1 previews for JPEG, PNG, GIF, WebP, SVG, TIFF, BMP and PSD composites; AVIF and other files are stored with a placeholder (D-015, D-035, §15.4) |
 | UI | React + TypeScript (strict) + Vite, Tailwind + shadcn/ui; TanStack Virtual for the grid, TanStack Query for data from Rust, TanStack Router for screens. The first screen is Welcome (D-017). The native window frame with the app's own menu bar, built from one command registry (§8) |
 | Types across IPC | `ts-rs` generates TypeScript from the Rust structs that cross IPC |
 | Where filtering happens | The source loads the **scope** (a folder, Uncategorized, a smart folder): one SQL query in the native library, API pages for a running Eagle. Tags, type, rating, shape, sort and search are combined **in Rust** (§6) |
@@ -107,7 +107,7 @@ The "Spec said" column quotes the wording of the **first** version of the spec (
 | Shell | `tauri` 2.12.x, `tauri-build`, `@tauri-apps/cli`, `@tauri-apps/api` | Pin exact versions. WebView2 on Windows |
 | Async | `tokio` | The runtime Tauri already uses |
 | Storage | `rusqlite` (`bundled`, FTS5 enabled), `ulid` | The native library (§15.3); on a blocking thread pool |
-| Media | `blake3`, `image`, `zune-jpeg`, `fast_image_resize`, `resvg`, `psd`, an EXIF reader, `rayon` | The media pipeline (§15.4) |
+| Media | `blake3`, `image`, `fast_image_resize`, `resvg`, `psd`, `kamadak-exif`, `webp` (libwebp), `rayon` | The media pipeline (§15.4, D-033) |
 | Passwords | `argon2`, `age`, `secrecy` | Each locked folder wraps its own age identity with Argon2id; files and sensitive columns are age ciphertext (D-018) |
 | HTTP | `reqwest` (`rustls-tls`, default features off) | Only for Eagle; one client per endpoint |
 | Serialization | `serde`, `serde_json`, `ciborium` (Eagle offline cache, later), `base64` | |
@@ -148,8 +148,10 @@ egl-viewer/
       recover.rs, backup.rs  pending_file recovery, files/.tmp; backups
       scope.rs               (phase 3) load_scope in SQL, FTS5 search
       write.rs               item edits, folders, tags, trash, change_log
-      add.rs                 adding files: temp copy, hash, duplicates, the pending_file journal, rows
-    media/                   hashing, probing, thumbnails, palettes (§15.4); no Tauri
+      add.rs                 adding one file: temp copy, hash, duplicates, the pending_file journal, rows
+      import.rs, preview.rs  batches (folders walked, one duplicate question, cancel, progress); thumbnails, counts
+    media/                   decoding, thumbnails, palettes, EXIF (§15.4); no Tauri
+      decode.rs, thumbnail.rs, palette.rs, metadata.rs; fixtures.rs makes test files on the fly (D-034)
     app-store/               file IO; no Tauri
       settings.rs            the Eagle endpoint
       preferences.rs         preferences, layout, window state; json_file.rs: lock + atomic replace (D-022)
@@ -754,8 +756,13 @@ Later, for phones: the WebView prepares the image (`createImageBitmap`, long edg
 | `rename_tag`, `merge_tags`, `delete_tag` | names | — |
 | `save_smart_folder`, `delete_smart_folder` | … | smart folder tree |
 | `restore_items`, `delete_permanently`, `empty_trash` | ids / — | counts |
-| `add_files` | paths, `{ folders, tags, star, mirrorFolders }`, duplicate policy | import id |
+| `add_files` | paths | `ImportTicket`; folders, tags, rating and mirrored folders come with phases 4, 5 and 7 |
+| `paste_files` | — | `ImportTicket` or none: copied files, or a pasted image as a PNG |
+| `answer_import` | import id, `skip` / `addAnyway` / `cancel` | — (the batch's duplicate question) |
 | `cancel_import` | import id | — |
+| `imports` | — | `ImportProgress[]`: running, then finished, newest first |
+| `library_counts` | — | `LibraryCounts` for the left bar |
+| `quit` | — | — (after the user agreed to stop running imports) |
 | `open_original`, `reveal_original`, `copy_original` | id | — |
 | `backup_library`, `rebuild_thumbnails`, `check_library` | — | reports |
 | `import_eagle_library` | `.library` path, target, options | import id (spec §8.2) |
@@ -767,7 +774,7 @@ Later, for phones: the WebView prepares the image (`createImageBitmap`, long edg
 
 Every command that works on a library goes through the open `LibrarySource`; a source that cannot do something returns `ReadOnly` or `NotSupported`, and the UI hides the control using `capabilities`.
 
-**Events** from Rust: `views-invalidated`, `import-progress`, `library-closed` (the library folder disappeared or the lock was lost), and for Eagle `connection-state` and `library-changed` (another library was opened on the PC).
+**Events** from Rust: `views-invalidated`, `import-progress`, `close-requested` (the window's close was held back because files are being added; the UI asks, then calls `quit`), `library-closed` (the library folder disappeared or the lock was lost), and for Eagle `connection-state` and `library-changed` (another library was opened on the PC).
 
 **UI structure.** Routes: `/welcome`, `/library` with the scope and the filters in typed search parameters, `/item/$id` as a side panel or a dialog, `/eagle/connect`, `/eagle/import`, `/eagle/export`. The tag, filter and sort sheets are components of the library screen, not routes. Server state lives in TanStack Query (keys per view window, per item, for the tree and the vocabulary); local UI state stays in components. The last `LibraryQuery` per library is saved by `app-store` so that the app reopens where it was.
 
@@ -1145,13 +1152,13 @@ The full schema of format version 1, the connection settings, and the protocols 
 
 Eagle generates thumbnails, palettes and metadata itself; the native library needs its own pipeline, in the `media` crate.
 
-**v1 formats** (D-015): JPEG, PNG, GIF (first frame), WebP, AVIF, SVG, TIFF, BMP, and the composite image of PSD files. Every other file is accepted and stored, with an extension placeholder instead of a thumbnail; its `width`, `height` and palette stay empty.
+**v1 formats** (D-015): JPEG, PNG, GIF (first frame), WebP, SVG, TIFF, BMP, and the composite image of PSD files. AVIF waits for a decoder (D-035). Every other file is accepted and stored, with an extension placeholder instead of a thumbnail; its `width`, `height` and palette stay empty.
 
 | Step | Tools |
 |---|---|
 | Hash | `blake3`, streaming while copying; duplicates are reported on import |
 | Probe | `image` for dimensions of the v1 formats, `nom-exif` (or `kamadak-exif`) for EXIF; later `ffprobe` for video and audio |
-| Thumbnails | `image` + `zune-jpeg` + `fast_image_resize` for JPEG, PNG, GIF, WebP, BMP, TIFF, AVIF; `resvg` for SVG; the `psd` crate for PSD composites. Later: `ffmpeg` (a bundled LGPL build, run as a separate process) for video frames, RAW, PDF (`pdfium`) and fonts |
+| Thumbnails | `image` (with `zune-jpeg` inside) + `fast_image_resize` (Lanczos3) for JPEG, PNG, GIF, WebP, BMP, TIFF, with the EXIF orientation applied; `resvg` for SVG, rendered at thumbnail size with system fonts; the `psd` crate for PSD composites; encoded as lossy WebP (quality 80) by `webp` (libwebp, D-036). Later: `ffmpeg` (a bundled LGPL build, run as a separate process) for video frames, RAW, PDF (`pdfium`) and fonts |
 | Thumbnail size | 512 px on the long edge (sharp on high-DPI grids), WebP |
 | Palette | k-means on a 64×64 copy, 5–8 colours with ratios, the same JSON shape as Eagle |
 | Workers | CPU work on a `rayon` pool sized to the cores, IO on `tokio`; progress through the import channel |

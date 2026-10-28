@@ -30,7 +30,7 @@ egl-viewer keeps a collection of images and design references on the user's disk
 - **Trash:** items go to the trash first; the trash can be restored or emptied.
 - **Eagle compatibility (secondary, section 8):** import an Eagle `.library` folder into a native library; connect to a running Eagle and browse or edit its library; export a native library into Eagle.
 
-v1 file formats (D-015): JPEG, PNG, GIF, WebP, AVIF, SVG, TIFF, BMP and the composite image of PSD files get dimensions, thumbnails and colour palettes. Any other file can still be added: it is stored and shown with an extension placeholder. Video, audio, PDF, fonts and RAW previews come later.
+v1 file formats (D-015): JPEG, PNG, GIF, WebP, SVG, TIFF, BMP and the composite image of PSD files get dimensions, thumbnails and colour palettes. AVIF files are stored with a placeholder until a decoder is chosen (D-035). Any other file can still be added: it is stored and shown with an extension placeholder. Video, audio, PDF, fonts and RAW previews come later.
 
 ### Non-goals for v1
 
@@ -52,7 +52,7 @@ v1 file formats (D-015): JPEG, PNG, GIF, WebP, AVIF, SVG, TIFF, BMP and the comp
 | Targets | **Windows 10/11 now** (WebView2). macOS (WKWebView), Android (minSdk 26, target 37) and iOS are later targets: nothing in the core or the UI may depend on Windows. Linux (WebKitGTK) is possible but not planned. |
 | Core | Rust workspace (arch §3): `library-core` (no IO: models, query engine, edits, the `LibrarySource` trait), `library-native` (the native library: SQLite, files, thumbnails), `media` (hashing, probing, thumbnails, palettes), `app-store` (settings, recent libraries, secrets); for Eagle: `eagle-folder` (an Eagle `.library` folder, read only) and `eagle-api` (a running Eagle). The Tauri app crate is a thin layer of commands. |
 | Storage | SQLite through `rusqlite` with the bundled SQLite (WAL, FTS5), on a blocking thread pool (arch §15.3). |
-| Media | `image`, `zune-jpeg`, `fast_image_resize`, `resvg`, `psd`, an EXIF reader, `blake3` (arch §15.4). |
+| Media | `image` (its JPEG decoder is `zune-jpeg`), `fast_image_resize`, `resvg`, `psd`, `kamadak-exif`, `webp` (libwebp, for lossy thumbnails), `blake3` (arch §15.4, D-033). |
 | HTTP | Only for Eagle: `reqwest` with rustls, `tokio`. **Only Rust talks to Eagle.** The UI never calls the Eagle API and never sees the token. |
 | JSON | `serde` / `serde_json`. |
 | UI | React + TypeScript (strict) + Vite, Tailwind CSS and shadcn/ui on Radix (D-006). TanStack Virtual for the grid, TanStack Query for data from Rust, TanStack Router for screens. |
@@ -162,17 +162,17 @@ Smart folders live in their own tree (nested, with their own order).
 
 ### Adding
 
-- From a toolbar button (the system file dialog, multi-select, default filter "Images" plus "All files"), by dropping files or folders on the window, and by pasting an image from the clipboard. A reviewed import from a chosen disk comes later (below).
-- Dropped folders are walked recursively. Option in the add dialog: create folders in the library that mirror the dropped folder structure.
-- Target: the open folder when a folder is open, otherwise Uncategorized. Optional tags and rating apply to every file of the batch.
+- From a toolbar button (the system file dialog, multi-select, default filter "Images" plus "All files"), by dropping files or folders on the window, and by pasting an image or files copied in Explorer from the clipboard (Edit → Paste, `Ctrl+V`). A reviewed import from a chosen disk comes later (below).
+- Dropped folders are walked recursively; hidden and system files (`Thumbs.db`, `desktop.ini`) are skipped. Mirroring the dropped folder structure as library folders comes with folders (phase 4).
+- Target: the open folder when a folder is open, otherwise Uncategorized. Optional tags and rating for every file of the batch come with phases 5 and 7.
 - Rust receives the paths and reads the files; file bytes never pass through the WebView.
 
 ### What happens to one file (arch §7.4, §15.4)
 
 1. Hash with BLAKE3 while copying it to a temporary file inside the library, then flush the copy to disk. A crash leaves only a temp file that the next open removes.
-2. **Duplicates:** if an item with the same hash exists (in the trash too, which the report says), the batch asks once what to do: skip duplicates, add them anyway, or add the existing item to the target folder.
-3. Record the target path in a journal, move the copy to `files/<shard>/<id>/<file name>`, then insert the item and clear the journal entry in one transaction. A row never points at a missing file, and a crash never leaves a file without a row ([`library-format.md`](library-format.md) §6). The stored file keeps the original name, cut to 100 characters before the extension; a pasted image gets a name like `Pasted 2026-10-28 10-42-05.png`.
-4. Probe and generate the thumbnail (512 px on the long edge, WebP) and the palette in the background. The item is visible in the grid at once, with the extension placeholder, until its thumbnail exists.
+2. **Duplicates:** if an item with the same hash exists (in the trash too, which the report says), the batch asks once what to do: skip duplicates, add them anyway, or cancel the import. Adding the existing item to the target folder joins the choices with folders (phase 4).
+3. Record the target path in a journal, move the copy to `files/<shard>/<id>/<file name>`, then insert the item and clear the journal entry in one transaction. A row never points at a missing file, and a crash never leaves a file without a row ([`library-format.md`](library-format.md) §6). The stored file keeps the original name, cut to 100 characters before the extension; a pasted image gets a name like `Pasted 2026-10-28 10-42-05.png` (UTC).
+4. Probe and generate the thumbnail (512 px on the long edge, lossy WebP, EXIF orientation applied) and the palette in the background. The item is visible in the grid at once, with the extension placeholder, until its thumbnail exists. Previews that a crash or a cancel left undone are made the next time the library opens.
 5. If decoding fails, the item stays, with the placeholder and a note in the import report.
 
 Imports run as tasks owned by the app state, so navigating away does not cancel them. Progress reaches the UI as events: a progress bar in the status area, a list of failures, a cancel button (already added items stay).
@@ -317,7 +317,7 @@ One window with client-side routing and one library per window (D-024). The layo
 | Menu | Items (phase) |
 |---|---|
 | **File** | New Library… (1), Open Library… `Ctrl+O` (1), Open Recent ▸ (1), Close Library `Ctrl+W` (1) · Add Files… (2) · Import Eagle Library… (8), Connect to Eagle… (9), Export to Eagle… (11) · Settings… `Ctrl+,` (1) · Exit `Alt+F4` (1) |
-| **Edit** | Undo `Ctrl+Z` (7), Select All `Ctrl+A` (3), Copy File `Ctrl+C` (7), Move to Trash `Delete` (7), Find `Ctrl+F` (6) |
+| **Edit** | Paste `Ctrl+V` (2) · Undo `Ctrl+Z` (7), Select All `Ctrl+A` (3), Copy File `Ctrl+C` (7), Move to Trash `Delete` (7), Find `Ctrl+F` (6) |
 | **View** | Theme ▸ System / Light / Dark (1), Full Screen `F11` (1) · Sidebar `Ctrl+B` (1), Details Panel `Ctrl+I` (1), Filter Bar (6) · Grid / List (3), Thumbnail Size ▸ `Ctrl+=` / `Ctrl+-` (3), Show Names (3), Sort By ▸ (3) · Include Subfolders (4) |
 | **Library** | New Folder `Ctrl+Shift+N` (4) · Library Settings… (7), Back Up Now (7), Check Library (7), Rebuild Thumbnails (7), Show in Explorer (7) |
 | **Help** | Keyboard Shortcuts `F1` (1), About egl-viewer (1), Open Log Folder (12) |
@@ -429,7 +429,7 @@ Link     https://…  ↗
 | Phase | Adds |
 |---|---|
 | 1 | The whole frame: menu bar, both bars with resizable widths, toolbar, status bar. The left bar with All, Uncategorized, Untagged and Trash; the grid area with the new-library empty state; the right bar with "Select an item" |
-| 2 | Add Files, files dropped on the window, import progress in the status bar, the Imports panel |
+| 2 | Add Files, Edit → Paste, files dropped on the window, counts in the left bar and the toolbar, import progress in the status bar, the duplicate question, the Imports panel |
 | 3 | The grid and the list, selection, sort, thumbnail size, the read-only right bar, the full-size preview |
 | 4 | The folder tree, Locked folders, Include subfolders, folder properties in the right bar |
 | 5 | The Tags filter, tag groups and recent tags, editing tags |
@@ -879,7 +879,7 @@ Done when: a library created in a chosen folder reopens from Recent after a rest
 
 - `media`: BLAKE3 while copying, probing (dimensions, EXIF), thumbnails (512 px WebP) for the v1 formats including PSD composites, palettes.
 - `add_files`: file dialog, drop of files and folders, paste from the clipboard; batches on top of the phase 1 `add_file` (temp copy, journal, one transaction per item); duplicates handled per batch; background thumbnails; `import-progress` events; cancel.
-- The Imports panel.
+- The Imports panel; counts in the left bar and the toolbar; asking before quitting or closing the library while files are being added.
 
 Done when: 1 000 mixed files (all v1 formats plus a few others) are added with thumbnails and palettes; killing the app during an import leaves a consistent library and adding the same files again reports them as duplicates; an undecodable file is added with a placeholder and a report line.
 
@@ -1034,6 +1034,9 @@ Native library (`library-native`, `media`), with temporary folders:
 | Same file added twice; the first copy in the trash | Reported as a duplicate by hash, with `inTrash` |
 | Each v1 format, including a PSD | Dimensions, a thumbnail and a palette |
 | Undecodable file | Added with a placeholder |
+| Import of a folder with hidden and system files | They are skipped; nested folders are walked |
+| Duplicates in one batch | Asked once; skip, add anyway or cancel holds for the rest |
+| Crash during an import, then open | No row without a file; previews not made yet are made; adding again reports duplicates |
 | Folder delete | Subfolders gone, items stay, items without folders are Uncategorized |
 | Tag rename into an existing tag | Merged, no duplicate rows |
 | Search syntax `a OR b`, `-a`, parentheses, Cyrillic | Correct FTS5 query and results |

@@ -1,7 +1,9 @@
-import { Images, Lock, PanelRight, Tag, Trash2, X } from "lucide-react";
+import { Images, Lock, PanelRight, Plus, Tag, Trash2, Upload, X } from "lucide-react";
 import type { ComponentType } from "react";
+import type { Availability } from "@/commands/registry";
 import { Button } from "@/components/ui/button";
-import type { LibraryInfo, UiLayout } from "@/ipc";
+import { plural } from "@/features/imports/importText";
+import type { LibraryCounts, LibraryInfo, UiLayout } from "@/ipc";
 import { ReadOnlyBanner } from "./ReadOnlyBanner";
 import { Splitter } from "./Splitter";
 
@@ -14,9 +16,22 @@ type Props = {
   /** A message for the user, for example a failed Open Recent. */
   status?: string;
   onDismissStatus?: () => void;
+  counts?: LibraryCounts | null;
+  /** `true`, or why files cannot be added (read-only library). */
+  canAdd?: Availability;
+  onAddFiles?: () => void;
+  /** The running or last import, for the status bar; a click opens the Imports panel. */
+  importStatus?: string;
+  onOpenImports?: () => void;
+  /** Files are being dragged over the window. */
+  dropping?: boolean;
 };
 
-type Row = { id: string; label: string; icon: ComponentType<{ className?: string }> };
+type Row = {
+  id: keyof LibraryCounts;
+  label: string;
+  icon: ComponentType<{ className?: string }>;
+};
 
 const SCOPES: readonly Row[] = [
   { id: "all", label: "All", icon: Images },
@@ -36,7 +51,14 @@ export function LibraryScreen({
   onOpenForEditing,
   status,
   onDismissStatus,
+  counts,
+  canAdd = true,
+  onAddFiles,
+  importStatus,
+  onOpenImports,
+  dropping = false,
 }: Props) {
+  const total = counts?.all ?? 0;
   const setLayout = (change: Partial<UiLayout>, persist: boolean) =>
     onLayoutChange({ ...layout, ...change }, persist);
 
@@ -85,6 +107,11 @@ export function LibraryScreen({
                     >
                       <Icon className="size-4 text-muted-foreground" />
                       {label}
+                      {counts && (
+                        <span className="ml-auto text-xs text-muted-foreground tabular-nums">
+                          {counts[id].toLocaleString("en")}
+                        </span>
+                      )}
                     </button>
                   </li>
                 ))}
@@ -104,7 +131,19 @@ export function LibraryScreen({
         <main aria-label="Library contents" className="flex min-w-0 flex-1 flex-col">
           <div className="flex h-11 shrink-0 items-center gap-2 border-b px-3">
             <h1 className="text-sm font-medium">All</h1>
-            <div className="ml-auto">
+            {counts && (
+              <span className="text-[13px] text-muted-foreground">{plural(total, "item")}</span>
+            )}
+            <div className="ml-auto flex items-center gap-1">
+              <Button
+                size="sm"
+                disabled={canAdd !== true}
+                title={canAdd === true ? "Add files" : canAdd}
+                onClick={onAddFiles}
+              >
+                <Plus aria-hidden />
+                Add files
+              </Button>
               <Button
                 variant="ghost"
                 size="icon-sm"
@@ -117,14 +156,42 @@ export function LibraryScreen({
               </Button>
             </div>
           </div>
-          <div className="grid flex-1 place-items-center bg-grid p-6">
-            <div className="grid max-w-sm justify-items-center gap-2 text-center">
-              <Images aria-hidden className="size-10 text-muted-foreground" />
-              <p className="text-sm font-medium">This library is empty</p>
-              <p className="text-[13px] text-muted-foreground">
-                Adding files comes in a later version.
-              </p>
-            </div>
+          <div className="relative grid flex-1 place-items-center bg-grid p-6">
+            {total === 0 ? (
+              <div className="grid max-w-sm justify-items-center gap-2 rounded-xl border-2 border-dashed border-border px-10 py-8 text-center">
+                <Upload aria-hidden className="size-10 text-muted-foreground" />
+                <p className="text-sm font-medium">This library is empty</p>
+                <p className="text-[13px] text-muted-foreground">
+                  Drop images here, paste with Ctrl+V, or add files.
+                </p>
+                <Button
+                  size="sm"
+                  variant="outline"
+                  disabled={canAdd !== true}
+                  title={canAdd === true ? undefined : canAdd}
+                  onClick={onAddFiles}
+                >
+                  Add files
+                </Button>
+              </div>
+            ) : (
+              <div className="grid max-w-sm justify-items-center gap-2 text-center">
+                <Images aria-hidden className="size-10 text-muted-foreground" />
+                <p className="text-sm font-medium">{plural(total, "item")}</p>
+                <p className="text-[13px] text-muted-foreground">
+                  The grid that shows them comes in a later version.
+                </p>
+              </div>
+            )}
+            {dropping && (
+              <div
+                role="status"
+                aria-label="Drop files"
+                className="absolute inset-3 grid place-items-center rounded-xl border-2 border-dashed border-primary bg-background/80 text-sm font-medium duration-150 animate-in fade-in-0"
+              >
+                {canAdd === true ? "Drop to add to All" : canAdd}
+              </div>
+            )}
           </div>
         </main>
 
@@ -150,7 +217,19 @@ export function LibraryScreen({
       </div>
       <footer className="flex h-6 shrink-0 items-center gap-3 border-t px-3 text-xs text-muted-foreground">
         <span className="truncate">{library.path}</span>
-        {library.readOnly && <span className="ml-auto">Read-only</span>}
+        <span className="ml-auto flex items-center gap-3">
+          {importStatus && (
+            <button
+              type="button"
+              className="rounded px-1 outline-none hover:bg-muted hover:text-foreground focus-visible:ring-3 focus-visible:ring-ring/50"
+              title="Show imports"
+              onClick={onOpenImports}
+            >
+              {importStatus}
+            </button>
+          )}
+          {library.readOnly && <span>Read-only</span>}
+        </span>
       </footer>
     </div>
   );

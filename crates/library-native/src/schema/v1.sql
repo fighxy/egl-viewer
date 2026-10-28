@@ -32,7 +32,7 @@ CREATE TABLE item (
   file_modified_at INTEGER,                         -- Eagle mtime
   content_hash     BLOB NOT NULL CHECK (length(content_hash) = 32),   -- BLAKE3 of the plaintext original
   palette          TEXT,                            -- JSON in the shape of Eagle palettes
-  thumb_version    INTEGER NOT NULL DEFAULT 0,
+  thumb_version    INTEGER NOT NULL DEFAULT 0,      -- 0 not made yet, -1 no preview possible, then 1, 2, …
   deleted_at       INTEGER,                         -- set while in the trash
   updated_at       INTEGER NOT NULL,
   eagle_id         TEXT UNIQUE,

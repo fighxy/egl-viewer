@@ -1,9 +1,10 @@
+import { emit } from "@tauri-apps/api/event";
 import { mockIPC } from "@tauri-apps/api/mocks";
-import { fireEvent, render, screen, waitFor } from "@testing-library/react";
+import { act, fireEvent, render, screen, waitFor } from "@testing-library/react";
 import userEvent from "@testing-library/user-event";
 import { describe, expect, it } from "vitest";
 import { DEFAULT_PREFERENCES } from "@/ipc";
-import { called, LIBRARY, mockBackend } from "@/test/backend";
+import { called, LIBRARY, listening, mockBackend, progress } from "@/test/backend";
 import { App } from "./App";
 
 async function openConnect() {
@@ -21,10 +22,8 @@ describe("App outside Tauri", () => {
     render(<App />);
     expect(screen.getByRole("heading", { name: "Welcome to egl-viewer" })).toBeInTheDocument();
     const menu = screen.getByRole("menubar", { name: "Menu" });
-    expect(menu).toHaveTextContent("File");
-    expect(menu).toHaveTextContent("View");
-    expect(menu).toHaveTextContent("Help");
-    expect(menu).not.toHaveTextContent("Edit");
+    const menus = screen.getAllByRole("menuitem").map((item) => item.textContent);
+    expect(menus).toEqual(["File", "Edit", "View", "Help"]);
     expect(menu).not.toHaveTextContent("Library");
     expect(screen.getByText("egl-viewer")).toBeInTheDocument();
   });
@@ -191,6 +190,102 @@ describe("App inside Tauri", () => {
     await screen.findByText("egl-viewer 9.9.9");
     fireEvent.keyDown(window, { key: "w", ctrlKey: true });
     expect(called(calls, "close_library")).toHaveLength(0);
+  });
+});
+
+describe("Adding files", () => {
+  const opened = () => ({ startup: () => ({ library: LIBRARY, notice: null }) });
+
+  it("adds the files picked in the dialog", async () => {
+    const calls = mockBackend({
+      ...opened(),
+      "plugin:dialog|open": () => ["C:\\in\\a.jpg", "C:\\in\\b.png"],
+    });
+    const user = userEvent.setup();
+    render(<App />);
+    await screen.findByRole("navigation", { name: "Library" });
+    await user.click(screen.getAllByRole("button", { name: /Add files/ })[0] as HTMLElement);
+    await waitFor(() =>
+      expect(called(calls, "add_files")[0]?.args).toEqual({
+        paths: ["C:\\in\\a.jpg", "C:\\in\\b.png"],
+      }),
+    );
+  });
+
+  it("shows progress, refreshes the counts and asks about duplicates once", async () => {
+    let total = 0;
+    const calls = mockBackend({
+      ...opened(),
+      library_counts: () => ({ all: total, uncategorized: total, untagged: total, trash: 0 }),
+    });
+    const user = userEvent.setup();
+    render(<App />);
+    await listening("import-progress");
+    total = 1;
+    await act(() => emit("import-progress", progress()));
+    expect(await screen.findByRole("button", { name: "Adding files: 1 of 3" })).toBeInTheDocument();
+    await waitFor(() => expect(screen.getByRole("main")).toHaveTextContent("1 item"));
+
+    await act(() =>
+      emit(
+        "import-progress",
+        progress({
+          state: "waitingForDecision",
+          duplicate: { path: "C:\\in\\b.png", existing: "01J", inTrash: false },
+        }),
+      ),
+    );
+    await user.click(await screen.findByRole("button", { name: "Skip duplicates" }));
+    expect(called(calls, "answer_import")[0]?.args).toEqual({ id: 1, answer: "skip" });
+  });
+
+  it("shows an overlay while files are dragged and adds the dropped paths", async () => {
+    const calls = mockBackend(opened());
+    render(<App />);
+    await listening("tauri://drag-enter", "tauri://drag-drop");
+    const position = { x: 10, y: 10 };
+    await act(() => emit("tauri://drag-enter", { paths: ["C:\\in\\c.gif"], position }));
+    expect(await screen.findByRole("status", { name: "Drop files" })).toHaveTextContent(
+      "Drop to add to All",
+    );
+    await act(() => emit("tauri://drag-drop", { paths: ["C:\\in\\c.gif"], position }));
+    await waitFor(() =>
+      expect(called(calls, "add_files")[0]?.args).toEqual({ paths: ["C:\\in\\c.gif"] }),
+    );
+    expect(screen.queryByRole("status", { name: "Drop files" })).not.toBeInTheDocument();
+  });
+
+  it("pastes with Ctrl+V and says when there is nothing to paste", async () => {
+    const calls = mockBackend({ ...opened(), paste_files: () => null });
+    render(<App />);
+    await screen.findByRole("navigation", { name: "Library" });
+    fireEvent.keyDown(window, { key: "v", ctrlKey: true });
+    expect(await screen.findByRole("alert")).toHaveTextContent("Nothing to paste");
+    expect(called(calls, "paste_files")).toHaveLength(1);
+  });
+
+  it("asks before quitting while files are being added", async () => {
+    const calls = mockBackend(opened());
+    const user = userEvent.setup();
+    render(<App />);
+    await listening("close-requested");
+    await act(() => emit("close-requested"));
+    await user.click(await screen.findByRole("button", { name: "Stop and quit" }));
+    await waitFor(() => expect(called(calls, "quit")).toHaveLength(1));
+  });
+
+  it("asks before closing the library while files are being added", async () => {
+    const calls = mockBackend(opened());
+    const user = userEvent.setup();
+    render(<App />);
+    await listening("import-progress");
+    await act(() => emit("import-progress", progress()));
+    fireEvent.keyDown(window, { key: "w", ctrlKey: true });
+    await user.click(await screen.findByRole("button", { name: "Keep adding" }));
+    expect(called(calls, "close_library")).toHaveLength(0);
+    fireEvent.keyDown(window, { key: "w", ctrlKey: true });
+    await user.click(await screen.findByRole("button", { name: "Stop adding" }));
+    await waitFor(() => expect(called(calls, "close_library")).toHaveLength(1));
   });
 });
 

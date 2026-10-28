@@ -4,11 +4,19 @@ mod commands;
 mod session;
 mod window;
 
+use std::sync::Arc;
+
 use app_store::{AppStore, SyncEnvironment};
-use tauri::{Manager, RunEvent, WindowEvent};
+use library_core::ImportProgress;
+use tauri::{Emitter, Manager, RunEvent, WindowEvent};
 use tracing_subscriber::EnvFilter;
 
 use crate::session::Session;
+
+/// Import progress for the UI (docs/architecture.md §8).
+const IMPORT_PROGRESS: &str = "import-progress";
+/// The window's close was held back because files are being added; the UI asks the user.
+const CLOSE_REQUESTED: &str = "close-requested";
 
 pub fn run() {
     init_logging();
@@ -16,11 +24,16 @@ pub fn run() {
         .plugin(tauri_plugin_dialog::init())
         .setup(|app| {
             let store = AppStore::new(app.path().app_local_data_dir()?);
+            let handle = app.handle().clone();
+            let emit = Arc::new(move |progress: &ImportProgress| {
+                let _ = handle.emit(IMPORT_PROGRESS, progress);
+            });
             let session = Session::new(
                 store,
                 app.path().home_dir()?,
                 env!("CARGO_PKG_VERSION"),
                 SyncEnvironment::from_system(),
+                emit,
             );
             if let Some(window) = app.get_webview_window("main") {
                 window::restore(&window, session.store());
@@ -30,8 +43,15 @@ pub fn run() {
             Ok(())
         })
         .on_window_event(|window, event| {
-            if let WindowEvent::CloseRequested { .. } = event {
-                window::remember(window, window.state::<Session>().store());
+            if let WindowEvent::CloseRequested { api, .. } = event {
+                let session = window.state::<Session>();
+                if session.has_running_imports() {
+                    // Files are being added: the UI asks, then calls `quit` (arch §9).
+                    api.prevent_close();
+                    let _ = window.emit(CLOSE_REQUESTED, ());
+                } else {
+                    window::remember(window, session.store());
+                }
             }
         })
         .invoke_handler(tauri::generate_handler![
@@ -47,6 +67,13 @@ pub fn run() {
             commands::get_preferences,
             commands::set_preferences,
             commands::startup,
+            commands::library_counts,
+            commands::add_files,
+            commands::paste_files,
+            commands::answer_import,
+            commands::cancel_import,
+            commands::imports,
+            commands::quit,
         ])
         .build(tauri::generate_context!())
         .expect("failed to start egl-viewer");

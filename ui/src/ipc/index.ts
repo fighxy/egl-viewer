@@ -3,6 +3,14 @@
 import { invoke } from "@tauri-apps/api/core";
 import type { AppInfo } from "./generated/AppInfo";
 import type { ConnectionSettings } from "./generated/ConnectionSettings";
+import type { DuplicateAnswer } from "./generated/DuplicateAnswer";
+import type { DuplicateNotice } from "./generated/DuplicateNotice";
+import type { ImportFailure } from "./generated/ImportFailure";
+import type { ImportKind } from "./generated/ImportKind";
+import type { ImportProgress } from "./generated/ImportProgress";
+import type { ImportState } from "./generated/ImportState";
+import type { ImportTicket } from "./generated/ImportTicket";
+import type { LibraryCounts } from "./generated/LibraryCounts";
 import type { LibraryHolder } from "./generated/LibraryHolder";
 import type { LibraryInfo } from "./generated/LibraryInfo";
 import type { LocationProblem } from "./generated/LocationProblem";
@@ -17,6 +25,14 @@ import type { UiLayout } from "./generated/UiLayout";
 export type {
   AppInfo,
   ConnectionSettings,
+  DuplicateAnswer,
+  DuplicateNotice,
+  ImportFailure,
+  ImportKind,
+  ImportProgress,
+  ImportState,
+  ImportTicket,
+  LibraryCounts,
   LibraryHolder,
   LibraryInfo,
   LocationProblem,
@@ -56,4 +72,18 @@ export const ipc = {
   setPreferences: (preferences: Preferences) =>
     invoke<Preferences>("set_preferences", { preferences }),
   startup: () => invoke<StartupResult>("startup"),
+  libraryCounts: () => invoke<LibraryCounts>("library_counts"),
+  addFiles: (paths: string[]) => invoke<ImportTicket>("add_files", { paths }),
+  pasteFiles: () => invoke<ImportTicket | null>("paste_files"),
+  answerImport: (id: number, answer: DuplicateAnswer) =>
+    invoke<void>("answer_import", { id, answer }),
+  cancelImport: (id: number) => invoke<void>("cancel_import", { id }),
+  imports: () => invoke<ImportProgress[]>("imports"),
+  quit: () => invoke<void>("quit"),
 };
+
+/** Events from Rust (docs/architecture.md §8). */
+export const EVENTS = {
+  importProgress: "import-progress",
+  closeRequested: "close-requested",
+} as const;

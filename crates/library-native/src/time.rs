@@ -17,6 +17,18 @@ pub(crate) fn utc_date(ms: i64) -> String {
     format!("{year:04}-{month:02}-{day:02}")
 }
 
+/// `YYYY-MM-DD HH-MM-SS` in UTC, safe in a file name.
+pub fn utc_file_stamp(ms: i64) -> String {
+    let seconds = ms.div_euclid(1000).rem_euclid(86_400);
+    format!(
+        "{} {:02}-{:02}-{:02}",
+        utc_date(ms),
+        seconds / 3600,
+        seconds % 3600 / 60,
+        seconds % 60
+    )
+}
+
 /// Howard Hinnant's `civil_from_days`: days since 1970-01-01 to a proleptic Gregorian date.
 fn civil_from_days(days: i64) -> (i64, u32, u32) {
     let z = days + 719_468;
@@ -42,5 +54,9 @@ mod tests {
         assert_eq!(utc_date(1_793_145_600_000 - 1), "2026-10-27");
         assert_eq!(utc_date(1_793_145_600_000), "2026-10-28");
         assert_eq!(utc_date(-1), "1969-12-31");
+        assert_eq!(
+            utc_file_stamp(1_793_145_600_000 + 37_325_000),
+            "2026-10-28 10-22-05"
+        );
     }
 }

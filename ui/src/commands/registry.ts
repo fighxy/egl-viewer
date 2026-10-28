@@ -27,6 +27,8 @@ export type CommandActions = {
   openLibrary: () => void;
   openRecent: (path: string) => void;
   closeLibrary: () => void;
+  addFiles: () => void;
+  paste: () => void;
   settings: () => void;
   exit: () => void;
   setTheme: (theme: Theme) => void;
@@ -66,6 +68,12 @@ export type Command = {
 
 const needsLibrary = (state: CommandState): Availability =>
   state.library ? true : "Open a library first.";
+
+/** Adding files and pasting: a library that can be written. */
+export const needsWritableLibrary = (state: CommandState): Availability => {
+  if (!state.library) return "Open a library first.";
+  return state.library.readOnly ? "This library is read-only." : true;
+};
 
 const THEMES: readonly { theme: Theme; label: string }[] = [
   { theme: "system", label: "System" },
@@ -116,10 +124,18 @@ export const COMMANDS: readonly Command[] = [
     run: (actions) => actions.closeLibrary(),
   },
   {
+    id: "file.addFiles",
+    label: "Add Files…",
+    menu: "file",
+    group: 1,
+    available: needsWritableLibrary,
+    run: (actions) => actions.addFiles(),
+  },
+  {
     id: "file.settings",
     label: "Settings…",
     menu: "file",
-    group: 1,
+    group: 2,
     shortcut: "Ctrl+,",
     run: (actions) => actions.settings(),
   },
@@ -127,10 +143,19 @@ export const COMMANDS: readonly Command[] = [
     id: "file.exit",
     label: "Exit",
     menu: "file",
-    group: 2,
+    group: 3,
     shortcut: "Alt+F4",
     systemShortcut: true,
     run: (actions) => actions.exit(),
+  },
+  {
+    id: "edit.paste",
+    label: "Paste",
+    menu: "edit",
+    group: 0,
+    shortcut: "Ctrl+V",
+    available: needsWritableLibrary,
+    run: (actions) => actions.paste(),
   },
   {
     id: "view.theme",

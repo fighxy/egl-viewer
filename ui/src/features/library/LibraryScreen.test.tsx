@@ -72,6 +72,60 @@ describe("LibraryScreen", () => {
     expect(handlers.onOpenForEditing).toHaveBeenCalledOnce();
   });
 
+  it("shows counts, and an empty library invites adding files", async () => {
+    const onAddFiles = vi.fn();
+    const { rerender } = render(
+      <LibraryScreen
+        library={LIBRARY}
+        layout={DEFAULT_PREFERENCES.layout}
+        onLayoutChange={vi.fn()}
+        onOpenForEditing={vi.fn()}
+        counts={{ all: 0, uncategorized: 0, untagged: 0, trash: 0 }}
+        onAddFiles={onAddFiles}
+      />,
+    );
+    expect(screen.getByRole("main")).toHaveTextContent("Drop images here, paste with Ctrl+V");
+    await userEvent
+      .setup()
+      .click(screen.getAllByRole("button", { name: /Add files/ })[0] as HTMLElement);
+    expect(onAddFiles).toHaveBeenCalledOnce();
+
+    rerender(
+      <LibraryScreen
+        library={LIBRARY}
+        layout={DEFAULT_PREFERENCES.layout}
+        onLayoutChange={vi.fn()}
+        onOpenForEditing={vi.fn()}
+        counts={{ all: 1234, uncategorized: 1200, untagged: 1234, trash: 5 }}
+        importStatus="Adding files: 3 of 10"
+        onOpenImports={vi.fn()}
+      />,
+    );
+    expect(screen.getByRole("button", { name: /^All/ })).toHaveTextContent("1,234");
+    expect(screen.getByRole("button", { name: /^Trash/ })).toHaveTextContent("5");
+    expect(screen.getByRole("main")).toHaveTextContent("1,234 items");
+    expect(screen.getByRole("button", { name: "Adding files: 3 of 10" })).toBeInTheDocument();
+  });
+
+  it("disables adding in a read-only library and says why", () => {
+    render(
+      <LibraryScreen
+        library={{ ...LIBRARY, readOnly: true, readOnlyReason: "readOnlyMedium" }}
+        layout={DEFAULT_PREFERENCES.layout}
+        onLayoutChange={vi.fn()}
+        onOpenForEditing={vi.fn()}
+        canAdd="This library is read-only."
+        dropping
+      />,
+    );
+    const add = screen.getAllByRole("button", { name: /Add files/ })[0];
+    expect(add).toBeDisabled();
+    expect(add).toHaveAttribute("title", "This library is read-only.");
+    expect(screen.getByRole("status", { name: "Drop files" })).toHaveTextContent(
+      "This library is read-only.",
+    );
+  });
+
   it("explains a library in a synced folder without offering editing", () => {
     renderScreen({ ...LIBRARY, readOnly: true, readOnlyReason: "syncFolder" });
     expect(screen.getByRole("status", { name: "Read-only library" })).toHaveTextContent(

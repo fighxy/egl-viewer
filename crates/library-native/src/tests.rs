@@ -386,7 +386,8 @@ fn an_added_file_has_a_row_and_a_file() {
     let library = open(&root);
     let source = write_file(dir.path(), "Poster Final.JPG", b"jpeg bytes");
 
-    let AddOutcome::Added { id } = library.add_file(&source, Duplicates::Report).unwrap() else {
+    let AddOutcome::Added { id, .. } = library.add_file(&source, Duplicates::Report).unwrap()
+    else {
         panic!("not added");
     };
     let conn = library.conn();
@@ -426,7 +427,7 @@ fn the_same_content_is_reported_as_a_duplicate_also_from_the_trash() {
     let first = write_file(dir.path(), "a.png", b"same");
     let second = write_file(dir.path(), "b.png", b"same");
 
-    let AddOutcome::Added { id } = library.add_file(&first, Duplicates::Report).unwrap() else {
+    let AddOutcome::Added { id, .. } = library.add_file(&first, Duplicates::Report).unwrap() else {
         panic!("not added");
     };
     assert_eq!(
@@ -538,7 +539,8 @@ fn recovery_keeps_files_whose_row_exists_and_ignores_paths_outside_files() {
     let root = new_library(dir.path(), "Journal");
     let library = open(&root);
     let source = write_file(dir.path(), "kept.png", b"kept");
-    let AddOutcome::Added { id } = library.add_file(&source, Duplicates::Report).unwrap() else {
+    let AddOutcome::Added { id, .. } = library.add_file(&source, Duplicates::Report).unwrap()
+    else {
         panic!("not added");
     };
     let path: String = library
