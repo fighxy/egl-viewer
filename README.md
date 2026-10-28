@@ -17,7 +17,7 @@ React UI. Windows first; no AI features.
 | Phase | State |
 |---|---|
 | 0. Project skeleton | Done (2026-10-28): workspace, core types, the `LibrarySource` trait, Welcome screen, Connect screen without networking, tests, CI |
-| 1. Native library: create and open | Next: format version 1, the lock, locations and adding a file are written down in `docs/library-format.md` (2026-10-28); code not started |
+| 1. Native library: create and open | Next: format version 1, the lock, locations and adding a file are written down in `docs/library-format.md`, the window, menu and screen layout in `docs/spec.md` §7 (2026-10-28); code not started |
 | 2–7. Adding files, grid, folders, tags, search and smart folders, editing and trash | Planned |
 | 8–11. Eagle: import, live connection, export | Planned |
 | 12. Hardening and the Windows release | Planned |

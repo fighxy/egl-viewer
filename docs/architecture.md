@@ -25,7 +25,7 @@ Live verification (2026-10-27): two test JPEGs were added to the open library th
 | Library sources | One `LibrarySource` trait in `library-core`. Implementations: the native library, an Eagle library folder on disk (read only), a running Eagle (API) (§15.2) |
 | Library format | A folder `Name.eglib` (D-016): SQLite (`library.db`) as the single source of truth, the original files copied in (D-014), regenerable thumbnails; documented in `library-format.md` and versioned (§15.3) |
 | Media | v1 previews for JPEG, PNG, GIF, WebP, AVIF, SVG, TIFF, BMP and PSD composites; other files are stored with a placeholder (D-015, §15.4) |
-| UI | React + TypeScript (strict) + Vite, Tailwind + shadcn/ui; TanStack Virtual for the grid, TanStack Query for data from Rust, TanStack Router for screens. The first screen is Welcome (D-017) |
+| UI | React + TypeScript (strict) + Vite, Tailwind + shadcn/ui; TanStack Virtual for the grid, TanStack Query for data from Rust, TanStack Router for screens. The first screen is Welcome (D-017). The native window frame with the app's own menu bar, built from one command registry (§8) |
 | Types across IPC | `ts-rs` generates TypeScript from the Rust structs that cross IPC |
 | Where filtering happens | The source loads the **scope** (a folder, Uncategorized, a smart folder): one SQL query in the native library, API pages for a running Eagle. Tags, type, rating, shape, sort and search are combined **in Rust** (§6) |
 | Grid data | Rust keeps the sorted result as a **view**; the UI virtualizes and asks for windows of cells (§6.5). Whole lists never cross IPC |
@@ -766,7 +766,26 @@ Every command that works on a library goes through the open `LibrarySource`; a s
 
 **UI structure.** Routes: `/welcome`, `/library` with the scope and the filters in typed search parameters, `/item/$id` as a side panel or a dialog, `/eagle/connect`, `/eagle/import`, `/eagle/export`. The tag, filter and sort sheets are components of the library screen, not routes. Server state lives in TanStack Query (keys per view window, per item, for the tree and the vocabulary); local UI state stays in components. The last `LibraryQuery` per library is saved by `app-store` so that the app reopens where it was.
 
-**Layout.** Desktop-first: a sidebar with the tree, the grid in the middle, the detail panel on the right. Keyboard navigation in the grid, `Delete` for trash (with confirmation), `Ctrl+F` for search, `Ctrl+Z` for undo. The layout is responsive, so a narrow phone layout can be added later without restructuring.
+**Layout.** Desktop-first, as in spec §7.3: the menu bar, the left bar, the toolbar and the filter bar over the grid, the right bar with the metadata, the status bar. The panels use shadcn `resizable`; their widths and open state are saved by `app-store`. The layout is responsive, so a narrow phone layout can be added later without restructuring. UI text is English only in v1 and goes through one place per screen (D-007).
+
+**Window and menu** (D-025). The window keeps the native frame in phase 1 (`decorations` on), so Snap Layouts, the system shadow and a dark title bar (`set_theme` on the window) come from Windows. The menu bar is a React component (shadcn `Menubar`), not the native Tauri menu, whose classic Win32 look does not match the app. A custom title bar can merge the title and menu rows in phase 12: `decorations: false`, `data-tauri-drag-region`, the window permissions in the capabilities, and `Alt` to reach the menu from the keyboard. HTML caption buttons lose the Snap Layouts of Windows 11 unless a plugin such as `tauri-plugin-decorum` restores them; that would be a new dependency.
+
+**Commands** (D-025). One registry in `ui/src/commands/`. Each command has an id, an English label, a shortcut, an `enabled(state)` check (open library, `capabilities`, selection) that also returns the reason when it is disabled, and a handler. The menu bar, context menus, keyboard shortcuts, the Keyboard Shortcuts dialog and a later command palette (`Ctrl+K`) are all built from it, so each shortcut is defined once. Commands of later phases are absent, not disabled.
+
+**Motion** (D-028). Only `opacity` and `transform`, 120–200 ms: `tw-animate-css` (already used by shadcn) for menus, popovers, dialogs and toasts; CSS transitions for panels; a fade-in when a thumbnail loads; the full-size preview grows out of its cell through the View Transitions API (`document.startViewTransition`, available in WebView2's Chromium). No animation on scroll, sort, filter, selection or hover, and no layout animation of grid cells. Everything is off under `prefers-reduced-motion`, which WebView2 takes from the Windows animation setting. No animation library (Motion) while CSS and View Transitions are enough.
+
+**Desktop behaviour** (D-029). The WebView must not feel like a browser:
+
+- The default WebView2 context menu is off; right-click opens the app's own context menus (shadcn `ContextMenu`), built from the command registry.
+- `F5`, `Ctrl+R`, `Ctrl+P`, the browser's `Ctrl+F`, back navigation and page zoom do nothing browser-like. `Ctrl` + mouse wheel and `Ctrl+=` / `Ctrl+-` change the thumbnail size instead.
+- Text in the chrome is not selectable (`user-select: none`); fields and notes are. Images are not draggable as web images; dragging files out of the window is native (phase 7).
+- Buttons show the arrow cursor, as desktop apps do. Focus rings appear only for keyboard focus (`:focus-visible`).
+- The window starts hidden and is shown after the first paint, so a dark theme never flashes white.
+- Window size, position and the maximized state are saved by `app-store` (D-022).
+
+Some of these are Tauri or WebView2 settings and some are handled in the UI; which is which is settled when phase 1 is built.
+
+**Components** are added when a screen needs them (D-006): `menubar`, `resizable`, `dialog`, `dropdown-menu`, `context-menu`, `tooltip`, `sonner`, `tabs`, `slider`, `scroll-area`, `sheet`, `toggle-group`, later `command`.
 
 ---
 
@@ -1003,7 +1022,7 @@ The same direct path to the API, but over Tailscale or WireGuard to the Eagle PC
 The full plan with done checks is in §9 of the spec. Key technical points per phase:
 
 - **Phase 0 (done).** Workspace with `library-core` (including the `LibrarySource` trait, §15.2), an `eagle-api` stub, `app-store` and the app crate; React app, `ts-rs` export, minimal capabilities and CSP, CI on Windows. The other crates of §3 appear with their phases.
-- **Phase 1.** `library-native`: schema v1 from `docs/library-format.md` and migrations, the OS file lock on `library.lock`, recovery after an unclean close, backups, `add_file` for one file; `app-store`: settings, recent libraries, the location check; library commands; the Welcome screen.
+- **Phase 1.** `library-native`: schema v1 from `docs/library-format.md` and migrations, the OS file lock on `library.lock`, recovery after an unclean close, backups, `add_file` for one file; `app-store`: settings, recent libraries, the location check; library commands; the Welcome screen; the frame of the library screen (menu bar from the command registry, both bars, status bar), the Settings, About and Keyboard Shortcuts dialogs, the desktop behaviour of §8.
 - **Phase 2.** `media` (hash, probe, thumbnails, palettes, §15.4); `add_files` with the temp-copy protocol (§7.4); import tasks and progress events.
 - **Phase 3.** `load_scope` in SQL; the pipeline, sorter and views (§6.4, §6.5); the `thumb` scheme (§11); the virtualized grid.
 - **Phase 4.** Folders: `save_folder`, `delete_folder`, locks (age at rest, one Argon2id identity per folder, plaintext name and tag, the Locked folders sidebar), cycle guard (§7.3), `sort_key` reordering, manual order.
