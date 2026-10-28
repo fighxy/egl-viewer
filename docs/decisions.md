@@ -149,3 +149,16 @@ With no library open the app shows **Welcome**: Create library, Open library and
 libraries as the primary actions; Import an Eagle library and Connect to a running Eagle as
 secondary actions under "Eagle". The phase-0 Connect screen is reached from there and has a Back
 button. On start the app reopens the last library unless it was closed explicitly (phase 1).
+
+## D-018 Locked folders encrypt their content with age (2026-10-28)
+
+A locked folder is not only hidden in the UI. Its originals (`files/`), thumbnails (`thumbs/`),
+and the sensitive item columns (name, annotation, url, exif, palette) are age ciphertext. Each
+locked folder has its own password, Argon2id salt, age identity, and recovery secret. Argon2id
+wraps the identity; the recovery secret wraps it a second time and is shown once at creation
+(a 128-bit key, the same bits as a word phrase, or an optional plaintext file outside the
+`.eglib` folder). The secret itself is not stored. Unlocking one folder does not unlock the
+others. Name and label stay plaintext and appear in the sidebar section "Locked folders".
+The whole database, settings, and the Eagle token are not encrypted. The token stays in
+Windows Credential Manager. Detail: `docs/age-locked-folders.md`. Phase 4. Revisit if a
+full-database cipher is ever required; it is out of scope here.

@@ -135,7 +135,7 @@ The exact layout and schema are in arch §15.3 and will be published as `docs/li
 - **Folder tags** are labels on the folder, not on its items. When a file is added into a folder, the tags of that folder and of its ancestors are added to the new item (as in Eagle, correction 12). Changing a folder's tags later does not change items already inside.
 - **Moving** a folder under itself or under one of its descendants is rejected before anything is written (cycle guard, arch §7.3).
 - **Deleting** a folder deletes it and all its subfolders and confirms first with the number of affected items. Items stay in the library: they lose those folder ids, and items left without any folder become Uncategorized. The dialog has an option "Also move items that are only in these folders to the trash".
-- **Locked folders** have a password (stored as an Argon2id hash). Content of a locked folder and of its descendants is hidden in every scope (All, search, tags, smart folders) until the user unlocks it for the current session. A lock is privacy in the UI, not encryption, and the dialog says so.
+- **Locked folders** hide their content in every scope until unlocked for the session, and they encrypt that content at rest (D-018, [`age-locked-folders.md`](age-locked-folders.md)). A library can hold several locked folders. Each one has its own password, its own Argon2id salt and parameters, its own age identity, and its own recovery secret. Unlocking one folder does not unlock the others. The password and the recovery secret are never stored; each wraps that folder's age identity. Originals in `files/`, thumbnails in `thumbs/`, and the sensitive item columns (name, annotation, url, exif, palette) are age ciphertext. Name and label (a caption and a colour) stay plaintext and are editable. At creation the user is shown a recovery secret once: a 128-bit key, the same bits as a word phrase, or an optional plaintext file outside the `.eglib` folder. Recovery unwraps the same identity so a new password can be set without re-encrypting files. The dialog says the lock encrypts the folder on disk.
 
 ### Tags
 
@@ -312,7 +312,7 @@ One window with client-side routing. Desktop-first layout: a sidebar, the grid, 
    - Secondary, under "Eagle": **Import an Eagle library** (section 8.2) and **Connect to a running Eagle** (section 8.3).
    - On start the app reopens the last library unless it was closed explicitly, or the user holds `Shift`.
 2. **Library.**
-   - Sidebar: All, Uncategorized, Untagged, Trash; the folder tree with counts (direct items with subfolders off, items including subfolders with it on); smart folders; tags; tag groups.
+   - Sidebar: All, Uncategorized, Untagged, Trash; the folder tree with counts (direct items with subfolders off, items including subfolders with it on); an expandable **Locked folders** section that lists each locked folder with its name and label; smart folders; tags; tag groups. Choosing a locked folder asks for that folder's password only.
    - Top bar: search, sort, filter chips, layout and size, Add files.
    - Grid: thumbnails, or the first palette colour and the extension until the thumbnail exists; star and type badges. Multi-select with `Ctrl` and `Shift`, a rubber band, `Ctrl+A`.
    - Keyboard: arrows, `Enter` opens the detail, `Space` the full-size preview, `Delete` to trash (with confirmation), `Ctrl+F` search, `Ctrl+Z` undo.
@@ -765,12 +765,12 @@ Done when: a 10 000-item library scrolls smoothly at every thumbnail size; every
 
 ### Phase 4 — Folders
 
-- The folder tree with counts, create, rename, description, colour, move (cycle guard), reorder siblings, delete (section 3), lock and unlock.
+- The folder tree with counts, create, rename, description, colour, move (cycle guard), reorder siblings, delete (section 3), lock and unlock. Locking encrypts the folder at rest (D-018): its own age identity, wrapped by Argon2id(password) and by a recovery secret shown once. Several locked folders stay independent. The sidebar lists them under **Locked folders** with a per-folder name and label.
 - Item membership: folder checklist in the detail, drag items onto a folder, add files into the open folder (with folder tags added to new items).
 - The "Include subfolders" switch.
 - Per-folder sort override; manual order with drag to reorder.
 
-Done when: folder A does not show items that exist only in a child of A, and does with subfolders on; an item added to a second folder stays in the first; a move under its own descendant is refused before writing; deleting a folder leaves its items in the library and Uncategorized shows those without folders; a locked folder's items are hidden in All, search and tags until unlocked.
+Done when: folder A does not show items that exist only in a child of A, and does with subfolders on; an item added to a second folder stays in the first; a move under its own descendant is refused before writing; deleting a folder leaves its items in the library and Uncategorized shows those without folders; a locked folder's items are hidden in All, search and tags until that folder is unlocked, and its files on disk are age ciphertext that the password of another locked folder does not decrypt.
 
 ### Phase 5 — Tags
 

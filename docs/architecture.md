@@ -108,7 +108,7 @@ The "Spec said" column quotes the wording of the **first** version of the spec (
 | Async | `tokio` | The runtime Tauri already uses |
 | Storage | `rusqlite` (`bundled`, FTS5 enabled), `ulid` | The native library (§15.3); on a blocking thread pool |
 | Media | `blake3`, `image`, `zune-jpeg`, `fast_image_resize`, `resvg`, `psd`, an EXIF reader, `rayon` | The media pipeline (§15.4) |
-| Passwords | `argon2` | Locked folders of the native library store an Argon2id hash |
+| Passwords | `argon2`, `age`, `secrecy` | Each locked folder wraps its own age identity with Argon2id; files and sensitive columns are age ciphertext (D-018) |
 | HTTP | `reqwest` (`rustls-tls`, default features off) | Only for Eagle; one client per endpoint |
 | Serialization | `serde`, `serde_json`, `ciborium` (Eagle offline cache, later), `base64` | |
 | Errors and logs | `thiserror`, `tracing`, `tracing-subscriber` | Logs never contain the token or raw folder bodies |
@@ -1099,7 +1099,7 @@ Decisions:
 - **Tags are case-sensitive strings**, as in Eagle (`"Poster"` and `"poster"` are different), stored once in `tag` and linked through `item_tag`.
 - **Folder order** among siblings is a `sort_key` string (fractional indexing): moving a folder changes one row.
 - **Trash** is `deleted_at`. Emptying the trash deletes the rows and the files. Unlike Eagle's API, the native library can delete items, folders and tags.
-- **Locked folders** store an Argon2id hash of the password. A lock hides content in the UI (the lock filter, §6.4) until the folder is unlocked for the session; it is not encryption, and the UI says so. A folder imported locked from Eagle has the locked flag without a hash until the user sets a password (§15.5).
+- **Locked folders** encrypt their content at rest (D-018, `docs/age-locked-folders.md`). Each locked folder has its own password, Argon2id salt, age X25519 identity, and recovery secret. Nothing is shared, and unlocking one folder loads only that identity into memory (`secrecy`) for the session. Argon2id wraps the identity; the password is not stored. A second wrap uses the recovery secret, which is shown once at creation (128-bit key, the same bits as a word phrase, or an optional file outside the library) and is not stored in the library. Originals under `files/`, thumbnails under `thumbs/`, and the item columns name, annotation, url, exif, and palette are age ciphertext. The age header, including nonces, stays inside the ciphertext. Plaintext on the folder row: id, name, label caption and colour, lock metadata, salt, KDF parameters, and the two wrapped identities. An item in two locked folders has its own item key, wrapped separately by each folder identity. A folder imported locked from Eagle has the locked flag and no identity until the user sets a password; its files stay plaintext until then (§15.5). This is not encryption of the whole database, of settings, or of the Eagle token.
 - **Smart folders** keep Eagle's rule language (`conditions` with `property`, `method`, `value`) as JSON, so they survive import and export unchanged. The evaluator in `library-core` grows from the v1 subset (§5 of the spec).
 - **Search** uses an FTS5 table over name, annotation, url, tag names and folder names. The Eagle-style query syntax (`OR`, parentheses, a leading `-`) is translated into FTS5 syntax.
 - **Changes**: every write appends a row to `change_log`. It drives `changes_since`, view updates and, later, the sync between devices.
@@ -1147,7 +1147,12 @@ CREATE TABLE folder (
   order_by       TEXT,
   sort_ascending INTEGER,
   locked         INTEGER NOT NULL DEFAULT 0,
-  lock_hash      TEXT,                              -- Argon2id; NULL while a locked folder has no password yet (Eagle import)
+  label          TEXT,                              -- user-editable caption; plaintext
+  kdf_salt       BLOB,                              -- Argon2id salt; NULL until a password is set
+  kdf_params     TEXT,                              -- Argon2id parameters
+  wrapped_identity BLOB,                            -- age identity wrapped by Argon2id(password)
+  recovery_wrap  BLOB,                              -- same identity wrapped by the recovery secret
+  lock_hash      TEXT,                              -- legacy note: no longer a bare hash; see wrapped_identity (D-018)
   cover_item_id  TEXT,
   created_at     INTEGER NOT NULL,
   updated_at     INTEGER NOT NULL,
