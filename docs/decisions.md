@@ -217,8 +217,11 @@ full-database cipher is ever required; it is out of scope here.
 - Cloud sync tools copy a live SQLite database mid-write, and WAL does not work over a network
   file system. On the development PC, Pictures is already inside OneDrive (D-012): Windows'
   OneDrive folder backup moves Desktop, Documents and Pictures.
-- New libraries default to `%USERPROFILE%\egl-viewer`; OneDrive does not move the profile root.
-  Renaming the product (D-001) changes this folder.
+- New libraries default to `%USERPROFILE%\egl-library`. OneDrive does not move the profile root,
+  and the app never puts a library into OneDrive on its own. The Create dialog can pick another
+  local folder every time. The default itself is a preference in `app-store` that the user can
+  change later, with the same location check; a control for it comes with the app preferences,
+  after phase 1. Changing it does not move existing libraries.
 - Detection is best effort, in `app-store` behind a trait: the `OneDrive`, `OneDriveConsumer` and
   `OneDriveCommercial` variables; the sync roots registered with the Windows Cloud Files API
   (`HKLM\SOFTWARE\Microsoft\Windows\CurrentVersion\Explorer\SyncRootManager\*\UserSyncRoots`:

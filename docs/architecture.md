@@ -732,7 +732,7 @@ Later, for phones: the WebView prepares the image (`createImageBitmap`, long edg
 | Command | Input | Output |
 |---|---|---|
 | `app_info`, `connection_defaults` | — | version; Eagle connection defaults (phase 0) |
-| `default_library_location` | — | the default parent folder for new libraries (`%USERPROFILE%\egl-viewer`, D-021) |
+| `default_library_location` | — | the parent folder the Create dialog starts in: the user's preference, else `%USERPROFILE%\egl-library` (D-021) |
 | `create_library` | parent folder, name | `LibraryInfo`; the library is open |
 | `open_library` | path | `LibraryInfo` with `readOnly` and `readOnlyReason`; on the library that is open read-only it retries the lock ("Open for editing") |
 | `close_library` | — | — |

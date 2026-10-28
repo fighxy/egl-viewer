@@ -102,7 +102,7 @@ The exact layout, the schema and the protocols are in [`library-format.md`](libr
 - A folder is a library when it contains `library.db` with egl-viewer's SQLite application id and a format version the app knows (D-019). The `.eglib` suffix is a convention for people and for the folder picker; the app does not depend on it.
 - **One writer.** While one app instance has a library open, a second instance opens it read-only, says where and since when it is open, and offers **Open for editing** once the other one has closed it. Killing the app releases the lock at once; the next open notices the unclean close and checks the database (D-020).
 - **Local disks only.** Cloud sync tools (OneDrive, Dropbox, Google Drive, iCloud, Syncthing and similar) copy a live database mid-write and corrupt it, and SQLite's WAL mode does not work over a network share. A new library cannot be created in a sync folder, on a network path, or inside another library or an Eagle `.library` folder. A library found in a sync folder opens read-only, with a message to move the folder out while the app is closed; one on a network path is refused. Detection is best effort (D-021).
-- **Default location** for new libraries: `%USERPROFILE%\egl-viewer`. Not Pictures or Documents: Windows' OneDrive folder backup often moves them into OneDrive.
+- **Default location** for new libraries: `%USERPROFILE%\egl-library`. Not Pictures or Documents: Windows' OneDrive folder backup often moves them into OneDrive, and the app never puts a library into OneDrive on its own. The Create dialog can pick another local folder, and the default itself is a preference the user can change later (D-021).
 - **Versioning.** A library made by a newer app version is refused with a clear message, and nothing is written to it. An older library is migrated forward after an automatic backup.
 - **Backups.** A copy of `library.db` in `backups/` when the library opens (at most once a day) and before every migration; the last 10 are kept.
 
@@ -310,7 +310,7 @@ Changing chips or sort on the same scope does not reload the scope.
 One window with client-side routing. Desktop-first layout: a sidebar, the grid, a detail panel. The layout is responsive, so a phone layout can be added later without restructuring. UI text is English (D-007).
 
 1. **Welcome** (no library open; the first screen after login, D-017). The login gate is section 13.
-   - Primary: **Create library** (name and location; makes `Name.eglib`; the location starts at `%USERPROFILE%\egl-viewer`, and sync folders and network paths are refused), **Open library** (folder picker; an Eagle library folder gets its own message), **Recent libraries** (name, path, last opened; a missing library is marked and can be removed from the list).
+   - Primary: **Create library** (name and location; makes `Name.eglib`; the location starts at the default folder, `%USERPROFILE%\egl-library` unless changed, and sync folders and network paths are refused), **Open library** (folder picker; an Eagle library folder gets its own message), **Recent libraries** (name, path, last opened; a missing library is marked and can be removed from the list).
    - Secondary, under "Eagle": **Import an Eagle library** (section 8.2) and **Connect to a running Eagle** (section 8.3).
    - On start the app reopens the last library unless it was closed explicitly, the user holds `Shift`, or another instance has it open (then Welcome says so).
 2. **Library.**
@@ -920,7 +920,8 @@ Settings (`app-store`), with temporary folders:
 | Two processes update recent libraries at the same time | Both entries kept |
 | More than 20 recent libraries | The oldest is dropped |
 | A recent library that is gone | Listed as missing, not removed |
-| Default location with `Pictures` inside OneDrive | `%USERPROFILE%\egl-viewer`, outside OneDrive |
+| Default location with `Pictures` inside OneDrive | `%USERPROFILE%\egl-library`, outside OneDrive |
+| Default location changed to a folder inside OneDrive or on a network path | Refused; the old default stays |
 
 Eagle import (`eagle-folder`), with `fixtures/eagle-library/`:
 

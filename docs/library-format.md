@@ -374,7 +374,7 @@ app emits `library-closed` and returns to Welcome with a message.
 
 ## 9. Creating a library
 
-- **Input:** a parent folder and a name. The parent defaults to `%USERPROFILE%\egl-viewer` (D-021).
+- **Input:** a parent folder and a name. The parent defaults to `%USERPROFILE%\egl-library`, a preference the user can change (D-021).
 - **Name:** not empty after trimming; at most 100 characters; none of `< > : " / \ | ? *` and no
   control characters; not `CON`, `PRN`, `AUX`, `NUL`, `COM1`–`COM9` or `LPT1`–`LPT9`, also not
   with an extension; no trailing dot or space. An invalid name is refused with the reason; it is
