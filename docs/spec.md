@@ -135,7 +135,7 @@ The exact layout and schema are in arch §15.3 and will be published as `docs/li
 - **Folder tags** are labels on the folder, not on its items. When a file is added into a folder, the tags of that folder and of its ancestors are added to the new item (as in Eagle, correction 12). Changing a folder's tags later does not change items already inside.
 - **Moving** a folder under itself or under one of its descendants is rejected before anything is written (cycle guard, arch §7.3).
 - **Deleting** a folder deletes it and all its subfolders and confirms first with the number of affected items. Items stay in the library: they lose those folder ids, and items left without any folder become Uncategorized. The dialog has an option "Also move items that are only in these folders to the trash".
-- **Locked folders** hide their content in every scope until unlocked for the session, and they encrypt that content at rest (D-018, [`age-locked-folders.md`](age-locked-folders.md)). A library can hold several locked folders. Each one has its own password, its own Argon2id salt and parameters, its own age identity, and its own recovery secret. Unlocking one folder does not unlock the others. The password and the recovery secret are never stored; each wraps that folder's age identity. Originals in `files/`, thumbnails in `thumbs/`, and the sensitive item columns (name, annotation, url, exif, palette) are age ciphertext. Name and label (a caption and a colour) stay plaintext and are editable. At creation the user is shown a recovery secret once: a 128-bit key, the same bits as a word phrase, or an optional plaintext file outside the `.eglib` folder. Recovery unwraps the same identity so a new password can be set without re-encrypting files. The dialog says the lock encrypts the folder on disk.
+- **Locked folders** hide their content in every scope until unlocked for the session, and they encrypt that content at rest (D-018, [`age-locked-folders.md`](age-locked-folders.md)). A library can hold several locked folders. Each one has its own password, its own Argon2id salt and parameters, its own age identity, and its own recovery secret. Unlocking one folder does not unlock the others. The password and the recovery secret are never stored; each wraps that folder's age identity. Originals in `files/`, thumbnails in `thumbs/`, and the sensitive item columns (name, annotation, url, exif, palette) are age ciphertext. Name and label (a caption and a colour) stay plaintext and are editable. At creation the user is shown a recovery secret once: a 128-bit key, the same bits as a word phrase, or an optional plaintext file outside the `.eglib` folder. Recovery unwraps the same identity so a new password can be set without re-encrypting files. The dialog says the lock encrypts the folder on disk. An optional YubiKey PIV slot 9d is a third wrap of the same identity: touch (and the slot PIN if required) unlocks that folder when the key is present; without the key the password and the recovery secret still work. Several keys can wrap one folder. See [`age-locked-folders.md`](age-locked-folders.md) §9.
 
 ### Tags
 
@@ -307,7 +307,7 @@ Changing chips or sort on the same scope does not reload the scope.
 
 One window with client-side routing. Desktop-first layout: a sidebar, the grid, a detail panel. The layout is responsive, so a phone layout can be added later without restructuring. UI text is English (D-007).
 
-1. **Welcome** (no library open; the first screen, D-017).
+1. **Welcome** (no library open; the first screen after login, D-017). The login gate is section 13.
    - Primary: **Create library** (name and location; makes `Name.eglib`), **Open library** (folder picker), **Recent libraries** (name, path, last opened; a missing library is marked and can be removed from the list).
    - Secondary, under "Eagle": **Import an Eagle library** (section 8.2) and **Connect to a running Eagle** (section 8.3).
    - On start the app reopens the last library unless it was closed explicitly, or the user holds `Shift`.
@@ -985,3 +985,26 @@ Eagle:
 ## 12. Suggested first milestone
 
 Phases 1 to 3: create and open a library, add files with thumbnails, browse them in a fast grid. That is already a usable image viewer and the base everything else builds on. Folders, tags, search and editing (phases 4–7) make it a full asset manager. Then Eagle compatibility, in the order users need it: import first (phase 8), then the live connection (phases 9–10), then export (phase 11). The release build closes the plan. macOS, Android and iOS are outside the current scope; AI features are not planned.
+
+## 13. Security
+
+Two different locks. Logging into the app does not unlock a locked folder. Unlocking a folder does not log the user into the app.
+
+### 13.1 What protects what
+
+- **App login** (this section) is the gate before Welcome. It does not wrap age identities and does not decrypt files.
+- **Locked folders** encrypt originals, thumbnails, and the sensitive item columns with age (D-018, [`age-locked-folders.md`](age-locked-folders.md)). Each folder has its own identity.
+- **Password** of a folder wraps that identity with Argon2id.
+- **Recovery secret**, shown once at lock creation, is a second wrap of the same identity.
+- **YubiKey PIV** is a third wrap of that same identity (`age-plugin-yubikey`, a retired PIV slot with an ECDSA P-256 key). In that flow the user either touches the key or enters the PIN. The PIN replaces the touch. It is not an extra step, and it is not app login.
+- **Eagle token** stays in Windows Credential Manager. The database as a whole, settings, and unlocked folders stay plaintext.
+
+### 13.2 App login
+
+The user picks exactly one login method. The app never combines them and never requires two.
+
+1. **Password.** A login password, separate from every folder password. The app stores an Argon2id hash of it, not the password. It is not a key for age.
+2. **PIN.** A numeric login PIN. The app stores an Argon2id hash of it. For the PIV folder unlock, this same choice replaces the touch: the user enters the PIN instead of touching the key, not after it.
+3. **WebAuthn.** The app uses the system WebAuthn API (`tauri-plugin-webauthn` or the equivalent Tauri bridge). Login is a YubiKey 5C touch: the credential is created at enrollment and asserted at login. The app stores only the credential id and public key. WebAuthn is only for app login. It does not use the PIV slot and does not unwrap folder identities. Choosing WebAuthn means login does not ask for a PIN.
+
+With no method enabled, the app opens straight to Welcome. Switching methods replaces the previous login and does not re-encrypt libraries. The app does not keep a recovery secret for login. A folder password and a folder recovery secret never satisfy the login gate.

@@ -160,5 +160,9 @@ wraps the identity; the recovery secret wraps it a second time and is shown once
 `.eglib` folder). The secret itself is not stored. Unlocking one folder does not unlock the
 others. Name and label stay plaintext and appear in the sidebar section "Locked folders".
 The whole database, settings, and the Eagle token are not encrypted. The token stays in
-Windows Credential Manager. Detail: `docs/age-locked-folders.md`. Phase 4. Revisit if a
+Windows Credential Manager. An optional YubiKey PIV slot 9d (via `age-plugin-yubikey`)
+is a third wrap of the same identity: the card holds a P-256 PIV key, not the X25519
+identity itself. Touch unlocks that folder when the key is present; the password and
+the recovery secret still work when it is absent. Several keys can wrap one folder.
+Detail: `docs/age-locked-folders.md`. Phase 4. Revisit if a
 full-database cipher is ever required; it is out of scope here.
