@@ -1,6 +1,7 @@
 //! Adding many files: walking dropped folders, one duplicate decision per batch, cancelling,
 //! progress, and previews on a small thread pool (docs/spec.md §4, docs/architecture.md §7.4).
 
+use std::collections::HashMap;
 use std::fs;
 use std::path::{Path, PathBuf};
 use std::sync::atomic::{AtomicBool, Ordering};
@@ -8,10 +9,11 @@ use std::sync::{Mutex, PoisonError};
 use std::time::{Duration, Instant};
 
 use library_core::{
-    DuplicateNotice, ImportFailure, ImportKind, ImportProgress, ImportState, SourceError,
+    DuplicateNotice, ImportFailure, ImportKind, ImportProgress, ImportState, ItemEdit, ItemId,
+    SourceError,
 };
 
-use crate::add::{AddOutcome, Duplicates};
+use crate::add::{AddOutcome, Duplicates, Placement};
 use crate::library::Library;
 use crate::time::now_ms;
 
@@ -22,14 +24,33 @@ pub enum DuplicatePolicy {
     Ask,
     Skip,
     AddAnyway,
+    /// Put the existing item into the folder the file was going into.
+    AddToFolder,
 }
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub enum DuplicateChoice {
     Skip,
     AddAnyway,
+    /// The existing item joins the target folder; offered when the file has one.
+    AddToFolder,
     /// Stop the import; files already added stay.
     Cancel,
+}
+
+/// Where the files of an import go.
+#[derive(Debug, Clone, Default, PartialEq, Eq)]
+pub struct ImportTarget {
+    /// The open folder, or `None`: Uncategorized. Dropped folders are made under it, with
+    /// their structure (docs/spec.md §4).
+    pub folder: Option<String>,
+}
+
+/// One file to add, and the folders it sits in below a dropped folder (the dropped folder's
+/// own name first); empty for a file added by itself.
+struct Source {
+    path: PathBuf,
+    folders: Vec<String>,
 }
 
 /// Receives progress and answers the duplicate question. `decide` may block until the user
@@ -59,6 +80,7 @@ pub fn import_files(
     library: &Library,
     id: u64,
     sources: &[PathBuf],
+    target: &ImportTarget,
     policy: DuplicatePolicy,
     observer: &dyn ImportObserver,
     cancel: &AtomicBool,
@@ -76,6 +98,7 @@ pub fn import_files(
     });
 
     let mut policy = policy;
+    let mut placements = Placements::new(library, target);
     let pool = match rayon::ThreadPoolBuilder::new()
         .num_threads(preview_threads())
         .build()
@@ -87,14 +110,19 @@ pub fn import_files(
         }
     };
     pool.in_place_scope(|scope| {
-        for file in &files {
+        for source in &files {
             if cancel.load(Ordering::Relaxed) {
                 break;
             }
+            let file = &source.path;
             tracker.update(false, |progress| {
                 progress.current = file.file_name().map(|name| name.to_string_lossy().into());
             });
-            match add_one(library, file, &mut policy, &tracker, cancel) {
+            let outcome = match placements.for_source(source) {
+                Ok(placement) => add_one(library, file, &placement, &mut policy, &tracker, cancel),
+                Err(error) => Outcome::Failed(reason(&error)),
+            };
+            match outcome {
                 Outcome::Added { id, stored } => {
                     let ext = extension(file);
                     let preview = media::has_preview(&ext);
@@ -201,18 +229,69 @@ enum Outcome {
     Cancelled,
 }
 
+/// Folders and tags per file: the target folder, or a mirrored folder below it, with the tags
+/// of that folder and its ancestors. Remembered for the rest of the batch.
+struct Placements<'a> {
+    library: &'a Library,
+    target: &'a ImportTarget,
+    folders: HashMap<Vec<String>, Option<String>>,
+    tags: HashMap<String, Vec<String>>,
+}
+
+impl<'a> Placements<'a> {
+    fn new(library: &'a Library, target: &'a ImportTarget) -> Self {
+        Self {
+            library,
+            target,
+            folders: HashMap::new(),
+            tags: HashMap::new(),
+        }
+    }
+
+    fn for_source(&mut self, source: &Source) -> Result<Placement, SourceError> {
+        let folder = match self.folders.get(&source.folders) {
+            Some(folder) => folder.clone(),
+            None => {
+                let folder = if source.folders.is_empty() {
+                    self.target.folder.clone()
+                } else {
+                    self.library
+                        .folder_path(self.target.folder.as_deref(), &source.folders)?
+                };
+                self.folders.insert(source.folders.clone(), folder.clone());
+                folder
+            }
+        };
+        let tags = match &folder {
+            Some(folder) => match self.tags.get(folder) {
+                Some(tags) => tags.clone(),
+                None => {
+                    let tags = self.library.inherited_folder_tags(folder)?;
+                    self.tags.insert(folder.clone(), tags.clone());
+                    tags
+                }
+            },
+            None => Vec::new(),
+        };
+        Ok(Placement { folder, tags })
+    }
+}
+
 fn add_one(
     library: &Library,
     file: &Path,
+    placement: &Placement,
     policy: &mut DuplicatePolicy,
     tracker: &Tracker<'_>,
     cancel: &AtomicBool,
 ) -> Outcome {
     let duplicates = match policy {
         DuplicatePolicy::AddAnyway => Duplicates::AddAnyway,
-        DuplicatePolicy::Ask | DuplicatePolicy::Skip => Duplicates::Report,
+        DuplicatePolicy::Ask | DuplicatePolicy::Skip | DuplicatePolicy::AddToFolder => {
+            Duplicates::Report
+        }
     };
-    let (existing, in_trash) = match library.add_file(file, duplicates) {
+    let (existing, in_trash) = match library.add_file_to(file, duplicates, placement) {
         Ok(AddOutcome::Added { id, file }) => return Outcome::Added { id, stored: file },
         Ok(AddOutcome::Duplicate { existing, in_trash }) => (existing, in_trash),
         Err(error) => return Outcome::Failed(reason(&error)),
@@ -221,9 +300,22 @@ fn add_one(
         path: file.to_string_lossy().into_owned(),
         existing,
         in_trash,
+        target_folder: placement.folder.clone(),
     };
-    if *policy != DuplicatePolicy::Ask {
-        return Outcome::Skipped(notice);
+    let into_folder = |notice: DuplicateNotice| match &notice.target_folder {
+        Some(folder) => {
+            let edit = ItemEdit::AddToFolders(vec![folder.clone()]);
+            match library.apply_batch_edit(&[ItemId(notice.existing.clone())], &edit) {
+                Ok(_) => Outcome::Skipped(notice),
+                Err(error) => Outcome::Failed(reason(&error)),
+            }
+        }
+        None => Outcome::Skipped(notice),
+    };
+    match policy {
+        DuplicatePolicy::Ask => {}
+        DuplicatePolicy::AddToFolder => return into_folder(notice),
+        DuplicatePolicy::Skip | DuplicatePolicy::AddAnyway => return Outcome::Skipped(notice),
     }
     tracker.update(true, |progress| {
         progress.state = ImportState::WaitingForDecision;
@@ -239,9 +331,13 @@ fn add_one(
             *policy = DuplicatePolicy::Skip;
             Outcome::Skipped(notice)
         }
+        DuplicateChoice::AddToFolder => {
+            *policy = DuplicatePolicy::AddToFolder;
+            into_folder(notice)
+        }
         DuplicateChoice::AddAnyway => {
             *policy = DuplicatePolicy::AddAnyway;
-            match library.add_file(file, Duplicates::AddAnyway) {
+            match library.add_file_to(file, Duplicates::AddAnyway, placement) {
                 Ok(AddOutcome::Added { id, file }) => Outcome::Added { id, stored: file },
                 Ok(AddOutcome::Duplicate { .. }) => Outcome::Skipped(notice),
                 Err(error) => Outcome::Failed(reason(&error)),
@@ -291,7 +387,7 @@ fn collect(
     root: &Path,
     sources: &[PathBuf],
     cancel: &AtomicBool,
-) -> (Vec<PathBuf>, Vec<ImportFailure>) {
+) -> (Vec<Source>, Vec<ImportFailure>) {
     let root = root.canonicalize().unwrap_or_else(|_| root.to_path_buf());
     let mut files = Vec::new();
     let mut refused = Vec::new();
@@ -317,17 +413,24 @@ fn collect(
             continue;
         }
         if metadata.is_dir() {
-            walk(source, &mut files, cancel);
+            let name = source
+                .file_name()
+                .map(|name| name.to_string_lossy().into_owned())
+                .unwrap_or_else(|| "Imported".into());
+            walk(source, &[name], &mut files, cancel);
         } else if !is_junk(source) {
-            files.push(source.clone());
+            files.push(Source {
+                path: source.clone(),
+                folders: Vec::new(),
+            });
         }
     }
     (files, refused)
 }
 
-/// Every file under `dir`, in name order; hidden and system files and linked folders are
-/// skipped.
-fn walk(dir: &Path, files: &mut Vec<PathBuf>, cancel: &AtomicBool) {
+/// Every file under `dir`, in name order, with the folders above it; hidden and system files
+/// and linked folders are skipped.
+fn walk(dir: &Path, folders: &[String], files: &mut Vec<Source>, cancel: &AtomicBool) {
     let Ok(entries) = fs::read_dir(dir) else {
         return;
     };
@@ -345,9 +448,14 @@ fn walk(dir: &Path, files: &mut Vec<PathBuf>, cancel: &AtomicBool) {
             continue;
         }
         if kind.is_dir() {
-            walk(&path, files, cancel);
+            let mut below = folders.to_vec();
+            below.push(entry.file_name().to_string_lossy().into_owned());
+            walk(&path, &below, files, cancel);
         } else if kind.is_file() || (kind.is_symlink() && path.is_file()) {
-            files.push(path);
+            files.push(Source {
+                path,
+                folders: folders.to_vec(),
+            });
         }
     }
 }

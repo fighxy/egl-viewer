@@ -75,6 +75,8 @@ pub struct BrowsePreferences {
     /// The sort of every screen without its own (a folder's sort override comes in phase 4).
     pub sort: SortKey,
     pub ascending: bool,
+    /// A folder also shows the items of its subfolders, and its count includes them.
+    pub include_subfolders: bool,
 }
 
 impl BrowsePreferences {
@@ -100,6 +102,7 @@ impl Default for BrowsePreferences {
             show_names: true,
             sort: SortKey::DateAdded,
             ascending: false,
+            include_subfolders: false,
         }
     }
 }
@@ -204,6 +207,7 @@ mod tests {
                 show_names: false,
                 sort: SortKey::Title,
                 ascending: true,
+                include_subfolders: true,
             },
         };
         store.save_preferences(&preferences).unwrap();

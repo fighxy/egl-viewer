@@ -29,6 +29,11 @@ export type CommandState = {
   leftOpen: boolean;
   rightOpen: boolean;
   browse: BrowsePreferences;
+  /** The sort of the screen: a folder's own sort or the global one. */
+  sort: SortKey;
+  ascending: boolean;
+  /** A folder is open: Manual sort and folder commands apply. */
+  folderOpen: boolean;
   /** Items in the open view. */
   items: number;
   /** Selected items in the open view. */
@@ -58,6 +63,8 @@ export type CommandActions = {
   toggleNames: () => void;
   setSort: (key: SortKey) => void;
   setAscending: (ascending: boolean) => void;
+  newFolder: () => void;
+  toggleSubfolders: () => void;
 };
 
 /** `true`, or the reason the command is disabled (shown as a tooltip). */
@@ -112,11 +119,15 @@ export const SORT_KEYS: readonly { key: SortKey; label: string }[] = [
   { key: "random", label: "Random" },
 ];
 
+/** The position in the open folder; offered while a folder is open. */
+export const MANUAL = { key: "manual", label: "Manual" } as const;
+
 /** Sort By: the keys, then the direction. */
 export function sortItems(state: CommandState): SubmenuItem[] {
-  const { sort, ascending } = state.browse;
+  const { sort, ascending } = state;
+  const keys = state.folderOpen ? [...SORT_KEYS, MANUAL] : SORT_KEYS;
   return [
-    ...SORT_KEYS.map(({ key, label }) => ({
+    ...keys.map(({ key, label }) => ({
       id: key,
       label,
       group: 0,
@@ -343,6 +354,15 @@ export const COMMANDS: readonly Command[] = [
     submenu: sortItems,
   },
   {
+    id: "library.newFolder",
+    label: "New Folder…",
+    menu: "library",
+    group: 0,
+    shortcut: "Ctrl+Shift+N",
+    available: needsWritableLibrary,
+    run: (actions) => actions.newFolder(),
+  },
+  {
     id: "view.preview",
     label: "Preview",
     menu: "view",
@@ -353,6 +373,15 @@ export const COMMANDS: readonly Command[] = [
       return state.selected > 0 ? true : "Select an item first.";
     },
     run: (actions) => actions.preview(),
+  },
+  {
+    id: "view.includeSubfolders",
+    label: "Include Subfolders",
+    menu: "view",
+    group: 4,
+    checked: (state) => state.browse.includeSubfolders,
+    available: needsLibrary,
+    run: (actions) => actions.toggleSubfolders(),
   },
   {
     id: "help.shortcuts",
@@ -381,6 +410,8 @@ export const WIDGET_KEYS: readonly { area: string; keys: string; label: string }
   { area: "Grid", keys: "Home / End", label: "First / last item" },
   { area: "Grid", keys: "Enter", label: "Go to the details panel" },
   { area: "Grid", keys: "Ctrl+Wheel", label: "Thumbnail size" },
+  { area: "Folders", keys: "Arrow keys / Enter", label: "Move through folders / open one" },
+  { area: "Folders", keys: "F2 / Delete", label: "Rename / delete the folder" },
   { area: "Preview", keys: "← / →", label: "Previous / next item" },
   { area: "Preview", keys: "+ / − / 0", label: "Zoom in / out / fit" },
   { area: "Preview", keys: "Esc", label: "Close" },

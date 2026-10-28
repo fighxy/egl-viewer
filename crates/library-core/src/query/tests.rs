@@ -406,6 +406,48 @@ fn sort_keys_order_like_the_collator() {
 }
 
 #[test]
+fn manual_order_follows_positions_and_puts_unplaced_items_last() {
+    let items = [
+        ItemLite {
+            position: Some(2.0),
+            added_at: Some(1),
+            ..item("second")
+        },
+        ItemLite {
+            position: None,
+            added_at: Some(0),
+            ..item("from-a-subfolder")
+        },
+        ItemLite {
+            position: Some(0.5),
+            added_at: Some(9),
+            ..item("first")
+        },
+    ];
+    assert_eq!(
+        sorted(&items, SortKey::Manual, true),
+        ["first", "second", "from-a-subfolder"]
+    );
+}
+
+#[test]
+fn the_cycle_guard_refuses_a_move_under_itself() {
+    let tree = [folder(
+        "a",
+        vec![folder("b", vec![folder("c", vec![])]), folder("d", vec![])],
+    )];
+    let index = FolderIndex::new(&tree);
+    assert!(!index.can_move("a", Some("a")));
+    assert!(!index.can_move("a", Some("c")), "c is a grandchild of a");
+    assert!(!index.can_move("b", Some("c")));
+    assert!(index.can_move("c", Some("d")));
+    assert!(index.can_move("c", None), "to the root");
+    assert!(index.can_move("d", Some("b")));
+    assert_eq!(index.parent("c"), Some("b"));
+    assert_eq!(index.parent("a"), None);
+}
+
+#[test]
 fn ties_fall_back_to_date_added_then_id() {
     let items = [
         ItemLite {
@@ -458,6 +500,8 @@ fn random_order_is_stable_for_one_query_and_changes_with_it() {
 struct FakeSource {
     items: RefCell<Vec<ItemLite>>,
     loads: Cell<usize>,
+    /// A folder whose scope answers `NotFound`.
+    missing: RefCell<Option<String>>,
 }
 
 impl FakeSource {
@@ -472,6 +516,7 @@ impl FakeSource {
                     .collect(),
             ),
             loads: Cell::new(0),
+            missing: RefCell::new(None),
         }
     }
 }
@@ -479,10 +524,15 @@ impl FakeSource {
 impl ViewSource for FakeSource {
     fn load_scope(
         &self,
-        _scope: &Scope,
+        scope: &Scope,
         _hints: &ScopeHints,
         progress: Progress<'_>,
     ) -> Result<Vec<ItemLite>, SourceError> {
+        if let Scope::Folder { id, .. } = scope
+            && self.missing.borrow().as_deref() == Some(id.as_str())
+        {
+            return Err(SourceError::NotFound);
+        }
         self.loads.set(self.loads.get() + 1);
         let items = self.items.borrow().clone();
         progress(items.len(), items.len());
@@ -611,6 +661,29 @@ fn a_refresh_recomputes_views_under_the_same_ids() {
     assert_eq!(views.refresh(&source).unwrap(), [(id, 4)]);
     let view = views.get(id).unwrap();
     assert_eq!(view.range(0, 1)[0].id, ItemId::from("new"));
+}
+
+#[test]
+fn a_view_of_a_folder_that_is_gone_becomes_empty_on_refresh() {
+    let source = FakeSource::new(3);
+    let mut views = Views::default();
+    let all = open(&mut views, &source, LibraryQuery::default()).0;
+    let folder = open(
+        &mut views,
+        &source,
+        LibraryQuery {
+            scope: Scope::Folder {
+                id: "gone".into(),
+                include_descendants: false,
+            },
+            ..LibraryQuery::default()
+        },
+    )
+    .0;
+    *source.missing.borrow_mut() = Some("gone".into());
+    let totals = views.refresh(&source).unwrap();
+    assert!(totals.contains(&(folder, 0)));
+    assert!(totals.contains(&(all, 3)));
 }
 
 #[test]

@@ -5,6 +5,8 @@ use std::sync::Arc;
 use serde::{Deserialize, Serialize};
 use ts_rs::TS;
 
+use crate::query::SortKey;
+
 /// Opaque item id: an Eagle id for the Eagle sources, a ULID for the native library.
 /// A newtype, so serde writes it as a plain string.
 #[derive(
@@ -96,7 +98,8 @@ pub struct Folder {
     pub is_locked: bool,
     pub is_unlocked: bool,
     pub cover_item_id: Option<String>,
-    pub order_by: Option<String>,
+    /// The folder's own sort (docs/spec.md §5); `None` follows the global sort.
+    pub order_by: Option<SortKey>,
     pub sort_ascending: Option<bool>,
 }
 
@@ -137,6 +140,9 @@ pub struct ItemLite {
     /// Changes when the thumbnail changes; part of its URL (native: `item.thumb_version`; Eagle:
     /// `modificationTime`).
     pub thumb_version: i64,
+    /// The position in the open folder, for the Manual sort (native: `item_folder.position`;
+    /// Eagle: `order[folderId]`); `None` outside a folder.
+    pub position: Option<f64>,
 }
 
 /// The full item for the detail panel.
@@ -290,6 +296,8 @@ pub struct DuplicateNotice {
     /// The id of the item that has the same content.
     pub existing: String,
     pub in_trash: bool,
+    /// The folder the file was going into; the existing item can join it instead.
+    pub target_folder: Option<String>,
 }
 
 /// The state of one import task, sent to the UI as it changes (`import-progress` events).
@@ -333,32 +341,6 @@ pub struct LibraryCounts {
     pub trash: u32,
 }
 
-/// A folder edit. `Update` always carries the full desired state: Eagle moves a nested folder
-/// to the root and clears its colour when fields are missing (corrections 3, 31).
-#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize, TS)]
-#[serde(
-    tag = "type",
-    rename_all = "camelCase",
-    rename_all_fields = "camelCase"
-)]
-#[ts(export)]
-pub enum FolderChange {
-    Create {
-        name: String,
-        parent: Option<String>,
-        description: String,
-        icon_color: Option<String>,
-    },
-    Update {
-        id: String,
-        name: String,
-        description: String,
-        tags: Vec<String>,
-        icon_color: Option<String>,
-        parent: Option<String>,
-    },
-}
-
 #[cfg(test)]
 mod tests {
     use super::*;
@@ -388,30 +370,6 @@ mod tests {
             serde_json::from_value(json!({ "color": [142, 83, 55], "ratio": 3.25 })).unwrap();
         assert_eq!(palette.color, [142, 83, 55]);
         assert!((palette.ratio - 3.25).abs() < f64::EPSILON);
-    }
-
-    #[test]
-    fn folder_change_update_is_tagged_and_camel_case() {
-        let change = FolderChange::Update {
-            id: "F1".into(),
-            name: "Posters".into(),
-            description: String::new(),
-            tags: vec![],
-            icon_color: Some("blue".into()),
-            parent: Some("F0".into()),
-        };
-        assert_eq!(
-            serde_json::to_value(&change).unwrap(),
-            json!({
-                "type": "update",
-                "id": "F1",
-                "name": "Posters",
-                "description": "",
-                "tags": [],
-                "iconColor": "blue",
-                "parent": "F0"
-            })
-        );
     }
 
     #[test]

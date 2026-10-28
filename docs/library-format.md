@@ -274,6 +274,10 @@ CREATE VIRTUAL TABLE item_fts USING fts5(
 -- rowid = item.seq. Written by the app together with the item; encrypted items have no row.
 ```
 
+`item_folder.position` is NULL for an item that joined the folder after its last reorder: the
+Manual sort puts it after the positioned items, by date added. A reorder numbers the whole folder
+1..n (D-043).
+
 Why `item.seq`: a table without an explicit `INTEGER PRIMARY KEY` gets implicit rowids, and
 `VACUUM` (also `VACUUM INTO`, used for backups) may renumber them. `item_fts` would then point at
 the wrong items after a restore. Other tables refer to items by `id`.
@@ -337,8 +341,12 @@ Read-only reasons reach the UI in `LibraryInfo.readOnlyReason`: `otherInstance`,
   `import_files` adds batches on top of it (phase 2): dropped folders are walked, the first
   duplicate asks once for the batch, cancelling stops after the current file, and previews are made
   on a small thread pool. A preview is written to `thumbs/<shard>/<id>.webp` through a temp file
-  before `thumb_version` goes up; a file that cannot be decoded gets `thumb_version = -1`. Phase 4
-  adds "add the existing item to the target folder" and encryption for a locked target folder.
+  before `thumb_version` goes up; a file that cannot be decoded gets `thumb_version = -1`.
+- **Into a folder** (phase 4): step 6 also inserts the `item_folder` row (no position) and the
+  `item_tag` rows of the folder's tags and its ancestors' tags. Dropped folders become library
+  folders first (an existing folder of the same name under the same parent is reused). A
+  duplicate can instead put the existing item into the target folder. Encryption for a locked
+  target folder comes with phase 4b.
 
 ## 7. Opening and closing
 

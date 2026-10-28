@@ -13,4 +13,8 @@ thumbnailSize: number, showNames: boolean,
 /**
  * The sort of every screen without its own (a folder's sort override comes in phase 4).
  */
-sort: SortKey, ascending: boolean, };
+sort: SortKey, ascending: boolean, 
+/**
+ * A folder also shows the items of its subfolders, and its count includes them.
+ */
+includeSubfolders: boolean, };

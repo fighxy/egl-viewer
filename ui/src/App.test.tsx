@@ -21,10 +21,9 @@ describe("App outside Tauri", () => {
   it("starts on the Welcome screen with the menu bar", () => {
     render(<App />);
     expect(screen.getByRole("heading", { name: "Welcome to egl-viewer" })).toBeInTheDocument();
-    const menu = screen.getByRole("menubar", { name: "Menu" });
+    screen.getByRole("menubar", { name: "Menu" });
     const menus = screen.getAllByRole("menuitem").map((item) => item.textContent);
-    expect(menus).toEqual(["File", "Edit", "View", "Help"]);
-    expect(menu).not.toHaveTextContent("Library");
+    expect(menus).toEqual(["File", "Edit", "View", "Library", "Help"]);
     expect(screen.getByText("egl-viewer")).toBeInTheDocument();
   });
 
@@ -208,6 +207,7 @@ describe("Adding files", () => {
     await waitFor(() =>
       expect(called(calls, "add_files")[0]?.args).toEqual({
         paths: ["C:\\in\\a.jpg", "C:\\in\\b.png"],
+        folder: null,
       }),
     );
   });
@@ -233,7 +233,7 @@ describe("Adding files", () => {
         "import-progress",
         progress({
           state: "waitingForDecision",
-          duplicate: { path: "C:\\in\\b.png", existing: "01J", inTrash: false },
+          duplicate: { path: "C:\\in\\b.png", existing: "01J", inTrash: false, targetFolder: null },
         }),
       ),
     );
@@ -248,11 +248,14 @@ describe("Adding files", () => {
     const position = { x: 10, y: 10 };
     await act(() => emit("tauri://drag-enter", { paths: ["C:\\in\\c.gif"], position }));
     expect(await screen.findByRole("status", { name: "Drop files" })).toHaveTextContent(
-      "Drop to add to All",
+      "Drop to add to the library",
     );
     await act(() => emit("tauri://drag-drop", { paths: ["C:\\in\\c.gif"], position }));
     await waitFor(() =>
-      expect(called(calls, "add_files")[0]?.args).toEqual({ paths: ["C:\\in\\c.gif"] }),
+      expect(called(calls, "add_files")[0]?.args).toEqual({
+        paths: ["C:\\in\\c.gif"],
+        folder: null,
+      }),
     );
     expect(screen.queryByRole("status", { name: "Drop files" })).not.toBeInTheDocument();
   });

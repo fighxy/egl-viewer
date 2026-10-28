@@ -55,6 +55,21 @@ describe("desktop behaviour", () => {
     input.remove();
   });
 
+  it("lets the page see the context menu event before it is blocked", () => {
+    uninstall = installDesktopBehaviour();
+    // An app menu (Radix) ignores an event that is already prevented when it arrives.
+    let seenPrevented: boolean | null = null;
+    const onPage = (event: Event) => {
+      seenPrevented = event.defaultPrevented;
+    };
+    document.body.addEventListener("contextmenu", onPage);
+    const event = new MouseEvent("contextmenu", { cancelable: true, bubbles: true });
+    document.body.dispatchEvent(event);
+    document.body.removeEventListener("contextmenu", onPage);
+    expect(seenPrevented).toBe(false);
+    expect(event.defaultPrevented).toBe(true);
+  });
+
   it("stops after uninstalling", () => {
     installDesktopBehaviour()();
     expect(press({ key: "F5" })).toBe(false);

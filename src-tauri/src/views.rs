@@ -12,7 +12,7 @@ use library_core::{
     FolderIndex, ImportProgress, ItemId, ItemLite, LibrarySource, Progress, Scope, ScopeHints,
     SourceError, Thumbnail, ViewSource, Views,
 };
-use serde::Serialize;
+use serde::{Deserialize, Serialize};
 use ts_rs::TS;
 
 /// `open_view` answers with the view's id and how many items it has.
@@ -39,6 +39,33 @@ pub struct ScopeProgress {
 #[ts(export)]
 pub struct ViewsInvalidated {
     pub views: Vec<ViewOpened>,
+}
+
+/// The items an edit applies to: ids, or every item of a view except some (Select All).
+#[derive(Debug, Clone, PartialEq, Eq, Deserialize, TS)]
+#[serde(rename_all = "camelCase")]
+#[ts(export)]
+pub struct ItemsTarget {
+    /// The view the selection belongs to; needed with `all`.
+    pub view_id: Option<u64>,
+    /// `true`: every item of the view except `ids`.
+    pub all: bool,
+    pub ids: Vec<ItemId>,
+}
+
+/// The event for views recomputed under their ids, unless there were none.
+pub(crate) fn invalidated(totals: Vec<(u64, usize)>) -> Option<Event> {
+    (!totals.is_empty()).then(|| {
+        Event::ViewsInvalidated(ViewsInvalidated {
+            views: totals
+                .into_iter()
+                .map(|(view_id, total)| ViewOpened {
+                    view_id,
+                    total: count(total),
+                })
+                .collect(),
+        })
+    })
 }
 
 /// What the session tells the UI (events in the app).
@@ -127,19 +154,9 @@ impl Refresher {
             *last = (Instant::now(), writes);
         }
         let totals = crate::session::lock(&self.views).refresh(&Blocking(source));
-        match totals {
-            Ok(totals) if !totals.is_empty() => {
-                (self.emit)(Event::ViewsInvalidated(ViewsInvalidated {
-                    views: totals
-                        .into_iter()
-                        .map(|(view_id, total)| ViewOpened {
-                            view_id,
-                            total: count(total),
-                        })
-                        .collect(),
-                }));
-            }
-            Ok(_) => {}
+        match totals.map(invalidated) {
+            Ok(Some(event)) => (self.emit)(event),
+            Ok(None) => {}
             Err(error) => tracing::warn!("cannot refresh the views: {error}"),
         }
     }

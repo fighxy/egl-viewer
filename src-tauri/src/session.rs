@@ -13,18 +13,21 @@ use app_store::{
     display_path,
 };
 use library_core::{
-    DuplicateNotice, ImportKind, ImportProgress, ImportState, ImportTicket, Item, ItemCell, ItemId,
-    LibraryCounts, LibraryInfo, LibraryQuery, LibrarySource, LocationProblem, Progress,
-    ReadOnlyReason, SourceError, Thumbnail, Views,
+    DuplicateNotice, Folder, FolderChange, ImportKind, ImportProgress, ImportState, ImportTicket,
+    Item, ItemCell, ItemEdit, ItemId, LibraryCounts, LibraryInfo, LibraryQuery, LibrarySource,
+    LocationProblem, Progress, ReadOnlyReason, SourceError, Thumbnail, Views,
 };
 use library_native::{
-    DuplicateChoice, DuplicatePolicy, ImportObserver, Library, NativeSource, OpenOptions,
-    create_library, import_files, make_pending_previews, utc_file_stamp,
+    DuplicateChoice, DuplicatePolicy, ImportObserver, ImportTarget, Library, NativeSource,
+    OpenOptions, create_library, import_files, make_pending_previews, utc_file_stamp,
 };
 use serde::Serialize;
 use ts_rs::TS;
 
-use crate::views::{Blocking, Emit, Event, ImageRequest, Refresher, ViewOpened, count, ready};
+use crate::views::{
+    Blocking, Emit, Event, ImageRequest, ItemsTarget, Refresher, ViewOpened, count, invalidated,
+    ready,
+};
 
 /// What the app does on start: the reopened library, or why it shows Welcome instead.
 #[derive(Debug, Clone, PartialEq, Serialize, TS)]
@@ -352,9 +355,15 @@ impl Session {
         }
     }
 
-    /// Adds files and folders to the open library in a background task (docs/spec.md §4).
-    pub fn add_files(&self, paths: Vec<String>) -> Result<ImportTicket, SourceError> {
+    /// Adds files and folders to the open library in a background task, into `folder` when
+    /// one is open (docs/spec.md §4).
+    pub fn add_files(
+        &self,
+        paths: Vec<String>,
+        folder: Option<String>,
+    ) -> Result<ImportTicket, SourceError> {
         let library = self.writable_library()?;
+        let target = self.import_target(&library, folder)?;
         let sources: Vec<PathBuf> = paths.into_iter().map(PathBuf::from).collect();
         let id = self.start(
             library,
@@ -364,6 +373,7 @@ impl Session {
                     library,
                     id,
                     &sources,
+                    &target,
                     DuplicatePolicy::Ask,
                     observer,
                     cancel,
@@ -373,16 +383,109 @@ impl Session {
         Ok(ImportTicket { id })
     }
 
+    fn import_target(
+        &self,
+        library: &Library,
+        folder: Option<String>,
+    ) -> Result<ImportTarget, SourceError> {
+        if let Some(folder) = &folder
+            && !library.has_folder(folder)?
+        {
+            return Err(SourceError::Invalid("The folder no longer exists.".into()));
+        }
+        Ok(ImportTarget { folder })
+    }
+
+    /// The folder tree with counts.
+    pub fn folder_tree(&self) -> Result<Vec<Folder>, SourceError> {
+        ready(self.source()?.folder_tree())
+    }
+
+    /// Creates, edits or moves a folder; returns the new tree.
+    pub fn save_folder(&self, change: FolderChange) -> Result<Vec<Folder>, SourceError> {
+        let tree = ready(self.source()?.save_folder(change))?;
+        self.refresh_views();
+        Ok(tree)
+    }
+
+    /// Deletes a folder and its subfolders; returns the new tree.
+    pub fn delete_folder(&self, id: &str, trash_items: bool) -> Result<Vec<Folder>, SourceError> {
+        let tree = ready(self.source()?.delete_folder(id, trash_items))?;
+        self.refresh_views();
+        Ok(tree)
+    }
+
+    pub fn apply_item_edit(&self, id: &str, edit: ItemEdit) -> Result<Item, SourceError> {
+        let item = ready(self.source()?.apply_item_edit(&ItemId(id.to_owned()), edit))?;
+        self.refresh_views();
+        Ok(item)
+    }
+
+    /// One edit for a selection; returns how many items changed.
+    pub fn apply_batch_edit(
+        &self,
+        target: ItemsTarget,
+        edit: ItemEdit,
+    ) -> Result<u32, SourceError> {
+        let ids = if target.all {
+            let view_id = target
+                .view_id
+                .ok_or_else(|| SourceError::Invalid("Select All needs its view.".into()))?;
+            let mut views = lock(&self.views);
+            let view = views.get(view_id).ok_or(SourceError::NotFound)?;
+            let except: std::collections::HashSet<&ItemId> = target.ids.iter().collect();
+            view.ids(0, view.total())
+                .into_iter()
+                .filter(|id| !except.contains(id))
+                .collect()
+        } else {
+            target.ids
+        };
+        let edited = ready(self.source()?.apply_batch_edit(&ids, edit))?;
+        self.refresh_views();
+        Ok(edited)
+    }
+
+    /// Manual order inside `folder`.
+    pub fn reorder_items(
+        &self,
+        folder: &str,
+        ids: Vec<ItemId>,
+        before: Option<ItemId>,
+    ) -> Result<(), SourceError> {
+        ready(self.source()?.reorder_items(folder, &ids, before.as_ref()))?;
+        self.refresh_views();
+        Ok(())
+    }
+
+    /// Recomputes the open views after a write and tells the UI.
+    fn refresh_views(&self) {
+        let Ok(source) = self.source() else {
+            return;
+        };
+        let totals = lock(&self.views).refresh(&Blocking(&source));
+        match totals.map(invalidated) {
+            Ok(Some(event)) => (self.emit)(event),
+            Ok(None) => {}
+            Err(error) => tracing::warn!("cannot refresh the views: {error}"),
+        }
+    }
+
     /// Adds what is on the clipboard: copied files, or a pasted image as
     /// `Pasted YYYY-MM-DD HH-MM-SS.png` (UTC). `None` when there is nothing to add.
-    pub fn paste(&self, clipboard: &dyn Clipboard) -> Result<Option<ImportTicket>, SourceError> {
-        self.writable_library()?;
+    pub fn paste(
+        &self,
+        clipboard: &dyn Clipboard,
+        folder: Option<String>,
+    ) -> Result<Option<ImportTicket>, SourceError> {
+        let library = self.writable_library()?;
+        let target = self.import_target(&library, folder.clone())?;
         if let Some(files) = clipboard.files().filter(|files| !files.is_empty()) {
             let paths = files
                 .iter()
                 .map(|file| file.to_string_lossy().into_owned())
                 .collect();
-            return self.add_files(paths).map(Some);
+            return self.add_files(paths, folder).map(Some);
         }
         let Some((width, height, rgba)) = clipboard.image() else {
             return Ok(None);
@@ -400,8 +503,15 @@ impl Session {
             library,
             ImportKind::Files,
             move |library, id, observer, cancel| {
-                let done =
-                    import_files(library, id, &[file], DuplicatePolicy::Ask, observer, cancel);
+                let done = import_files(
+                    library,
+                    id,
+                    &[file],
+                    &target,
+                    DuplicatePolicy::Ask,
+                    observer,
+                    cancel,
+                );
                 let _ = std::fs::remove_dir_all(&dir);
                 done
             },
@@ -830,13 +940,13 @@ mod tests {
             }),
         );
         assert!(matches!(
-            session.add_files(vec![]),
+            session.add_files(vec![], None),
             Err(SourceError::Invalid(_))
         ));
         session
             .create_library(&home.path().to_string_lossy(), "Imports")
             .unwrap();
-        let ticket = session.add_files(images(home.path(), 3)).unwrap();
+        let ticket = session.add_files(images(home.path(), 3), None).unwrap();
         let done = finished(&session, ticket.id);
         assert_eq!((done.added, done.previews_done), (3, 3));
         assert_eq!(session.counts().unwrap().all, 3);
@@ -856,10 +966,10 @@ mod tests {
             .create_library(&f.home.path().to_string_lossy(), "Dupes")
             .unwrap();
         let files = images(f.home.path(), 2);
-        let first = f.session.add_files(files.clone()).unwrap();
+        let first = f.session.add_files(files.clone(), None).unwrap();
         finished(&f.session, first.id);
 
-        let again = f.session.add_files(files.clone()).unwrap();
+        let again = f.session.add_files(files.clone(), None).unwrap();
         waiting(&f.session, again.id);
         assert!(f.session.has_running_imports());
         f.session
@@ -868,7 +978,7 @@ mod tests {
         let done = finished(&f.session, again.id);
         assert_eq!((done.added, done.duplicates), (0, 2));
 
-        let third = f.session.add_files(files).unwrap();
+        let third = f.session.add_files(files, None).unwrap();
         waiting(&f.session, third.id);
         f.session.cancel_import(third.id).unwrap();
         assert_eq!(
@@ -885,8 +995,11 @@ mod tests {
             .create_library(&f.home.path().to_string_lossy(), "Busy")
             .unwrap();
         let files = images(f.home.path(), 1);
-        finished(&f.session, f.session.add_files(files.clone()).unwrap().id);
-        let waiting_import = f.session.add_files(files).unwrap();
+        finished(
+            &f.session,
+            f.session.add_files(files.clone(), None).unwrap().id,
+        );
+        let waiting_import = f.session.add_files(files, None).unwrap();
         waiting(&f.session, waiting_import.id);
         f.session.close_library().unwrap();
         assert!(f.session.current().is_none());
@@ -901,19 +1014,19 @@ mod tests {
             image: None,
         };
         assert!(matches!(
-            f.session.paste(&empty),
+            f.session.paste(&empty, None),
             Err(SourceError::Invalid(_))
         ));
         f.session
             .create_library(&f.home.path().to_string_lossy(), "Paste")
             .unwrap();
-        assert_eq!(f.session.paste(&empty).unwrap(), None);
+        assert_eq!(f.session.paste(&empty, None).unwrap(), None);
 
         let image = FakeClipboard {
             files: None,
             image: Some((4, 2, vec![200; 4 * 2 * 4])),
         };
-        let ticket = f.session.paste(&image).unwrap().unwrap();
+        let ticket = f.session.paste(&image, None).unwrap().unwrap();
         assert_eq!(finished(&f.session, ticket.id).added, 1);
 
         let copied = FakeClipboard {
@@ -925,7 +1038,7 @@ mod tests {
             ),
             image: None,
         };
-        let ticket = f.session.paste(&copied).unwrap().unwrap();
+        let ticket = f.session.paste(&copied, None).unwrap().unwrap();
         assert_eq!(finished(&f.session, ticket.id).added, 2);
         assert_eq!(f.session.counts().unwrap().all, 3);
     }
@@ -941,7 +1054,7 @@ mod tests {
         let _other = Library::open(Path::new(&path), &OpenOptions::new("other")).unwrap();
         f.session.open_library(&path).unwrap();
         assert_eq!(
-            f.session.add_files(images(f.home.path(), 1)),
+            f.session.add_files(images(f.home.path(), 1), None),
             Err(SourceError::ReadOnly)
         );
     }
@@ -1026,7 +1139,7 @@ mod tests {
         assert_eq!(opened.total, 0);
         assert_eq!(*progress.lock().unwrap(), [(0, 0)]);
 
-        let ticket = f.session.add_files(images(f.home.path(), 3)).unwrap();
+        let ticket = f.session.add_files(images(f.home.path(), 3), None).unwrap();
         finished(&f.session, ticket.id);
         let invalidated: Vec<_> = events
             .lock()
@@ -1096,7 +1209,7 @@ mod tests {
         f.session
             .create_library(&f.home.path().to_string_lossy(), "Thumbs")
             .unwrap();
-        let ticket = f.session.add_files(images(f.home.path(), 1)).unwrap();
+        let ticket = f.session.add_files(images(f.home.path(), 1), None).unwrap();
         finished(&f.session, ticket.id);
         let opened = f
             .session
@@ -1123,6 +1236,126 @@ mod tests {
         ] {
             assert_eq!(f.session.image(path), None, "{path}");
         }
+    }
+
+    fn last_totals(events: &Mutex<Vec<Event>>) -> Vec<ViewOpened> {
+        events
+            .lock()
+            .unwrap()
+            .iter()
+            .rev()
+            .find_map(|event| match event {
+                Event::ViewsInvalidated(views) => Some(views.views.clone()),
+                Event::ImportProgress(_) => None,
+            })
+            .unwrap_or_default()
+    }
+
+    #[test]
+    fn folder_edits_refresh_the_open_views() {
+        let (f, events) = recording();
+        f.session
+            .create_library(&f.home.path().to_string_lossy(), "Folders")
+            .unwrap();
+        let ticket = f.session.add_files(images(f.home.path(), 3), None).unwrap();
+        finished(&f.session, ticket.id);
+        let tree = f
+            .session
+            .save_folder(FolderChange::Create {
+                name: "Posters".into(),
+                parent: None,
+                description: String::new(),
+                icon_color: None,
+            })
+            .unwrap();
+        let folder = tree[0].id.clone();
+        let folder_view = f
+            .session
+            .open_view(
+                LibraryQuery {
+                    scope: library_core::Scope::Folder {
+                        id: folder.clone(),
+                        include_descendants: false,
+                    },
+                    ..LibraryQuery::default()
+                },
+                &|_, _| {},
+            )
+            .unwrap();
+        let all = f
+            .session
+            .open_view(LibraryQuery::default(), &|_, _| {})
+            .unwrap();
+        assert_eq!(folder_view.total, 0);
+
+        // Select All in the All view, except one item.
+        let first = f.session.view_ids(all.view_id, 0, 1).unwrap();
+        let edited = f
+            .session
+            .apply_batch_edit(
+                ItemsTarget {
+                    view_id: Some(all.view_id),
+                    all: true,
+                    ids: first.clone(),
+                },
+                ItemEdit::AddToFolders(vec![folder.clone()]),
+            )
+            .unwrap();
+        assert_eq!(edited, 2);
+        assert!(last_totals(&events).contains(&ViewOpened {
+            view_id: folder_view.view_id,
+            total: 2
+        }));
+        let tree = f.session.folder_tree().unwrap();
+        assert_eq!(tree[0].image_count, Some(2));
+
+        let item = f
+            .session
+            .apply_item_edit(&first[0].0, ItemEdit::AddToFolders(vec![folder.clone()]))
+            .unwrap();
+        assert_eq!(item.folders, std::slice::from_ref(&folder));
+        assert!(last_totals(&events).contains(&ViewOpened {
+            view_id: folder_view.view_id,
+            total: 3
+        }));
+
+        // Deleting the open folder empties its view.
+        let tree = f.session.delete_folder(&folder, false).unwrap();
+        assert!(tree.is_empty());
+        assert!(last_totals(&events).contains(&ViewOpened {
+            view_id: folder_view.view_id,
+            total: 0
+        }));
+    }
+
+    #[test]
+    fn files_go_into_the_open_folder() {
+        let f = fixture();
+        f.session
+            .create_library(&f.home.path().to_string_lossy(), "Into")
+            .unwrap();
+        let tree = f
+            .session
+            .save_folder(FolderChange::Create {
+                name: "Inbox".into(),
+                parent: None,
+                description: String::new(),
+                icon_color: None,
+            })
+            .unwrap();
+        let folder = tree[0].id.clone();
+        assert!(matches!(
+            f.session
+                .add_files(images(f.home.path(), 1), Some("01GONE".into())),
+            Err(SourceError::Invalid(_))
+        ));
+        let ticket = f
+            .session
+            .add_files(images(f.home.path(), 2), Some(folder.clone()))
+            .unwrap();
+        finished(&f.session, ticket.id);
+        assert_eq!(f.session.folder_tree().unwrap()[0].image_count, Some(2));
+        assert_eq!(f.session.counts().unwrap().uncategorized, 0);
     }
 
     #[test]

@@ -1,7 +1,12 @@
 import { useQuery } from "@tanstack/react-query";
 import { cn } from "cn";
-import { forwardRef, useState } from "react";
-import { type Item, inTauri, ipc } from "@/ipc";
+import { FolderPlus, Plus, X } from "lucide-react";
+import { forwardRef, type ReactNode, useState } from "react";
+import { Button } from "@/components/ui/button";
+import { Popover, PopoverContent, PopoverTrigger } from "@/components/ui/popover";
+import { FolderPicker } from "@/features/folders/FolderPicker";
+import { findFolder, folderPath } from "@/features/folders/tree";
+import { type Folder, type Item, inTauri, ipc } from "@/ipc";
 import { thumbUrl } from "@/lib/thumb";
 import { formatBytes, formatDate, formatDimensions } from "./format";
 
@@ -12,14 +17,33 @@ type Props = {
   itemId: string | null;
   /** Opens the full-size preview of the selected item. */
   onPreview: () => void;
+  folders?: Folder[];
+  /** `true`, or why items cannot change (read-only library). */
+  writable?: true | string;
+  /** The one selected item joins (`true`) or leaves a folder. */
+  onFolderChange?: (folder: string, member: boolean) => void;
+  /** The selected items join a folder. */
+  onAddToFolder?: (folder: string) => void;
+  /** Shown when nothing is selected: the open folder's properties. */
+  empty?: ReactNode;
 };
 
 /**
- * The right bar (docs/spec.md §7.3), read-only in this version: the selected item's preview,
- * palette, name, rating, tags, note, link, file info and EXIF. Editing comes with phases 5 and 7.
+ * The right bar (docs/spec.md §7.3): the selected item's preview, palette, name, rating, tags,
+ * folders, note, link, file info and EXIF. Folders can change; the other fields arrive with
+ * phases 5 and 7.
  */
 export const DetailsPanel = forwardRef<HTMLDivElement, Props>(function DetailsPanel(
-  { count, itemId, onPreview },
+  {
+    count,
+    itemId,
+    onPreview,
+    folders = [],
+    writable = "This library is read-only.",
+    onFolderChange,
+    onAddToFolder,
+    empty,
+  },
   ref,
 ) {
   const detail = useQuery({
@@ -30,13 +54,31 @@ export const DetailsPanel = forwardRef<HTMLDivElement, Props>(function DetailsPa
 
   let body: React.ReactNode;
   if (count === 0) {
-    body = <p className="m-auto text-muted-foreground">Select an item</p>;
+    body = empty ?? <p className="m-auto text-muted-foreground">Select an item</p>;
   } else if (count > 1 || itemId === null) {
     body = (
-      <p className="m-auto text-muted-foreground">{count.toLocaleString("en")} items selected</p>
+      <div className="m-auto grid justify-items-center gap-3">
+        <p className="text-muted-foreground">{count.toLocaleString("en")} items selected</p>
+        {onAddToFolder && (
+          <FolderButton
+            label="Add to folder…"
+            folders={folders}
+            writable={writable}
+            onPick={onAddToFolder}
+          />
+        )}
+      </div>
     );
   } else if (detail.data) {
-    body = <ItemDetails item={detail.data} onPreview={onPreview} />;
+    body = (
+      <ItemDetails
+        item={detail.data}
+        onPreview={onPreview}
+        folders={folders}
+        writable={writable}
+        onFolderChange={onFolderChange}
+      />
+    );
   } else if (detail.isError) {
     body = <p className="m-auto text-muted-foreground">This item could not be read.</p>;
   } else {
@@ -92,7 +134,65 @@ function exifRows(item: Item) {
   });
 }
 
-function ItemDetails({ item, onPreview }: { item: Item; onPreview: () => void }) {
+/** Opens the folder picker; picking a folder runs `onPick`. */
+function FolderButton({
+  label,
+  folders,
+  writable,
+  checked,
+  onPick,
+  compact = false,
+}: {
+  label: string;
+  folders: Folder[];
+  writable: true | string;
+  checked?: ReadonlySet<string>;
+  onPick: (folder: string) => void;
+  compact?: boolean;
+}) {
+  const [open, setOpen] = useState(false);
+  return (
+    <Popover open={open} onOpenChange={setOpen}>
+      <PopoverTrigger asChild>
+        <Button
+          variant={compact ? "ghost" : "outline"}
+          size={compact ? "xs" : "sm"}
+          disabled={writable !== true}
+          title={writable === true ? undefined : writable}
+        >
+          {compact ? <Plus aria-hidden /> : <FolderPlus aria-hidden />}
+          {label}
+        </Button>
+      </PopoverTrigger>
+      <PopoverContent className="p-2">
+        <FolderPicker
+          label="Folders"
+          folders={folders}
+          checked={checked}
+          onPick={(folder) => {
+            onPick(folder);
+            if (!checked) setOpen(false);
+          }}
+        />
+      </PopoverContent>
+    </Popover>
+  );
+}
+
+function ItemDetails({
+  item,
+  onPreview,
+  folders,
+  writable,
+  onFolderChange,
+}: {
+  item: Item;
+  onPreview: () => void;
+  folders: Folder[];
+  writable: true | string;
+  onFolderChange?: (folder: string, member: boolean) => void;
+}) {
+  const member = new Set(item.folders);
   const [failed, setFailed] = useState(false);
   const exif = exifRows(item);
   const info = [
@@ -153,6 +253,48 @@ function ItemDetails({ item, onPreview }: { item: Item; onPreview: () => void })
               ))}
             </span>
           )}
+        </Field>
+        <Field label="Folders">
+          <span className="flex flex-wrap items-center gap-1">
+            {item.folders.map((id) => {
+              const folder = findFolder(folders, id);
+              const path = folderPath(folders, id)
+                .map((step) => step.name)
+                .join(" › ");
+              return (
+                <span
+                  key={id}
+                  title={path}
+                  className="flex items-center gap-0.5 rounded bg-muted py-0.5 pr-0.5 pl-1.5 text-xs"
+                >
+                  {folder?.name ?? "Unknown folder"}
+                  {writable === true && onFolderChange && (
+                    <button
+                      type="button"
+                      aria-label={`Remove from ${folder?.name ?? "folder"}`}
+                      className="rounded p-0.5 hover:bg-background"
+                      onClick={() => onFolderChange(id, false)}
+                    >
+                      <X aria-hidden className="size-3" />
+                    </button>
+                  )}
+                </span>
+              );
+            })}
+            {item.folders.length === 0 && writable !== true && (
+              <span className="text-muted-foreground">None</span>
+            )}
+            {onFolderChange && writable === true && (
+              <FolderButton
+                compact
+                label="Add"
+                folders={folders}
+                writable={writable}
+                checked={member}
+                onPick={(folder) => onFolderChange(folder, !member.has(folder))}
+              />
+            )}
+          </span>
         </Field>
         {item.annotation && <Field label="Note">{item.annotation}</Field>}
         {item.url && <Field label="Link">{item.url}</Field>}

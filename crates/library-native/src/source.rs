@@ -6,8 +6,8 @@ use std::sync::Arc;
 
 use async_trait::async_trait;
 use library_core::{
-    Capabilities, Folder, Item, ItemId, ItemLite, LibraryInfo, LibrarySource, Progress, Scope,
-    ScopeHints, SmartFolder, SourceError, Tag, TagGroup, Thumbnail,
+    Capabilities, Folder, FolderChange, Item, ItemEdit, ItemId, ItemLite, LibraryInfo,
+    LibrarySource, Progress, Scope, ScopeHints, SmartFolder, SourceError, Tag, TagGroup, Thumbnail,
 };
 
 use crate::library::Library;
@@ -29,6 +29,7 @@ impl LibrarySource for NativeSource {
     fn capabilities(&self) -> Capabilities {
         Capabilities {
             writable: self.library.read_only_reason().is_none(),
+            delete_folders: self.library.read_only_reason().is_none(),
             ..Capabilities::READ_ONLY
         }
     }
@@ -37,9 +38,8 @@ impl LibrarySource for NativeSource {
         Ok(self.library.info())
     }
 
-    /// Folders arrive in phase 4; nothing writes the table before.
     async fn folder_tree(&self) -> Result<Vec<Folder>, SourceError> {
-        Ok(Vec::new())
+        self.library.folder_tree()
     }
 
     async fn load_scope(
@@ -82,5 +82,32 @@ impl LibrarySource for NativeSource {
 
     async fn original(&self, id: &ItemId) -> Result<Option<Thumbnail>, SourceError> {
         self.library.original(&id.0)
+    }
+
+    async fn apply_item_edit(&self, id: &ItemId, edit: ItemEdit) -> Result<Item, SourceError> {
+        self.library.apply_item_edit(&id.0, &edit)
+    }
+
+    async fn save_folder(&self, change: FolderChange) -> Result<Vec<Folder>, SourceError> {
+        self.library.save_folder(&change)?;
+        self.library.folder_tree()
+    }
+
+    async fn delete_folder(&self, id: &str, trash_items: bool) -> Result<Vec<Folder>, SourceError> {
+        self.library.delete_folder(id, trash_items)?;
+        self.library.folder_tree()
+    }
+
+    async fn apply_batch_edit(&self, ids: &[ItemId], edit: ItemEdit) -> Result<u32, SourceError> {
+        self.library.apply_batch_edit(ids, &edit)
+    }
+
+    async fn reorder_items(
+        &self,
+        folder: &str,
+        ids: &[ItemId],
+        before: Option<&ItemId>,
+    ) -> Result<(), SourceError> {
+        self.library.reorder_items(folder, ids, before)
     }
 }

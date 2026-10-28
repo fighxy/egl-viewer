@@ -178,9 +178,14 @@ impl Views {
             let snapshot = match loaded.get(&view.query.scope) {
                 Some(snapshot) => Arc::clone(snapshot),
                 None => {
-                    let items: Arc<[ItemLite]> = source
-                        .load_scope(&view.query.scope, &view.query.hints(), &|_, _| {})?
-                        .into();
+                    // A folder that is gone (deleted, or in another library) shows nothing.
+                    let items: Arc<[ItemLite]> =
+                        match source.load_scope(&view.query.scope, &view.query.hints(), &|_, _| {})
+                        {
+                            Ok(items) => items.into(),
+                            Err(SourceError::NotFound) => Vec::new().into(),
+                            Err(error) => return Err(error),
+                        };
                     loaded.insert(view.query.scope.clone(), Arc::clone(&items));
                     items
                 }

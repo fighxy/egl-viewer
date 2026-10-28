@@ -6,6 +6,7 @@ mod backup;
 mod create;
 mod detect;
 mod error;
+mod folders;
 mod fsutil;
 mod import;
 mod library;
@@ -21,6 +22,8 @@ mod time;
 pub use time::utc_file_stamp;
 
 #[cfg(test)]
+mod folder_tests;
+#[cfg(test)]
 mod import_tests;
 #[cfg(test)]
 mod scope_tests;
@@ -29,12 +32,12 @@ mod test_support;
 #[cfg(test)]
 mod tests;
 
-pub use add::{AddOutcome, Duplicates};
+pub use add::{AddOutcome, Duplicates, Placement};
 pub use create::create_library;
 pub use detect::{is_native_library, looks_like_eagle_library};
 pub use import::{
-    DuplicateChoice, DuplicatePolicy, ImportObserver, import_files, make_pending_previews,
-    preview_threads,
+    DuplicateChoice, DuplicatePolicy, ImportObserver, ImportTarget, import_files,
+    make_pending_previews, preview_threads,
 };
 pub use library::{Library, OpenOptions};
 pub use name::validate_library_name;

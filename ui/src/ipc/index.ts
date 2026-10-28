@@ -6,6 +6,8 @@ import type { BrowsePreferences } from "./generated/BrowsePreferences";
 import type { ConnectionSettings } from "./generated/ConnectionSettings";
 import type { DuplicateAnswer } from "./generated/DuplicateAnswer";
 import type { DuplicateNotice } from "./generated/DuplicateNotice";
+import type { Folder } from "./generated/Folder";
+import type { FolderChange } from "./generated/FolderChange";
 import type { ImportFailure } from "./generated/ImportFailure";
 import type { ImportKind } from "./generated/ImportKind";
 import type { ImportProgress } from "./generated/ImportProgress";
@@ -13,7 +15,9 @@ import type { ImportState } from "./generated/ImportState";
 import type { ImportTicket } from "./generated/ImportTicket";
 import type { Item } from "./generated/Item";
 import type { ItemCell } from "./generated/ItemCell";
+import type { ItemEdit } from "./generated/ItemEdit";
 import type { ItemId } from "./generated/ItemId";
+import type { ItemsTarget } from "./generated/ItemsTarget";
 import type { LibraryCounts } from "./generated/LibraryCounts";
 import type { LibraryHolder } from "./generated/LibraryHolder";
 import type { LibraryInfo } from "./generated/LibraryInfo";
@@ -40,6 +44,8 @@ export type {
   ConnectionSettings,
   DuplicateAnswer,
   DuplicateNotice,
+  Folder,
+  FolderChange,
   ImportFailure,
   ImportKind,
   ImportProgress,
@@ -47,7 +53,9 @@ export type {
   ImportTicket,
   Item,
   ItemCell,
+  ItemEdit,
   ItemId,
+  ItemsTarget,
   LibraryCounts,
   LibraryHolder,
   LibraryInfo,
@@ -85,6 +93,7 @@ export const DEFAULT_PREFERENCES: Preferences = {
     showNames: true,
     sort: "added",
     ascending: false,
+    includeSubfolders: false,
   },
 };
 
@@ -124,8 +133,10 @@ export const ipc = {
     invoke<Preferences>("set_preferences", { preferences }),
   startup: () => invoke<StartupResult>("startup"),
   libraryCounts: () => invoke<LibraryCounts>("library_counts"),
-  addFiles: (paths: string[]) => invoke<ImportTicket>("add_files", { paths }),
-  pasteFiles: () => invoke<ImportTicket | null>("paste_files"),
+  addFiles: (paths: string[], folder: string | null = null) =>
+    invoke<ImportTicket>("add_files", { paths, folder }),
+  pasteFiles: (folder: string | null = null) =>
+    invoke<ImportTicket | null>("paste_files", { folder }),
   answerImport: (id: number, answer: DuplicateAnswer) =>
     invoke<void>("answer_import", { id, answer }),
   cancelImport: (id: number) => invoke<void>("cancel_import", { id }),
@@ -142,6 +153,15 @@ export const ipc = {
     invoke<ItemId[]>("view_ids", { viewId, start, len }),
   closeView: (viewId: number) => invoke<void>("close_view", { viewId }),
   itemDetail: (id: string) => invoke<Item | null>("item_detail", { id }),
+  folderTree: () => invoke<Folder[]>("folder_tree"),
+  saveFolder: (change: FolderChange) => invoke<Folder[]>("save_folder", { change }),
+  deleteFolder: (id: string, trashItems: boolean) =>
+    invoke<Folder[]>("delete_folder", { id, trashItems }),
+  applyItemEdit: (id: string, edit: ItemEdit) => invoke<Item>("apply_item_edit", { id, edit }),
+  applyBatchEdit: (target: ItemsTarget, edit: ItemEdit) =>
+    invoke<number>("apply_batch_edit", { target, edit }),
+  reorderItems: (folder: string, ids: string[], before: string | null) =>
+    invoke<void>("reorder_items", { folder, ids, before }),
 };
 
 /** Events from Rust (docs/architecture.md §8). */

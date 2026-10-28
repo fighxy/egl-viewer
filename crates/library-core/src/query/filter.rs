@@ -10,6 +10,7 @@ use crate::query::{LibraryQuery, Scope, TagMode};
 #[derive(Debug, Clone, Default)]
 pub struct FolderIndex {
     children: HashMap<String, Vec<String>>,
+    parents: HashMap<String, String>,
     /// Locked folders that are not unlocked in this session.
     locked: Vec<String>,
 }
@@ -27,6 +28,9 @@ impl FolderIndex {
                     .map(|child| child.id.clone())
                     .collect(),
             );
+            for child in &folder.children {
+                index.parents.insert(child.id.clone(), folder.id.clone());
+            }
             if folder.is_locked && !folder.is_unlocked {
                 index.locked.push(folder.id.clone());
             }
@@ -46,6 +50,28 @@ impl FolderIndex {
             found.insert(next);
         }
         found
+    }
+
+    pub fn contains(&self, id: &str) -> bool {
+        self.children.contains_key(id)
+    }
+
+    /// The parent of `id`; `None` for a root folder or an unknown id.
+    pub fn parent(&self, id: &str) -> Option<&str> {
+        self.parents.get(id).map(String::as_str)
+    }
+
+    /// The cycle guard (docs/architecture.md §7.3): a folder may not move into itself or under
+    /// one of its descendants. `None` is the root.
+    pub fn can_move(&self, folder: &str, new_parent: Option<&str>) -> bool {
+        let mut at = new_parent;
+        while let Some(id) = at {
+            if id == folder {
+                return false;
+            }
+            at = self.parent(id);
+        }
+        true
     }
 
     /// Locked folders that are not unlocked, with everything under them: their items are hidden

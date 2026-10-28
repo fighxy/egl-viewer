@@ -7,4 +7,8 @@ export type DuplicateNotice = { path: string,
 /**
  * The id of the item that has the same content.
  */
-existing: string, inTrash: boolean, };
+existing: string, inTrash: boolean, 
+/**
+ * The folder the file was going into; the existing item can join it instead.
+ */
+targetFolder: string | null, };

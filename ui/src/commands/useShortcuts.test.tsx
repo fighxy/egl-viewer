@@ -13,6 +13,9 @@ const STATE: CommandState = {
   leftOpen: true,
   rightOpen: true,
   browse: DEFAULT_PREFERENCES.browse,
+  sort: DEFAULT_PREFERENCES.browse.sort,
+  ascending: DEFAULT_PREFERENCES.browse.ascending,
+  folderOpen: false,
   items: 3,
   selected: 1,
 };
