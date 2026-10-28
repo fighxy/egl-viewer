@@ -11,10 +11,11 @@ pub mod query;
 pub mod source;
 
 pub use edit::ItemEdit;
-pub use error::{NetworkError, SourceError};
+pub use error::{LocationProblem, NetworkError, SourceError};
 pub use model::{
     AddTarget, ChangeToken, Changes, Folder, FolderChange, ImportTicket, Item, ItemId, ItemLite,
-    LibraryInfo, LibraryKind, NewFile, Palette, SmartFolder, Tag, TagGroup, Thumbnail,
+    LibraryHolder, LibraryInfo, LibraryKind, NewFile, Palette, ReadOnlyReason, SmartFolder, Tag,
+    TagGroup, Thumbnail,
 };
 pub use query::{LibraryQuery, Scope, ScopeHints, SortKey, TagMode};
 pub use source::{Capabilities, LibrarySource, Progress};

@@ -1,6 +1,6 @@
 [package]
 name = "app-store"
-description = "Settings, secrets and the offline cache of egl-viewer"
+description = "Settings, recent libraries, library locations and secrets of egl-viewer"
 version.workspace = true
 edition.workspace = true
 rust-version.workspace = true
@@ -10,10 +10,15 @@ publish.workspace = true
 [dependencies]
 library-core.workspace = true
 serde.workspace = true
+serde_json.workspace = true
+tracing.workspace = true
 ts-rs.workspace = true
 
+[target.'cfg(windows)'.dependencies]
+winreg.workspace = true
+
 [dev-dependencies]
-serde_json.workspace = true
+tempfile.workspace = true
 
 [lints]
 workspace = true

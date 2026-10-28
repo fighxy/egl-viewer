@@ -6,7 +6,8 @@ written before the phase 1 code (2026-10-28); the code follows it, and a change 
 changes this document in the same commit. For the on-disk format this document is the reference;
 [`architecture.md` §15.3](architecture.md) summarises it. Decisions: D-014, D-016, D-019 to D-024.
 
-Status: format version 1, not implemented yet.
+Status: format version 1, implemented in `crates/library-native` (phase 1). A test keeps
+`src/schema/v1.sql` identical to the schema block in §4.
 
 ## 1. Folder layout
 

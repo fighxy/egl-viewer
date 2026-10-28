@@ -22,9 +22,13 @@ impl LibrarySource for FakeSource {
     async fn info(&self) -> Result<LibraryInfo, SourceError> {
         Ok(LibraryInfo {
             kind: LibraryKind::EagleFolder,
+            id: None,
             name: "fake".into(),
             path: None,
             modification_time: None,
+            read_only: true,
+            read_only_reason: None,
+            holder: None,
         })
     }
 

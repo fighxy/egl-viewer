@@ -1,16 +1,24 @@
 import { render, screen } from "@testing-library/react";
 import userEvent from "@testing-library/user-event";
 import { describe, expect, it, vi } from "vitest";
+import type { RecentLibrary } from "@/ipc";
 import { WelcomeScreen } from "./WelcomeScreen";
 
-function renderWelcome(status?: string) {
+const RECENT: RecentLibrary[] = [
+  { path: "C:\\Libs\\Refs.eglib", name: "Refs", libraryId: "1", lastOpenedAt: 1, missing: false },
+  { path: "E:\\Old.eglib", name: "Old", libraryId: "2", lastOpenedAt: 0, missing: true },
+];
+
+function renderWelcome(status?: string, recent: RecentLibrary[] = []) {
   const handlers = {
     onCreateLibrary: vi.fn(),
     onOpenLibrary: vi.fn(),
     onImportEagleLibrary: vi.fn(),
     onConnectEagle: vi.fn(),
+    onOpenRecent: vi.fn(),
+    onForgetRecent: vi.fn(),
   };
-  render(<WelcomeScreen {...handlers} status={status} />);
+  render(<WelcomeScreen {...handlers} status={status} recent={recent} />);
   return handlers;
 }
 
@@ -31,6 +39,18 @@ describe("WelcomeScreen", () => {
     expect(screen.getByRole("region", { name: "Recent libraries" })).toHaveTextContent(
       "No recent libraries yet.",
     );
+  });
+
+  it("lists recent libraries, marks missing ones, opens and forgets them", async () => {
+    const user = userEvent.setup();
+    const handlers = renderWelcome(undefined, RECENT);
+    const list = screen.getByRole("region", { name: "Recent libraries" });
+    expect(list).toHaveTextContent("C:\\Libs\\Refs.eglib");
+    expect(list).toHaveTextContent("Missing");
+    await user.click(screen.getByRole("button", { name: /^Refs/ }));
+    expect(handlers.onOpenRecent).toHaveBeenCalledWith("C:\\Libs\\Refs.eglib");
+    await user.click(screen.getByRole("button", { name: "Remove Old from the list" }));
+    expect(handlers.onForgetRecent).toHaveBeenCalledWith("E:\\Old.eglib");
   });
 
   it("keeps the Eagle actions in their own section", () => {
@@ -61,7 +81,7 @@ describe("WelcomeScreen", () => {
   });
 
   it("shows the status message", () => {
-    renderWelcome("Opening a library is not available yet.");
-    expect(screen.getByRole("status")).toHaveTextContent("Opening a library is not available yet.");
+    renderWelcome("The last library could not be opened.");
+    expect(screen.getByRole("status")).toHaveTextContent("The last library could not be opened.");
   });
 });
