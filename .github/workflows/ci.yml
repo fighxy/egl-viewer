@@ -3,6 +3,7 @@ name: CI
 on:
   push:
     branches: [main]
+    tags: ["v*"]
   pull_request:
   workflow_dispatch:
 
@@ -12,7 +13,7 @@ concurrency:
 
 jobs:
   check:
-    if: github.event_name != 'workflow_dispatch'
+    if: github.event_name == 'pull_request' || (github.event_name == 'push' && startsWith(github.ref, 'refs/heads/'))
     runs-on: windows-latest
     steps:
       - uses: actions/checkout@v7
@@ -60,9 +61,9 @@ jobs:
         run: pnpm tauri build --no-bundle
 
   # Windows NSIS installer. The check job above only compiles (--no-bundle).
-  # Run this job by hand for a release: gh workflow run ci.yml --ref main
+  # A version tag (v*) builds the installer; workflow_dispatch does the same.
   nsis:
-    if: github.event_name == 'workflow_dispatch'
+    if: github.event_name == 'workflow_dispatch' || (github.event_name == 'push' && startsWith(github.ref, 'refs/tags/v'))
     runs-on: windows-latest
     steps:
       - uses: actions/checkout@v7
