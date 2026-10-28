@@ -15,7 +15,7 @@ use app_store::{
 use library_core::{
     DuplicateNotice, Folder, FolderChange, ImportKind, ImportProgress, ImportState, ImportTicket,
     Item, ItemCell, ItemEdit, ItemId, LibraryCounts, LibraryInfo, LibraryQuery, LibrarySource,
-    LocationProblem, Progress, ReadOnlyReason, SourceError, Thumbnail, Views,
+    LocationProblem, Progress, ReadOnlyReason, RecoveryKey, SourceError, Thumbnail, Views,
 };
 use library_native::{
     DuplicateChoice, DuplicatePolicy, ImportObserver, ImportTarget, Library, NativeSource,
@@ -456,6 +456,144 @@ impl Session {
         ready(self.source()?.reorder_items(folder, &ids, before.as_ref()))?;
         self.refresh_views();
         Ok(())
+    }
+
+    /// Locks a folder: its items are encrypted (`progress(done, total)`), then it is hidden.
+    /// The recovery key comes back once, to be shown (docs/age-locked-folders.md §7).
+    pub fn lock_folder(
+        &self,
+        id: &str,
+        password: String,
+        label: Option<String>,
+        label_color: Option<String>,
+        progress: &dyn Fn(u32, u32),
+    ) -> Result<RecoveryKey, SourceError> {
+        let library = self.writable_library()?;
+        let key = library.lock_folder(id, password, label, label_color, progress);
+        self.refresh_views();
+        key
+    }
+
+    /// Opens a locked folder for this session; read-only instances may too.
+    pub fn unlock_folder(&self, id: &str, password: String) -> Result<(), SourceError> {
+        let library = self.current_library().ok_or_else(no_library)?;
+        library.unlock_folder(id, password)?;
+        self.after_unlock(library);
+        Ok(())
+    }
+
+    /// The recovery key or phrase opens the folder and sets a new password.
+    pub fn recover_folder(
+        &self,
+        id: &str,
+        recovery: &str,
+        new_password: String,
+    ) -> Result<(), SourceError> {
+        let library = self.writable_library()?;
+        library.recover_folder(id, recovery, new_password)?;
+        self.after_unlock(library);
+        Ok(())
+    }
+
+    /// Locks an open folder again: its key leaves memory and its items leave the views.
+    pub fn relock_folder(&self, id: &str) -> Result<(), SourceError> {
+        self.current_library()
+            .ok_or_else(no_library)?
+            .relock_folder(id);
+        self.refresh_views();
+        Ok(())
+    }
+
+    pub fn change_folder_password(
+        &self,
+        id: &str,
+        current: String,
+        new_password: String,
+    ) -> Result<(), SourceError> {
+        self.writable_library()?
+            .change_folder_password(id, current, new_password)
+    }
+
+    /// A new recovery key; the old one stops working. Shown once.
+    pub fn renew_recovery_key(
+        &self,
+        id: &str,
+        current: String,
+    ) -> Result<RecoveryKey, SourceError> {
+        self.writable_library()?.renew_recovery_key(id, current)
+    }
+
+    /// Takes the lock off and decrypts the folder (`progress(done, total)`).
+    pub fn remove_folder_lock(
+        &self,
+        id: &str,
+        password: String,
+        progress: &dyn Fn(u32, u32),
+    ) -> Result<(), SourceError> {
+        let library = self.writable_library()?;
+        let removed = library.remove_folder_lock(id, password, progress);
+        self.refresh_views();
+        removed
+    }
+
+    pub fn set_lock_label(
+        &self,
+        id: &str,
+        label: Option<String>,
+        label_color: Option<String>,
+    ) -> Result<(), SourceError> {
+        self.writable_library()?
+            .set_lock_label(id, label, label_color)
+    }
+
+    /// Writes the recovery key to a text file the user chose, outside the library folder: the
+    /// library never holds it (docs/age-locked-folders.md §7).
+    pub fn save_recovery_file(
+        &self,
+        path: &str,
+        folder: &str,
+        key: &RecoveryKey,
+    ) -> Result<(), SourceError> {
+        let library = self.current_library().ok_or_else(no_library)?;
+        let path = PathBuf::from(path);
+        let inside = |root: &Path| {
+            let parent = path.parent().and_then(|parent| parent.canonicalize().ok());
+            let root = root.canonicalize().ok();
+            matches!((parent, root), (Some(parent), Some(root)) if parent.starts_with(&root))
+        };
+        if inside(library.root()) {
+            return Err(SourceError::Invalid(
+                "Save the recovery key outside the library folder.".into(),
+            ));
+        }
+        let text = format!(
+            "egl-viewer recovery key\r\n\r\nLibrary: {}\r\nLocked folder: {folder}\r\n\r\n\
+             Key: {}\r\nPhrase: {}\r\n\r\nThe key or the phrase opens this folder when its \
+             password is lost. Anyone who has them can open it: keep this file safe and away from \
+             the library.\r\n",
+            library.info().name,
+            key.key,
+            key.phrase,
+        );
+        std::fs::write(&path, text)
+            .map_err(|error| SourceError::Storage(format!("save the recovery key: {error}")))
+    }
+
+    /// The views show the folder; previews that waited for its key are made now.
+    fn after_unlock(&self, library: Arc<Library>) {
+        self.refresh_views();
+        let previewing = lock(&self.imports)
+            .running
+            .values()
+            .any(|running| running.kind == ImportKind::Previews);
+        if library.read_only_reason().is_none()
+            && !previewing
+            && library
+                .pending_previews(1)
+                .is_ok_and(|next| !next.is_empty())
+        {
+            self.start(library, ImportKind::Previews, make_pending_previews);
+        }
     }
 
     /// Recomputes the open views after a write and tells the UI.
@@ -1249,6 +1387,97 @@ mod tests {
                 Event::ImportProgress(_) => None,
             })
             .unwrap_or_default()
+    }
+
+    #[test]
+    fn locking_and_unlocking_update_the_open_views() {
+        let (f, events) = recording();
+        f.session
+            .create_library(&f.home.path().to_string_lossy(), "Locked")
+            .unwrap();
+        let ticket = f.session.add_files(images(f.home.path(), 3), None).unwrap();
+        finished(&f.session, ticket.id);
+        let tree = f
+            .session
+            .save_folder(FolderChange::Create {
+                name: "Private".into(),
+                parent: None,
+                description: String::new(),
+                icon_color: None,
+            })
+            .unwrap();
+        let folder = tree[0].id.clone();
+        let all = f
+            .session
+            .open_view(LibraryQuery::default(), &|_, _| {})
+            .unwrap();
+        let first = f.session.view_ids(all.view_id, 0, 1).unwrap();
+        f.session
+            .apply_item_edit(&first[0].0, ItemEdit::AddToFolders(vec![folder.clone()]))
+            .unwrap();
+        assert!(
+            f.session
+                .image(&format!("/{}", first[0].0))
+                .is_some_and(|image| !image.private)
+        );
+
+        let steps = Mutex::new(Vec::new());
+        let key = f
+            .session
+            .lock_folder(
+                &folder,
+                "pw".into(),
+                Some("Taxes".into()),
+                None,
+                &|done, total| {
+                    steps.lock().unwrap().push((done, total));
+                },
+            )
+            .unwrap();
+        assert_eq!(steps.into_inner().unwrap().last(), Some(&(1, 1)));
+        assert!(last_totals(&events).contains(&ViewOpened {
+            view_id: all.view_id,
+            total: 2
+        }));
+        assert_eq!(f.session.counts().unwrap().all, 2);
+        assert!(f.session.image(&format!("/{}", first[0].0)).is_none());
+        assert_eq!(f.session.item_detail(&first[0].0).unwrap(), None);
+
+        assert_eq!(
+            f.session.unlock_folder(&folder, "nope".into()),
+            Err(SourceError::WrongPassword)
+        );
+        f.session.unlock_folder(&folder, "pw".into()).unwrap();
+        assert!(last_totals(&events).contains(&ViewOpened {
+            view_id: all.view_id,
+            total: 3
+        }));
+        // Decrypted images are marked private: the WebView must not cache them.
+        let image = f.session.image(&format!("/{}", first[0].0)).unwrap();
+        assert!(image.private);
+        f.session.relock_folder(&folder).unwrap();
+        assert!(last_totals(&events).contains(&ViewOpened {
+            view_id: all.view_id,
+            total: 2
+        }));
+
+        // The recovery key file goes outside the library folder only.
+        let library_root = PathBuf::from(f.session.current().unwrap().path.unwrap());
+        assert!(matches!(
+            f.session.save_recovery_file(
+                &library_root.join("key.txt").to_string_lossy(),
+                "Private",
+                &key
+            ),
+            Err(SourceError::Invalid(_))
+        ));
+        let outside = f.home.path().join("Private recovery key.txt");
+        f.session
+            .save_recovery_file(&outside.to_string_lossy(), "Private", &key)
+            .unwrap();
+        let text = fs::read_to_string(&outside).unwrap();
+        assert!(text.contains(&key.key) && text.contains(&key.phrase));
+        assert!(text.contains("Locked folder: Private"));
     }
 
     #[test]

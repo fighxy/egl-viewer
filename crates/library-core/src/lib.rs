@@ -17,8 +17,8 @@ pub use folder::{FOLDER_COLORS, FolderChange, order_key_between};
 pub use model::{
     AddTarget, ChangeToken, Changes, DuplicateNotice, Folder, ImportFailure, ImportKind,
     ImportProgress, ImportState, ImportTicket, Item, ItemId, ItemLite, LibraryCounts,
-    LibraryHolder, LibraryInfo, LibraryKind, NewFile, Palette, ReadOnlyReason, SmartFolder, Tag,
-    TagGroup, Thumbnail,
+    LibraryHolder, LibraryInfo, LibraryKind, NewFile, Palette, ReadOnlyReason, RecoveryKey,
+    SmartFolder, Tag, TagGroup, Thumbnail,
 };
 pub use query::filter::{FolderIndex, matches_tags, shape_of, type_matches};
 pub use query::sort::compare_names;

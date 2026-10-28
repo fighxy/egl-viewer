@@ -12,6 +12,8 @@ type Props = {
   /** Include subfolders is on: subfolder items cannot be reordered here. */
   includeSubfolders?: boolean;
   onSave: (change: Extract<FolderChange, { type: "update" }>) => void;
+  /** A locked folder's tag: a caption and a colour, plaintext (D-018). */
+  onLockLabel?: (label: string | null, color: string | null) => void;
 };
 
 /**
@@ -19,7 +21,13 @@ type Props = {
  * name, description, colour, folder tags and its own sort. A field saves on Enter or when focus
  * leaves it; Esc reverts it.
  */
-export function FolderProperties({ folder, writable, includeSubfolders = false, onSave }: Props) {
+export function FolderProperties({
+  folder,
+  writable,
+  includeSubfolders = false,
+  onSave,
+  onLockLabel,
+}: Props) {
   const disabled = writable !== true;
   const id = useId();
   const save = (change: Partial<Extract<FolderChange, { type: "update" }>>) =>
@@ -91,6 +99,37 @@ export function FolderProperties({ folder, writable, includeSubfolders = false, 
           ))}
         </div>
       </fieldset>
+      {folder.isLocked && onLockLabel && (
+        <fieldset className="grid gap-2 rounded-md border p-2" disabled={disabled}>
+          <legend className="px-1 text-xs text-muted-foreground">Lock label, not encrypted</legend>
+          <TextField
+            id={`${id}-lock-label`}
+            value={folder.lockLabel ?? ""}
+            disabled={disabled}
+            onCommit={(label) => onLockLabel(label.trim() || null, folder.lockColor)}
+          />
+          <div className="flex flex-wrap gap-1.5">
+            <button
+              type="button"
+              aria-label="No lock colour"
+              aria-pressed={folder.lockColor === null}
+              className="size-4 rounded-full border aria-pressed:ring-2 aria-pressed:ring-ring"
+              onClick={() => onLockLabel(folder.lockLabel, null)}
+            />
+            {Object.entries(FOLDER_COLORS).map(([name, css]) => (
+              <button
+                key={name}
+                type="button"
+                aria-label={`Lock colour ${name}`}
+                aria-pressed={folder.lockColor === name}
+                className="size-4 rounded-full aria-pressed:ring-2 aria-pressed:ring-ring aria-pressed:ring-offset-1"
+                style={{ background: css }}
+                onClick={() => onLockLabel(folder.lockLabel, name)}
+              />
+            ))}
+          </div>
+        </fieldset>
+      )}
       <div className="grid gap-1">
         <span className="text-xs text-muted-foreground" id={`tags-${folder.id}`}>
           Folder tags — added to files added here

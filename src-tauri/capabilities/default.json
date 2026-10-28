@@ -1,7 +1,7 @@
 {
   "$schema": "../gen/schemas/desktop-schema.json",
   "identifier": "default",
-  "description": "The main window: core events, showing, closing, theming and full screen for the window, and the folder picker. No shell, fs or http plugins: the UI cannot read files or make requests on its own (docs/architecture.md §10).",
+  "description": "The main window: core events, showing, closing, theming and full screen for the window, the folder and file pickers, and the Save dialog for a recovery key. No shell, fs or http plugins: the UI cannot read files or make requests on its own (docs/architecture.md §10).",
   "windows": ["main"],
   "permissions": [
     "core:default",
@@ -9,6 +9,7 @@
     "core:window:allow-close",
     "core:window:allow-set-theme",
     "core:window:allow-set-fullscreen",
-    "dialog:allow-open"
+    "dialog:allow-open",
+    "dialog:allow-save"
   ]
 }

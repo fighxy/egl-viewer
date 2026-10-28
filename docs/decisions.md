@@ -595,3 +595,75 @@ Locked folders section). 4a's done check is phase 4's without the locked-folder 
   drag, colour, dragging 12 items onto a folder, Select All into a folder, Include subfolders,
   Manual with a drag to the front, the context menu, deleting a folder. The Windows checks are
   still open.
+
+## D-044 Dependencies of phase 4b (2026-10-28)
+
+The newest versions older than the minimum release age (D-002, D-003), with one exception:
+
+| Where | Package | Version | Why |
+|---|---|---|---|
+| Rust | `age` (no default features) | 0.12.1 | Files, previews, sealed fields and item keys of locked folders (D-018) |
+| Rust | `argon2` | 0.6.0 | Argon2id of a folder password |
+| Rust | `chacha20poly1305` | 0.10.1 | XChaCha20-Poly1305 for the two wraps of a folder identity. 0.11.0 is newer, but `age` 0.12 uses 0.10.1: one copy instead of two |
+| Rust | `secrecy` | 0.10.3 | Passwords as `SecretString` (the copy `age` re-exports) |
+| Rust | `zeroize` | 1.9.1 | Wrapping keys, the recovery secret and decrypted key text are wiped when dropped |
+| Rust | `bip39` (std only) | 3.0.0 | The recovery secret as 12 English words |
+| Rust | `getrandom` | 0.4.3 | Salts, nonces and recovery secrets; already in the tree through `uuid` |
+
+Dev builds and tests optimise the crypto crates (`[profile.dev.package]` in `Cargo.toml`):
+unoptimised, one Argon2id of 64 MiB and the X25519 of every item took seconds.
+
+## D-045 Phase 4b as built: locked folders (2026-10-28)
+
+- **A lock covers its folder and every folder under it.** An item in any covered folder is
+  encrypted; an item covered by no lock is plaintext. A locked folder that is not unlocked shows
+  in the tree without subfolders or counts; its items, and every item in one of its folders,
+  are hidden in every scope, in the counts, the tag counts and the duplicate check (which would
+  otherwise tell that a locked folder holds a file).
+- **Keys.** Each lock: a random age X25519 identity, wrapped twice with XChaCha20-Poly1305 (a
+  version byte, a 24-byte nonce, the ciphertext). The password wrap's key is Argon2id of the
+  password (64 MiB, 3 passes, 1 lane, a 16-byte salt, both stored per folder); the recovery
+  wrap's key is BLAKE3 `derive_key` of the 128-bit recovery secret. Each wrap is bound to its
+  folder id and its role, so it cannot be moved to another folder or used in the other role.
+  Each item: its own X25519 identity, age-encrypted to every covering lock (`item_key_wrap`);
+  the original, the preview and the sealed fields are age messages to the item.
+- **The recovery key** is written as 26 Crockford base32 characters plus 2 check characters in
+  groups of four (`XXXX-…-XXXX`); case, spaces, dashes and O/I/L are forgiven, a typo is caught
+  by the check characters. The same bits are 12 BIP39 words. It is shown once with Copy and
+  Save to a file (refused inside the library folder); the dialog closes only after "I saved the
+  recovery key".
+- **Every write that changes what a lock covers needs that lock unlocked:** adding items or
+  files to a covered folder, removing them, moving a folder in or out, deleting a folder with a
+  lock in or above it, and locking a folder whose items another lock already encrypts. The write
+  is first simulated, and refused before anything changes (`Locked { folder }` names the folder
+  to unlock); then it is written and the items are encrypted, decrypted or rewrapped. A crash
+  in between leaves the items hidden; the next unlock of that folder finishes the work.
+- **Encrypting an item** writes the ciphertext through `files/.tmp/`, journals and renames it to
+  `files/<shard>/<id>/<id>.age` (no file name: it is sealed), commits the row (plaintext columns
+  emptied, the search row deleted, wraps inserted) with the old plaintext paths in the journal,
+  then deletes them. Decrypting is the reverse, back to the original file name. Previews go to
+  `thumbs/<shard>/<id>.age`; the journal also takes `thumbs/` paths. Files added to an unlocked
+  locked folder are encrypted while they are copied: no plaintext lies in `files/.tmp/`.
+- **Locking** puts the lock on at once, encrypts with progress, and ends with the folder locked
+  (its key forgotten). Removing a lock decrypts first and drops the identity last, so an
+  interrupted removal loses nothing.
+- **Format version 2** comes with the first lock, after a `-v1` backup (D-019); its schema is
+  version 1's. Libraries without locks stay at 1. `FORMAT_VERSION` is the newest version this
+  build reads; the schema version is separate.
+- **In memory:** unlocked identities, item keys and opened fields live in the library's keyring
+  for the session and are wiped on Lock Now, Lock All Folders (`Ctrl+L`) and closing. A
+  read-only second instance may unlock and read, and changes no lock. Decrypted images go to
+  the WebView with `Cache-Control: no-store`; views are recomputed on every lock change, so no
+  snapshot keeps a decrypted name.
+- **The lock's tag** (a caption of up to 60 characters and a colour) is plaintext on the folder
+  row and editable while the folder is locked; the Locked folders section of the left bar lists
+  every locked folder with it.
+- **Not in 4b:** the YubiKey PIV wrap (D-018, age-locked-folders.md §9) needs
+  `age-plugin-yubikey` and a card to test against; it waits for the hardening phase.
+  `folder_piv_wrap` stays empty. A folder imported locked from Eagle (no identity) comes with
+  phase 8.
+- **Checks:** the demo library in the real app under Xvfb: lock a folder of 12 items (also in
+  another folder), the recovery key dialog, the counts and the Locked folders section, a wrong
+  password, unlocking (the folder opens with decrypted previews and originals), Lock All
+  Folders, removing the lock (the original file names come back). The Windows checks are still
+  open.

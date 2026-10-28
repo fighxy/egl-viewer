@@ -5,7 +5,7 @@ use std::path::PathBuf;
 use app_store::{ConnectionSettings, Preferences, RecentLibrary};
 use library_core::{
     Folder, FolderChange, ImportProgress, ImportTicket, Item, ItemCell, ItemEdit, ItemId,
-    LibraryCounts, LibraryInfo, LibraryQuery, SourceError,
+    LibraryCounts, LibraryInfo, LibraryQuery, RecoveryKey, SourceError,
 };
 use library_native::DuplicateChoice;
 use serde::{Deserialize, Serialize};
@@ -182,6 +182,124 @@ pub async fn folder_tree(app: AppHandle) -> Result<Vec<Folder>, SourceError> {
 #[tauri::command]
 pub async fn save_folder(app: AppHandle, change: FolderChange) -> Result<Vec<Folder>, SourceError> {
     blocking(app, move |session| session.save_folder(change)).await
+}
+
+/// How far encrypting or decrypting a locked folder's items got.
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, TS)]
+#[ts(export)]
+pub struct LockProgress {
+    pub done: u32,
+    pub total: u32,
+}
+
+/// Puts a lock on a folder (docs/age-locked-folders.md). The password is used once and never
+/// stored; the recovery key comes back to be shown once.
+#[tauri::command]
+pub async fn lock_folder(
+    app: AppHandle,
+    id: String,
+    password: String,
+    label: Option<String>,
+    label_color: Option<String>,
+    on_progress: Channel<LockProgress>,
+) -> Result<RecoveryKey, SourceError> {
+    blocking(app, move |session| {
+        session.lock_folder(&id, password, label, label_color, &|done, total| {
+            let _ = on_progress.send(LockProgress { done, total });
+        })
+    })
+    .await
+}
+
+#[tauri::command]
+pub async fn unlock_folder(
+    app: AppHandle,
+    id: String,
+    password: String,
+) -> Result<(), SourceError> {
+    blocking(app, move |session| session.unlock_folder(&id, password)).await
+}
+
+#[tauri::command]
+pub async fn recover_folder(
+    app: AppHandle,
+    id: String,
+    recovery: String,
+    new_password: String,
+) -> Result<(), SourceError> {
+    blocking(app, move |session| {
+        session.recover_folder(&id, &recovery, new_password)
+    })
+    .await
+}
+
+#[tauri::command]
+pub async fn relock_folder(app: AppHandle, id: String) -> Result<(), SourceError> {
+    blocking(app, move |session| session.relock_folder(&id)).await
+}
+
+#[tauri::command]
+pub async fn change_folder_password(
+    app: AppHandle,
+    id: String,
+    current: String,
+    new_password: String,
+) -> Result<(), SourceError> {
+    blocking(app, move |session| {
+        session.change_folder_password(&id, current, new_password)
+    })
+    .await
+}
+
+#[tauri::command]
+pub async fn renew_recovery_key(
+    app: AppHandle,
+    id: String,
+    current: String,
+) -> Result<RecoveryKey, SourceError> {
+    blocking(app, move |session| session.renew_recovery_key(&id, current)).await
+}
+
+#[tauri::command]
+pub async fn remove_folder_lock(
+    app: AppHandle,
+    id: String,
+    password: String,
+    on_progress: Channel<LockProgress>,
+) -> Result<(), SourceError> {
+    blocking(app, move |session| {
+        session.remove_folder_lock(&id, password, &|done, total| {
+            let _ = on_progress.send(LockProgress { done, total });
+        })
+    })
+    .await
+}
+
+#[tauri::command]
+pub async fn set_lock_label(
+    app: AppHandle,
+    id: String,
+    label: Option<String>,
+    label_color: Option<String>,
+) -> Result<(), SourceError> {
+    blocking(app, move |session| {
+        session.set_lock_label(&id, label, label_color)
+    })
+    .await
+}
+
+/// Saves the recovery key to a file the user picked, outside the library folder.
+#[tauri::command]
+pub async fn save_recovery_file(
+    app: AppHandle,
+    path: String,
+    folder: String,
+    key: RecoveryKey,
+) -> Result<(), SourceError> {
+    blocking(app, move |session| {
+        session.save_recovery_file(&path, &folder, &key)
+    })
+    .await
 }
 
 #[tauri::command]

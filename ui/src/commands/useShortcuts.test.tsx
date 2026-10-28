@@ -16,6 +16,7 @@ const STATE: CommandState = {
   sort: DEFAULT_PREFERENCES.browse.sort,
   ascending: DEFAULT_PREFERENCES.browse.ascending,
   folderOpen: false,
+  unlockedFolders: 0,
   items: 3,
   selected: 1,
 };

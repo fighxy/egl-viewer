@@ -8,8 +8,16 @@ use crate::error::{Context, Result};
 /// ASCII `EGLB`: marks the SQLite file as an egl-viewer library (D-019).
 pub const APPLICATION_ID: i32 = 0x4547_4C42;
 
-/// The newest format version this build knows.
-pub const FORMAT_VERSION: u32 = 1;
+/// The newest format version this build reads and writes.
+pub const FORMAT_VERSION: u32 = 2;
+
+/// The newest schema: new libraries start here, and opening migrates older ones to it.
+pub(crate) const SCHEMA_VERSION: u32 = 1;
+
+/// Version 2 has the schema of version 1. It marks a library that holds locked folders, which
+/// an older app must not open: it would add plaintext files to them (D-019). A library takes it
+/// with its first lock, after a backup.
+pub(crate) const LOCKS_VERSION: u32 = 2;
 
 const SCHEMA_V1: &str = include_str!("schema/v1.sql");
 
@@ -51,7 +59,7 @@ pub(crate) fn create(conn: &Connection) -> Result<()> {
         )));
     }
     conn.execute_batch(&format!(
-        "PRAGMA application_id = {APPLICATION_ID}; PRAGMA user_version = {FORMAT_VERSION};"
+        "PRAGMA application_id = {APPLICATION_ID}; PRAGMA user_version = {SCHEMA_VERSION};"
     ))
     .context("write the format version")?;
     conn.execute_batch(SCHEMA_V1).context("create the schema")

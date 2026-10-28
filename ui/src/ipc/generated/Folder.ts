@@ -21,7 +21,12 @@ imageCount: number | null,
 /**
  * Items in the folder and all descendants, own items included.
  */
-descendantImageCount: number | null, isLocked: boolean, isUnlocked: boolean, coverItemId: string | null, 
+descendantImageCount: number | null, isLocked: boolean, isUnlocked: boolean, 
+/**
+ * The lock's tag of a locked folder: a caption and a colour, plaintext (D-018). Not an
+ * item tag.
+ */
+lockLabel: string | null, lockColor: string | null, coverItemId: string | null, 
 /**
  * The folder's own sort (docs/spec.md §5); `None` follows the global sort.
  */

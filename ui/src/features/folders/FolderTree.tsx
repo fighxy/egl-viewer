@@ -3,6 +3,8 @@ import {
   ChevronDown,
   ChevronRight,
   Folder as FolderIcon,
+  Lock,
+  LockOpen,
   FolderTree as Nested,
   Plus,
 } from "lucide-react";
@@ -39,7 +41,12 @@ type Props = {
   onColor: (id: string, color: string | null) => void;
   onMoveTo: (id: string) => void;
   onDelete: (id: string) => void;
+  /** A lock command from the context menu (docs/age-locked-folders.md). */
+  onLock?: (id: string, action: LockAction) => void;
 };
+
+/** What the folder menu can do with a lock. */
+export type LockAction = "lock" | "unlock" | "relock" | "change" | "renew" | "remove";
 
 /**
  * The Folders section of the left bar (docs/spec.md §7.3): the tree with colour dots and
@@ -60,6 +67,7 @@ export function FolderTree({
   onColor,
   onMoveTo,
   onDelete,
+  onLock,
 }: Props) {
   const { begin, active } = useDrag();
   const rows = visibleRows(folders, expanded);
@@ -226,7 +234,19 @@ export function FolderTree({
                     ) : (
                       <span className="size-4" />
                     )}
-                    {color ? (
+                    {folder.isLocked ? (
+                      folder.isUnlocked ? (
+                        <LockOpen
+                          aria-label="Unlocked"
+                          className="size-4 shrink-0 text-muted-foreground"
+                        />
+                      ) : (
+                        <Lock
+                          aria-label="Locked"
+                          className="size-4 shrink-0 text-muted-foreground"
+                        />
+                      )
+                    ) : color ? (
                       <span
                         aria-hidden
                         className="ml-0.5 size-2.5 shrink-0 rounded-full"
@@ -283,6 +303,47 @@ export function FolderTree({
                   <ContextMenuItem disabled={!canWrite} onSelect={() => onMoveTo(folder.id)}>
                     Move To…
                   </ContextMenuItem>
+                  {onLock && <ContextMenuSeparator />}
+                  {onLock && !folder.isLocked && (
+                    <ContextMenuItem
+                      disabled={!canWrite}
+                      onSelect={() => onLock(folder.id, "lock")}
+                    >
+                      Lock…
+                    </ContextMenuItem>
+                  )}
+                  {onLock && folder.isLocked && !folder.isUnlocked && (
+                    <ContextMenuItem onSelect={() => onLock(folder.id, "unlock")}>
+                      Unlock…
+                    </ContextMenuItem>
+                  )}
+                  {onLock && folder.isUnlocked && (
+                    <ContextMenuItem onSelect={() => onLock(folder.id, "relock")}>
+                      Lock Now
+                    </ContextMenuItem>
+                  )}
+                  {onLock && folder.isLocked && (
+                    <>
+                      <ContextMenuItem
+                        disabled={!canWrite}
+                        onSelect={() => onLock(folder.id, "change")}
+                      >
+                        Change Password…
+                      </ContextMenuItem>
+                      <ContextMenuItem
+                        disabled={!canWrite}
+                        onSelect={() => onLock(folder.id, "renew")}
+                      >
+                        New Recovery Key…
+                      </ContextMenuItem>
+                      <ContextMenuItem
+                        disabled={!canWrite}
+                        onSelect={() => onLock(folder.id, "remove")}
+                      >
+                        Remove Lock…
+                      </ContextMenuItem>
+                    </>
+                  )}
                   <ContextMenuSeparator />
                   <ContextMenuItem
                     disabled={!canWrite}

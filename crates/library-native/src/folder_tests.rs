@@ -2,77 +2,19 @@
 //! imports into folders (docs/spec.md §3, §9 phase 4).
 
 use std::fs;
-use std::path::Path;
 use std::sync::atomic::AtomicBool;
 
 use image::ImageFormat;
 use library_core::{
-    DuplicateNotice, Folder, FolderChange, ImportProgress, ItemEdit, ItemId, ItemLite, Scope,
-    SortKey, SourceError,
+    DuplicateNotice, FolderChange, ImportProgress, ItemEdit, ItemId, ItemLite, Scope, SortKey,
+    SourceError,
 };
 use media::fixtures;
 use rusqlite::params;
 
 use crate::import::{DuplicateChoice, DuplicatePolicy, ImportObserver, ImportTarget, import_files};
 use crate::test_support::*;
-use crate::{AddOutcome, Duplicates, Library, OpenOptions};
-
-fn create(library: &Library, name: &str, parent: Option<&str>) -> String {
-    library
-        .save_folder(&FolderChange::Create {
-            name: name.into(),
-            parent: parent.map(Into::into),
-            description: String::new(),
-            icon_color: None,
-        })
-        .unwrap()
-}
-
-fn add_png(library: &Library, dir: &Path, name: &str, seed: u32) -> String {
-    let source = write_file(dir, name, &fixtures::raster(ImageFormat::Png, 8, 8, seed));
-    match library.add_file(&source, Duplicates::Report).unwrap() {
-        AddOutcome::Added { id, .. } => id,
-        AddOutcome::Duplicate { .. } => panic!("{name} was a duplicate"),
-    }
-}
-
-fn put(library: &Library, item: &str, folders: &[&str]) {
-    let edit = ItemEdit::AddToFolders(folders.iter().map(|id| (*id).to_owned()).collect());
-    library.apply_item_edit(item, &edit).unwrap();
-}
-
-fn find<'a>(tree: &'a [Folder], id: &str) -> &'a Folder {
-    fn walk<'a>(tree: &'a [Folder], id: &str) -> Option<&'a Folder> {
-        tree.iter().find_map(|folder| {
-            (folder.id == id)
-                .then_some(folder)
-                .or_else(|| walk(&folder.children, id))
-        })
-    }
-    walk(tree, id).unwrap_or_else(|| panic!("no folder {id}"))
-}
-
-fn names(tree: &[Folder]) -> Vec<String> {
-    tree.iter().map(|folder| folder.name.clone()).collect()
-}
-
-fn scope_ids(library: &Library, scope: &Scope) -> Vec<String> {
-    let mut ids: Vec<String> = library
-        .load_scope(scope)
-        .unwrap()
-        .into_iter()
-        .map(|item| item.id.0)
-        .collect();
-    ids.sort();
-    ids
-}
-
-fn folder_scope(id: &str, include_descendants: bool) -> Scope {
-    Scope::Folder {
-        id: id.into(),
-        include_descendants,
-    }
-}
+use crate::{Library, OpenOptions};
 
 fn changes(library: &Library) -> i64 {
     library

@@ -11,13 +11,16 @@ mod fsutil;
 mod import;
 mod library;
 mod lock;
+mod locks;
 mod name;
 mod preview;
 mod recover;
 mod schema;
 mod scope;
+mod seal;
 mod source;
 mod time;
+mod vault;
 
 pub use time::utc_file_stamp;
 
@@ -25,6 +28,8 @@ pub use time::utc_file_stamp;
 mod folder_tests;
 #[cfg(test)]
 mod import_tests;
+#[cfg(test)]
+mod lock_tests;
 #[cfg(test)]
 mod scope_tests;
 #[cfg(test)]

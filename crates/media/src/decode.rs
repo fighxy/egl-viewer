@@ -1,6 +1,7 @@
 //! Raster images through `image`, SVG through `resvg`, PSD composites through `psd`.
 
 use std::fs;
+use std::io::{BufRead, Cursor, Seek};
 use std::path::Path;
 use std::sync::{Arc, OnceLock};
 
@@ -20,7 +21,16 @@ fn decode_error(error: impl std::fmt::Display) -> MediaError {
 
 /// JPEG, PNG, GIF (first frame), WebP, TIFF, BMP, with the EXIF orientation applied.
 pub(crate) fn raster(path: &Path) -> Result<Decoded, MediaError> {
-    let mut reader = ImageReader::open(path)?.with_guessed_format()?;
+    raster_from(ImageReader::open(path)?)
+}
+
+/// The same from bytes in memory (a decrypted original).
+pub(crate) fn raster_bytes(bytes: &[u8]) -> Result<Decoded, MediaError> {
+    raster_from(ImageReader::new(Cursor::new(bytes)))
+}
+
+fn raster_from<R: BufRead + Seek>(reader: ImageReader<R>) -> Result<Decoded, MediaError> {
+    let mut reader = reader.with_guessed_format()?;
     let mut limits = Limits::default();
     limits.max_alloc = Some(MAX_ALLOC);
     reader.limits(limits);
@@ -58,12 +68,15 @@ fn fonts() -> Arc<usvg::fontdb::Database> {
 /// Renders the SVG so that its long edge is `size` pixels; vectors scale up cleanly. External
 /// files and the network are never read.
 pub(crate) fn svg(path: &Path, size: u32) -> Result<Decoded, MediaError> {
-    let data = fs::read(path)?;
+    svg_data(&fs::read(path)?, size)
+}
+
+pub(crate) fn svg_data(data: &[u8], size: u32) -> Result<Decoded, MediaError> {
     let options = usvg::Options {
         fontdb: fonts(),
         ..usvg::Options::default()
     };
-    let tree = usvg::Tree::from_data(&data, &options).map_err(decode_error)?;
+    let tree = usvg::Tree::from_data(data, &options).map_err(decode_error)?;
     let svg_size = tree.size();
     let width = svg_size.width().ceil().max(1.0) as u32;
     let height = svg_size.height().ceil().max(1.0) as u32;
@@ -99,8 +112,14 @@ pub(crate) fn psd(path: &Path) -> Result<Decoded, MediaError> {
     if fs::metadata(path)?.len() > MAX_PSD {
         return Err(MediaError::TooLarge);
     }
-    let bytes = fs::read(path)?;
-    let psd = psd::Psd::from_bytes(&bytes).map_err(decode_error)?;
+    psd_bytes(&fs::read(path)?)
+}
+
+pub(crate) fn psd_bytes(bytes: &[u8]) -> Result<Decoded, MediaError> {
+    if bytes.len() as u64 > MAX_PSD {
+        return Err(MediaError::TooLarge);
+    }
+    let psd = psd::Psd::from_bytes(bytes).map_err(decode_error)?;
     let (width, height) = (psd.width(), psd.height());
     let pixels = RgbaImage::from_raw(width, height, psd.rgba())
         .ok_or_else(|| MediaError::Decode("the PSD composite has a wrong size".into()))?;

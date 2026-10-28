@@ -128,6 +128,30 @@ pub fn render(path: &Path, ext: &str) -> Result<Rendered, MediaError> {
     })
 }
 
+/// Like [`render`], from the file's bytes in memory: a decrypted original of a locked folder
+/// is never written to disk in plaintext (docs/age-locked-folders.md §2).
+pub fn render_bytes(bytes: &[u8], ext: &str) -> Result<Rendered, MediaError> {
+    let decoded = match kind(ext) {
+        Kind::Raster => decode::raster_bytes(bytes)?,
+        Kind::Svg => decode::svg_data(bytes, THUMBNAIL_SIZE)?,
+        Kind::Psd => decode::psd_bytes(bytes)?,
+        Kind::Other => return Err(MediaError::Unsupported),
+    };
+    let thumbnail = thumbnail::make(&decoded.pixels, THUMBNAIL_SIZE)?;
+    let palette = palette(&decoded.pixels);
+    let exif = match kind(ext) {
+        Kind::Raster => metadata::exif_bytes(bytes),
+        _ => None,
+    };
+    Ok(Rendered {
+        width: decoded.width,
+        height: decoded.height,
+        thumbnail,
+        palette,
+        exif,
+    })
+}
+
 /// A decoded image: its displayed size, and pixels that may be smaller (SVG is rendered at
 /// thumbnail size).
 pub(crate) struct Decoded {

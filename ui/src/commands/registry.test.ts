@@ -21,6 +21,7 @@ const state = (change: Partial<CommandState> = {}): CommandState => ({
   sort: DEFAULT_PREFERENCES.browse.sort,
   ascending: DEFAULT_PREFERENCES.browse.ascending,
   folderOpen: false,
+  unlockedFolders: 0,
   items: 0,
   selected: 0,
   ...change,
