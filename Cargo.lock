@@ -49,7 +49,7 @@ checksum = "330a5ed07fa54e4702c9d6c4174f74427fc0ef6e214bbd677ae50a5099946470"
 
 [[package]]
 name = "app-store"
-version = "0.1.0"
+version = "0.0.9"
 dependencies = [
  "library-core",
  "serde",
@@ -862,7 +862,7 @@ checksum = "d0881ea181b1df73ff77ffaaf9c7544ecc11e82fba9b5f27b262a3c73a332555"
 
 [[package]]
 name = "eagle-api"
-version = "0.1.0"
+version = "0.0.9"
 dependencies = [
  "library-core",
  "serde_json",
@@ -870,7 +870,7 @@ dependencies = [
 
 [[package]]
 name = "egl-viewer"
-version = "0.1.0"
+version = "0.0.9"
 dependencies = [
  "app-store",
  "arboard",
@@ -2118,7 +2118,7 @@ dependencies = [
 
 [[package]]
 name = "library-core"
-version = "0.1.0"
+version = "0.0.9"
 dependencies = [
  "async-trait",
  "serde",
@@ -2130,7 +2130,7 @@ dependencies = [
 
 [[package]]
 name = "library-native"
-version = "0.1.0"
+version = "0.0.9"
 dependencies = [
  "blake3",
  "image",
@@ -2230,7 +2230,7 @@ dependencies = [
 
 [[package]]
 name = "media"
-version = "0.1.0"
+version = "0.0.9"
 dependencies = [
  "fast_image_resize",
  "image",
