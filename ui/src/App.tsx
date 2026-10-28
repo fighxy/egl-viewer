@@ -27,7 +27,7 @@ import { ConnectScreen } from "@/features/connect/ConnectScreen";
 import { type DragPayload, DragProvider, type DropTarget } from "@/features/dnd/drag";
 import { type FolderDialog, FolderDialogs } from "@/features/folders/FolderDialogs";
 import { FolderProperties } from "@/features/folders/FolderProperties";
-import { FolderTree } from "@/features/folders/FolderTree";
+import { FolderTree, type LockAction } from "@/features/folders/FolderTree";
 import {
   canMove,
   findFolder,
@@ -42,6 +42,8 @@ import { ImportsPanel } from "@/features/imports/ImportsPanel";
 import { importSummary } from "@/features/imports/importText";
 import { useImports } from "@/features/imports/useImports";
 import { LibraryScreen, type Place, scopeOf } from "@/features/library/LibraryScreen";
+import { type LockDialog, LockDialogs } from "@/features/locks/LockDialogs";
+import { LockedFolders, lockedFolders } from "@/features/locks/LockedFolders";
 import { SettingsDialog } from "@/features/settings/SettingsDialog";
 import { AppMenu } from "@/features/shell/AppMenu";
 import { type Confirmation, ConfirmDialog } from "@/features/shell/ConfirmDialog";
@@ -204,6 +206,7 @@ function AppShell() {
     ascending: boolean;
   } | null>(null);
   const [folderDialog, setFolderDialog] = useState<FolderDialog | null>(null);
+  const [lockDialog, setLockDialog] = useState<LockDialog | null>(null);
   const [selection, setSelection] = useState<Selection>(NOTHING);
   const [previewIndex, setPreviewIndex] = useState<number | null>(null);
   const [transitionId, setTransitionId] = useState<string | null>(null);
@@ -275,11 +278,11 @@ function AppShell() {
     setSelection((current) => ({ ...current, anchor: null, focus: null }));
   }, [sort, ascending]);
 
-  // The open folder is gone (deleted): back to All.
+  // The open folder is gone (deleted) or locked again: back to All.
   useEffect(() => {
-    if (place.kind === "folder" && folders.data && !findFolder(folders.data, place.id)) {
-      setPlace({ kind: "all" });
-    }
+    if (place.kind !== "folder" || !folders.data) return;
+    const folder = findFolder(folders.data, place.id);
+    if (!folder || (folder.isLocked && !folder.isUnlocked)) setPlace({ kind: "all" });
   }, [place, folders.data]);
   const addingFiles = imports.running.some((progress) => progress.kind === "files");
 
@@ -568,6 +571,34 @@ function AppShell() {
     [openFolder, key, changeFolder, changeBrowse, browse],
   );
 
+  /** A folder row was chosen: open it, or ask for its password when it is locked. */
+  const openOrUnlock = useCallback(
+    (id: string) => {
+      const folder = findFolder(tree, id);
+      if (folder?.isLocked && !folder.isUnlocked) setLockDialog({ kind: "unlock", id });
+      else setPlace({ kind: "folder", id });
+    },
+    [tree],
+  );
+
+  const relock = useCallback(
+    (ids: string[]) => {
+      setSelection(NOTHING);
+      Promise.all(ids.map((id) => ipc.relockFolder(id)))
+        .then(() => client.invalidateQueries({ queryKey: ["folders"] }))
+        .catch(failed);
+    },
+    [client, failed],
+  );
+
+  const lockAction = useCallback(
+    (id: string, action: LockAction) => {
+      if (action === "relock") relock([id]);
+      else setLockDialog({ kind: action, id });
+    },
+    [relock],
+  );
+
   const canDrop = useCallback(
     (payload: DragPayload, target: DropTarget) => {
       if (writable !== true) return false;
@@ -575,9 +606,15 @@ function AppShell() {
         if (target.kind === "root") return true;
         if (target.kind !== "folder" || target.id === payload.id) return false;
         const parent = target.zone === "inside" ? target.id : (parentOf(tree, target.id) ?? null);
+        const into = parent ? findFolder(tree, parent) : undefined;
+        if (into?.isLocked && !into.isUnlocked) return false;
         return canMove(tree, payload.id, parent);
       }
-      if (target.kind === "folder") return true;
+      if (target.kind === "folder") {
+        // A locked folder takes items only while it is unlocked.
+        const folder = findFolder(tree, target.id);
+        return !folder?.isLocked || folder.isUnlocked;
+      }
       if (target.kind === "cell") {
         return reorderable && !payload.target.all && !payload.target.ids.includes(target.id);
       }
@@ -693,6 +730,12 @@ function AppShell() {
       newFolder: () => setFolderDialog({ kind: "create", parent: null }),
       toggleSubfolders: () =>
         changeBrowse({ ...browse, includeSubfolders: !browse.includeSubfolders }, true),
+      lockAll: () =>
+        relock(
+          lockedFolders(tree)
+            .filter((folder) => folder.isUnlocked)
+            .map((folder) => folder.id),
+        ),
     }),
     [
       browse,
@@ -712,6 +755,8 @@ function AppShell() {
       preferences,
       fullscreen,
       builtInLocation,
+      relock,
+      tree,
     ],
   );
 
@@ -727,6 +772,7 @@ function AppShell() {
       sort,
       ascending,
       folderOpen: openFolder !== undefined,
+      unlockedFolders: lockedFolders(tree).filter((folder) => folder.isUnlocked).length,
       items: total,
       selected: selectedCount(selection, total),
     }),
@@ -741,12 +787,14 @@ function AppShell() {
       openFolder,
       total,
       selection,
+      tree,
     ],
   );
 
   const modalOpen =
     dialog !== null ||
     folderDialog !== null ||
+    lockDialog !== null ||
     importsOpen ||
     confirmation !== null ||
     imports.waiting !== undefined ||
@@ -858,13 +906,22 @@ function AppShell() {
                 writable={writable}
                 expanded={expanded}
                 onExpandedChange={setExpanded}
-                onSelect={(id) => setPlace({ kind: "folder", id })}
+                onSelect={openOrUnlock}
                 onIncludeSubfoldersChange={actions.toggleSubfolders}
                 onCreate={(parent) => setFolderDialog({ kind: "create", parent })}
                 onRename={(id, name) => changeFolder(id, { name: name.trim() })}
                 onColor={(id, iconColor) => changeFolder(id, { iconColor })}
                 onMoveTo={(id) => setFolderDialog({ kind: "move", id })}
                 onDelete={(id) => setFolderDialog({ kind: "delete", id })}
+                onLock={lockAction}
+              />
+            }
+            lockedFolders={
+              <LockedFolders
+                folders={tree}
+                selectedId={openFolder?.id ?? null}
+                onUnlock={(id) => setLockDialog({ kind: "unlock", id })}
+                onOpen={(id) => setPlace({ kind: "folder", id })}
               />
             }
             browse={browse}
@@ -925,6 +982,12 @@ function AppShell() {
                       folder={openFolder}
                       writable={writable}
                       includeSubfolders={browse.includeSubfolders}
+                      onLockLabel={(label, color) => {
+                        ipc
+                          .setLockLabel(openFolder.id, label, color)
+                          .then(() => client.invalidateQueries({ queryKey: ["folders"] }))
+                          .catch(failed);
+                      }}
                       onSave={(change) => {
                         // A new own sort shows at once, over a sort picked on this screen.
                         if (
@@ -1009,6 +1072,21 @@ function AppShell() {
           onOpenChange={setImportsOpen}
           imports={imports.imports}
           onCancel={(id) => void ipc.cancelImport(id).catch(() => {})}
+        />
+        <LockDialogs
+          dialog={lockDialog}
+          folders={tree}
+          onClose={() => setLockDialog(null)}
+          onChanged={(opened) => {
+            // Items appeared or went: the selection may name hidden ones.
+            setSelection(NOTHING);
+            setRevision((count) => count + 1);
+            // The folder opens once the tree says it is unlocked, or the screen would bounce
+            // back to All.
+            void client.invalidateQueries({ queryKey: ["folders"] }).then(() => {
+              if (opened) setPlace({ kind: "folder", id: opened });
+            });
+          }}
         />
         <FolderDialogs
           dialog={folderDialog}

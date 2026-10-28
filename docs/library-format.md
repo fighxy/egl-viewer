@@ -43,7 +43,7 @@ My Library.eglib/
 | Where | Value | Meaning |
 |---|---|---|
 | `PRAGMA application_id` | `1162300482` (`0x45474C42`, ASCII `EGLB`) | This SQLite file is an egl-viewer library |
-| `PRAGMA user_version` | `1` | The format version. There is no other version number |
+| `PRAGMA user_version` | `1`, or `2` once the library has a locked folder | The format version. There is no other version number. Version 2 has the schema of version 1; it keeps apps that do not know locks from adding plaintext files to locked folders (D-019, D-045) |
 | `meta.created_with`, `meta.last_written_with` | app version, for example `0.1.0` | Diagnostics only; never used to decide anything |
 
 Checks when a library is opened (the full order is in §7):
@@ -345,8 +345,31 @@ Read-only reasons reach the UI in `LibraryInfo.readOnlyReason`: `otherInstance`,
 - **Into a folder** (phase 4): step 6 also inserts the `item_folder` row (no position) and the
   `item_tag` rows of the folder's tags and its ancestors' tags. Dropped folders become library
   folders first (an existing folder of the same name under the same parent is reused). A
-  duplicate can instead put the existing item into the target folder. Encryption for a locked
-  target folder comes with phase 4b.
+  duplicate can instead put the existing item into the target folder.
+- **Into a locked folder** (phase 4b, the folder unlocked): step 1 encrypts with age while it
+  copies and hashes the plaintext, so `files/.tmp/` never holds plaintext of a locked item. The
+  target is `files/<shard>/<id>/<id>.age` (the file name is sealed); step 6 writes `encrypted =
+  1`, empty plaintext columns, the sealed fields, one `item_key_wrap` row per covering lock, and
+  no `item_fts` row.
+
+### Encrypting and decrypting an existing item
+
+When a lock starts or stops covering an item (docs/age-locked-folders.md, D-045):
+
+```
+1. copy     the original → files/.tmp/<ulid>, encrypted (or decrypted) on the way; flush
+2. journal  INSERT pending_file(new path)
+3. rename   into files/<shard>/<id>/<id>.age (decrypting: back to the original file name)
+4. preview  thumbs/<shard>/<id>.age written next to <id>.webp (or the reverse), atomically
+5. commit   UPDATE item (encrypted, sealed, plaintext columns, file_path), the search row,
+            item_key_wrap rows; DELETE pending_file(new path); INSERT pending_file(old paths)
+6. delete   the old original and preview; DELETE their pending_file rows
+```
+
+A crash before step 5 leaves the new copy named only by the journal; after it, the old copies.
+Either way recovery on open deletes what no row points at; the journal may name `thumbs/` paths
+too. An item a lock covers but that is still plaintext after a crash stays hidden, and the next
+unlock of that lock encrypts it.
 
 ## 7. Opening and closing
 

@@ -57,6 +57,8 @@ type Props = {
   title?: string;
   /** The Folders section of the left bar. */
   folderTree?: ReactNode;
+  /** The Locked folders section of the left bar. */
+  lockedFolders?: ReactNode;
   /** The sort of this screen: a folder's own sort, or the global one. */
   sort?: SortKey;
   ascending?: boolean;
@@ -137,6 +139,7 @@ export function LibraryScreen({
   onPlaceChange,
   title,
   folderTree,
+  lockedFolders,
   sort,
   ascending,
   onSortChange,
@@ -252,6 +255,7 @@ export function LibraryScreen({
                 ))}
               </ul>
               {folderTree}
+              {lockedFolders}
             </nav>
             <Splitter
               side="left"

@@ -6,11 +6,12 @@ use std::collections::{HashMap, HashSet};
 use library_core::{
     Folder, FolderChange, Item, ItemEdit, ItemId, SortKey, SourceError, order_key_between,
 };
-use rusqlite::{OptionalExtension, Transaction, params};
+use rusqlite::{OptionalExtension, Transaction, named_params, params};
 use ulid::Ulid;
 
 use crate::error::{Context, Result};
 use crate::library::Library;
+use crate::locks::{LockMap, VISIBLE};
 use crate::time::now_ms;
 
 /// One folder row, before the tree is built.
@@ -24,18 +25,22 @@ struct Row {
     sort_ascending: Option<bool>,
     cover_item_id: Option<String>,
     locked: bool,
+    lock_label: Option<String>,
+    lock_color: Option<String>,
 }
 
 impl Library {
     /// The folder tree in sibling order. `image_count` counts the items directly in a folder;
     /// `descendant_image_count` the items in it or under it, each item once. The trash does not
-    /// count.
+    /// count, nor do hidden items. A locked folder that is not unlocked shows neither its
+    /// subfolders nor counts.
     pub fn folder_tree(&self) -> Result<Vec<Folder>> {
         let conn = self.conn();
+        let visibility = self.visibility(&conn)?;
         let mut statement = conn
             .prepare(
                 "SELECT id, parent_id, name, description, icon_color, order_by, sort_ascending,
-                        cover_item_id, locked
+                        cover_item_id, locked, label, label_color
                  FROM folder ORDER BY sort_key, id",
             )
             .context("read folders")?;
@@ -51,6 +56,8 @@ impl Library {
                     sort_ascending: row.get(6)?,
                     cover_item_id: row.get(7)?,
                     locked: row.get(8)?,
+                    lock_label: row.get(9)?,
+                    lock_color: row.get(10)?,
                 })
             })
             .and_then(Iterator::collect)
@@ -78,13 +85,18 @@ impl Library {
         let mut direct: HashMap<String, u32> = HashMap::new();
         let mut subtree: HashMap<String, u32> = HashMap::new();
         let mut statement = conn
-            .prepare(
+            .prepare(&format!(
                 "SELECT item_folder.item_id, item_folder.folder_id FROM item_folder
                  JOIN item ON item.id = item_folder.item_id
-                 WHERE item.deleted_at IS NULL ORDER BY item_folder.item_id",
-            )
+                 WHERE item.deleted_at IS NULL AND {VISIBLE} ORDER BY item_folder.item_id"
+            ))
             .context("count folder items")?;
-        let mut links = statement.query([]).context("count folder items")?;
+        let mut links = statement
+            .query(named_params! {
+                ":hidden": visibility.hidden,
+                ":unlocked": visibility.unlocked,
+            })
+            .context("count folder items")?;
         let mut current: Option<String> = None;
         let mut reached: HashSet<String> = HashSet::new();
         let mut flush = |reached: &mut HashSet<String>| {
@@ -114,14 +126,21 @@ impl Library {
         for row in &rows {
             children.entry(row.parent.as_deref()).or_default().push(row);
         }
-        fn build(
-            parent: Option<&str>,
-            inherited: &[String],
-            children: &HashMap<Option<&str>, Vec<&Row>>,
-            tags: &HashMap<String, Vec<String>>,
-            direct: &HashMap<String, u32>,
-            subtree: &HashMap<String, u32>,
-        ) -> Vec<Folder> {
+        struct Tree<'a> {
+            children: HashMap<Option<&'a str>, Vec<&'a Row>>,
+            tags: HashMap<String, Vec<String>>,
+            direct: HashMap<String, u32>,
+            subtree: HashMap<String, u32>,
+            hidden: HashSet<String>,
+        }
+        fn build(parent: Option<&str>, inherited: &[String], tree: &Tree<'_>) -> Vec<Folder> {
+            let Tree {
+                children,
+                tags,
+                direct,
+                subtree,
+                hidden,
+            } = tree;
             children
                 .get(&parent)
                 .into_iter()
@@ -130,18 +149,29 @@ impl Library {
                     let own = tags.get(&row.id).cloned().unwrap_or_default();
                     let mut extend = inherited.to_vec();
                     extend.extend(own.iter().filter(|tag| !inherited.contains(tag)).cloned());
+                    // A locked folder keeps its subfolders and counts to itself.
+                    let closed = row.locked && hidden.contains(&row.id);
+                    let count = |counts: &HashMap<String, u32>| {
+                        (!closed).then(|| counts.get(&row.id).copied().unwrap_or(0))
+                    };
                     Folder {
                         id: row.id.clone(),
                         name: row.name.clone(),
                         description: row.description.clone(),
                         icon_color: row.icon_color.clone(),
-                        children: build(Some(&row.id), &extend, children, tags, direct, subtree),
+                        children: if closed {
+                            Vec::new()
+                        } else {
+                            build(Some(&row.id), &extend, tree)
+                        },
                         tags: own,
                         extend_tags: extend,
-                        image_count: Some(direct.get(&row.id).copied().unwrap_or(0)),
-                        descendant_image_count: Some(subtree.get(&row.id).copied().unwrap_or(0)),
+                        image_count: count(direct),
+                        descendant_image_count: count(subtree),
                         is_locked: row.locked,
-                        is_unlocked: false,
+                        is_unlocked: row.locked && !hidden.contains(&row.id),
+                        lock_label: row.lock_label.clone(),
+                        lock_color: row.lock_color.clone(),
                         cover_item_id: row.cover_item_id.clone(),
                         order_by: row.order_by.as_deref().and_then(sort_key),
                         sort_ascending: row.sort_ascending,
@@ -149,13 +179,39 @@ impl Library {
                 })
                 .collect()
         }
-        Ok(build(None, &[], &children, &tags, &direct, &subtree))
+        let tree = Tree {
+            children,
+            tags,
+            direct,
+            subtree,
+            hidden: visibility.hidden_folders,
+        };
+        Ok(build(None, &[], &tree))
     }
 
-    /// Applies a folder edit; returns the id of the folder it created or changed.
+    /// Applies a folder edit; returns the id of the folder it created or changed. A move that
+    /// takes items under a lock or out from under one encrypts or decrypts them, and needs the
+    /// keys of those locks.
     pub fn save_folder(&self, change: &FolderChange) -> Result<String> {
         self.check_writable()?;
         change.validate()?;
+        let mut reseal = None;
+        if let FolderChange::Move { id, parent, .. } = change {
+            let map = LockMap::load(&self.conn())?;
+            if map.has_locks() {
+                let items = self.items_in(&map.subtree(id))?;
+                self.check_reseal(&items, &map.moved(id, parent.as_deref()), &|_, l| l, None)?;
+                reseal = Some(items);
+            }
+        }
+        let saved = self.write_folder(change)?;
+        if let Some(items) = reseal {
+            self.reseal(&items, &|_, _| {})?;
+        }
+        Ok(saved)
+    }
+
+    fn write_folder(&self, change: &FolderChange) -> Result<String> {
         let now = now_ms();
         let mut conn = self.conn();
         let tx = conn.transaction().context("save the folder")?;
@@ -251,6 +307,22 @@ impl Library {
     /// many items went to the trash.
     pub fn delete_folder(&self, id: &str, trash_items: bool) -> Result<u32> {
         self.check_writable()?;
+        // Items under a lock that goes, or under these folders' locks, are decrypted or
+        // rewrapped first: their wraps must not outlive the folders.
+        let map = LockMap::load(&self.conn())?;
+        if map.has_locks() {
+            let doomed = map.subtree(id);
+            let items = self.items_in(&doomed)?;
+            let after = map.without(&doomed);
+            let links = |_: &str, links: Vec<String>| -> Vec<String> {
+                links
+                    .into_iter()
+                    .filter(|folder| !doomed.contains(folder))
+                    .collect()
+            };
+            self.check_reseal(&items, &after, &links, None)?;
+            self.reseal_with(&items, &after, &links, &|_, _| {})?;
+        }
         let now = now_ms();
         let mut conn = self.conn();
         let tx = conn.transaction().context("delete the folder")?;
@@ -309,10 +381,25 @@ impl Library {
     }
 
     /// Applies an edit to many items in one transaction; returns how many items exist and were
-    /// edited. Folder edits work now; the other intents arrive with phases 5 and 7.
+    /// edited. Folder edits work now; the other intents arrive with phases 5 and 7. Items that
+    /// join or leave a locked folder are encrypted or decrypted after the write, which needs
+    /// that folder unlocked.
     pub fn apply_batch_edit(&self, ids: &[ItemId], edit: &ItemEdit) -> Result<u32> {
         self.check_writable()?;
         edit.validate()?;
+        let map = LockMap::load(&self.conn())?;
+        let items: Vec<String> = ids.iter().map(|id| id.0.clone()).collect();
+        if map.has_locks() {
+            self.check_reseal(&items, &map, &|_, links| edited_links(edit, links), None)?;
+        }
+        let edited = self.write_batch_edit(ids, edit)?;
+        if map.has_locks() {
+            self.reseal(&items, &|_, _| {})?;
+        }
+        Ok(edited)
+    }
+
+    fn write_batch_edit(&self, ids: &[ItemId], edit: &ItemEdit) -> Result<u32> {
         let now = now_ms();
         let mut conn = self.conn();
         let tx = conn.transaction().context("edit items")?;
@@ -575,6 +662,22 @@ fn last_sibling_key(
     )
     .optional()
     .context("read the folder order")
+}
+
+/// An item's folder links after a membership edit, for planning what locks it will need.
+fn edited_links(edit: &ItemEdit, mut links: Vec<String>) -> Vec<String> {
+    match edit {
+        ItemEdit::AddToFolders(folders) => {
+            links.extend(folders.iter().cloned());
+            links
+        }
+        ItemEdit::RemoveFromFolders(folders) => {
+            links.retain(|folder| !folders.contains(folder));
+            links
+        }
+        ItemEdit::SetFolders(folders) => folders.clone(),
+        _ => links,
+    }
 }
 
 /// The order key for position `index` among the children of `parent`, `folder` left out.

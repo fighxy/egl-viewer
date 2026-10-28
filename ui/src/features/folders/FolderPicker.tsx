@@ -55,7 +55,9 @@ export function FolderPicker({
         )}
         {rows.map(({ folder, depth }) => {
           const isChecked = checked?.has(folder.id) ?? false;
-          const isDisabled = disabled?.has(folder.id) ?? false;
+          // A locked folder takes items only while it is unlocked.
+          const isDisabled =
+            (disabled?.has(folder.id) ?? false) || (folder.isLocked && !folder.isUnlocked);
           const color = folder.iconColor ? FOLDER_COLORS[folder.iconColor] : undefined;
           return (
             <button

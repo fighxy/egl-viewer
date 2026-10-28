@@ -99,6 +99,15 @@ pub fn run() {
             commands::apply_item_edit,
             commands::apply_batch_edit,
             commands::reorder_items,
+            commands::lock_folder,
+            commands::unlock_folder,
+            commands::recover_folder,
+            commands::relock_folder,
+            commands::change_folder_password,
+            commands::renew_recovery_key,
+            commands::remove_folder_lock,
+            commands::set_lock_label,
+            commands::save_recovery_file,
             commands::add_files,
             commands::paste_files,
             commands::answer_import,
@@ -124,7 +133,15 @@ fn image_response(image: Option<Thumbnail>) -> Response<Vec<u8>> {
         Some(image) => Response::builder()
             .status(StatusCode::OK)
             .header(header::CONTENT_TYPE, image.content_type)
-            .header(header::CACHE_CONTROL, "max-age=31536000, immutable")
+            // A decrypted image of a locked folder stays out of the WebView's cache.
+            .header(
+                header::CACHE_CONTROL,
+                if image.private {
+                    "no-store"
+                } else {
+                    "max-age=31536000, immutable"
+                },
+            )
             .body(image.bytes),
         None => Response::builder()
             .status(StatusCode::NOT_FOUND)

@@ -12,9 +12,11 @@ use crate::backup;
 use crate::detect::{looks_like_eagle_library, raw_header};
 use crate::error::{Context, Result};
 use crate::lock::{LibraryLock, LockAttempt};
+use crate::locks::Keyring;
 use crate::recover;
 use crate::schema::{
-    self, APPLICATION_ID, FORMAT_VERSION, Header, MIGRATIONS, Migration, meta_get, meta_set,
+    self, APPLICATION_ID, FORMAT_VERSION, Header, MIGRATIONS, Migration, SCHEMA_VERSION, meta_get,
+    meta_set,
 };
 use crate::time::now_ms;
 
@@ -49,6 +51,8 @@ pub struct Library {
     holder: Option<LibraryHolder>,
     unclean_close: bool,
     closed: bool,
+    /// Keys of folders unlocked in this session (docs/age-locked-folders.md §4).
+    keys: Mutex<Keyring>,
 }
 
 impl Library {
@@ -64,7 +68,8 @@ impl Library {
     ) -> Result<Self> {
         let newest = migrations
             .last()
-            .map_or(FORMAT_VERSION, |step| step.version);
+            .map_or(FORMAT_VERSION, |step| step.version.max(FORMAT_VERSION));
+        let schema = schema_target(migrations);
         let root = std::path::absolute(root).context("resolve the library path")?;
         if !root.is_dir() {
             return Err(SourceError::NotFound);
@@ -81,15 +86,15 @@ impl Library {
         let reader = open_reader(&db, options.sync_folder)?;
         let header = check_header(schema::read_header(&reader).ok(), newest)?;
         if options.sync_folder {
-            return Self::reader(root, reader, header, newest, ReadOnlyReason::SyncFolder);
+            return Self::reader(root, reader, header, schema, ReadOnlyReason::SyncFolder);
         }
         let lock = match LibraryLock::try_acquire(&root) {
             LockAttempt::Acquired(lock) => lock,
             LockAttempt::Held => {
-                return Self::reader(root, reader, header, newest, ReadOnlyReason::OtherInstance);
+                return Self::reader(root, reader, header, schema, ReadOnlyReason::OtherInstance);
             }
             LockAttempt::Unavailable => {
-                return Self::reader(root, reader, header, newest, ReadOnlyReason::ReadOnlyMedium);
+                return Self::reader(root, reader, header, schema, ReadOnlyReason::ReadOnlyMedium);
             }
         };
         drop(reader);
@@ -100,10 +105,10 @@ impl Library {
         root: PathBuf,
         conn: Connection,
         header: Header,
-        newest: u32,
+        schema: u32,
         reason: ReadOnlyReason,
     ) -> Result<Self> {
-        if header.version < newest {
+        if header.version < schema {
             return Err(SourceError::NotSupported(
                 "this library needs an upgrade, which only an instance that can write it can do"
                     .into(),
@@ -127,6 +132,7 @@ impl Library {
             holder,
             unclean_close: false,
             closed: false,
+            keys: Mutex::default(),
         })
     }
 
@@ -160,11 +166,7 @@ impl Library {
         meta_set(&conn, "open_by", &open_by.to_string())?;
         meta_set(&conn, "last_written_with", &options.app_version)?;
 
-        if version
-            < migrations
-                .last()
-                .map_or(FORMAT_VERSION, |step| step.version)
-        {
+        if version < schema_target(migrations) {
             backup::before_migration(&conn, &root, version, now)?;
             schema::migrate(&mut conn, version, migrations)?;
         }
@@ -185,6 +187,7 @@ impl Library {
             holder: None,
             unclean_close,
             closed: false,
+            keys: Mutex::default(),
         })
     }
 
@@ -223,6 +226,11 @@ impl Library {
         self.conn.lock().unwrap_or_else(PoisonError::into_inner)
     }
 
+    /// Lock order: the connection first, then the keys; never the other way round.
+    pub(crate) fn keyring(&self) -> &Mutex<Keyring> {
+        &self.keys
+    }
+
     pub(crate) fn check_writable(&self) -> Result<()> {
         match self.read_only {
             Some(_) => Err(SourceError::ReadOnly),
@@ -235,6 +243,10 @@ impl Library {
             return Ok(());
         }
         self.closed = true;
+        self.keys
+            .get_mut()
+            .unwrap_or_else(PoisonError::into_inner)
+            .clear();
         if self.lock.is_some() {
             let conn = self.conn.get_mut().unwrap_or_else(PoisonError::into_inner);
             conn.execute("DELETE FROM meta WHERE key = 'open_by'", [])
@@ -258,6 +270,13 @@ impl Drop for Library {
             tracing::warn!("closing the library failed: {error}");
         }
     }
+}
+
+/// The schema version opening must reach: the last migration, or version 1.
+fn schema_target(migrations: &[Migration]) -> u32 {
+    migrations
+        .last()
+        .map_or(SCHEMA_VERSION, |step| step.version)
 }
 
 /// A read-only connection for the header check, and for read-only instances.

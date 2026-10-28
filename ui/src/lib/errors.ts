@@ -38,6 +38,10 @@ export function describeError(error: unknown): string {
       return error.detail;
     case "storage":
       return `Something went wrong on disk: ${error.detail}`;
+    case "wrongPassword":
+      return "The password or recovery key is not right.";
+    case "locked":
+      return `Unlock “${error.detail.folder}” first.`;
     default:
       return "Something went wrong.";
   }

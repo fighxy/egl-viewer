@@ -34,6 +34,8 @@ export type CommandState = {
   ascending: boolean;
   /** A folder is open: Manual sort and folder commands apply. */
   folderOpen: boolean;
+  /** Locked folders unlocked in this session. */
+  unlockedFolders: number;
   /** Items in the open view. */
   items: number;
   /** Selected items in the open view. */
@@ -65,6 +67,7 @@ export type CommandActions = {
   setAscending: (ascending: boolean) => void;
   newFolder: () => void;
   toggleSubfolders: () => void;
+  lockAll: () => void;
 };
 
 /** `true`, or the reason the command is disabled (shown as a tooltip). */
@@ -361,6 +364,18 @@ export const COMMANDS: readonly Command[] = [
     shortcut: "Ctrl+Shift+N",
     available: needsWritableLibrary,
     run: (actions) => actions.newFolder(),
+  },
+  {
+    id: "library.lockAll",
+    label: "Lock All Folders",
+    menu: "library",
+    group: 1,
+    shortcut: "Ctrl+L",
+    available: (state) => {
+      if (!state.library) return "Open a library first.";
+      return state.unlockedFolders > 0 ? true : "No locked folder is open.";
+    },
+    run: (actions) => actions.lockAll(),
   },
   {
     id: "view.preview",

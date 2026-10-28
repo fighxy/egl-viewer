@@ -27,7 +27,7 @@ pub(crate) fn pending_files(conn: &Connection, root: &Path) -> Result<usize> {
             )
             .context("check the add journal")?;
         if !has_item {
-            match library_file(root, path) {
+            match journal_file(root, path) {
                 Some(file) => remove_with_empty_parent(&file)?,
                 None => tracing::warn!("ignoring a journal path outside files/: {path}"),
             }
@@ -54,14 +54,26 @@ pub(crate) fn empty_tmp(root: &Path) -> Result<()> {
     Ok(())
 }
 
+/// A journal path: an original under `files/`, or a preview under `thumbs/` that encrypting
+/// or decrypting an item replaced.
+fn journal_file(root: &Path, stored: &str) -> Option<PathBuf> {
+    match stored.split_once('/') {
+        Some(("thumbs", rest)) => plain_parts(root.join("thumbs"), rest),
+        _ => library_file(root, stored),
+    }
+}
+
 /// A stored `files/…` path as a path on disk, or `None` if it would leave `files/`.
 pub(crate) fn library_file(root: &Path, stored: &str) -> Option<PathBuf> {
-    let mut parts = stored.split('/');
-    if parts.next() != Some("files") {
-        return None;
+    match stored.split_once('/') {
+        Some(("files", rest)) => plain_parts(root.join("files"), rest),
+        _ => None,
     }
-    let mut path = root.join("files");
-    for part in parts {
+}
+
+/// `base` joined with the `/`-separated parts of `rest`, each one a plain name.
+fn plain_parts(mut path: PathBuf, rest: &str) -> Option<PathBuf> {
+    for part in rest.split('/') {
         // One plain name per part: no "", ".", "..", drive letters or separators.
         let mut components = Path::new(part).components();
         match (components.next(), components.next()) {
@@ -103,9 +115,26 @@ mod tests {
             "thumbs/a.webp",
             "/etc/passwd",
             "files/./a",
+            "files",
             "",
         ] {
             assert_eq!(library_file(root, stored), None, "{stored}");
+        }
+    }
+
+    #[test]
+    fn the_journal_also_names_previews() {
+        let root = Path::new("/lib");
+        assert_eq!(
+            journal_file(root, "thumbs/7Q/ID.webp"),
+            Some(root.join("thumbs").join("7Q").join("ID.webp"))
+        );
+        assert_eq!(
+            journal_file(root, "files/7Q/ID/a.age"),
+            Some(root.join("files").join("7Q").join("ID").join("a.age"))
+        );
+        for stored in ["thumbs/../x", "thumbs//a", "other/a", "thumbs"] {
+            assert_eq!(journal_file(root, stored), None, "{stored}");
         }
     }
 }

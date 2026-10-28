@@ -363,7 +363,14 @@ fn make_preview(
     if cancel.load(Ordering::Relaxed) {
         return;
     }
-    let failure = match media::render(stored, ext) {
+    let rendered = match library.is_encrypted(id) {
+        Ok(true) => library
+            .read_sealed_original(id)
+            .map_err(|error| media::MediaError::Decode(reason(&error)))
+            .and_then(|bytes| media::render_bytes(&bytes, ext)),
+        _ => media::render(stored, ext),
+    };
+    let failure = match rendered {
         Ok(rendered) => library
             .store_preview(id, &rendered)
             .err()

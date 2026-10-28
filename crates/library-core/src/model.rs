@@ -97,10 +97,24 @@ pub struct Folder {
     pub descendant_image_count: Option<u32>,
     pub is_locked: bool,
     pub is_unlocked: bool,
+    /// The lock's tag of a locked folder: a caption and a colour, plaintext (D-018). Not an
+    /// item tag.
+    pub lock_label: Option<String>,
+    pub lock_color: Option<String>,
     pub cover_item_id: Option<String>,
     /// The folder's own sort (docs/spec.md §5); `None` follows the global sort.
     pub order_by: Option<SortKey>,
     pub sort_ascending: Option<bool>,
+}
+
+/// The recovery secret of a new lock, shown once and never stored (docs/age-locked-folders.md
+/// §7): the key, and the same bits as 12 words.
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize, TS)]
+#[serde(rename_all = "camelCase")]
+#[ts(export)]
+pub struct RecoveryKey {
+    pub key: String,
+    pub phrase: String,
 }
 
 /// One colour of an item's palette, as Eagle stores it: `{ color: [r, g, b], ratio }`.
@@ -213,6 +227,8 @@ pub struct SmartFolder {
 pub struct Thumbnail {
     pub bytes: Vec<u8>,
     pub content_type: String,
+    /// Decrypted from a locked folder: the WebView must not keep it in its cache.
+    pub private: bool,
 }
 
 /// Where a change feed continues from; opaque to everyone but its source.

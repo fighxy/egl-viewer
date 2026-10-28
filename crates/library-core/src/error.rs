@@ -53,6 +53,12 @@ pub enum SourceError {
     UnsupportedLocation(LocationProblem),
     #[error("already exists")]
     AlreadyExists,
+    /// The password or recovery key of a locked folder does not match.
+    #[error("wrong password")]
+    WrongPassword,
+    /// The write needs a locked folder unlocked first; `folder` is its name.
+    #[error("unlock {folder} first")]
+    Locked { folder: String },
 }
 
 /// Why a folder cannot hold a library (docs/spec.md §3, D-021).

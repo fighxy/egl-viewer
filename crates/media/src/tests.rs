@@ -5,7 +5,7 @@ use std::fs;
 use image::ImageFormat;
 
 use crate::fixtures::{self, every_format};
-use crate::{Kind, MediaError, THUMBNAIL_SIZE, kind, render};
+use crate::{Kind, MediaError, THUMBNAIL_SIZE, kind, render, render_bytes};
 
 fn write(dir: &std::path::Path, name: &str, bytes: &[u8]) -> std::path::PathBuf {
     let path = dir.join(name);
@@ -27,6 +27,29 @@ fn every_v1_format_gives_dimensions_a_thumbnail_and_a_palette() {
         assert!(is_webp(&rendered.thumbnail.webp), "{ext}");
         assert!(!rendered.palette.is_empty(), "{ext}");
     }
+}
+
+#[test]
+fn bytes_in_memory_render_like_the_file() {
+    let dir = tempfile::tempdir().unwrap();
+    for (ext, bytes) in every_format(2) {
+        let path = write(dir.path(), &format!("sample.{ext}"), &bytes);
+        let from_file = render(&path, ext).unwrap();
+        let from_bytes = render_bytes(&bytes, ext).unwrap_or_else(|error| panic!("{ext}: {error}"));
+        assert_eq!(
+            (from_bytes.width, from_bytes.height),
+            (from_file.width, from_file.height)
+        );
+        assert_eq!(from_bytes.thumbnail.webp, from_file.thumbnail.webp, "{ext}");
+        assert_eq!(from_bytes.palette, from_file.palette, "{ext}");
+        assert_eq!(from_bytes.exif, from_file.exif, "{ext}");
+    }
+    let exif = fixtures::jpeg_with_exif(40, 20, 6);
+    assert!(render_bytes(&exif, "jpg").unwrap().exif.is_some());
+    assert!(matches!(
+        render_bytes(b"x", "zip"),
+        Err(MediaError::Unsupported)
+    ));
 }
 
 #[test]

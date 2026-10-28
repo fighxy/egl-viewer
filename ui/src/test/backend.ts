@@ -22,6 +22,10 @@ export const LIBRARY: LibraryInfo = {
   holder: null,
 };
 
+/** The 12 words the mocked locks hand out. */
+export const RECOVERY_PHRASE =
+  "abandon ability able about above absent absorb abstract absurd abuse access accident";
+
 type Handler = (args: Record<string, unknown>) => unknown;
 export type Call = { cmd: string; args: Record<string, unknown> };
 type Invoke = (cmd: string, args?: unknown, options?: unknown) => Promise<unknown>;
@@ -61,6 +65,19 @@ export function mockBackend(overrides: Record<string, Handler> = {}): Call[] {
     apply_item_edit: () => null,
     apply_batch_edit: () => 0,
     reorder_items: () => null,
+    lock_folder: () => ({ key: "ABCD-EFGH-JKMN-PQRS-TVWX-YZ01-2345", phrase: RECOVERY_PHRASE }),
+    unlock_folder: () => null,
+    recover_folder: () => null,
+    relock_folder: () => null,
+    change_folder_password: () => null,
+    renew_recovery_key: () => ({
+      key: "NEW0-KEY0-NEW0-KEY0-NEW0-KEY0-NEW0",
+      phrase: RECOVERY_PHRASE,
+    }),
+    remove_folder_lock: () => null,
+    set_lock_label: () => null,
+    save_recovery_file: () => null,
+    "plugin:dialog|save": () => "C:\\Users\\me\\Documents\\Private recovery key.txt",
     "plugin:dialog|open": () => "C:\\Users\\me\\Libraries\\Refs.eglib",
     ...overrides,
   };
@@ -135,6 +152,8 @@ export function folder(id: string, name: string, change: Partial<Folder> = {}): 
     descendantImageCount: 0,
     isLocked: false,
     isUnlocked: false,
+    lockLabel: null,
+    lockColor: null,
     coverItemId: null,
     orderBy: null,
     sortAscending: null,

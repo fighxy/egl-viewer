@@ -1,17 +1,22 @@
 //! EXIF in Eagle's `rawMetas` shape (correction 38), from JPEG, TIFF, PNG and WebP.
 
 use std::fs::File;
-use std::io::BufReader;
+use std::io::{BufRead, BufReader, Cursor, Seek};
 use std::path::Path;
 
 use exif::{In, Tag, Value};
 use serde_json::{Map, Value as Json};
 
 pub(crate) fn exif(path: &Path) -> Option<Json> {
-    let file = File::open(path).ok()?;
-    let exif = exif::Reader::new()
-        .read_from_container(&mut BufReader::new(file))
-        .ok()?;
+    exif_from(&mut BufReader::new(File::open(path).ok()?))
+}
+
+pub(crate) fn exif_bytes(bytes: &[u8]) -> Option<Json> {
+    exif_from(&mut Cursor::new(bytes))
+}
+
+fn exif_from<R: BufRead + Seek>(reader: &mut R) -> Option<Json> {
+    let exif = exif::Reader::new().read_from_container(reader).ok()?;
     let field = |tag: Tag| exif.get_field(tag, In::PRIMARY);
     let text = |tag: Tag| {
         field(tag).and_then(|field| match &field.value {

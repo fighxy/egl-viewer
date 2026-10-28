@@ -8,10 +8,12 @@ use std::path::{Path, PathBuf};
 use std::sync::Arc;
 
 use library_core::{Item, ItemId, ItemLite, Palette, Scope, SourceError, Tag, Thumbnail};
-use rusqlite::{OptionalExtension, Row, params};
+use rusqlite::{OptionalExtension, Row, named_params, params};
 
 use crate::error::{Context, Result};
 use crate::library::Library;
+use crate::locks::VISIBLE;
+use crate::recover::library_file;
 
 /// The columns of [`ItemLite`], in the order `lite_from_row` reads them.
 const LITE_COLUMNS: &str = "id, name, ext, width, height, size, star, \
@@ -21,7 +23,9 @@ const LITE_COLUMNS: &str = "id, name, ext, width, height, size, star, \
 
 impl Library {
     /// The light items of one scope (docs/architecture.md §15.3). A folder scope also gives
-    /// each direct member its manual position. Smart folders arrive with phase 6.
+    /// each direct member its manual position. Items under a lock that is not unlocked never
+    /// leave this function; encrypted items come with their sealed name and palette opened.
+    /// Smart folders arrive with phase 6.
     pub fn load_scope(&self, scope: &Scope) -> Result<Vec<ItemLite>> {
         let mut folder: Option<&str> = None;
         let condition = match scope {
@@ -46,7 +50,7 @@ impl Library {
                      WHERE item_id = item.id AND folder_id IN (SELECT id FROM sub))"
                 } else {
                     "deleted_at IS NULL AND EXISTS (SELECT 1 FROM item_folder \
-                     WHERE item_id = item.id AND folder_id = ?1)"
+                     WHERE item_id = item.id AND folder_id = :folder)"
                 }
             }
             Scope::Unfiled => {
@@ -61,29 +65,68 @@ impl Library {
             Scope::Smart { .. } => return Err(SourceError::NotSupported("smart folders".into())),
         };
         let conn = self.conn();
+        let visibility = self.visibility(&conn)?;
         let mut items = Vec::new();
         let mut positions = HashMap::new();
+        let mut sealed: Vec<(usize, Vec<u8>)> = Vec::new();
         // The folder and its subfolders, for the scope with subfolders.
-        let prefix = if folder.is_some() {
-            "WITH RECURSIVE sub(id) AS (SELECT ?1 \
+        let prefix = if folder.is_some()
+            && matches!(
+                scope,
+                Scope::Folder {
+                    include_descendants: true,
+                    ..
+                }
+            ) {
+            "WITH RECURSIVE sub(id) AS (SELECT :folder \
              UNION SELECT folder.id FROM folder JOIN sub ON folder.parent_id = sub.id) "
         } else {
             ""
         };
         let mut statement = conn
             .prepare(&format!(
-                "{prefix}SELECT {LITE_COLUMNS} FROM item WHERE {condition} ORDER BY seq"
+                "{prefix}SELECT {LITE_COLUMNS}, encrypted, sealed FROM item \
+                 WHERE {condition} AND {VISIBLE} ORDER BY seq"
             ))
             .context("load a scope")?;
         let mut rows = match folder {
-            Some(id) => statement.query(params![id]),
-            None => statement.query([]),
+            Some(id) => statement.query(named_params! {
+                ":folder": id,
+                ":hidden": visibility.hidden,
+                ":unlocked": visibility.unlocked,
+            }),
+            None => statement.query(named_params! {
+                ":hidden": visibility.hidden,
+                ":unlocked": visibility.unlocked,
+            }),
         }
         .context("load a scope")?;
         while let Some(row) = rows.next().context("load a scope")? {
             let item = lite_from_row(row).context("read an item")?;
+            if row.get::<_, bool>(15).context("read an item")? {
+                let blob: Option<Vec<u8>> = row.get(16).context("read an item")?;
+                sealed.push((items.len(), blob.unwrap_or_default()));
+            }
             positions.insert(item.id.0.clone(), items.len());
             items.push(item);
+        }
+        drop(rows);
+        drop(statement);
+
+        // Encrypted items: the name and the palette's first colour, opened in this session.
+        let mut unreadable = Vec::new();
+        for (at, blob) in &sealed {
+            let id = items[*at].id.0.clone();
+            match self.open_fields(&conn, &id, blob) {
+                Ok(fields) => {
+                    items[*at].palette0 = first_colour(fields.palette.as_deref());
+                    items[*at].name = fields.name;
+                }
+                Err(error) => {
+                    tracing::warn!("cannot open an encrypted item: {error}");
+                    unreadable.push(*at);
+                }
+            }
         }
 
         // Tags, interned: a large library repeats the same names many times.
@@ -139,22 +182,39 @@ impl Library {
                 }
             }
         }
+        // An item whose key cannot be opened stays hidden, like the rest of a locked folder.
+        for at in unreadable.into_iter().rev() {
+            items.remove(at);
+        }
         Ok(items)
     }
 
-    /// The full item for the detail panel, also from the trash.
+    /// The full item for the detail panel, also from the trash; `None` while it is hidden.
     pub fn item(&self, id: &str) -> Result<Option<Item>> {
         let conn = self.conn();
+        let visibility = self.visibility(&conn)?;
         let found = conn
             .query_row(
-                "SELECT id, name, ext, width, height, size, star, annotation, url, palette, \
-                 added_at, file_created_at, file_modified_at, duration, bpm, exif, \
-                 thumb_version, deleted_at IS NOT NULL FROM item WHERE id = ?1",
-                params![id],
+                &format!(
+                    "SELECT id, name, ext, width, height, size, star, annotation, url, palette, \
+                     added_at, file_created_at, file_modified_at, duration, bpm, exif, \
+                     thumb_version, deleted_at IS NOT NULL, encrypted, sealed \
+                     FROM item WHERE id = :id AND {VISIBLE}"
+                ),
+                named_params! {
+                    ":id": id,
+                    ":hidden": visibility.hidden,
+                    ":unlocked": visibility.unlocked,
+                },
                 |row| {
                     let palette: Option<String> = row.get(9)?;
                     let exif: Option<String> = row.get(15)?;
-                    Ok(Item {
+                    let sealed: Option<Vec<u8>> = if row.get::<_, bool>(18)? {
+                        Some(row.get::<_, Option<Vec<u8>>>(19)?.unwrap_or_default())
+                    } else {
+                        None
+                    };
+                    let item = Item {
                         id: ItemId(row.get(0)?),
                         name: row.get(1)?,
                         ext: row.get(2)?,
@@ -177,14 +237,30 @@ impl Library {
                         thumb_version: row.get(16)?,
                         is_deleted: row.get(17)?,
                         ..Item::default()
-                    })
+                    };
+                    Ok((item, sealed))
                 },
             )
             .optional()
             .context("read an item")?;
-        let Some(mut item) = found else {
+        let Some((mut item, sealed)) = found else {
             return Ok(None);
         };
+        if let Some(blob) = sealed {
+            let fields = self.open_fields(&conn, id, &blob)?;
+            item.palettes = fields
+                .palette
+                .as_deref()
+                .and_then(|json| serde_json::from_str::<Vec<Palette>>(json).ok())
+                .unwrap_or_default();
+            item.exif = fields
+                .exif
+                .as_deref()
+                .and_then(|json| serde_json::from_str(json).ok());
+            item.name = fields.name;
+            item.annotation = fields.annotation;
+            item.url = fields.url;
+        }
         let mut statement = conn
             .prepare(
                 "SELECT tag.name FROM item_tag JOIN tag ON tag.id = item_tag.tag_id \
@@ -209,65 +285,89 @@ impl Library {
     pub fn tags(&self) -> Result<Vec<Tag>> {
         let conn = self.conn();
         let mut statement = conn
-            .prepare(
+            .prepare(&format!(
                 "SELECT tag.name, count(item.id) FROM tag \
                  LEFT JOIN item_tag ON item_tag.tag_id = tag.id \
                  LEFT JOIN item ON item.id = item_tag.item_id AND item.deleted_at IS NULL \
-                 GROUP BY tag.id ORDER BY tag.name",
-            )
+                 AND {VISIBLE} GROUP BY tag.id ORDER BY tag.name"
+            ))
             .context("read tags")?;
+        let visibility = self.visibility(&conn)?;
         statement
-            .query_map([], |row| {
-                Ok(Tag {
-                    name: row.get(0)?,
-                    image_count: Some(row.get(1)?),
-                })
-            })
+            .query_map(
+                named_params! {
+                    ":hidden": visibility.hidden,
+                    ":unlocked": visibility.unlocked,
+                },
+                |row| {
+                    Ok(Tag {
+                        name: row.get(0)?,
+                        image_count: Some(row.get(1)?),
+                    })
+                },
+            )
             .and_then(Iterator::collect)
             .context("read tags")
     }
 
-    /// The item's thumbnail, once the media pipeline made one.
+    /// The item's thumbnail, once the media pipeline made one; decrypted in memory for an item
+    /// of an unlocked folder, `None` for a hidden one.
     pub fn thumbnail(&self, id: &str) -> Result<Option<Thumbnail>> {
-        let version: Option<i64> = self
-            .conn()
-            .query_row(
-                "SELECT thumb_version FROM item WHERE id = ?1",
-                params![id],
-                |row| row.get(0),
-            )
-            .optional()
-            .context("read an item")?;
-        if version.is_none_or(|version| version <= 0) {
+        let Some((version, encrypted, _, _)) = self.visible_file(id)? else {
+            return Ok(None);
+        };
+        if version <= 0 {
             return Ok(None);
         }
-        let path = self.thumbnail_path(id)?;
-        Ok(self.read_inside(&path)?.map(|bytes| Thumbnail {
+        let bytes = if encrypted {
+            self.read_sealed(id, &self.sealed_thumbnail_path(id)?)?
+        } else {
+            self.read_inside(&self.thumbnail_path(id)?)?
+        };
+        Ok(bytes.map(|bytes| Thumbnail {
             bytes,
             content_type: "image/webp".into(),
+            private: encrypted,
         }))
     }
 
     /// The stored original, for the full-size preview.
     pub fn original(&self, id: &str) -> Result<Option<Thumbnail>> {
-        let found: Option<(String, String)> = self
-            .conn()
-            .query_row(
-                "SELECT file_path, ext FROM item WHERE id = ?1",
-                params![id],
-                |row| Ok((row.get(0)?, row.get(1)?)),
-            )
-            .optional()
-            .context("read an item")?;
-        let Some((file_path, ext)) = found else {
+        let Some((_, encrypted, file_path, ext)) = self.visible_file(id)? else {
             return Ok(None);
         };
-        Ok(self
-            .read_inside(&self.root().join(file_path))?
-            .map(|bytes| Thumbnail {
-                bytes,
-                content_type: content_type(&ext).into(),
-            }))
+        let bytes = if encrypted {
+            let path = library_file(self.root(), &file_path)
+                .ok_or_else(|| SourceError::Storage("bad stored path".into()))?;
+            self.read_sealed(id, &path)?
+        } else {
+            self.read_inside(&self.root().join(file_path))?
+        };
+        Ok(bytes.map(|bytes| Thumbnail {
+            bytes,
+            content_type: content_type(&ext).into(),
+            private: encrypted,
+        }))
+    }
+
+    /// `thumb_version`, `encrypted`, `file_path` and `ext` of an item that may be shown.
+    fn visible_file(&self, id: &str) -> Result<Option<(i64, bool, String, String)>> {
+        let conn = self.conn();
+        let visibility = self.visibility(&conn)?;
+        conn.query_row(
+            &format!(
+                "SELECT thumb_version, encrypted, file_path, ext FROM item \
+                 WHERE id = :id AND {VISIBLE}"
+            ),
+            named_params! {
+                ":id": id,
+                ":hidden": visibility.hidden,
+                ":unlocked": visibility.unlocked,
+            },
+            |row| Ok((row.get(0)?, row.get(1)?, row.get(2)?, row.get(3)?)),
+        )
+        .optional()
+        .context("read an item")
     }
 
     /// Reads `path` only when it really lies inside the library folder (docs/architecture.md
@@ -336,6 +436,12 @@ fn lite_from_row(row: &Row<'_>) -> rusqlite::Result<ItemLite> {
         thumb_version,
         position: None,
     })
+}
+
+/// The first colour of a palette stored as JSON.
+fn first_colour(palette: Option<&str>) -> Option<[u8; 3]> {
+    let palettes: Vec<Palette> = serde_json::from_str(palette?).ok()?;
+    palettes.first().map(|entry| entry.color)
 }
 
 /// What the WebView is told an original is.

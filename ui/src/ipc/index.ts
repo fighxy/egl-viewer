@@ -23,10 +23,12 @@ import type { LibraryHolder } from "./generated/LibraryHolder";
 import type { LibraryInfo } from "./generated/LibraryInfo";
 import type { LibraryQuery } from "./generated/LibraryQuery";
 import type { LocationProblem } from "./generated/LocationProblem";
+import type { LockProgress } from "./generated/LockProgress";
 import type { Palette } from "./generated/Palette";
 import type { Preferences } from "./generated/Preferences";
 import type { ReadOnlyReason } from "./generated/ReadOnlyReason";
 import type { RecentLibrary } from "./generated/RecentLibrary";
+import type { RecoveryKey } from "./generated/RecoveryKey";
 import type { Scope } from "./generated/Scope";
 import type { ScopeProgress } from "./generated/ScopeProgress";
 import type { SortKey } from "./generated/SortKey";
@@ -61,10 +63,12 @@ export type {
   LibraryInfo,
   LibraryQuery,
   LocationProblem,
+  LockProgress,
   Palette,
   Preferences,
   ReadOnlyReason,
   RecentLibrary,
+  RecoveryKey,
   Scope,
   ScopeProgress,
   SortKey,
@@ -162,6 +166,45 @@ export const ipc = {
     invoke<number>("apply_batch_edit", { target, edit }),
   reorderItems: (folder: string, ids: string[], before: string | null) =>
     invoke<void>("reorder_items", { folder, ids, before }),
+  // Locked folders (docs/age-locked-folders.md). Passwords go to Rust and are never stored.
+  lockFolder: (
+    id: string,
+    password: string,
+    label: string | null,
+    labelColor: string | null,
+    onProgress?: (progress: LockProgress) => void,
+  ) => {
+    const channel = new Channel<LockProgress>();
+    if (onProgress) channel.onmessage = onProgress;
+    return invoke<RecoveryKey>("lock_folder", {
+      id,
+      password,
+      label,
+      labelColor,
+      onProgress: channel,
+    });
+  },
+  unlockFolder: (id: string, password: string) => invoke<void>("unlock_folder", { id, password }),
+  recoverFolder: (id: string, recovery: string, newPassword: string) =>
+    invoke<void>("recover_folder", { id, recovery, newPassword }),
+  relockFolder: (id: string) => invoke<void>("relock_folder", { id }),
+  changeFolderPassword: (id: string, current: string, newPassword: string) =>
+    invoke<void>("change_folder_password", { id, current, newPassword }),
+  renewRecoveryKey: (id: string, current: string) =>
+    invoke<RecoveryKey>("renew_recovery_key", { id, current }),
+  removeFolderLock: (
+    id: string,
+    password: string,
+    onProgress?: (progress: LockProgress) => void,
+  ) => {
+    const channel = new Channel<LockProgress>();
+    if (onProgress) channel.onmessage = onProgress;
+    return invoke<void>("remove_folder_lock", { id, password, onProgress: channel });
+  },
+  setLockLabel: (id: string, label: string | null, labelColor: string | null) =>
+    invoke<void>("set_lock_label", { id, label, labelColor }),
+  saveRecoveryFile: (path: string, folder: string, key: RecoveryKey) =>
+    invoke<void>("save_recovery_file", { path, folder, key }),
 };
 
 /** Events from Rust (docs/architecture.md §8). */

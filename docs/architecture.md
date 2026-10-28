@@ -763,7 +763,14 @@ Later, for phones: the WebView prepares the image (`createImageBitmap`, long edg
 | `apply_item_edit`, `apply_batch_edit` | id or `ItemsTarget` (ids, or a view's Select All minus ids), `ItemEdit` | `Item` / count; phase 4 has the folder intents |
 | `reorder_items` | folder, ids, the id they go before (none: the end) | — (manual order) |
 | `undo` | — | — |
-| `save_folder`, `delete_folder`, `lock_folder`, `unlock_folder` | `FolderChange` (create, update with every property, move to a parent and index); id and "trash the items only in it"; … | `Folder` tree |
+| `save_folder`, `delete_folder` | `FolderChange` (create, update with every property, move to a parent and index); id and "trash the items only in it" | `Folder` tree |
+| `lock_folder` | id, password, label, label colour, `onProgress: Channel<LockProgress>` | `RecoveryKey` (shown once; never stored) |
+| `unlock_folder`, `relock_folder` | id (and the password) | — (views recomputed) |
+| `recover_folder` | id, recovery key or words, new password | — (the folder is open) |
+| `change_folder_password`, `renew_recovery_key` | id, current password (and the new one) | — / `RecoveryKey` |
+| `remove_folder_lock` | id, password, `onProgress: Channel<LockProgress>` | — (the folder is decrypted) |
+| `set_lock_label` | id, label, label colour | — |
+| `save_recovery_file` | path from the Save dialog, folder name, `RecoveryKey` | — (refused inside the library folder) |
 | `tag_vocabulary`, `tag_groups`, `save_tag_group`, `delete_tag_group` | … | lists |
 | `rename_tag`, `merge_tags`, `delete_tag` | names | — |
 | `save_smart_folder`, `delete_smart_folder` | … | smart folder tree |
@@ -1002,7 +1009,7 @@ The same direct path to the API, but over Tailscale or WireGuard to the Eagle PC
 | Level | What | Where |
 |---|---|---|
 | Rust unit, `library-core` | The core table in §10 of the spec, plus: `matches_locally` for snapshot updates; the lock filter with descendants; stable random sort; the smart folder evaluator against the cases of §16 | `cargo test`, CI |
-| Rust, `library-native` | Create and open; a newer format version is refused; migrations on an older schema run after a backup; `library.lock` blocks a second writer, which opens read-only and writes nothing; after a killed writer the lock is free at once and the unclean close is detected; a library in a sync folder opens read-only and one on a network path is refused; a crash at any step of `add_file` leaves neither a row without a file nor a file without a row; the reserved locked-folder columns and tables exist and stay empty; duplicates by hash, the trash included; FTS5 translation of `OR`, parentheses, `-` and Cyrillic; case-sensitive tags; folder delete semantics; emptying the trash deletes rows and files | `cargo test` on temporary folders, CI |
+| Rust, `library-native` | Create and open; a newer format version is refused; migrations on an older schema run after a backup; `library.lock` blocks a second writer, which opens read-only and writes nothing; after a killed writer the lock is free at once and the unclean close is detected; a library in a sync folder opens read-only and one on a network path is refused; a crash at any step of `add_file` leaves neither a row without a file nor a file without a row; locked folders: items hidden in every scope and count until unlocked, files, previews and fields age ciphertext that another folder's password does not open, recovery, removal, and every write into or out of a lock; `folder_piv_wrap` stays empty; duplicates by hash, the trash included; FTS5 translation of `OR`, parentheses, `-` and Cyrillic; case-sensitive tags; folder delete semantics; emptying the trash deletes rows and files | `cargo test` on temporary folders, CI |
 | Rust, `media` | Each v1 format (small files in `fixtures/media/`, made for the tests) gives dimensions, a thumbnail and a palette; an undecodable file gives a clean error | `cargo test`, CI |
 | Rust, app crate | `view_range` windows; views recomputed under the same id after a write; `thumb` paths outside the library are refused | `cargo test`, CI |
 | Rust, Eagle import | A synthetic `.library` fixture in `fixtures/eagle-library/` (`metadata.json`, `mtime.json`, a few `.info` folders) → a native library with the expected rows, folder order and mapped ids, and no passwords; a truncated `metadata.json` is retried; an interrupted import resumes without duplicates | `cargo test`, CI |
