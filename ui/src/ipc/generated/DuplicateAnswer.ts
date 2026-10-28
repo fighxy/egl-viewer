@@ -3,4 +3,4 @@
 /**
  * The user's answer to the duplicate question of an import.
  */
-export type DuplicateAnswer = "skip" | "addAnyway" | "cancel";
+export type DuplicateAnswer = "skip" | "addAnyway" | "addToFolder" | "cancel";

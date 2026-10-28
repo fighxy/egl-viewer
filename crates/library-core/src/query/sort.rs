@@ -114,8 +114,12 @@ fn compare_by(key: SortKey, x: &ItemLite, y: &ItemLite) -> Ordering {
             .duration
             .unwrap_or(0.0)
             .total_cmp(&y.duration.unwrap_or(0.0)),
-        // Positions inside a folder arrive with folders (phase 4); until then, date added.
-        SortKey::Manual => Ordering::Equal,
+        // Items without a position in the open folder (from its subfolders, or outside a
+        // folder) come after the ordered ones.
+        SortKey::Manual => x
+            .position
+            .unwrap_or(f64::INFINITY)
+            .total_cmp(&y.position.unwrap_or(f64::INFINITY)),
         SortKey::Title | SortKey::Extension | SortKey::FirstTag | SortKey::Random => {
             unreachable!("keyed above")
         }

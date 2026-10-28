@@ -4,6 +4,7 @@ import { waitFor } from "@testing-library/react";
 import { expect } from "vitest";
 import {
   DEFAULT_PREFERENCES,
+  type Folder,
   type ImportProgress,
   type Item,
   type ItemCell,
@@ -54,6 +55,12 @@ export function mockBackend(overrides: Record<string, Handler> = {}): Call[] {
     view_ids: () => [],
     close_view: () => null,
     item_detail: () => null,
+    folder_tree: () => [],
+    save_folder: () => [],
+    delete_folder: () => [],
+    apply_item_edit: () => null,
+    apply_batch_edit: () => 0,
+    reorder_items: () => null,
     "plugin:dialog|open": () => "C:\\Users\\me\\Libraries\\Refs.eglib",
     ...overrides,
   };
@@ -112,6 +119,27 @@ export function progress(change: Partial<ImportProgress> = {}): ImportProgress {
 
 export function called(calls: Call[], cmd: string): Call[] {
   return calls.filter((call) => call.cmd === cmd);
+}
+
+/** A folder as `folder_tree` returns it. */
+export function folder(id: string, name: string, change: Partial<Folder> = {}): Folder {
+  return {
+    id,
+    name,
+    description: "",
+    iconColor: null,
+    tags: [],
+    extendTags: [],
+    children: [],
+    imageCount: 0,
+    descendantImageCount: 0,
+    isLocked: false,
+    isUnlocked: false,
+    coverItemId: null,
+    orderBy: null,
+    sortAscending: null,
+    ...change,
+  };
 }
 
 /** The cell at position `n` of a fake view. */

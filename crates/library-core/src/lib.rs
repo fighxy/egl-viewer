@@ -6,15 +6,17 @@
 
 pub mod edit;
 pub mod error;
+pub mod folder;
 pub mod model;
 pub mod query;
 pub mod source;
 
 pub use edit::ItemEdit;
 pub use error::{LocationProblem, NetworkError, SourceError};
+pub use folder::{FOLDER_COLORS, FolderChange, order_key_between};
 pub use model::{
-    AddTarget, ChangeToken, Changes, DuplicateNotice, Folder, FolderChange, ImportFailure,
-    ImportKind, ImportProgress, ImportState, ImportTicket, Item, ItemId, ItemLite, LibraryCounts,
+    AddTarget, ChangeToken, Changes, DuplicateNotice, Folder, ImportFailure, ImportKind,
+    ImportProgress, ImportState, ImportTicket, Item, ItemId, ItemLite, LibraryCounts,
     LibraryHolder, LibraryInfo, LibraryKind, NewFile, Palette, ReadOnlyReason, SmartFolder, Tag,
     TagGroup, Thumbnail,
 };

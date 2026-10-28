@@ -18,6 +18,9 @@ const state = (change: Partial<CommandState> = {}): CommandState => ({
   leftOpen: true,
   rightOpen: true,
   browse: DEFAULT_PREFERENCES.browse,
+  sort: DEFAULT_PREFERENCES.browse.sort,
+  ascending: DEFAULT_PREFERENCES.browse.ascending,
+  folderOpen: false,
   items: 0,
   selected: 0,
   ...change,
@@ -31,7 +34,13 @@ const command = (id: string) => {
 
 describe("command registry", () => {
   it("shows only menus that have commands in this phase", () => {
-    expect(visibleMenus().map((menu) => menu.label)).toEqual(["File", "Edit", "View", "Help"]);
+    expect(visibleMenus().map((menu) => menu.label)).toEqual([
+      "File",
+      "Edit",
+      "View",
+      "Library",
+      "Help",
+    ]);
   });
 
   it("adds and pastes only into a library that can be written", () => {

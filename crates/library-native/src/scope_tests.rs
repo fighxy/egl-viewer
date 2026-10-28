@@ -75,13 +75,16 @@ fn each_scope_is_one_query() {
     assert_eq!(ids(&library, &Scope::Unfiled), std::slice::from_ref(&a));
     assert_eq!(ids(&library, &Scope::Untagged), std::slice::from_ref(&b));
     assert_eq!(ids(&library, &Scope::Trash), [c]);
-    assert!(matches!(
-        library.load_scope(&Scope::Folder {
-            id: "F1".into(),
-            include_descendants: false
-        }),
-        Err(SourceError::NotSupported(_))
-    ));
+    assert_eq!(
+        ids(
+            &library,
+            &Scope::Folder {
+                id: "F1".into(),
+                include_descendants: false
+            }
+        ),
+        std::slice::from_ref(&b)
+    );
 
     let all = library.load_scope(&Scope::All).unwrap();
     let (first, second) = (&all[0], &all[1]);
@@ -213,7 +216,7 @@ async fn the_native_source_answers_through_the_trait() {
         source.search_ids("poster").await,
         Err(SourceError::NotSupported(_))
     ));
-    assert!(source.folder_tree().await.unwrap().is_empty());
+    assert_eq!(source.folder_tree().await.unwrap()[0].name, "Posters");
 
     let reader = Library::open(&root, &OpenOptions::new(APP)).unwrap();
     assert!(reader.read_only_reason().is_some());

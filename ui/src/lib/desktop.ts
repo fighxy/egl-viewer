@@ -62,6 +62,8 @@ export function installDesktopBehaviour(target: Window = window): () => void {
     // Text fields keep cut, copy and paste.
     if (!isEditable(event.target)) event.preventDefault();
   };
+  // The browser menu is blocked after the page saw the event (bubbling, not capture): a menu
+  // of the app, such as the folder tree's, ignores an event that was already prevented.
   const onWheel = (event: WheelEvent) => {
     if (event.ctrlKey) event.preventDefault();
   };
@@ -70,12 +72,12 @@ export function installDesktopBehaviour(target: Window = window): () => void {
     if (event.button === 3 || event.button === 4) event.preventDefault();
   };
   target.addEventListener("keydown", onKeyDown, { capture: true });
-  target.addEventListener("contextmenu", onContextMenu, { capture: true });
+  target.addEventListener("contextmenu", onContextMenu);
   target.addEventListener("wheel", onWheel, { capture: true, passive: false });
   target.addEventListener("mouseup", onMouseUp, { capture: true });
   return () => {
     target.removeEventListener("keydown", onKeyDown, { capture: true });
-    target.removeEventListener("contextmenu", onContextMenu, { capture: true });
+    target.removeEventListener("contextmenu", onContextMenu);
     target.removeEventListener("wheel", onWheel, { capture: true });
     target.removeEventListener("mouseup", onMouseUp, { capture: true });
   };

@@ -22,6 +22,7 @@ import {
   type LibraryCounts,
   type LibraryInfo,
   type Scope,
+  type SortKey,
   THUMBNAIL_SIZES,
   type UiLayout,
 } from "@/ipc";
@@ -49,8 +50,19 @@ type Props = {
   onOpenImports?: () => void;
   /** Files are being dragged over the window. */
   dropping?: boolean;
-  scope?: ScopeId;
-  onScopeChange?: (scope: ScopeId) => void;
+  /** Where the user is: a fixed row of the left bar or a folder. */
+  place?: Place;
+  onPlaceChange?: (place: Place) => void;
+  /** The toolbar's title, for example the path of a nested folder. */
+  title?: string;
+  /** The Folders section of the left bar. */
+  folderTree?: ReactNode;
+  /** The sort of this screen: a folder's own sort, or the global one. */
+  sort?: SortKey;
+  ascending?: boolean;
+  onSortChange?: (sort: SortKey, ascending: boolean) => void;
+  /** Where dropped files go, for the overlay. */
+  dropLabel?: string;
   browse?: BrowsePreferences;
   /** `persist` is false while the size slider is being dragged. */
   onBrowseChange?: (browse: BrowsePreferences, persist: boolean) => void;
@@ -78,9 +90,14 @@ const SCOPES: readonly Row[] = [
   { id: "trash", label: "Trash", icon: Trash2 },
 ];
 
-/** The query scope of a left-bar row. */
-export function scopeOf(id: ScopeId): Scope {
-  switch (id) {
+/** A fixed row of the left bar, or a folder. */
+export type Place = { kind: ScopeId } | { kind: "folder"; id: string };
+
+/** The query scope of a place. */
+export function scopeOf(place: Place, includeSubfolders = false): Scope {
+  switch (place.kind) {
+    case "folder":
+      return { kind: "folder", id: place.id, includeDescendants: includeSubfolders };
     case "all":
       return { kind: "all" };
     case "uncategorized":
@@ -116,8 +133,14 @@ export function LibraryScreen({
   importStatus,
   onOpenImports,
   dropping = false,
-  scope = "all",
-  onScopeChange,
+  place = { kind: "all" },
+  onPlaceChange,
+  title,
+  folderTree,
+  sort,
+  ascending,
+  onSortChange,
+  dropLabel = "All",
   browse = DEFAULT_PREFERENCES.browse,
   onBrowseChange,
   itemCount,
@@ -126,9 +149,11 @@ export function LibraryScreen({
   details,
   viewStatus,
 }: Props) {
-  const total = itemCount ?? counts?.[scope] ?? 0;
+  const total = itemCount ?? (place.kind === "folder" ? undefined : counts?.[place.kind]) ?? 0;
   const libraryEmpty = (counts?.all ?? 0) === 0 && (itemCount ?? 0) === 0;
-  const scopeLabel = SCOPES.find((row) => row.id === scope)?.label ?? "All";
+  const heading = title ?? SCOPES.find((row) => row.id === place.kind)?.label ?? "All";
+  const shownSort = sort ?? browse.sort;
+  const shownAscending = ascending ?? browse.ascending;
   const setLayout = (change: Partial<UiLayout>, persist: boolean) =>
     onLayoutChange({ ...layout, ...change }, persist);
   const setBrowse = (change: Partial<BrowsePreferences>, persist = true) =>
@@ -140,7 +165,7 @@ export function LibraryScreen({
     body = content;
   } else if (viewStatus) {
     body = <p className="m-auto text-[13px] text-muted-foreground">{viewStatus}</p>;
-  } else if (scope === "all" && libraryEmpty) {
+  } else if (place.kind === "all" && libraryEmpty) {
     body = (
       <div className="m-auto grid max-w-sm justify-items-center gap-2 rounded-xl border-2 border-dashed border-border px-10 py-8 text-center">
         <Upload aria-hidden className="size-10 text-muted-foreground" />
@@ -159,8 +184,14 @@ export function LibraryScreen({
         </Button>
       </div>
     );
-  } else if (total === 0 && scope !== "all") {
-    body = <p className="m-auto text-[13px] text-muted-foreground">{EMPTY_SCOPE[scope]}</p>;
+  } else if (total === 0 && place.kind !== "all") {
+    body = (
+      <p className="m-auto max-w-xs text-center text-[13px] text-muted-foreground">
+        {place.kind === "folder"
+          ? `This folder is empty.${canAdd === true ? " Drop files here, add files, or drag items onto the folder." : ""}`
+          : EMPTY_SCOPE[place.kind]}
+      </p>
+    );
   } else {
     body = null;
   }
@@ -205,9 +236,9 @@ export function LibraryScreen({
                   <li key={id}>
                     <button
                       type="button"
-                      aria-current={id === scope ? "page" : undefined}
+                      aria-current={id === place.kind ? "page" : undefined}
                       className="flex h-7 w-full items-center gap-2 rounded-md px-2 text-left outline-none hover:bg-sidebar-accent focus-visible:ring-3 focus-visible:ring-ring/50 aria-[current=page]:bg-sidebar-accent aria-[current=page]:font-medium"
-                      onClick={() => onScopeChange?.(id)}
+                      onClick={() => onPlaceChange?.({ kind: id })}
                     >
                       <Icon className="size-4 text-muted-foreground" />
                       {label}
@@ -220,6 +251,7 @@ export function LibraryScreen({
                   </li>
                 ))}
               </ul>
+              {folderTree}
             </nav>
             <Splitter
               side="left"
@@ -234,16 +266,23 @@ export function LibraryScreen({
 
         <main aria-label="Library contents" className="flex min-w-0 flex-1 flex-col">
           <div className="flex h-11 shrink-0 items-center gap-2 border-b px-3">
-            <h1 className="text-sm font-medium">{scopeLabel}</h1>
+            <h1 className="min-w-0 truncate text-sm font-medium" title={heading}>
+              {heading}
+            </h1>
             {known && (
               <span className="text-[13px] text-muted-foreground">{plural(total, "item")}</span>
             )}
             <div className="ml-auto flex items-center gap-1">
               <SortButton
-                sort={browse.sort}
-                ascending={browse.ascending}
-                onSort={(sort) => setBrowse({ sort })}
-                onAscending={(ascending) => setBrowse({ ascending })}
+                sort={shownSort}
+                ascending={shownAscending}
+                manual={place.kind === "folder"}
+                onSort={(next) =>
+                  onSortChange ? onSortChange(next, shownAscending) : setBrowse({ sort: next })
+                }
+                onAscending={(next) =>
+                  onSortChange ? onSortChange(shownSort, next) : setBrowse({ ascending: next })
+                }
               />
               <div className="flex items-center rounded-md border p-0.5">
                 <Button
@@ -313,7 +352,7 @@ export function LibraryScreen({
                 aria-label="Drop files"
                 className="absolute inset-3 grid place-items-center rounded-xl border-2 border-dashed border-primary bg-background/80 text-sm font-medium duration-150 animate-in fade-in-0"
               >
-                {canAdd === true ? "Drop to add to All" : canAdd}
+                {canAdd === true ? `Drop to add to ${dropLabel}` : canAdd}
               </div>
             )}
           </div>

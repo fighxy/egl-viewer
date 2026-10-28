@@ -7,18 +7,25 @@ import {
   DialogHeader,
   DialogTitle,
 } from "@/components/ui/dialog";
-import type { DuplicateAnswer, ImportProgress } from "@/ipc";
+import { findFolder } from "@/features/folders/tree";
+import type { DuplicateAnswer, Folder, ImportProgress } from "@/ipc";
 import { fileName } from "./importText";
 
 type Props = {
   /** The import whose first duplicate waits; the dialog is closed without one. */
   waiting: ImportProgress | undefined;
+  /** For the name of the folder the files go into. */
+  folders?: Folder[];
   onAnswer: (id: number, answer: DuplicateAnswer) => void;
 };
 
-/** The batch asks once what to do with duplicates (docs/spec.md §4). */
-export function DuplicateDialog({ waiting, onAnswer }: Props) {
+/**
+ * The batch asks once what to do with duplicates (docs/spec.md §4). Files going into a folder
+ * can instead put the existing items into that folder.
+ */
+export function DuplicateDialog({ waiting, folders = [], onAnswer }: Props) {
   const duplicate = waiting?.duplicate;
+  const target = duplicate?.targetFolder ? findFolder(folders, duplicate.targetFolder) : undefined;
   const answer = (choice: DuplicateAnswer) => {
     if (waiting) onAnswer(waiting.id, choice);
   };
@@ -36,6 +43,7 @@ export function DuplicateDialog({ waiting, onAnswer }: Props) {
               ? `“${fileName(duplicate.path)}” is already in the library${duplicate.inTrash ? ", in the trash" : ""}. `
               : ""}
             Your choice applies to every duplicate in this batch.
+            {target && ` “Add to ${target.name}” puts the existing items into that folder.`}
           </DialogDescription>
         </DialogHeader>
         <DialogFooter>
@@ -45,9 +53,18 @@ export function DuplicateDialog({ waiting, onAnswer }: Props) {
           <Button variant="outline" onClick={() => answer("addAnyway")}>
             Add anyway
           </Button>
-          <Button autoFocus onClick={() => answer("skip")}>
+          <Button
+            variant={target ? "outline" : "default"}
+            autoFocus={!target}
+            onClick={() => answer("skip")}
+          >
             Skip duplicates
           </Button>
+          {target && (
+            <Button autoFocus onClick={() => answer("addToFolder")}>
+              Add to {target.name}
+            </Button>
+          )}
         </DialogFooter>
       </DialogContent>
     </Dialog>

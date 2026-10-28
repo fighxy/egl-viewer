@@ -20,11 +20,35 @@ const LITE_COLUMNS: &str = "id, name, ext, width, height, size, star, \
      added_at, file_created_at, file_modified_at, duration, thumb_version";
 
 impl Library {
-    /// The light items of one scope (docs/architecture.md §15.3). Folders and smart folders
-    /// arrive with phases 4 and 6.
+    /// The light items of one scope (docs/architecture.md §15.3). A folder scope also gives
+    /// each direct member its manual position. Smart folders arrive with phase 6.
     pub fn load_scope(&self, scope: &Scope) -> Result<Vec<ItemLite>> {
+        let mut folder: Option<&str> = None;
         let condition = match scope {
             Scope::All => "deleted_at IS NULL",
+            Scope::Folder {
+                id,
+                include_descendants,
+            } => {
+                let known: Option<i64> = self
+                    .conn()
+                    .query_row("SELECT 1 FROM folder WHERE id = ?1", params![id], |row| {
+                        row.get(0)
+                    })
+                    .optional()
+                    .context("find the folder")?;
+                if known.is_none() {
+                    return Err(SourceError::NotFound);
+                }
+                folder = Some(id);
+                if *include_descendants {
+                    "deleted_at IS NULL AND EXISTS (SELECT 1 FROM item_folder \
+                     WHERE item_id = item.id AND folder_id IN (SELECT id FROM sub))"
+                } else {
+                    "deleted_at IS NULL AND EXISTS (SELECT 1 FROM item_folder \
+                     WHERE item_id = item.id AND folder_id = ?1)"
+                }
+            }
             Scope::Unfiled => {
                 "deleted_at IS NULL \
                  AND NOT EXISTS (SELECT 1 FROM item_folder WHERE item_id = item.id)"
@@ -34,18 +58,28 @@ impl Library {
                  AND NOT EXISTS (SELECT 1 FROM item_tag WHERE item_id = item.id)"
             }
             Scope::Trash => "deleted_at IS NOT NULL",
-            Scope::Folder { .. } => return Err(SourceError::NotSupported("folders".into())),
             Scope::Smart { .. } => return Err(SourceError::NotSupported("smart folders".into())),
         };
         let conn = self.conn();
         let mut items = Vec::new();
         let mut positions = HashMap::new();
+        // The folder and its subfolders, for the scope with subfolders.
+        let prefix = if folder.is_some() {
+            "WITH RECURSIVE sub(id) AS (SELECT ?1 \
+             UNION SELECT folder.id FROM folder JOIN sub ON folder.parent_id = sub.id) "
+        } else {
+            ""
+        };
         let mut statement = conn
             .prepare(&format!(
-                "SELECT {LITE_COLUMNS} FROM item WHERE {condition} ORDER BY seq"
+                "{prefix}SELECT {LITE_COLUMNS} FROM item WHERE {condition} ORDER BY seq"
             ))
             .context("load a scope")?;
-        let mut rows = statement.query([]).context("load a scope")?;
+        let mut rows = match folder {
+            Some(id) => statement.query(params![id]),
+            None => statement.query([]),
+        }
+        .context("load a scope")?;
         while let Some(row) = rows.next().context("load a scope")? {
             let item = lite_from_row(row).context("read an item")?;
             positions.insert(item.id.0.clone(), items.len());
@@ -87,6 +121,22 @@ impl Library {
             if let Some(&position) = positions.get(&item_id) {
                 let folder: String = row.get(1).context("read a folder link")?;
                 items[position].folders.get_or_insert_default().push(folder);
+            }
+        }
+
+        if let Some(folder) = folder {
+            let mut statement = conn
+                .prepare(
+                    "SELECT item_id, position FROM item_folder
+                     WHERE folder_id = ?1 AND position IS NOT NULL",
+                )
+                .context("load positions")?;
+            let mut rows = statement.query(params![folder]).context("load positions")?;
+            while let Some(row) = rows.next().context("load positions")? {
+                let item_id: String = row.get(0).context("read a position")?;
+                if let Some(&at) = positions.get(&item_id) {
+                    items[at].position = Some(row.get(1).context("read a position")?);
+                }
             }
         }
         Ok(items)
@@ -284,6 +334,7 @@ fn lite_from_row(row: &Row<'_>) -> rusqlite::Result<ItemLite> {
         duration: row.get(13)?,
         no_thumbnail: thumb_version <= 0,
         thumb_version,
+        position: None,
     })
 }
 

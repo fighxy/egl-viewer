@@ -530,3 +530,68 @@ preview simply appears. Revisit for macOS (WKWebView) when that target starts.
   app under Xvfb: scrolling with every thumbnail size, End, selection, list, preview, sort by
   title and at random, Trash. 100 000 titles sort in 0.2 s, at random in 0.05 s (the ignored test
   `sorting_100k_items`, release build). The Windows checks are still open.
+
+## D-042 Dragging inside the window with mouse events (2026-10-28)
+
+- **Folders in the tree, items onto folders and items into a manual order** are dragged with
+  mouse events, not HTML5 drag and drop. With the window's file drop on, WebView2 on Windows
+  hands HTML5 drags to Tauri's file drop handler and the page never gets `drop`. One
+  `DragProvider` starts a drag after the pointer moved 5 px, reads the target under the pointer
+  from `data-drop` attributes (`elementFromPoint`), highlights only targets that accept the drag,
+  draws a label at the pointer, and `Esc` cancels. Files dragged in from Explorer still come
+  through Tauri's file drop.
+- **A press on a selected item keeps the selection**, so all of it can be dragged; a click
+  without a drag then selects that item alone, as in Explorer.
+- **The browser's context menu is blocked after the page saw the event** (the bubbling phase on
+  the window), not before it (capture): Radix menus ignore an event that is already prevented,
+  so the folder tree's menu never opened. A UI test found it.
+
+## D-043 Phase 4a as built (2026-10-28)
+
+Phase 4 is built in two parts: **4a** (folders, membership, Include subfolders, the folder sort,
+manual order) and **4b** (locked folders: age, Argon2id, the recovery secret, item keys, the
+Locked folders section). 4a's done check is phase 4's without the locked-folder part.
+
+- **Folder order** among siblings is a fractional key (base 62) between the neighbours
+  (`order_key_between`); siblings with equal keys (an import) are numbered again first. A move
+  carries the full position (parent and index); a folder update always carries every property,
+  as Eagle needs (corrections 3, 31).
+- **Deleting** a folder is one transaction: the subtree, its memberships, and with the option
+  the items found only in the subtree go to the trash.
+- **Dropped folders are mirrored:** a dropped folder becomes a library folder of the same name
+  inside the target (at the top level when no folder is open); a folder of that name already
+  there is reused. Its subfolders go below it and each file into the folder it came from, with
+  the folder tags of that folder and its ancestors.
+- **A duplicate going into a folder** can join that folder instead ("Add to <folder>" in the
+  batch question). An item in the trash joins it and stays in the trash; restoring comes with
+  phase 7.
+- **Manual order** is `item_folder.position`. A reorder numbers the folder's items 1..n again;
+  the moved items keep their order among themselves, and a drop before one of them lands before
+  the next item that stays. **An item that joins a folder gets no position:** it sorts after the
+  positioned items, by date added, as Eagle falls back (correction 39). Looking up the last
+  position on every join made adding 10 000 items to a folder take a minute in a debug build;
+  now 0.3 s.
+- **Reordering in the grid** works while the folder's sort is Manual ascending. With Include
+  subfolders on it works only in a folder without subfolders (their items have no position
+  there); the folder's properties say so.
+- **Sort picks inside a folder:** Manual in a folder without its own sort becomes that folder's
+  sort (ascending), since Manual means nothing elsewhere; any other pick changes the global
+  sort. In a folder with its own sort, a pick holds for that screen only; the folder's sort
+  changes in its properties (spec §5).
+- **Include subfolders** is a preference (`BrowsePreferences.includeSubfolders`), off by default.
+  **Which folders are expanded** is a convenience of the window, kept per library in the
+  WebView's storage; `library.db` holds none of it.
+- **Membership edits** are `ItemEdit` intents (`addToFolders`, `removeFromFolders`,
+  `setFolders`) on one item or on a batch. A batch target is ids, or Select All as "every item
+  of this view except these ids" (`ItemsTarget`), resolved in Rust. The other intents answer
+  "not available yet" until phases 5 and 7.
+- **New Folder** (`Ctrl+Shift+N`, the Library menu) creates a folder at the top level and opens
+  it; New Subfolder, Rename (`F2`, double click), Colour, Move To and Delete are in the tree's
+  context menu. A folder deleted while it is open answers an empty view, and the screen goes
+  back to All.
+- **Not yet:** `item_fts.folders` is written with search (phase 6); covers come with the folder
+  covers of phase 12; removing a batch from a folder waits for the batch panel (phase 7).
+- **Checks:** the 10 000-item demo library in the real app under Xvfb: creating, nesting by
+  drag, colour, dragging 12 items onto a folder, Select All into a folder, Include subfolders,
+  Manual with a drag to the front, the context menu, deleting a folder. The Windows checks are
+  still open.

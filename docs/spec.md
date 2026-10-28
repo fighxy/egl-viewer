@@ -163,14 +163,14 @@ Smart folders live in their own tree (nested, with their own order).
 ### Adding
 
 - From a toolbar button (the system file dialog, multi-select, default filter "Images" plus "All files"), by dropping files or folders on the window, and by pasting an image or files copied in Explorer from the clipboard (Edit → Paste, `Ctrl+V`). A reviewed import from a chosen disk comes later (below).
-- Dropped folders are walked recursively; hidden and system files (`Thumbs.db`, `desktop.ini`) are skipped. Mirroring the dropped folder structure as library folders comes with folders (phase 4).
+- Dropped folders are walked recursively; hidden and system files (`Thumbs.db`, `desktop.ini`) are skipped. A dropped folder becomes a library folder of the same name inside the target (an existing folder of that name there is reused), with its subfolders below it; each file goes into the folder it came from (D-043).
 - Target: the open folder when a folder is open, otherwise Uncategorized. Optional tags and rating for every file of the batch come with phases 5 and 7.
 - Rust receives the paths and reads the files; file bytes never pass through the WebView.
 
 ### What happens to one file (arch §7.4, §15.4)
 
 1. Hash with BLAKE3 while copying it to a temporary file inside the library, then flush the copy to disk. A crash leaves only a temp file that the next open removes.
-2. **Duplicates:** if an item with the same hash exists (in the trash too, which the report says), the batch asks once what to do: skip duplicates, add them anyway, or cancel the import. Adding the existing item to the target folder joins the choices with folders (phase 4).
+2. **Duplicates:** if an item with the same hash exists (in the trash too, which the report says), the batch asks once what to do: skip duplicates, add them anyway, or cancel the import. When the files go into a folder, a fourth choice adds the existing items to that folder instead.
 3. Record the target path in a journal, move the copy to `files/<shard>/<id>/<file name>`, then insert the item and clear the journal entry in one transaction. A row never points at a missing file, and a crash never leaves a file without a row ([`library-format.md`](library-format.md) §6). The stored file keeps the original name, cut to 100 characters before the extension; a pasted image gets a name like `Pasted 2026-10-28 10-42-05.png` (UTC).
 4. Probe and generate the thumbnail (512 px on the long edge, lossy WebP, EXIF orientation applied) and the palette in the background. The item is visible in the grid at once, with the extension placeholder, until its thumbnail exists. Previews that a crash or a cancel left undone are made the next time the library opens.
 5. If decoding fails, the item stays, with the placeholder and a note in the import report.
@@ -249,11 +249,11 @@ The top search field searches names, notes, links, tags and folder names, from 2
 | Duration | `duration` | Number, missing as 0 |
 | Tags | `tag` | The item's smallest tag by the collator; items without tags first |
 | Random | `random` | One shuffle per query identity, stable while the query is unchanged |
-| Manual | `manual` | The item's position in the open folder, then `addedAt`. Drag to reorder inside a folder in the native library. |
+| Manual | `manual` | The item's position in the open folder; items without one (they joined after the last reorder) come after, by `addedAt`. Drag to reorder inside a folder in the native library. |
 
-A folder or smart folder can carry its own sort (`orderBy`, ascending flag). It applies when the screen opens, until the user picks another sort; it replaces the global sort for that screen only.
+A folder or smart folder can carry its own sort (`orderBy`, ascending flag). It applies when the screen opens, until the user picks another sort; it replaces the global sort for that screen only. Picking Manual in a folder without its own sort makes Manual that folder's sort; other picks there change the global sort. A folder's own sort is set in its properties (D-043).
 
-Missing values count as the smallest. Ties fall back to date added, then the id, so the order is total and the same on every run. Names, extensions and tags compare through collation sort keys computed once per item. Duration waits for video and Manual for folders: until then they are not in the Sort By menu, though the sorter supports them.
+Missing values count as the smallest, except a missing manual position (above). Ties fall back to date added, then the id, so the order is total and the same on every run. Names, extensions and tags compare through collation sort keys computed once per item. Duration waits for video: it is not in the Sort By menu, though the sorter supports it. Manual is in the menu while a folder is open.
 
 Layout is presentation and does not affect the query: a grid whose column count follows the window width and a size slider, and a list.
 
@@ -372,7 +372,7 @@ Trash                  27
 
 - The library name, with a menu (Library Settings, Show in Explorer, Close Library) and the read-only badge.
 - All, Uncategorized, Untagged and Trash with their counts.
-- **Folders:** the tree with colour dots and counts (direct items with subfolders off, items including subfolders with it on). ⊕ creates a folder. ⇲ is the **Include subfolders** switch, also in the View menu; it changes the counts, so it sits next to the tree. Items dropped on a folder are added to it (phase 4).
+- **Folders:** the tree with colour dots and counts (direct items with subfolders off, items including subfolders with it on). ⊕ creates a folder. ⇲ is the **Include subfolders** switch, also in the View menu; it changes the counts, so it sits next to the tree. Items dropped on a folder are added to it. Folders are dragged to move them (onto a folder: inside it; near its top or bottom edge: before or after it). The context menu has New Subfolder, Rename (`F2`), Colour, Move To… and Delete… (`Del`).
 - **Locked folders:** each locked folder with its name, its tag (label and colour) and a lock. Choosing a row prompts for that folder only.
 - **Smart folders:** their own tree.
 - **Tag groups** and **Recent tags.** The full tag vocabulary is not in the left bar, because it grows to thousands of tags; it is in the Tags filter (7.4). Choosing a tag here opens All with that tag as a filter: tags are filters, not scopes (section 5).
@@ -421,8 +421,8 @@ Link     https://…  ↗
 ```
 
 - **One item:** as above. A field saves on `Enter` or when focus leaves it, and `Esc` reverts it; there is no Save button. The UI shows the change at once and rolls back on an error (section 6). Tags get vocabulary suggestions and accept new names; the folder picker is the tree with multi-select; the link opens in the system browser. Fields are disabled in a read-only library.
-- **Several items:** "N items selected" with a stack of thumbnails. Tags on every selected item look normal, tags on only some of them are dimmed. Batch rating, add or remove tags, add to or remove from folders, move to the trash; the total size.
-- **Nothing selected:** the open folder's properties (name, description, colour, folder tags, sort override) from phase 4; before that, "Select an item".
+- **Several items:** "N items selected" with a stack of thumbnails (phase 7; phase 4 has the count and Add to folder…). Tags on every selected item look normal, tags on only some of them are dimmed. Batch rating, add or remove tags, add to or remove from folders, move to the trash; the total size.
+- **Nothing selected:** the open folder's properties (name, description, colour, folder tags, sort override); outside a folder, "Select an item".
 
 **Status bar:** the item count, the selection count, import progress (a click opens the Imports panel), the read-only badge.
 
@@ -896,6 +896,9 @@ Done when: 1 000 mixed files (all v1 formats plus a few others) are added with t
 Done when: a 10 000-item library scrolls smoothly at every thumbnail size; every sort key gives the expected order and stays stable while scrolling; random order stays the same until the query changes.
 
 ### Phase 4 — Folders
+
+Built in two parts (D-043): **4a**, everything below except locks (implemented 2026-10-28), and **4b**, locked folders.
+
 
 - The folder tree with counts, create, rename, description, colour, move (cycle guard), reorder siblings, delete (section 3), lock and unlock. Locking encrypts the folder at rest (D-018): its own age identity, wrapped by Argon2id(password) and by a recovery secret shown once. Several locked folders stay independent. Each has its own user-editable name and tag (a label and a colour), stored in plaintext on the folder row. The sidebar has an expandable **Locked folders** section that lists them with that name and tag. Choosing a row prompts for that folder only.
 - Item membership: folder picker in the right bar, drag items onto a folder, add files into the open folder (with folder tags added to new items).

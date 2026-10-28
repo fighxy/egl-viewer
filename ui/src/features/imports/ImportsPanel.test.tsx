@@ -22,7 +22,9 @@ describe("ImportsPanel", () => {
             failed: 1,
             duplicates: 1,
             failures: [{ path: "C:\\in\\broken.jpg", reason: "No preview: cannot decode" }],
-            skipped: [{ path: "C:\\in\\same.png", existing: "01J", inTrash: true }],
+            skipped: [
+              { path: "C:\\in\\same.png", existing: "01J", inTrash: true, targetFolder: null },
+            ],
           }),
         ]}
       />,
@@ -54,7 +56,12 @@ describe("DuplicateDialog", () => {
         waiting={progress({
           id: 7,
           state: "waitingForDecision",
-          duplicate: { path: "D:\\refs\\poster.png", existing: "01J", inTrash: false },
+          duplicate: {
+            path: "D:\\refs\\poster.png",
+            existing: "01J",
+            inTrash: false,
+            targetFolder: null,
+          },
         })}
       />,
     );

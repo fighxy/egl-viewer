@@ -4,8 +4,8 @@ use std::path::PathBuf;
 
 use app_store::{ConnectionSettings, Preferences, RecentLibrary};
 use library_core::{
-    ImportProgress, ImportTicket, Item, ItemCell, ItemId, LibraryCounts, LibraryInfo, LibraryQuery,
-    SourceError,
+    Folder, FolderChange, ImportProgress, ImportTicket, Item, ItemCell, ItemEdit, ItemId,
+    LibraryCounts, LibraryInfo, LibraryQuery, SourceError,
 };
 use library_native::DuplicateChoice;
 use serde::{Deserialize, Serialize};
@@ -14,7 +14,7 @@ use tauri::{AppHandle, Manager, State};
 use ts_rs::TS;
 
 use crate::session::{Clipboard, Session, StartupResult};
-use crate::views::{ScopeProgress, ViewOpened, count};
+use crate::views::{ItemsTarget, ScopeProgress, ViewOpened, count};
 
 #[derive(Debug, Clone, PartialEq, Eq, Serialize, TS)]
 #[serde(rename_all = "camelCase")]
@@ -173,16 +173,77 @@ pub async fn item_detail(app: AppHandle, id: String) -> Result<Option<Item>, Sou
     blocking(app, move |session| session.item_detail(&id)).await
 }
 
-/// Files and folders by path (picked, dropped or pasted); their bytes never cross IPC.
 #[tauri::command]
-pub async fn add_files(app: AppHandle, paths: Vec<String>) -> Result<ImportTicket, SourceError> {
-    blocking(app, move |session| session.add_files(paths)).await
+pub async fn folder_tree(app: AppHandle) -> Result<Vec<Folder>, SourceError> {
+    blocking(app, Session::folder_tree).await
+}
+
+/// Creates, edits or moves a folder (a move under itself is refused); returns the new tree.
+#[tauri::command]
+pub async fn save_folder(app: AppHandle, change: FolderChange) -> Result<Vec<Folder>, SourceError> {
+    blocking(app, move |session| session.save_folder(change)).await
+}
+
+#[tauri::command]
+pub async fn delete_folder(
+    app: AppHandle,
+    id: String,
+    trash_items: bool,
+) -> Result<Vec<Folder>, SourceError> {
+    blocking(app, move |session| session.delete_folder(&id, trash_items)).await
+}
+
+#[tauri::command]
+pub async fn apply_item_edit(
+    app: AppHandle,
+    id: String,
+    edit: ItemEdit,
+) -> Result<Item, SourceError> {
+    blocking(app, move |session| session.apply_item_edit(&id, edit)).await
+}
+
+/// One edit for a selection (ids, or a whole view except some); returns how many changed.
+#[tauri::command]
+pub async fn apply_batch_edit(
+    app: AppHandle,
+    target: ItemsTarget,
+    edit: ItemEdit,
+) -> Result<u32, SourceError> {
+    blocking(app, move |session| session.apply_batch_edit(target, edit)).await
+}
+
+/// Manual order: `ids` go before `before` (or to the end) in `folder`.
+#[tauri::command]
+pub async fn reorder_items(
+    app: AppHandle,
+    folder: String,
+    ids: Vec<ItemId>,
+    before: Option<ItemId>,
+) -> Result<(), SourceError> {
+    blocking(app, move |session| {
+        session.reorder_items(&folder, ids, before)
+    })
+    .await
+}
+
+/// Files and folders by path (picked, dropped or pasted), into `folder` when one is open;
+/// their bytes never cross IPC.
+#[tauri::command]
+pub async fn add_files(
+    app: AppHandle,
+    paths: Vec<String>,
+    folder: Option<String>,
+) -> Result<ImportTicket, SourceError> {
+    blocking(app, move |session| session.add_files(paths, folder)).await
 }
 
 /// Copied files or an image on the clipboard; `None` when there is nothing to add.
 #[tauri::command]
-pub async fn paste_files(app: AppHandle) -> Result<Option<ImportTicket>, SourceError> {
-    blocking(app, |session| session.paste(&SystemClipboard)).await
+pub async fn paste_files(
+    app: AppHandle,
+    folder: Option<String>,
+) -> Result<Option<ImportTicket>, SourceError> {
+    blocking(app, move |session| session.paste(&SystemClipboard, folder)).await
 }
 
 /// The user's answer to the duplicate question of an import.
@@ -192,6 +253,8 @@ pub async fn paste_files(app: AppHandle) -> Result<Option<ImportTicket>, SourceE
 pub enum DuplicateAnswer {
     Skip,
     AddAnyway,
+    /// The existing item joins the folder the file was going into.
+    AddToFolder,
     Cancel,
 }
 
@@ -204,6 +267,7 @@ pub fn answer_import(
     let choice = match answer {
         DuplicateAnswer::Skip => DuplicateChoice::Skip,
         DuplicateAnswer::AddAnyway => DuplicateChoice::AddAnyway,
+        DuplicateAnswer::AddToFolder => DuplicateChoice::AddToFolder,
         DuplicateAnswer::Cancel => DuplicateChoice::Cancel,
     };
     session.answer_import(id, choice)

@@ -135,7 +135,7 @@ describe("LibraryScreen", () => {
   });
 
   it("switches scopes from the left bar and says when a scope is empty", async () => {
-    const onScopeChange = vi.fn();
+    const onPlaceChange = vi.fn();
     render(
       <LibraryScreen
         library={LIBRARY}
@@ -143,16 +143,16 @@ describe("LibraryScreen", () => {
         onLayoutChange={vi.fn()}
         onOpenForEditing={vi.fn()}
         counts={{ all: 3, uncategorized: 3, untagged: 3, trash: 0 }}
-        scope="trash"
+        place={{ kind: "trash" }}
         itemCount={0}
-        onScopeChange={onScopeChange}
+        onPlaceChange={onPlaceChange}
       />,
     );
     expect(screen.getByRole("button", { name: /^Trash/ })).toHaveAttribute("aria-current", "page");
     expect(screen.getByRole("heading", { level: 1 })).toHaveTextContent("Trash");
     expect(screen.getByRole("main")).toHaveTextContent("The trash is empty.");
     await userEvent.setup().click(screen.getByRole("button", { name: /^Untagged/ }));
-    expect(onScopeChange).toHaveBeenCalledWith("untagged");
+    expect(onPlaceChange).toHaveBeenCalledWith({ kind: "untagged" });
   });
 
   it("changes the layout and the sort from the toolbar", async () => {

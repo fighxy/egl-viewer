@@ -11,7 +11,8 @@ use rusqlite::params;
 
 use crate::Library;
 use crate::import::{
-    DuplicateChoice, DuplicatePolicy, ImportObserver, import_files, make_pending_previews,
+    DuplicateChoice, DuplicatePolicy, ImportObserver, ImportTarget, import_files,
+    make_pending_previews,
 };
 use crate::preview::NO_PREVIEW;
 use crate::test_support::*;
@@ -71,6 +72,7 @@ fn import(library: &Library, sources: &[PathBuf], observer: &Script) -> ImportPr
         library,
         1,
         sources,
+        &ImportTarget::default(),
         DuplicatePolicy::Ask,
         observer,
         &AtomicBool::new(false),
@@ -146,7 +148,8 @@ fn a_mixed_folder_gets_items_thumbnails_and_palettes() {
             counts.untagged,
             counts.trash
         ),
-        (14, 14, 14, 0)
+        (14, 0, 14, 0),
+        "the dropped folder became a library folder, so nothing is uncategorized"
     );
 
     let last = observer.updates.lock().unwrap().last().cloned().unwrap();
@@ -282,6 +285,7 @@ fn a_crash_during_an_import_leaves_a_consistent_library_and_previews_resume() {
         &reopened,
         3,
         &files,
+        &ImportTarget::default(),
         DuplicatePolicy::Skip,
         &Script::answering(DuplicateChoice::Skip),
         &AtomicBool::new(false),

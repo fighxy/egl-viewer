@@ -754,22 +754,23 @@ Later, for phones: the WebView prepares the image (`createImageBitmap`, long edg
 | `open_library` | path | `LibraryInfo` with `readOnly` and `readOnlyReason`; on the library that is open read-only it retries the lock ("Open for editing") |
 | `close_library` | — | — |
 | `recent_libraries`, `forget_recent_library` | —, path | `RecentLibrary[]` (name, path, last opened, missing) |
-| `folder_tree` | — | `FolderNode` tree (no passwords) |
+| `folder_tree` | — | `Folder` tree with counts (no passwords) |
 | `open_view` | `LibraryQuery`, `onProgress: Channel<Progress>` | `{ viewId, total }` |
 | `view_range` | viewId, start, len (≤ 200) | `ItemCell[]` |
 | `close_view` | viewId | — |
 | `view_ids` | viewId, start, len | `ItemId[]` (selections) |
 | `item_detail` | id | `Item` or none (the details panel; also items in the trash) |
-| `apply_item_edit`, `apply_batch_edit` | id or ids, `ItemEdit` | `ItemCell` / count |
+| `apply_item_edit`, `apply_batch_edit` | id or `ItemsTarget` (ids, or a view's Select All minus ids), `ItemEdit` | `Item` / count; phase 4 has the folder intents |
+| `reorder_items` | folder, ids, the id they go before (none: the end) | — (manual order) |
 | `undo` | — | — |
-| `save_folder`, `delete_folder`, `lock_folder`, `unlock_folder` | … | `FolderNode` tree |
+| `save_folder`, `delete_folder`, `lock_folder`, `unlock_folder` | `FolderChange` (create, update with every property, move to a parent and index); id and "trash the items only in it"; … | `Folder` tree |
 | `tag_vocabulary`, `tag_groups`, `save_tag_group`, `delete_tag_group` | … | lists |
 | `rename_tag`, `merge_tags`, `delete_tag` | names | — |
 | `save_smart_folder`, `delete_smart_folder` | … | smart folder tree |
 | `restore_items`, `delete_permanently`, `empty_trash` | ids / — | counts |
-| `add_files` | paths | `ImportTicket`; folders, tags, rating and mirrored folders come with phases 4, 5 and 7 |
-| `paste_files` | — | `ImportTicket` or none: copied files, or a pasted image as a PNG |
-| `answer_import` | import id, `skip` / `addAnyway` / `cancel` | — (the batch's duplicate question) |
+| `add_files` | paths, the open folder or none | `ImportTicket`; dropped folders are mirrored (phase 4); tags and rating for the batch come with phases 5 and 7 |
+| `paste_files` | the open folder or none | `ImportTicket` or none: copied files, or a pasted image as a PNG |
+| `answer_import` | import id, `skip` / `addAnyway` / `addToFolder` / `cancel` | — (the batch's duplicate question) |
 | `cancel_import` | import id | — |
 | `imports` | — | `ImportProgress[]`: running, then finished, newest first |
 | `library_counts` | — | `LibraryCounts` for the left bar |

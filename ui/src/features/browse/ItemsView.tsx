@@ -6,10 +6,12 @@ import {
   memo,
   type MouseEvent as ReactMouseEvent,
   useCallback,
+  useEffect,
   useLayoutEffect,
   useRef,
   useState,
 } from "react";
+import { type DragPayload, dropHint, useDrag } from "@/features/dnd/drag";
 import { type ItemCell, ipc, type ViewMode } from "@/ipc";
 import { thumbUrl } from "@/lib/thumb";
 import { formatBytes, formatDate, formatDimensions } from "./format";
@@ -28,6 +30,7 @@ import {
   only,
   rangeFrom,
   type Selection,
+  selectedCount,
   toggle,
   withRange,
 } from "./selection";
@@ -52,6 +55,10 @@ type Props = {
   onLost: () => void;
   /** The item whose thumbnail morphs into the preview (View Transitions). */
   transitionId?: string | null;
+  /** Selected items can be dragged onto folders (a writable library). */
+  draggable?: boolean;
+  /** Items can be dropped between cells: a folder in manual order. */
+  reorderable?: boolean;
 };
 
 export const PREVIEW_TRANSITION = "preview-image";
@@ -102,8 +109,11 @@ export function ItemsView({
   onZoom,
   onLost,
   transitionId,
+  draggable = false,
+  reorderable = false,
 }: Props) {
   const client = useQueryClient();
+  const { begin, active } = useDrag();
   const scrollRef = useRef<HTMLDivElement>(null);
   const width = useWidth(scrollRef);
   const layout: Layout =
@@ -228,18 +238,50 @@ export function ItemsView({
     window.addEventListener("mouseup", onUp);
   };
 
+  /** What a drag from the cell at `index` carries: the selection, or the cell alone. */
+  const payload = (index: number): DragPayload | null => {
+    const cell = cellAt(index);
+    if (!cell) return null;
+    const current = latest.current;
+    if (!isSelected(current, cell.id)) {
+      const target = { viewId, all: false, ids: [cell.id] };
+      return { kind: "items", target, count: 1, label: cell.name };
+    }
+    const count = selectedCount(current, total);
+    return {
+      kind: "items",
+      target: { viewId, all: current.all, ids: [...current.ids] },
+      count,
+      label: count === 1 ? cell.name : `${count.toLocaleString("en")} items`,
+    };
+  };
+
   // Cells get stable handlers, so scrolling re-renders only the cells that change.
-  const handlers = useRef({ select, onOpen, cellAt });
-  handlers.current = { select, onOpen, cellAt };
-  const onCellMouseDown = useCallback((event: ReactMouseEvent, index: number) => {
-    if (event.button !== 0) return;
-    event.preventDefault();
-    scrollRef.current?.focus({ preventScroll: true });
-    void handlers.current.select(index, {
-      ctrl: event.ctrlKey || event.metaKey,
-      shift: event.shiftKey,
-    });
-  }, []);
+  const handlers = useRef({ select, onOpen, cellAt, payload, draggable });
+  handlers.current = { select, onOpen, cellAt, payload, draggable };
+  const onCellMouseDown = useCallback(
+    (event: ReactMouseEvent, index: number) => {
+      if (event.button !== 0) return;
+      event.preventDefault();
+      scrollRef.current?.focus({ preventScroll: true });
+      const ctrl = event.ctrlKey || event.metaKey;
+      const shift = event.shiftKey;
+      const { select, cellAt, payload, draggable } = handlers.current;
+      const cell = cellAt(index);
+      // A press on a selected item keeps the selection, so all of it can be dragged; a click
+      // without a drag then selects that item alone.
+      const keep =
+        draggable && !ctrl && !shift && cell !== undefined && isSelected(latest.current, cell.id);
+      if (!keep) void select(index, { ctrl, shift });
+      if (!draggable || ctrl || shift) return;
+      begin(
+        event,
+        () => payload(index),
+        keep ? () => void handlers.current.select(index, { ctrl: false, shift: false }) : undefined,
+      );
+    },
+    [begin],
+  );
   const open = useCallback((index: number) => {
     const { onOpen, cellAt } = handlers.current;
     onOpen(index, cellAt(index)?.id ?? null);
@@ -274,6 +316,18 @@ export function ItemsView({
 
   const focus = selection.focus;
   const focusShown = focus !== null && focus >= firstIndex && focus <= lastIndex;
+  const dropAt = dropHint(active, (target) => target.kind === "cell");
+  const dropCell = dropAt?.kind === "cell" ? dropAt : null;
+
+  // Dragging items near the top or bottom edge scrolls, so a far position can be reached.
+  const pointerY = active?.payload.kind === "items" ? active.y : null;
+  useEffect(() => {
+    const element = scrollRef.current;
+    if (pointerY === null || !reorderable || !element) return;
+    const box = element.getBoundingClientRect();
+    if (pointerY < box.top + 32) element.scrollTop -= 24;
+    else if (pointerY > box.bottom - 32) element.scrollTop += 24;
+  }, [pointerY, reorderable]);
 
   const grid = (
     // biome-ignore lint/a11y/useSemanticElements: a virtualized grid of positioned rows is no table.
@@ -306,6 +360,8 @@ export function ItemsView({
               selected: shown(cell, index),
               focused: focus === index,
               transition: cell !== undefined && cell.id === transitionId,
+              reorderable,
+              dropSide: dropCell?.index === index ? dropCell.side : null,
               onMouseDown: onCellMouseDown,
               onOpen: open,
             };
@@ -374,6 +430,10 @@ type CellProps = {
   selected: boolean;
   focused: boolean;
   transition: boolean;
+  /** The cell is a drop target of a manual order. */
+  reorderable: boolean;
+  /** Where dragged items would land next to this cell. */
+  dropSide: "before" | "after" | null;
   onMouseDown: (event: ReactMouseEvent, index: number) => void;
   onOpen: (index: number) => void;
 };
@@ -384,6 +444,8 @@ const GridCell = memo(function GridCell({
   selected,
   focused,
   transition,
+  reorderable,
+  dropSide,
   onMouseDown,
   onOpen,
   size,
@@ -396,13 +458,24 @@ const GridCell = memo(function GridCell({
       role="gridcell"
       id={cellDomId(index)}
       data-index={index}
+      data-drop={reorderable && cell ? "cell" : undefined}
+      data-id={cell?.id}
       aria-selected={selected}
       aria-label={cell?.name ?? "Loading"}
-      className="flex shrink-0 flex-col"
+      className="relative flex shrink-0 flex-col"
       style={{ width: size, height }}
       onMouseDown={(event) => onMouseDown(event, index)}
       onDoubleClick={() => onOpen(index)}
     >
+      {dropSide && (
+        <span
+          aria-hidden
+          className={cn(
+            "absolute inset-y-0 w-0.5 rounded bg-primary",
+            dropSide === "before" ? "-left-[5px]" : "-right-[5px]",
+          )}
+        />
+      )}
       <div
         className={cn(
           "relative grid shrink-0 place-items-center overflow-hidden rounded-md bg-muted/60",
@@ -435,6 +508,8 @@ const ListRow = memo(function ListRow({
   selected,
   focused,
   transition,
+  reorderable,
+  dropSide,
   onMouseDown,
   onOpen,
 }: CellProps) {
@@ -444,16 +519,28 @@ const ListRow = memo(function ListRow({
       role="gridcell"
       id={cellDomId(index)}
       data-index={index}
+      data-drop={reorderable && cell ? "cell" : undefined}
+      data-id={cell?.id}
+      data-axis="y"
       aria-selected={selected}
       aria-label={cell?.name ?? "Loading"}
       className={cn(
-        "grid h-8 w-full grid-cols-[28px_minmax(0,3fr)_56px_72px_96px_150px_64px_minmax(0,2fr)] items-center gap-3 rounded-md px-2 text-[13px]",
+        "relative grid h-8 w-full grid-cols-[28px_minmax(0,3fr)_56px_72px_96px_150px_64px_minmax(0,2fr)] items-center gap-3 rounded-md px-2 text-[13px]",
         selected ? "bg-primary/15" : "hover:bg-muted/60",
         focused && "outline-1 outline-ring",
       )}
       onMouseDown={(event) => onMouseDown(event, index)}
       onDoubleClick={() => onOpen(index)}
     >
+      {dropSide && (
+        <span
+          aria-hidden
+          className={cn(
+            "absolute inset-x-0 h-0.5 rounded bg-primary",
+            dropSide === "before" ? "-top-px" : "-bottom-px",
+          )}
+        />
+      )}
       <div className="relative grid size-6 place-items-center overflow-hidden rounded bg-muted/60">
         {cell && (
           <Thumb

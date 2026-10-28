@@ -10,6 +10,7 @@ use rusqlite::{OptionalExtension, params};
 use ulid::Ulid;
 
 use crate::error::{Context, Result};
+use crate::folders::{add_link, ensure_tag};
 use crate::fsutil::rename_with_retry;
 use crate::library::Library;
 use crate::recover::{library_file, remove_with_empty_parent};
@@ -57,18 +58,47 @@ pub(crate) struct Hooks<'a> {
     pub after_copy: Option<&'a dyn Fn()>,
 }
 
+/// Where a new item goes: a folder (or none: Uncategorized) and the tags it starts with.
+#[derive(Debug, Clone, Default, PartialEq, Eq)]
+pub struct Placement {
+    pub folder: Option<String>,
+    pub tags: Vec<String>,
+}
+
 impl Library {
     /// Copies `source` into the library as a new item. The source is only read.
     pub fn add_file(&self, source: &Path, duplicates: Duplicates) -> Result<AddOutcome> {
-        self.add_file_with(source, duplicates, &Hooks::default())?
+        self.add_file_to(source, duplicates, &Placement::default())
+    }
+
+    /// Like [`Library::add_file`], into a folder and with tags, in the same transaction as the
+    /// item row.
+    pub fn add_file_to(
+        &self,
+        source: &Path,
+        duplicates: Duplicates,
+        placement: &Placement,
+    ) -> Result<AddOutcome> {
+        self.add_file_placed(source, duplicates, placement, &Hooks::default())?
             .ok_or_else(|| SourceError::Storage("adding stopped unexpectedly".into()))
     }
 
     /// `Ok(None)` only when a hook simulated a crash.
+    #[cfg(test)]
     pub(crate) fn add_file_with(
         &self,
         source: &Path,
         duplicates: Duplicates,
+        hooks: &Hooks<'_>,
+    ) -> Result<Option<AddOutcome>> {
+        self.add_file_placed(source, duplicates, &Placement::default(), hooks)
+    }
+
+    fn add_file_placed(
+        &self,
+        source: &Path,
+        duplicates: Duplicates,
+        placement: &Placement,
         hooks: &Hooks<'_>,
     ) -> Result<Option<AddOutcome>> {
         self.check_writable()?;
@@ -163,6 +193,7 @@ impl Library {
             file_created_at: metadata.created().ok().and_then(system_ms),
             file_modified_at: metadata.modified().ok().and_then(system_ms),
             content_hash: hash.as_bytes(),
+            placement,
         };
         if let Err(error) = self.insert_item(&row) {
             if remove_with_empty_parent(&target).is_ok() {
@@ -217,6 +248,17 @@ impl Library {
             params![item.id, item.added_at],
         )
         .context("log the change")?;
+        if let Some(folder) = &item.placement.folder {
+            add_link(&tx, item.id, folder)?;
+        }
+        for tag in &item.placement.tags {
+            let tag_id = ensure_tag(&tx, tag)?;
+            tx.execute(
+                "INSERT OR IGNORE INTO item_tag (item_id, tag_id) VALUES (?1, ?2)",
+                params![item.id, tag_id],
+            )
+            .context("tag the item")?;
+        }
         tx.execute("DELETE FROM pending_file WHERE path = ?1", [item.file_path])
             .context("clear the add journal")?;
         tx.commit().context("add the item")
@@ -240,6 +282,7 @@ struct NewItem<'a> {
     file_created_at: Option<i64>,
     file_modified_at: Option<i64>,
     content_hash: &'a [u8; 32],
+    placement: &'a Placement,
 }
 
 /// One pass: read the source once, hash and write; then flush the copy to disk.

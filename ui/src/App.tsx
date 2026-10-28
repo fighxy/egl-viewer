@@ -1,10 +1,15 @@
-import { QueryClient, QueryClientProvider } from "@tanstack/react-query";
+import { QueryClient, QueryClientProvider, useQuery, useQueryClient } from "@tanstack/react-query";
 import { listen } from "@tauri-apps/api/event";
 import { getCurrentWebview } from "@tauri-apps/api/webview";
 import { open as openDialog } from "@tauri-apps/plugin-dialog";
 import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import { flushSync } from "react-dom";
-import { type CommandActions, type CommandState, needsWritableLibrary } from "@/commands/registry";
+import {
+  type Availability,
+  type CommandActions,
+  type CommandState,
+  needsWritableLibrary,
+} from "@/commands/registry";
 import { useShortcuts } from "@/commands/useShortcuts";
 import { AboutDialog } from "@/features/about/AboutDialog";
 import { DetailsPanel } from "@/features/browse/DetailsPanel";
@@ -17,13 +22,26 @@ import {
   selectedCount,
   singleId,
 } from "@/features/browse/selection";
-import { useView } from "@/features/browse/useView";
+import { fetchCell, useView } from "@/features/browse/useView";
 import { ConnectScreen } from "@/features/connect/ConnectScreen";
+import { type DragPayload, DragProvider, type DropTarget } from "@/features/dnd/drag";
+import { type FolderDialog, FolderDialogs } from "@/features/folders/FolderDialogs";
+import { FolderProperties } from "@/features/folders/FolderProperties";
+import { FolderTree } from "@/features/folders/FolderTree";
+import {
+  canMove,
+  findFolder,
+  folderPath,
+  parentOf,
+  siblingsOf,
+  subtreeIds,
+} from "@/features/folders/tree";
+import { useExpanded } from "@/features/folders/useExpanded";
 import { DuplicateDialog } from "@/features/imports/DuplicateDialog";
 import { ImportsPanel } from "@/features/imports/ImportsPanel";
 import { importSummary } from "@/features/imports/importText";
 import { useImports } from "@/features/imports/useImports";
-import { LibraryScreen, type ScopeId, scopeOf } from "@/features/library/LibraryScreen";
+import { LibraryScreen, type Place, scopeOf } from "@/features/library/LibraryScreen";
 import { SettingsDialog } from "@/features/settings/SettingsDialog";
 import { AppMenu } from "@/features/shell/AppMenu";
 import { type Confirmation, ConfirmDialog } from "@/features/shell/ConfirmDialog";
@@ -36,6 +54,10 @@ import {
   type ConnectionSettings,
   DEFAULT_PREFERENCES,
   EVENTS,
+  type Folder,
+  type FolderChange,
+  type ItemEdit,
+  type ItemsTarget,
   inTauri,
   ipc,
   type LibraryCounts,
@@ -43,6 +65,7 @@ import {
   type Preferences,
   queryFor,
   type RecentLibrary,
+  type SortKey,
   THUMBNAIL_SIZES,
   type UiLayout,
 } from "@/ipc";
@@ -114,6 +137,36 @@ function withTransition(update: () => void) {
 /** How far one Ctrl+= or Ctrl+- step changes the thumbnail size. */
 const ZOOM_STEP = 20;
 
+/** A key for a place, for effects and for the sort picked on that screen. */
+function placeKey(place: Place): string {
+  return place.kind === "folder" ? `folder:${place.id}` : place.kind;
+}
+
+/** Every folder id of a tree. */
+function folderIds(tree: readonly Folder[]): Set<string> {
+  const ids = new Set<string>();
+  for (const folder of tree) for (const id of subtreeIds(folder)) ids.add(id);
+  return ids;
+}
+
+/** A folder's full properties with some changed: `update` always sends all of them. */
+function folderUpdate(
+  folder: Folder,
+  change: Partial<Extract<FolderChange, { type: "update" }>>,
+): FolderChange {
+  return {
+    type: "update",
+    id: folder.id,
+    name: folder.name,
+    description: folder.description,
+    tags: folder.tags,
+    iconColor: folder.iconColor,
+    orderBy: folder.orderBy,
+    sortAscending: folder.sortAscending,
+    ...change,
+  };
+}
+
 export function App() {
   // One cache per window: views and windows of cells from Rust (docs/architecture.md §8).
   const [client] = useState(
@@ -143,7 +196,14 @@ function AppShell() {
   const [importsOpen, setImportsOpen] = useState(false);
   const [confirmation, setConfirmation] = useState<Confirmation | null>(null);
   const [dropping, setDropping] = useState(false);
-  const [scope, setScope] = useState<ScopeId>("all");
+  const [place, setPlace] = useState<Place>({ kind: "all" });
+  /** A sort picked on a screen whose folder has its own sort: that screen only. */
+  const [screenSort, setScreenSort] = useState<{
+    place: string;
+    sort: SortKey;
+    ascending: boolean;
+  } | null>(null);
+  const [folderDialog, setFolderDialog] = useState<FolderDialog | null>(null);
   const [selection, setSelection] = useState<Selection>(NOTHING);
   const [previewIndex, setPreviewIndex] = useState<number | null>(null);
   const [transitionId, setTransitionId] = useState<string | null>(null);
@@ -160,28 +220,91 @@ function AppShell() {
 
   const library = view.kind === "library" ? view.library : null;
   const imports = useImports(library?.path ?? null);
+  const client = useQueryClient();
+  const writable: Availability = !library
+    ? "Open a library first."
+    : library.readOnly
+      ? "This library is read-only."
+      : true;
+
+  // The folder tree with counts; writes answer with the new tree.
+  const foldersKey = useMemo(() => ["folders", library?.path ?? null] as const, [library?.path]);
+  const folders = useQuery({
+    queryKey: foldersKey,
+    queryFn: ipc.folderTree,
+    enabled: library !== null && inTauri(),
+  });
+  const tree = useMemo(() => folders.data ?? [], [folders.data]);
+  const [expanded, setExpanded] = useExpanded(library?.path ?? null);
+  const openFolder = place.kind === "folder" ? findFolder(tree, place.id) : undefined;
 
   const browse = preferences.browse;
+  const key = placeKey(place);
+  const picked = screenSort?.place === key ? screenSort : null;
+  const sort = picked?.sort ?? openFolder?.orderBy ?? browse.sort;
+  const ascending = picked
+    ? picked.ascending
+    : openFolder?.orderBy
+      ? (openFolder.sortAscending ?? true)
+      : browse.ascending;
   const query = useMemo(
-    () => (library ? queryFor(scopeOf(scope), browse) : null),
-    [library, scope, browse],
+    () =>
+      library
+        ? queryFor(scopeOf(place, browse.includeSubfolders), { ...browse, sort, ascending })
+        : null,
+    [library, place, browse, sort, ascending],
   );
   const opened = useView(query);
   const total = opened.view?.total ?? 0;
+  // Items move between cells only in a folder's own manual order, without subfolder items.
+  const reorderable =
+    writable === true &&
+    openFolder !== undefined &&
+    (!browse.includeSubfolders || openFolder.children.length === 0) &&
+    sort === "manual" &&
+    ascending;
 
-  // A new library or scope starts with nothing selected; a new sort keeps the selected items.
+  // A new library or place starts with nothing selected; a new sort keeps the selected items.
   // biome-ignore lint/correctness/useExhaustiveDependencies: reset when the screen changes.
   useEffect(() => {
     setSelection(NOTHING);
     setPreviewIndex(null);
-  }, [library?.path, scope]);
+  }, [library?.path, key]);
   // biome-ignore lint/correctness/useExhaustiveDependencies: positions change with the order.
   useEffect(() => {
     setSelection((current) => ({ ...current, anchor: null, focus: null }));
-  }, [browse.sort, browse.ascending]);
+  }, [sort, ascending]);
+
+  // The open folder is gone (deleted): back to All.
+  useEffect(() => {
+    if (place.kind === "folder" && folders.data && !findFolder(folders.data, place.id)) {
+      setPlace({ kind: "all" });
+    }
+  }, [place, folders.data]);
   const addingFiles = imports.running.some((progress) => progress.kind === "files");
 
-  // Counts follow the added files, at most every 300 ms.
+  // Writes recompute the open views; counts of the left bar follow.
+  const [revision, setRevision] = useState(0);
+  useEffect(() => {
+    if (!inTauri()) return;
+    let unlisten: (() => void) | undefined;
+    let cancelled = false;
+    listen(EVENTS.viewsInvalidated, () => {
+      setRevision((count) => count + 1);
+      void client.invalidateQueries({ queryKey: ["folders"] });
+    })
+      .then((stop) => {
+        if (cancelled) stop();
+        else unlisten = stop;
+      })
+      .catch(() => {});
+    return () => {
+      cancelled = true;
+      unlisten?.();
+    };
+  }, [client]);
+
+  // Counts follow the added files and other writes, at most every 300 ms.
   // biome-ignore lint/correctness/useExhaustiveDependencies: refetched whenever files were added.
   useEffect(() => {
     if (!library || !inTauri()) {
@@ -195,7 +318,7 @@ function AppShell() {
         .catch(() => setCounts(null));
     }, 300);
     return () => window.clearTimeout(timer);
-  }, [library, imports.added]);
+  }, [library, imports.added, revision]);
 
   useEffect(() => {
     const title = library
@@ -244,7 +367,7 @@ function AppShell() {
   const libraryOpened = useCallback(
     (next: LibraryInfo) => {
       setView({ kind: "library", library: next });
-      setScope("all");
+      setPlace({ kind: "all" });
       setStatus(undefined);
       setDialog(null);
       void refreshRecent();
@@ -328,10 +451,171 @@ function AppShell() {
     [addingFiles],
   );
 
-  const addPaths = useCallback((paths: string[]) => {
-    if (paths.length === 0) return;
-    ipc.addFiles(paths).catch((error: unknown) => setStatus(describeError(error)));
-  }, []);
+  // Files added while a folder is open go into it (docs/spec.md §4).
+  const intoFolder = openFolder?.id ?? null;
+  const addPaths = useCallback(
+    (paths: string[]) => {
+      if (paths.length === 0) return;
+      ipc.addFiles(paths, intoFolder).catch((error: unknown) => setStatus(describeError(error)));
+    },
+    [intoFolder],
+  );
+
+  const failed = useCallback((error: unknown) => setStatus(describeError(error)), []);
+
+  /** Runs a folder write; its answer is the new tree. */
+  const writeFolders = useCallback(
+    (write: Promise<Folder[]>) =>
+      write
+        .then((next) => {
+          client.setQueryData(foldersKey, next);
+          return next;
+        })
+        .catch((error: unknown) => {
+          failed(error);
+          return null;
+        }),
+    [client, foldersKey, failed],
+  );
+
+  const saveFolder = useCallback(
+    (change: FolderChange) => writeFolders(ipc.saveFolder(change)),
+    [writeFolders],
+  );
+
+  const createFolder = useCallback(
+    (name: string, parent: string | null) => {
+      const before = folderIds(tree);
+      void saveFolder({ type: "create", name, parent, description: "", iconColor: null }).then(
+        (next) => {
+          if (!next) return;
+          setFolderDialog(null);
+          if (parent) setExpanded(parent, true);
+          // The new folder opens, ready for files.
+          const created = [...folderIds(next)].find((id) => !before.has(id));
+          if (created) setPlace({ kind: "folder", id: created });
+        },
+      );
+    },
+    [tree, saveFolder, setExpanded],
+  );
+
+  const changeFolder = useCallback(
+    (id: string, change: Partial<Extract<FolderChange, { type: "update" }>>) => {
+      const folder = findFolder(tree, id);
+      if (folder) void saveFolder(folderUpdate(folder, change));
+    },
+    [tree, saveFolder],
+  );
+
+  /** Moves a folder to position `index` among the children of `parent`. */
+  const moveFolder = useCallback(
+    (id: string, parent: string | null, index?: number) => {
+      const siblings = (parent ? (findFolder(tree, parent)?.children ?? []) : tree).filter(
+        (folder) => folder.id !== id,
+      );
+      void saveFolder({ type: "move", id, parent, index: index ?? siblings.length }).then(
+        (next) => {
+          if (next && parent) setExpanded(parent, true);
+        },
+      );
+    },
+    [tree, saveFolder, setExpanded],
+  );
+
+  const deleteFolder = useCallback(
+    (id: string, trashItems: boolean) => {
+      void writeFolders(ipc.deleteFolder(id, trashItems)).then((next) => {
+        if (next) setFolderDialog(null);
+      });
+    },
+    [writeFolders],
+  );
+
+  /** The selected items as an edit target; Select All stays a flag (docs/architecture.md §8). */
+  const selectedTarget = useCallback(
+    (): ItemsTarget => ({
+      viewId: opened.view?.viewId ?? null,
+      all: selection.all,
+      ids: [...selection.ids],
+    }),
+    [opened.view, selection],
+  );
+
+  const editItems = useCallback(
+    (target: ItemsTarget, edit: ItemEdit) => {
+      ipc.applyBatchEdit(target, edit).catch(failed);
+    },
+    [failed],
+  );
+
+  const changeSort = useCallback(
+    (next: SortKey, nextAscending: boolean) => {
+      // A folder with its own sort keeps it; another pick holds for this screen only.
+      if (openFolder?.orderBy) {
+        setScreenSort({ place: key, sort: next, ascending: nextAscending });
+        return;
+      }
+      // Manual means nothing outside the folder, so it becomes the folder's own sort, first
+      // to last.
+      if (openFolder && next === "manual") {
+        changeFolder(openFolder.id, { orderBy: next, sortAscending: true });
+        return;
+      }
+      setScreenSort(null);
+      changeBrowse({ ...browse, sort: next, ascending: nextAscending }, true);
+    },
+    [openFolder, key, changeFolder, changeBrowse, browse],
+  );
+
+  const canDrop = useCallback(
+    (payload: DragPayload, target: DropTarget) => {
+      if (writable !== true) return false;
+      if (payload.kind === "folder") {
+        if (target.kind === "root") return true;
+        if (target.kind !== "folder" || target.id === payload.id) return false;
+        const parent = target.zone === "inside" ? target.id : (parentOf(tree, target.id) ?? null);
+        return canMove(tree, payload.id, parent);
+      }
+      if (target.kind === "folder") return true;
+      if (target.kind === "cell") {
+        return reorderable && !payload.target.all && !payload.target.ids.includes(target.id);
+      }
+      return false;
+    },
+    [writable, tree, reorderable],
+  );
+
+  const onDrop = useCallback(
+    (payload: DragPayload, target: DropTarget) => {
+      if (payload.kind === "folder") {
+        if (target.kind === "root") moveFolder(payload.id, null);
+        else if (target.kind === "folder" && target.zone === "inside") {
+          moveFolder(payload.id, target.id);
+        } else if (target.kind === "folder") {
+          const parent = parentOf(tree, target.id) ?? null;
+          const siblings = siblingsOf(tree, target.id).filter((folder) => folder.id !== payload.id);
+          const at = siblings.findIndex((folder) => folder.id === target.id);
+          moveFolder(payload.id, parent, at + (target.zone === "after" ? 1 : 0));
+        }
+        return;
+      }
+      if (target.kind === "folder") {
+        editItems(payload.target, { type: "addToFolders", value: [target.id] });
+      } else if (target.kind === "cell" && openFolder && opened.view) {
+        const viewId = opened.view.viewId;
+        const folder = openFolder.id;
+        const before =
+          target.side === "before"
+            ? Promise.resolve<string | null>(target.id)
+            : target.index + 1 < total
+              ? fetchCell(client, viewId, target.index + 1).then((cell) => cell?.id ?? null)
+              : Promise.resolve(null);
+        void before.then((id) => ipc.reorderItems(folder, payload.target.ids, id)).catch(failed);
+      }
+    },
+    [tree, moveFolder, editItems, openFolder, opened.view, total, client, failed],
+  );
 
   const actions = useMemo<CommandActions>(
     () => ({
@@ -361,7 +645,7 @@ function AppShell() {
       },
       paste: () => {
         ipc
-          .pasteFiles()
+          .pasteFiles(intoFolder)
           .then((ticket) => {
             if (ticket === null) setStatus("Nothing to paste: copy an image or files first.");
           })
@@ -404,12 +688,19 @@ function AppShell() {
         changeBrowse({ ...browse, thumbnailSize: size }, true);
       },
       toggleNames: () => changeBrowse({ ...browse, showNames: !browse.showNames }, true),
-      setSort: (sort) => changeBrowse({ ...browse, sort }, true),
-      setAscending: (ascending) => changeBrowse({ ...browse, ascending }, true),
+      setSort: (next) => changeSort(next, ascending),
+      setAscending: (next) => changeSort(sort, next),
+      newFolder: () => setFolderDialog({ kind: "create", parent: null }),
+      toggleSubfolders: () =>
+        changeBrowse({ ...browse, includeSubfolders: !browse.includeSubfolders }, true),
     }),
     [
       browse,
       changeBrowse,
+      changeSort,
+      sort,
+      ascending,
+      intoFolder,
       openPreview,
       selection,
       afterImports,
@@ -433,14 +724,29 @@ function AppShell() {
       leftOpen: preferences.layout.leftOpen,
       rightOpen: preferences.layout.rightOpen,
       browse,
+      sort,
+      ascending,
+      folderOpen: openFolder !== undefined,
       items: total,
       selected: selectedCount(selection, total),
     }),
-    [library, recent, preferences, fullscreen, browse, total, selection],
+    [
+      library,
+      recent,
+      preferences,
+      fullscreen,
+      browse,
+      sort,
+      ascending,
+      openFolder,
+      total,
+      selection,
+    ],
   );
 
   const modalOpen =
     dialog !== null ||
+    folderDialog !== null ||
     importsOpen ||
     confirmation !== null ||
     imports.waiting !== undefined ||
@@ -511,152 +817,231 @@ function AppShell() {
     if (!open) setDialog(null);
   };
 
-  return (
-    <div className="flex h-screen flex-col bg-background text-foreground">
-      <AppMenu state={commandState} actions={actions} />
-      {view.kind === "library" ? (
-        <LibraryScreen
-          library={view.library}
-          layout={preferences.layout}
-          onLayoutChange={changeLayout}
-          onOpenForEditing={() => {
-            if (view.library.path) void openPath(view.library.path);
-          }}
-          status={status}
-          onDismissStatus={() => setStatus(undefined)}
-          counts={counts}
-          canAdd={canAdd}
-          onAddFiles={actions.addFiles}
-          importStatus={latestImport ? importSummary(latestImport) : undefined}
-          onOpenImports={() => setImportsOpen(true)}
-          dropping={dropping}
-          scope={scope}
-          onScopeChange={setScope}
-          browse={browse}
-          onBrowseChange={changeBrowse}
-          itemCount={opened.view?.total}
-          selectedCount={selectedCount(selection, total)}
-          viewStatus={
-            opened.error ??
-            (opened.view === null && opened.progress
-              ? `Loading ${opened.progress.loaded.toLocaleString("en")} of ${opened.progress.total.toLocaleString("en")}…`
-              : undefined)
-          }
-          content={
-            opened.view && (
-              <ItemsView
-                viewId={opened.view.viewId}
-                total={opened.view.total}
-                mode={browse.viewMode}
-                cellSize={browse.thumbnailSize}
-                showNames={browse.showNames}
-                selection={selection}
-                onSelectionChange={setSelection}
-                onOpen={openPreview}
-                onEnter={focusDetails}
-                onZoom={actions.zoom}
-                onLost={opened.reopen}
-                transitionId={previewIndex === null ? transitionId : null}
-              />
-            )
-          }
-          details={
-            <DetailsPanel
-              ref={detailsRef}
-              count={selectedCount(selection, total)}
-              itemId={singleId(selection)}
-              onPreview={actions.preview}
-            />
-          }
-        />
-      ) : (
-        <>
-          <main className="flex flex-1 items-center justify-center overflow-y-auto p-6">
-            {view.kind === "welcome" ? (
-              <WelcomeScreen
-                status={status}
-                recent={recent}
-                onCreateLibrary={actions.newLibrary}
-                onOpenLibrary={actions.openLibrary}
-                onOpenRecent={(path) => void openPath(path)}
-                onForgetRecent={(path) => {
-                  ipc
-                    .forgetRecentLibrary(path)
-                    .then(refreshRecent)
-                    .catch((error: unknown) => setStatus(describeError(error)));
-                }}
-                // The Eagle import arrives in phase 8 (docs/spec.md §9).
-                onImportEagleLibrary={() =>
-                  setStatus("Importing an Eagle library is not available yet.")
-                }
-                onConnectEagle={() => {
-                  setStatus(undefined);
-                  setView({ kind: "connect" });
-                }}
-              />
-            ) : (
-              <ConnectScreen
-                key={`${defaults.host}:${defaults.port}`}
-                defaults={defaults}
-                status={status}
-                // Phase 9 connects for real (docs/spec.md §9).
-                onConnect={() => setStatus("Connecting is not available yet.")}
-                onBack={() => {
-                  setStatus(undefined);
-                  setView({ kind: "welcome" });
-                }}
-              />
-            )}
-          </main>
-          <footer className="p-3 text-center text-xs text-muted-foreground">
-            {info ? `${info.name} ${info.version}` : "egl-viewer"}
-          </footer>
-        </>
-      )}
+  const folderTitle = openFolder
+    ? folderPath(tree, openFolder.id)
+        .map((folder) => folder.name)
+        .join(" / ")
+    : undefined;
 
-      <CreateLibraryDialog
-        open={dialog === "create"}
-        onOpenChange={closeDialog}
-        loadDefaultLocation={loadDefaultLocation}
-        browse={browseFolders}
-        create={ipc.createLibrary}
-        onCreated={libraryOpened}
-      />
-      <SettingsDialog
-        open={dialog === "settings"}
-        onOpenChange={closeDialog}
-        preferences={preferences}
-        builtInLocation={builtInLocation}
-        browse={browseFolders}
-        save={savePreferences}
-      />
-      <AboutDialog open={dialog === "about"} onOpenChange={closeDialog} info={info} />
-      <ShortcutsDialog open={dialog === "shortcuts"} onOpenChange={closeDialog} />
-      <ImportsPanel
-        open={importsOpen}
-        onOpenChange={setImportsOpen}
-        imports={imports.imports}
-        onCancel={(id) => void ipc.cancelImport(id).catch(() => {})}
-      />
-      <DuplicateDialog
-        waiting={imports.waiting}
-        onAnswer={(id, answer) =>
-          void ipc
-            .answerImport(id, answer)
-            .catch((error: unknown) => setStatus(describeError(error)))
-        }
-      />
-      <ConfirmDialog confirmation={confirmation} onClose={() => setConfirmation(null)} />
-      {opened.view && (
-        <Preview
-          viewId={opened.view.viewId}
-          total={opened.view.total}
-          index={previewIndex}
-          onIndexChange={setPreviewIndex}
-          onClose={closePreview}
-          onLost={opened.reopen}
+  return (
+    <DragProvider canDrop={canDrop} onDrop={onDrop}>
+      <div className="flex h-screen flex-col bg-background text-foreground">
+        <AppMenu state={commandState} actions={actions} />
+        {view.kind === "library" ? (
+          <LibraryScreen
+            library={view.library}
+            layout={preferences.layout}
+            onLayoutChange={changeLayout}
+            onOpenForEditing={() => {
+              if (view.library.path) void openPath(view.library.path);
+            }}
+            status={status}
+            onDismissStatus={() => setStatus(undefined)}
+            counts={counts}
+            canAdd={canAdd}
+            onAddFiles={actions.addFiles}
+            importStatus={latestImport ? importSummary(latestImport) : undefined}
+            onOpenImports={() => setImportsOpen(true)}
+            dropping={dropping}
+            place={place}
+            onPlaceChange={setPlace}
+            title={folderTitle}
+            dropLabel={openFolder ? `“${openFolder.name}”` : "the library"}
+            sort={sort}
+            ascending={ascending}
+            onSortChange={changeSort}
+            folderTree={
+              <FolderTree
+                folders={tree}
+                selectedId={openFolder?.id ?? null}
+                includeSubfolders={browse.includeSubfolders}
+                writable={writable}
+                expanded={expanded}
+                onExpandedChange={setExpanded}
+                onSelect={(id) => setPlace({ kind: "folder", id })}
+                onIncludeSubfoldersChange={actions.toggleSubfolders}
+                onCreate={(parent) => setFolderDialog({ kind: "create", parent })}
+                onRename={(id, name) => changeFolder(id, { name: name.trim() })}
+                onColor={(id, iconColor) => changeFolder(id, { iconColor })}
+                onMoveTo={(id) => setFolderDialog({ kind: "move", id })}
+                onDelete={(id) => setFolderDialog({ kind: "delete", id })}
+              />
+            }
+            browse={browse}
+            onBrowseChange={changeBrowse}
+            itemCount={opened.view?.total}
+            selectedCount={selectedCount(selection, total)}
+            viewStatus={
+              opened.error ??
+              (opened.view === null && opened.progress
+                ? `Loading ${opened.progress.loaded.toLocaleString("en")} of ${opened.progress.total.toLocaleString("en")}…`
+                : undefined)
+            }
+            content={
+              opened.view && (
+                <ItemsView
+                  viewId={opened.view.viewId}
+                  total={opened.view.total}
+                  mode={browse.viewMode}
+                  cellSize={browse.thumbnailSize}
+                  showNames={browse.showNames}
+                  selection={selection}
+                  onSelectionChange={setSelection}
+                  onOpen={openPreview}
+                  onEnter={focusDetails}
+                  onZoom={actions.zoom}
+                  onLost={opened.reopen}
+                  transitionId={previewIndex === null ? transitionId : null}
+                  draggable={writable === true}
+                  reorderable={reorderable}
+                />
+              )
+            }
+            details={
+              <DetailsPanel
+                ref={detailsRef}
+                count={selectedCount(selection, total)}
+                itemId={singleId(selection)}
+                onPreview={actions.preview}
+                folders={tree}
+                writable={writable}
+                onFolderChange={(folder, member) => {
+                  const id = singleId(selection);
+                  if (!id) return;
+                  ipc
+                    .applyItemEdit(id, {
+                      type: member ? "addToFolders" : "removeFromFolders",
+                      value: [folder],
+                    })
+                    .then((item) => client.setQueryData(["item", id], item))
+                    .catch(failed);
+                }}
+                onAddToFolder={(folder) =>
+                  editItems(selectedTarget(), { type: "addToFolders", value: [folder] })
+                }
+                empty={
+                  openFolder && (
+                    <FolderProperties
+                      folder={openFolder}
+                      writable={writable}
+                      includeSubfolders={browse.includeSubfolders}
+                      onSave={(change) => {
+                        // A new own sort shows at once, over a sort picked on this screen.
+                        if (
+                          change.orderBy !== openFolder.orderBy ||
+                          change.sortAscending !== openFolder.sortAscending
+                        ) {
+                          setScreenSort(null);
+                        }
+                        void saveFolder(change);
+                      }}
+                    />
+                  )
+                }
+              />
+            }
+          />
+        ) : (
+          <>
+            <main className="flex flex-1 items-center justify-center overflow-y-auto p-6">
+              {view.kind === "welcome" ? (
+                <WelcomeScreen
+                  status={status}
+                  recent={recent}
+                  onCreateLibrary={actions.newLibrary}
+                  onOpenLibrary={actions.openLibrary}
+                  onOpenRecent={(path) => void openPath(path)}
+                  onForgetRecent={(path) => {
+                    ipc
+                      .forgetRecentLibrary(path)
+                      .then(refreshRecent)
+                      .catch((error: unknown) => setStatus(describeError(error)));
+                  }}
+                  // The Eagle import arrives in phase 8 (docs/spec.md §9).
+                  onImportEagleLibrary={() =>
+                    setStatus("Importing an Eagle library is not available yet.")
+                  }
+                  onConnectEagle={() => {
+                    setStatus(undefined);
+                    setView({ kind: "connect" });
+                  }}
+                />
+              ) : (
+                <ConnectScreen
+                  key={`${defaults.host}:${defaults.port}`}
+                  defaults={defaults}
+                  status={status}
+                  // Phase 9 connects for real (docs/spec.md §9).
+                  onConnect={() => setStatus("Connecting is not available yet.")}
+                  onBack={() => {
+                    setStatus(undefined);
+                    setView({ kind: "welcome" });
+                  }}
+                />
+              )}
+            </main>
+            <footer className="p-3 text-center text-xs text-muted-foreground">
+              {info ? `${info.name} ${info.version}` : "egl-viewer"}
+            </footer>
+          </>
+        )}
+
+        <CreateLibraryDialog
+          open={dialog === "create"}
+          onOpenChange={closeDialog}
+          loadDefaultLocation={loadDefaultLocation}
+          browse={browseFolders}
+          create={ipc.createLibrary}
+          onCreated={libraryOpened}
         />
-      )}
-    </div>
+        <SettingsDialog
+          open={dialog === "settings"}
+          onOpenChange={closeDialog}
+          preferences={preferences}
+          builtInLocation={builtInLocation}
+          browse={browseFolders}
+          save={savePreferences}
+        />
+        <AboutDialog open={dialog === "about"} onOpenChange={closeDialog} info={info} />
+        <ShortcutsDialog open={dialog === "shortcuts"} onOpenChange={closeDialog} />
+        <ImportsPanel
+          open={importsOpen}
+          onOpenChange={setImportsOpen}
+          imports={imports.imports}
+          onCancel={(id) => void ipc.cancelImport(id).catch(() => {})}
+        />
+        <FolderDialogs
+          dialog={folderDialog}
+          folders={tree}
+          onClose={() => setFolderDialog(null)}
+          onCreate={createFolder}
+          onMove={(id, parent) => {
+            setFolderDialog(null);
+            moveFolder(id, parent);
+          }}
+          onDelete={deleteFolder}
+        />
+        <DuplicateDialog
+          waiting={imports.waiting}
+          folders={tree}
+          onAnswer={(id, answer) =>
+            void ipc
+              .answerImport(id, answer)
+              .catch((error: unknown) => setStatus(describeError(error)))
+          }
+        />
+        <ConfirmDialog confirmation={confirmation} onClose={() => setConfirmation(null)} />
+        {opened.view && (
+          <Preview
+            viewId={opened.view.viewId}
+            total={opened.view.total}
+            index={previewIndex}
+            onIndexChange={setPreviewIndex}
+            onClose={closePreview}
+            onLost={opened.reopen}
+          />
+        )}
+      </div>
+    </DragProvider>
   );
 }
