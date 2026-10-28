@@ -6,7 +6,8 @@ import { Button } from "@/components/ui/button";
 import { Popover, PopoverContent, PopoverTrigger } from "@/components/ui/popover";
 import { FolderPicker } from "@/features/folders/FolderPicker";
 import { findFolder, folderPath } from "@/features/folders/tree";
-import { type Folder, type Item, inTauri, ipc } from "@/ipc";
+import { type TagChip, TagEditor } from "@/features/tags/TagEditor";
+import { type Folder, type Item, inTauri, ipc, type SelectionTags, type Tag } from "@/ipc";
 import { thumbUrl } from "@/lib/thumb";
 import { formatBytes, formatDate, formatDimensions } from "./format";
 
@@ -26,12 +27,19 @@ type Props = {
   onAddToFolder?: (folder: string) => void;
   /** Shown when nothing is selected: the open folder's properties. */
   empty?: ReactNode;
+  /** Tag suggestions. */
+  vocabulary?: readonly Tag[];
+  /** The tags of a selection of several items, with how many carry each. */
+  selectionTags?: SelectionTags | null;
+  /** A tag goes on the selected items, or comes off them. */
+  onAddTag?: (name: string) => void;
+  onRemoveTag?: (name: string) => void;
 };
 
 /**
  * The right bar (docs/spec.md §7.3): the selected item's preview, palette, name, rating, tags,
- * folders, note, link, file info and EXIF. Folders can change; the other fields arrive with
- * phases 5 and 7.
+ * folders, note, link, file info and EXIF. Tags and folders can change, for one item or a
+ * selection; the other fields arrive with phase 7.
  */
 export const DetailsPanel = forwardRef<HTMLDivElement, Props>(function DetailsPanel(
   {
@@ -43,9 +51,23 @@ export const DetailsPanel = forwardRef<HTMLDivElement, Props>(function DetailsPa
     onFolderChange,
     onAddToFolder,
     empty,
+    vocabulary = [],
+    selectionTags = null,
+    onAddTag,
+    onRemoveTag,
   },
   ref,
 ) {
+  const tagEditor = (tags: readonly TagChip[]) =>
+    onAddTag && onRemoveTag ? (
+      <TagEditor
+        tags={tags}
+        vocabulary={vocabulary}
+        writable={writable}
+        onAdd={onAddTag}
+        onRemove={onRemoveTag}
+      />
+    ) : null;
   const detail = useQuery({
     queryKey: ["item", itemId],
     queryFn: () => ipc.itemDetail(itemId ?? ""),
@@ -57,8 +79,27 @@ export const DetailsPanel = forwardRef<HTMLDivElement, Props>(function DetailsPa
     body = empty ?? <p className="m-auto text-muted-foreground">Select an item</p>;
   } else if (count > 1 || itemId === null) {
     body = (
-      <div className="m-auto grid justify-items-center gap-3">
-        <p className="text-muted-foreground">{count.toLocaleString("en")} items selected</p>
+      <div className="grid content-start gap-4">
+        <p className="text-center text-muted-foreground">
+          {count.toLocaleString("en")} items selected
+        </p>
+        {onAddTag && (
+          <dl className="grid gap-2">
+            <Field label="Tags">
+              {selectionTags ? (
+                tagEditor(
+                  selectionTags.tags.map((tag) =>
+                    (tag.imageCount ?? 0) < selectionTags.items
+                      ? { name: tag.name, on: tag.imageCount ?? 0, of: selectionTags.items }
+                      : { name: tag.name },
+                  ),
+                )
+              ) : (
+                <span className="text-muted-foreground">…</span>
+              )}
+            </Field>
+          </dl>
+        )}
         {onAddToFolder && (
           <FolderButton
             label="Add to folder…"
@@ -77,6 +118,7 @@ export const DetailsPanel = forwardRef<HTMLDivElement, Props>(function DetailsPa
         folders={folders}
         writable={writable}
         onFolderChange={onFolderChange}
+        tags={tagEditor(detail.data.tags.map((name) => ({ name })))}
       />
     );
   } else if (detail.isError) {
@@ -185,12 +227,15 @@ function ItemDetails({
   folders,
   writable,
   onFolderChange,
+  tags,
 }: {
   item: Item;
   onPreview: () => void;
   folders: Folder[];
   writable: true | string;
   onFolderChange?: (folder: string, member: boolean) => void;
+  /** The tag editor; without one, the tags are shown read-only. */
+  tags?: ReactNode;
 }) {
   const member = new Set(item.folders);
   const [failed, setFailed] = useState(false);
@@ -242,17 +287,18 @@ function ItemDetails({
           <Stars value={item.star} />
         </Field>
         <Field label="Tags">
-          {item.tags.length === 0 ? (
-            <span className="text-muted-foreground">None</span>
-          ) : (
-            <span className="flex flex-wrap gap-1">
-              {item.tags.map((tag) => (
-                <span key={tag} className="rounded bg-muted px-1.5 py-0.5 text-xs">
-                  {tag}
-                </span>
-              ))}
-            </span>
-          )}
+          {tags ??
+            (item.tags.length === 0 ? (
+              <span className="text-muted-foreground">None</span>
+            ) : (
+              <span className="flex flex-wrap gap-1">
+                {item.tags.map((tag) => (
+                  <span key={tag} className="rounded bg-muted px-1.5 py-0.5 text-xs">
+                    {tag}
+                  </span>
+                ))}
+              </span>
+            ))}
         </Field>
         <Field label="Folders">
           <span className="flex flex-wrap items-center gap-1">

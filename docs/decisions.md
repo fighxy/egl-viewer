@@ -667,3 +667,58 @@ unoptimised, one Argon2id of 64 MiB and the X25519 of every item took seconds.
   password, unlocking (the folder opens with decrypted previews and originals), Lock All
   Folders, removing the lock (the original file names come back). The Windows checks are still
   open.
+
+## D-046 Phase 5 as built: tags (2026-10-28)
+
+- **A tag is one `tag` row**, named by its exact string; items, folders and tag groups link to
+  it. Adding a tag makes the row; a write that leaves a row without links (removing a tag from
+  items, editing or deleting a group) deletes it, so the table holds no dead names.
+- **Rename and merge are one operation.** Renaming onto a free name updates the row. Renaming
+  onto a name that is already a tag merges the two, as Merge Into does: the links move to the
+  other row and the old one goes. The Rename dialog says "already exists: the two tags will be
+  merged" before it happens. Only an exact match merges: `poster` → `Poster` is a rename unless
+  `Poster` exists too. Merge Into accepts only existing tags.
+- **Everywhere means every item**, the trash and the items of locked folders included: a rename
+  or a delete changes every link in one transaction and gives those items a new modification
+  time. Item tags are not sealed (D-045 seals name, note, link, EXIF and palette), so this
+  needs no lock open and writes no files. Tagging, by contrast, only reaches items the user can
+  see: an item hidden by a lock is left alone, like a missing one, because a selection can
+  outlive a Lock Now.
+- **The vocabulary** is every tag on a visible item (the trash included, with a count of 0 when
+  only trashed items carry it) and every tag kept in a group. A tag that only hidden items carry
+  stays out, so a locked folder does not show through its tags. Counts leave out the trash and
+  hidden items.
+- **Tag order** everywhere (vocabulary, groups, the tags of a selection) is the name collation
+  with a byte-order tie-break (`compare_tags`): `Poster` before `poster`, and lists never depend
+  on where they came from. The names collation alone treated the two as equal.
+- **The tags of a selection** (`selection_tags`) are counted in Rust from the open view, so
+  Select All needs no id list over IPC. The right bar dims a tag on only some items ("On 2 of 5
+  items"); a click on it puts it on every selected item.
+- **Edits show at once.** One item: the chip appears or goes before the answer and the stored
+  item replaces it; a failed write refetches the item and shows the error. A selection: the
+  counts change at once and are read again after the write.
+- **Suggestions and the sheet's search ignore case** (`post` finds `Poster` and `poster`), but
+  what is picked or typed is kept exactly; the field never changes a name's case. Spaces at
+  either end of a typed name are dropped.
+- **Filters stay when the place changes** and show in the filter bar, which opens on its own
+  while a filter is on; the Filter button counts them. Another library starts without filters.
+  A view with no results says so and offers Clear filters. The filter bar has only Tags now;
+  phase 6 adds type, rating, shape and folders.
+- **The Tags sheet** draws the first 300 matching tags of the vocabulary and says how many more
+  there are; typing narrows the list. A virtualized list can come if libraries need it. The
+  chosen tags show under the lists, not above them: picking a tag never moves the rows under
+  the pointer (the first real-app run caught a misclick from that).
+- **Recent tags** are the last 12 tags the user added, per library, kept in the WebView's
+  storage like the expanded folders (they may be lost; `library.db` holds none of it). Rename,
+  merge and delete update the list. Lists show only recent tags that are in the vocabulary.
+- **Left bar:** Tag groups (with ⊕, Edit Group… and Delete Group… in the context menu) and
+  Recent tags; choosing a tag opens All filtered by it. Tag rows here and in the sheet have
+  Rename…, Merge Into… and Delete… in their context menu (none in a read-only library). Left bar
+  sections and groups stay collapsed once collapsed.
+- **The search row's tags column** stays empty until phase 6 fills `item_fts` from the tables.
+- **Checks:** the 10 000-item demo library in the real app under Xvfb: tagging one item
+  (`Poster`, `Swiss` and `poster` as three tags), tagging a selection of three with dimmed tags
+  and "add to every item", the four modes on two tags (Any 3, All 3, Exact 2, None 9 997),
+  renaming `Poster` onto `poster` (the merge notice, then one tag on every item), a coloured tag
+  group, a group tag opening All filtered, removing the filtered tag (the empty result with
+  Clear filters). The Windows checks are still open.

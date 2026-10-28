@@ -7,6 +7,7 @@ use serde::{Deserialize, Serialize};
 use ts_rs::TS;
 
 use crate::error::SourceError;
+use crate::tag::validate_tag_names;
 
 /// Eagle rejects longer names and notes with HTTP 500. JavaScript counts UTF-16 code units,
 /// so the limit is checked in the same unit.
@@ -49,9 +50,7 @@ impl ItemEdit {
             Self::SetUrl(url) if !is_web_link_or_empty(url) => {
                 invalid("the link must start with http:// or https://")
             }
-            Self::AddTags(tags) | Self::RemoveTags(tags) if tags.iter().any(|t| t.is_empty()) => {
-                invalid("tags must not be empty strings")
-            }
+            Self::AddTags(tags) | Self::RemoveTags(tags) => validate_tag_names(tags),
             Self::AddToFolders(ids) | Self::RemoveFromFolders(ids) | Self::SetFolders(ids)
                 if ids.iter().any(|id| id.is_empty()) =>
             {

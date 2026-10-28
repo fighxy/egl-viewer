@@ -1,4 +1,5 @@
 import {
+  Filter,
   Images,
   LayoutGrid,
   List,
@@ -77,6 +78,16 @@ type Props = {
   details?: ReactNode;
   /** Why the view could not open, or how far its scope loaded. */
   viewStatus?: string;
+  /** Tag groups and Recent tags in the left bar. */
+  tagSections?: ReactNode;
+  /** The filter bar's contents. */
+  filterBar?: ReactNode;
+  /** How many filters are on. */
+  filterCount?: number;
+  /** The Filter button shows the bar even with no filter on. */
+  filterOpen?: boolean;
+  onFilterOpenChange?: (open: boolean) => void;
+  onClearFilters?: () => void;
 };
 
 type Row = {
@@ -151,6 +162,12 @@ export function LibraryScreen({
   content,
   details,
   viewStatus,
+  tagSections,
+  filterBar,
+  filterCount = 0,
+  filterOpen = false,
+  onFilterOpenChange,
+  onClearFilters,
 }: Props) {
   const total = itemCount ?? (place.kind === "folder" ? undefined : counts?.[place.kind]) ?? 0;
   const libraryEmpty = (counts?.all ?? 0) === 0 && (itemCount ?? 0) === 0;
@@ -163,11 +180,24 @@ export function LibraryScreen({
     onBrowseChange?.({ ...browse, ...change }, persist);
   const known = itemCount !== undefined || counts;
 
+  const barShown = filterBar !== undefined && (filterOpen || filterCount > 0);
+
   let body: ReactNode;
   if (total > 0 && content) {
     body = content;
   } else if (viewStatus) {
     body = <p className="m-auto text-[13px] text-muted-foreground">{viewStatus}</p>;
+  } else if (filterCount > 0 && itemCount === 0) {
+    body = (
+      <div className="m-auto grid justify-items-center gap-2 text-center">
+        <p className="text-[13px] text-muted-foreground">No items match the filters.</p>
+        {onClearFilters && (
+          <Button size="sm" variant="outline" onClick={onClearFilters}>
+            Clear filters
+          </Button>
+        )}
+      </div>
+    );
   } else if (place.kind === "all" && libraryEmpty) {
     body = (
       <div className="m-auto grid max-w-sm justify-items-center gap-2 rounded-xl border-2 border-dashed border-border px-10 py-8 text-center">
@@ -256,6 +286,7 @@ export function LibraryScreen({
               </ul>
               {folderTree}
               {lockedFolders}
+              {tagSections}
             </nav>
             <Splitter
               side="left"
@@ -277,6 +308,19 @@ export function LibraryScreen({
               <span className="text-[13px] text-muted-foreground">{plural(total, "item")}</span>
             )}
             <div className="ml-auto flex items-center gap-1">
+              {filterBar !== undefined && (
+                <Button
+                  variant="ghost"
+                  size="sm"
+                  aria-pressed={barShown}
+                  title="Show the filter bar"
+                  className="aria-pressed:bg-muted"
+                  onClick={() => onFilterOpenChange?.(!filterOpen)}
+                >
+                  <Filter aria-hidden />
+                  {filterCount > 0 ? `Filter (${filterCount})` : "Filter"}
+                </Button>
+              )}
               <SortButton
                 sort={shownSort}
                 ascending={shownAscending}
@@ -348,6 +392,15 @@ export function LibraryScreen({
               </Button>
             </div>
           </div>
+          {barShown && (
+            <div
+              role="toolbar"
+              aria-label="Filters"
+              className="flex h-10 shrink-0 items-center gap-2 border-b px-3"
+            >
+              {filterBar}
+            </div>
+          )}
           <div className="relative flex min-h-0 flex-1 flex-col bg-grid">
             {body}
             {dropping && (

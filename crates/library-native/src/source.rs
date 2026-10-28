@@ -7,7 +7,8 @@ use std::sync::Arc;
 use async_trait::async_trait;
 use library_core::{
     Capabilities, Folder, FolderChange, Item, ItemEdit, ItemId, ItemLite, LibraryInfo,
-    LibrarySource, Progress, Scope, ScopeHints, SmartFolder, SourceError, Tag, TagGroup, Thumbnail,
+    LibrarySource, Progress, Scope, ScopeHints, SmartFolder, SourceError, Tag, TagGroup,
+    TagGroupChange, Thumbnail,
 };
 
 use crate::library::Library;
@@ -66,9 +67,8 @@ impl LibrarySource for NativeSource {
         self.library.tags()
     }
 
-    /// Tag groups arrive in phase 5.
     async fn tag_groups(&self) -> Result<Vec<TagGroup>, SourceError> {
-        Ok(Vec::new())
+        self.library.tag_groups()
     }
 
     /// Smart folders arrive in phase 6.
@@ -109,5 +109,27 @@ impl LibrarySource for NativeSource {
         before: Option<&ItemId>,
     ) -> Result<(), SourceError> {
         self.library.reorder_items(folder, ids, before)
+    }
+
+    async fn rename_tag(&self, from: &str, to: &str) -> Result<(), SourceError> {
+        self.library.rename_tag(from, to)
+    }
+
+    async fn merge_tags(&self, source: &str, target: &str) -> Result<(), SourceError> {
+        self.library.merge_tags(source, target)
+    }
+
+    async fn delete_tag(&self, name: &str) -> Result<(), SourceError> {
+        self.library.delete_tag(name)
+    }
+
+    async fn save_tag_group(&self, change: TagGroupChange) -> Result<Vec<TagGroup>, SourceError> {
+        self.library.save_tag_group(&change)?;
+        self.library.tag_groups()
+    }
+
+    async fn delete_tag_group(&self, id: &str) -> Result<Vec<TagGroup>, SourceError> {
+        self.library.delete_tag_group(id)?;
+        self.library.tag_groups()
     }
 }

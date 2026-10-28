@@ -141,8 +141,8 @@ The exact layout, the schema and the protocols are in [`library-format.md`](libr
 
 ### Tags
 
-- The vocabulary is every tag stored on items, plus tags kept in tag groups. Each tag shows its item count (trash excluded).
-- Rename a tag everywhere, merge one tag into another, delete a tag from every item (with confirmation that names the tag and the item count).
+- The vocabulary is every tag stored on items, plus tags kept in tag groups. Each tag shows its item count (trash excluded). A tag that only items of a locked folder carry stays out until that folder is unlocked.
+- Rename a tag everywhere, merge one tag into another, delete a tag from every item (with confirmation that names the tag and the item count). Renaming onto a name that is already a tag merges the two; the dialog says so first (D-046).
 - **Tag groups** are named, coloured sets of tag names. Editing or deleting a group never changes item tags.
 - The app keeps its own list of recently used tags.
 
@@ -434,8 +434,8 @@ Link     https://…  ↗
 | 2 | Add Files, Edit → Paste, files dropped on the window, counts in the left bar and the toolbar, import progress in the status bar, the duplicate question, the Imports panel |
 | 3 | The grid and the list, selection, sort, thumbnail size, the read-only right bar, the full-size preview |
 | 4 | The folder tree, Locked folders, Include subfolders, folder properties in the right bar |
-| 5 | The Tags filter, tag groups and recent tags, editing tags |
-| 6 | Search, the filter bar, Save as smart folder, Smart folders |
+| 5 | The Filter button and the filter bar with the Tags filter, tag groups and recent tags, editing tags (one item and a selection) |
+| 6 | Search, the other filters of the filter bar, Save as smart folder, Smart folders |
 | 7 | Editing the other fields, batch edits, the trash, file actions |
 
 ### 7.4 Other screens and dialogs
@@ -908,6 +908,8 @@ Built in two parts (D-043): **4a**, everything below except locks, and **4b**, l
 Done when: folder A does not show items that exist only in a child of A, and does with subfolders on; an item added to a second folder stays in the first; a move under its own descendant is refused before writing; deleting a folder leaves its items in the library and Uncategorized shows those without folders; a locked folder's items are hidden in All, search and tags until that folder is unlocked, and its files on disk are age ciphertext that the password of another locked folder does not decrypt; the Locked folders section lists each locked folder with its name and tag, and choosing a row prompts for that folder only.
 
 ### Phase 5 — Tags
+
+Implemented 2026-10-28 (D-046).
 
 - Tag editor in the right bar (vocabulary suggestions, new names), batch tagging of a selection.
 - The Tags filter (the tag sheet): vocabulary with counts, modes Any / All / Exact / None, recent tags, groups; tag groups and recent tags in the left bar.

@@ -15,7 +15,8 @@ use app_store::{
 use library_core::{
     DuplicateNotice, Folder, FolderChange, ImportKind, ImportProgress, ImportState, ImportTicket,
     Item, ItemCell, ItemEdit, ItemId, LibraryCounts, LibraryInfo, LibraryQuery, LibrarySource,
-    LocationProblem, Progress, ReadOnlyReason, RecoveryKey, SourceError, Thumbnail, Views,
+    LocationProblem, Progress, ReadOnlyReason, RecoveryKey, SelectionTags, SourceError, Tag,
+    TagGroup, TagGroupChange, Thumbnail, Views,
 };
 use library_native::{
     DuplicateChoice, DuplicatePolicy, ImportObserver, ImportTarget, Library, NativeSource,
@@ -446,6 +447,56 @@ impl Session {
         Ok(edited)
     }
 
+    /// The tag vocabulary with item counts (trash excluded).
+    pub fn tag_vocabulary(&self) -> Result<Vec<Tag>, SourceError> {
+        ready(self.source()?.tags())
+    }
+
+    pub fn tag_groups(&self) -> Result<Vec<TagGroup>, SourceError> {
+        ready(self.source()?.tag_groups())
+    }
+
+    /// Creates or changes a tag group; returns every group. Item tags do not change.
+    pub fn save_tag_group(&self, change: TagGroupChange) -> Result<Vec<TagGroup>, SourceError> {
+        ready(self.source()?.save_tag_group(change))
+    }
+
+    pub fn delete_tag_group(&self, id: &str) -> Result<Vec<TagGroup>, SourceError> {
+        ready(self.source()?.delete_tag_group(id))
+    }
+
+    /// Renames a tag everywhere; onto an existing name, the two merge.
+    pub fn rename_tag(&self, from: &str, to: &str) -> Result<(), SourceError> {
+        ready(self.source()?.rename_tag(from, to))?;
+        self.refresh_views();
+        Ok(())
+    }
+
+    pub fn merge_tags(&self, source: &str, target: &str) -> Result<(), SourceError> {
+        ready(self.source()?.merge_tags(source, target))?;
+        self.refresh_views();
+        Ok(())
+    }
+
+    /// Removes a tag from every item.
+    pub fn delete_tag(&self, name: &str) -> Result<(), SourceError> {
+        ready(self.source()?.delete_tag(name))?;
+        self.refresh_views();
+        Ok(())
+    }
+
+    /// The tags of a selection, each with the number of selected items that carry it, read
+    /// from the view so that Select All needs no id list.
+    pub fn selection_tags(&self, target: ItemsTarget) -> Result<SelectionTags, SourceError> {
+        let view_id = target
+            .view_id
+            .ok_or_else(|| SourceError::Invalid("The selection needs its view.".into()))?;
+        let mut views = lock(&self.views);
+        let view = views.get(view_id).ok_or(SourceError::NotFound)?;
+        let ids = target.ids.into_iter().collect();
+        Ok(view.selection_tags(target.all, &ids))
+    }
+
     /// Manual order inside `folder`.
     pub fn reorder_items(
         &self,
@@ -831,6 +882,8 @@ fn now_ms() -> i64 {
 #[cfg(test)]
 mod tests {
     use std::fs;
+
+    use library_core::TagMode;
 
     use super::*;
 
@@ -1555,6 +1608,144 @@ mod tests {
             view_id: folder_view.view_id,
             total: 0
         }));
+    }
+
+    #[test]
+    fn tag_edits_refresh_the_views_and_follow_the_filter_modes() {
+        let (f, events) = recording();
+        f.session
+            .create_library(&f.home.path().to_string_lossy(), "Tags")
+            .unwrap();
+        let ticket = f.session.add_files(images(f.home.path(), 4), None).unwrap();
+        finished(&f.session, ticket.id);
+        let all = f
+            .session
+            .open_view(LibraryQuery::default(), &|_, _| {})
+            .unwrap();
+        let ids = f.session.view_ids(all.view_id, 0, 4).unwrap();
+        let target = |items: &[ItemId]| ItemsTarget {
+            view_id: Some(all.view_id),
+            all: false,
+            ids: items.to_vec(),
+        };
+        let tag = |items: &[ItemId], names: &[&str]| {
+            f.session
+                .apply_batch_edit(
+                    target(items),
+                    ItemEdit::AddTags(names.iter().map(|name| (*name).to_owned()).collect()),
+                )
+                .unwrap()
+        };
+        tag(&ids[0..2], &["Poster", "Swiss"]);
+        tag(&ids[1..2], &["Print"]);
+        tag(&ids[2..3], &["poster"]);
+        let query = |names: &[&str], mode: TagMode| LibraryQuery {
+            tags: names.iter().map(|name| (*name).to_owned()).collect(),
+            tag_mode: mode,
+            ..LibraryQuery::default()
+        };
+        // Views are kept a few at a time: each filter view closes after its total is read.
+        let total = |names: &[&str], mode: TagMode| {
+            let view = f.session.open_view(query(names, mode), &|_, _| {}).unwrap();
+            f.session.close_view(view.view_id);
+            view.total
+        };
+        assert_eq!(total(&["Poster", "Swiss"], TagMode::Any), 2);
+        assert_eq!(total(&["Poster", "Print"], TagMode::All), 1);
+        assert_eq!(total(&["Poster", "Swiss"], TagMode::Exact), 1);
+        assert_eq!(total(&["Poster", "Swiss"], TagMode::None), 2);
+        let lower = f
+            .session
+            .open_view(query(&["poster"], TagMode::Any), &|_, _| {})
+            .unwrap();
+        assert_eq!(lower.total, 1);
+
+        // Select All but the last item: the counts come from the view.
+        let selected = f
+            .session
+            .selection_tags(ItemsTarget {
+                view_id: Some(all.view_id),
+                all: true,
+                ids: ids[3..].to_vec(),
+            })
+            .unwrap();
+        assert_eq!(selected.items, 3);
+        let counts: Vec<(&str, Option<u32>)> = selected
+            .tags
+            .iter()
+            .map(|tag| (tag.name.as_str(), tag.image_count))
+            .collect();
+        assert_eq!(
+            counts,
+            [
+                ("Poster", Some(2)),
+                ("poster", Some(1)),
+                ("Print", Some(1)),
+                ("Swiss", Some(2))
+            ]
+        );
+
+        // A rename reaches every item and the open views.
+        f.session.rename_tag("Poster", "Posters").unwrap();
+        let cells = f.session.view_range(all.view_id, 0, 4).unwrap();
+        let renamed = cells
+            .iter()
+            .filter(|cell| cell.tags.contains(&"Posters".to_owned()))
+            .count();
+        assert_eq!(renamed, 2);
+        assert!(
+            cells
+                .iter()
+                .all(|cell| !cell.tags.contains(&"Poster".to_owned()))
+        );
+        assert!(last_totals(&events).contains(&ViewOpened {
+            view_id: lower.view_id,
+            total: 1
+        }));
+        let vocabulary: Vec<String> = f
+            .session
+            .tag_vocabulary()
+            .unwrap()
+            .into_iter()
+            .map(|tag| tag.name)
+            .collect();
+        assert_eq!(vocabulary, ["poster", "Posters", "Print", "Swiss"]);
+
+        // Removing one tag leaves the others.
+        f.session
+            .apply_batch_edit(
+                target(&ids[0..1]),
+                ItemEdit::RemoveTags(vec!["Swiss".into()]),
+            )
+            .unwrap();
+        let first = f.session.item_detail(&ids[0].0).unwrap().unwrap();
+        assert_eq!(first.tags, ["Posters"]);
+
+        f.session.merge_tags("Print", "Posters").unwrap();
+        f.session.delete_tag("poster").unwrap();
+        let groups = f
+            .session
+            .save_tag_group(TagGroupChange::Create {
+                name: "Kinds".into(),
+                color: None,
+                tags: vec!["Posters".into()],
+            })
+            .unwrap();
+        assert_eq!(groups[0].tags, ["Posters"]);
+        assert!(
+            f.session
+                .delete_tag_group(&groups[0].id)
+                .unwrap()
+                .is_empty()
+        );
+        let vocabulary: Vec<String> = f
+            .session
+            .tag_vocabulary()
+            .unwrap()
+            .into_iter()
+            .map(|tag| tag.name)
+            .collect();
+        assert_eq!(vocabulary, ["Posters", "Swiss"]);
     }
 
     #[test]
