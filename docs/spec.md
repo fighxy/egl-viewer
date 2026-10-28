@@ -160,7 +160,7 @@ Smart folders live in their own tree (nested, with their own order).
 
 ### Adding
 
-- From a toolbar button (the system file dialog, multi-select, default filter "Images" plus "All files"), by dropping files or folders on the window, and by pasting an image from the clipboard.
+- From a toolbar button (the system file dialog, multi-select, default filter "Images" plus "All files"), by dropping files or folders on the window, and by pasting an image from the clipboard. A reviewed import from a chosen disk comes later (below).
 - Dropped folders are walked recursively. Option in the add dialog: create folders in the library that mirror the dropped folder structure.
 - Target: the open folder when a folder is open, otherwise Uncategorized. Optional tags and rating apply to every file of the batch.
 - Rust receives the paths and reads the files; file bytes never pass through the WebView.
@@ -842,6 +842,13 @@ Done when the installer from CI installs and runs on a clean Windows 10 and Wind
 ### Later, outside the current scope
 
 - More formats: video (frames through a bundled LGPL `ffmpeg` process), audio, PDF (`pdfium`), fonts, RAW.
+- **Reviewed disk import**, after adding files and the grid work. The user picks one drive. Nothing is copied until they confirm.
+  - The walk skips Windows, Program Files, and cache directories. v1 images are selected by default. Other files are listed and unselected. A folder can be excluded, which excludes its children.
+  - Empty result: the list says nothing was found and offers another drive.
+  - Cancel before confirm leaves the library unchanged. Cancel during copy keeps items already added and reports the rest as cancelled.
+  - A file that is already in the library is a duplicate and follows the same skip / add / attach choice as a normal import.
+  - A locked target folder encrypts each copied file as it is added. A read-only library refuses the import.
+  - Copying uses the same pipeline as adding files. The source files stay where they were.
 - Linked folders; hard links instead of copies for imports from the same NTFS volume.
 - Writing comments; a longer undo history.
 - Sync between devices and remote access to a native library (arch §15.8).
