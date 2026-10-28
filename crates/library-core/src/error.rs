@@ -42,6 +42,36 @@ pub enum SourceError {
     /// Database or file system errors of local sources.
     #[error("storage: {0}")]
     Storage(String),
+    /// The folder is not an egl-viewer library. `eagle` when it looks like an Eagle library.
+    #[error("not an egl-viewer library")]
+    NotALibrary { eagle: bool },
+    /// Made by a newer egl-viewer: the format version is above the newest this build knows.
+    #[error("made by a newer egl-viewer (format version {version})")]
+    NewerFormat { version: u32 },
+    /// A library cannot live there (D-021).
+    #[error("{0}")]
+    UnsupportedLocation(LocationProblem),
+    #[error("already exists")]
+    AlreadyExists,
+}
+
+/// Why a folder cannot hold a library (docs/spec.md §3, D-021).
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Error, Serialize, TS)]
+#[serde(rename_all = "camelCase")]
+#[ts(export)]
+pub enum LocationProblem {
+    /// Inside a folder that a cloud sync tool copies (OneDrive, Dropbox, Syncthing, …).
+    #[error("the folder is synced by a cloud service")]
+    SyncFolder,
+    /// A network share: SQLite's WAL mode needs a local disk.
+    #[error("the folder is on a network drive")]
+    NetworkPath,
+    /// Inside another egl-viewer library.
+    #[error("the folder is inside another library")]
+    InsideLibrary,
+    /// Inside an Eagle `.library` folder, which only Eagle writes.
+    #[error("the folder is inside an Eagle library")]
+    InsideEagleLibrary,
 }
 
 #[derive(Debug, Clone, PartialEq, Eq, Error, Serialize, TS)]
@@ -98,6 +128,24 @@ mod tests {
             json!({ "kind": "rejected", "detail": { "http": 500, "message": "name too long (max 10000)" } })
         );
         assert_eq!(error.to_string(), "name too long (max 10000)");
+    }
+
+    #[test]
+    fn library_errors_carry_their_detail() {
+        assert_eq!(
+            serde_json::to_value(SourceError::NotALibrary { eagle: true }).unwrap(),
+            json!({ "kind": "notALibrary", "detail": { "eagle": true } })
+        );
+        assert_eq!(
+            serde_json::to_value(SourceError::NewerFormat { version: 3 }).unwrap(),
+            json!({ "kind": "newerFormat", "detail": { "version": 3 } })
+        );
+        let error = SourceError::UnsupportedLocation(LocationProblem::SyncFolder);
+        assert_eq!(
+            serde_json::to_value(&error).unwrap(),
+            json!({ "kind": "unsupportedLocation", "detail": "syncFolder" })
+        );
+        assert_eq!(error.to_string(), "the folder is synced by a cloud service");
     }
 
     #[test]

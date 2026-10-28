@@ -1,8 +1,34 @@
-//! Settings, recent libraries and secrets (docs/architecture.md §3).
+//! Settings, recent libraries, library locations and secrets (docs/architecture.md §3).
 //!
-//! Phase 0 holds the Eagle connection settings. Recent libraries arrive in phase 1, the secret
-//! store for the Eagle token (Windows Credential Manager) in phase 9 (docs/spec.md §9).
+//! Small JSON files in the app's local data folder, written with a lock and an atomic replace
+//! so that several app processes do not overwrite each other (D-022). The secret store for the
+//! Eagle token (Windows Credential Manager) arrives in phase 9 (docs/spec.md §9).
 
+mod json_file;
+pub mod location;
+pub mod preferences;
+pub mod recent;
 pub mod settings;
 
+use std::path::PathBuf;
+
+pub use location::{SyncEnvironment, check_location, default_library_parent, display_path};
+pub use preferences::{Preferences, Theme, UiLayout, WindowState};
+pub use recent::RecentLibrary;
 pub use settings::ConnectionSettings;
+
+/// The app's files in one folder: `%LOCALAPPDATA%\com.fighxy.eglviewer` on Windows.
+#[derive(Debug, Clone)]
+pub struct AppStore {
+    dir: PathBuf,
+}
+
+impl AppStore {
+    pub fn new(dir: impl Into<PathBuf>) -> Self {
+        Self { dir: dir.into() }
+    }
+
+    pub fn dir(&self) -> &std::path::Path {
+        &self.dir
+    }
+}

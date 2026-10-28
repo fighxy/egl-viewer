@@ -37,11 +37,41 @@ pub enum LibraryKind {
 #[ts(export)]
 pub struct LibraryInfo {
     pub kind: LibraryKind,
+    /// The native library's `meta.library_id`; a copy of the folder keeps it.
+    pub id: Option<String>,
     pub name: String,
     /// Path of the library on the computer that holds it, when known.
     pub path: Option<String>,
     /// Changes when folder or smart folder metadata changes (Eagle `modificationTime`, ms).
     pub modification_time: Option<i64>,
+    pub read_only: bool,
+    /// Why a native library opened read-only; the UI explains it in a banner.
+    pub read_only_reason: Option<ReadOnlyReason>,
+    /// Who has the library open for writing, when another instance does.
+    pub holder: Option<LibraryHolder>,
+}
+
+/// Why a native library is open read-only (docs/library-format.md §5).
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize, TS)]
+#[serde(rename_all = "camelCase")]
+#[ts(export)]
+pub enum ReadOnlyReason {
+    /// Another egl-viewer holds the library's lock.
+    OtherInstance,
+    /// The library sits inside a cloud-synced folder (D-021).
+    SyncFolder,
+    /// The lock file cannot be opened for writing: read-only medium or no permission.
+    ReadOnlyMedium,
+}
+
+/// The writer named in the native library's `meta.open_by`.
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize, TS)]
+#[serde(rename_all = "camelCase")]
+#[ts(export)]
+pub struct LibraryHolder {
+    pub computer: String,
+    /// When that instance opened the library, ms.
+    pub since: i64,
 }
 
 /// A folder node. The parent is implied by nesting: Eagle's `folder/get` has no `parent` field

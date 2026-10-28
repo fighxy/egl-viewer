@@ -142,14 +142,17 @@ egl-viewer/
       edit/                  ItemEdit, cycle guard
       source.rs              the LibrarySource trait, Capabilities, SourceError (§15.2)
     library-native/          the native library: SQLite + files + thumbnails (§15.3); no Tauri
-      schema/                migrations, format version; docs/library-format.md describes it
-      open.rs                create, open, close, library.lock (OS file lock), recovery, backups
-      scope.rs               load_scope in SQL, FTS5 search
+      schema.rs, schema/     format version, schema v1, migrations; docs/library-format.md describes it
+      create.rs, name.rs     creating a library in a temporary folder; library names
+      library.rs, lock.rs    open, close, read-only modes; library.lock (OS file lock)
+      recover.rs, backup.rs  pending_file recovery, files/.tmp; backups
+      scope.rs               (phase 3) load_scope in SQL, FTS5 search
       write.rs               item edits, folders, tags, trash, change_log
       add.rs                 adding files: temp copy, hash, duplicates, the pending_file journal, rows
     media/                   hashing, probing, thumbnails, palettes (§15.4); no Tauri
     app-store/               file IO; no Tauri
-      settings.rs            preferences, the Eagle endpoint; JSON files with atomic replace (D-022)
+      settings.rs            the Eagle endpoint
+      preferences.rs         preferences, layout, window state; json_file.rs: lock + atomic replace (D-022)
       recent.rs              recent libraries, the last library, "closed explicitly"
       location.rs            default library folder; sync folder and network path checks (Windows code behind a trait)
       secrets.rs             SecretStore trait + keyring implementation (the Eagle token)
@@ -162,13 +165,15 @@ egl-viewer/
       plan.rs                plan() → FetchPlan, ServerFilter: the Eagle-specific query plan (§6.2)
       api_v2.rs              typed methods per route, FolderUpdateBody
   src-tauri/                 the app crate: thin
-    commands/                libraries, views, items, folders, tags, imports, eagle (§8)
-    state.rs                 AppState: the open source, views, imports, (Eagle) connection monitor
-    thumbs.rs                the `thumb` URI scheme
+    commands.rs              libraries now; views, items, folders, tags, imports, eagle later (§8)
+    session.rs               the open library and the app's files, without Tauri (tested); views and imports later
+    window.rs                window size and position, showing the window after the first paint
+    thumbs.rs                (phase 3) the `thumb` URI scheme
     capabilities/            Tauri permissions: only our commands and the plugins in use
   ui/
     src/ipc/                 generated types (ts-rs) + typed invoke wrappers
-    src/routes/              welcome, library, item/$id, eagle/connect, eagle/import, eagle/export
+    src/commands/            the command registry: menu bar, shortcuts, the Keyboard Shortcuts dialog (§8)
+    src/routes/              (when routing arrives, D-010) welcome, library, item/$id, eagle/connect, eagle/import, eagle/export
     src/features/            welcome, grid, tree, tag-sheet, filter-sheet, item-detail, folder-dialogs, imports, connect
     src/components/ui/       shadcn/ui components
     src/lib/                 thumbUrl(), platform helpers

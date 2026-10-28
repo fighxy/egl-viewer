@@ -17,7 +17,7 @@ React UI. Windows first; no AI features.
 | Phase | State |
 |---|---|
 | 0. Project skeleton | Done (2026-10-28): workspace, core types, the `LibrarySource` trait, Welcome screen, Connect screen without networking, tests, CI |
-| 1. Native library: create and open | Next: format version 1, the lock, locations and adding a file are written down in `docs/library-format.md`, the window, menu and screen layout in `docs/spec.md` §7 (2026-10-28); code not started |
+| 1. Native library: create and open | Implemented (2026-10-28), waiting for the done check on Windows: `library-native` (create, open, the OS lock, recovery, backups, `add_file`), library locations and recent libraries in `app-store`, the library commands, the window frame with the menu bar, Welcome, the empty library screen, Settings, About and Keyboard Shortcuts (D-032) |
 | 2–7. Adding files, grid, folders, tags, search and smart folders, editing and trash | Planned |
 | 8–11. Eagle: import, live connection, export | Planned |
 | 12. Hardening and the Windows release | Planned |
@@ -58,9 +58,10 @@ pnpm dev
 
 ```
 crates/library-core/   models, queries, edits, errors, the LibrarySource trait (no IO)
-crates/app-store/      settings, recent libraries, secrets
+crates/library-native/ the native library: create, open, the library lock, recovery, adding a file
+crates/app-store/      settings, recent libraries, library locations, secrets
 crates/eagle-api/      a running Eagle as a LibrarySource (transport from phase 9)
-(later crates)         library-native and media (phases 1–2), eagle-folder (phase 8)
+(later crates)         media (phase 2), eagle-folder (phase 8)
 src-tauri/             the Tauri app: commands, configuration, capabilities, icons
 ui/                    React + TypeScript + Tailwind + shadcn/ui
 docs/                  spec, architecture, decisions

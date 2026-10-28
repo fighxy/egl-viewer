@@ -355,3 +355,44 @@ full-database cipher is ever required; it is out of scope here.
   its size, position and maximized state are saved by `app-store` (D-022).
 - Which of these are Tauri or WebView2 settings and which are UI code is settled when phase 1 is
   built; arch §8 lists them.
+
+## D-030 Dependencies of phase 1 (2026-10-28)
+
+The newest versions older than the minimum release age (D-002, D-003):
+
+| Where | Package | Version | Why |
+|---|---|---|---|
+| Rust | `rusqlite` with `bundled` | 0.41.0 | SQLite with WAL and FTS5 for `library.db` |
+| Rust | `ulid` | 3.0.0 | Library and item ids (`Ulid::generate`) |
+| Rust | `blake3` | 1.8.7 | Content hashes of added files |
+| Rust, Windows only | `winreg` | 0.56.0 | Reading the sync roots of the Windows Cloud Files API (D-021) |
+| Rust | `tauri-plugin-dialog` | 2.8.3 | The folder picker for Create and Open. 2.8.4 was published on 2026-10-28, too new |
+| Rust, tests | `tempfile` | 3.27.0 | Temporary folders in tests |
+| npm | `@tauri-apps/plugin-dialog` | 2.8.3 | The plugin's JavaScript side, same version as the crate |
+
+The `std::fs::File::try_lock` of the library lock needs no crate (Rust 1.89+).
+
+## D-031 shadcn components written by hand when the registry is unreachable (2026-10-28)
+
+The shadcn CLI downloads components from `ui.shadcn.com`, which the build environment of phase 1
+could not reach. `menubar`, `dialog` and `switch` in `ui/src/components/ui/` were written by hand
+on the `radix-ui` primitives already installed, in the style of the existing Nova components. They
+belong to the project like CLI output (D-006); `pnpm dlx shadcn@<pinned> add <name> -c ui` can
+replace them when the registry is reachable. No new npm package was needed.
+
+## D-032 Phase 1 as built (2026-10-28)
+
+- `library-native` exposes `Library` directly; the commands use it through `src-tauri/src/session.rs`,
+  a Tauri-free layer that the tests drive. The native `LibrarySource` implementation arrives in
+  phase 3 with `load_scope`, when there is something to load.
+- Holding `Shift` on start (D-017, D-022) is not implemented yet: reading the key state needs a
+  Windows call, and `unsafe` is forbidden in our crates, so it needs a crate with a safe wrapper,
+  chosen separately. `--no-reopen` and the Settings switch "Reopen the last library on start" work.
+- Daily backups are named by the UTC date. The library's display name is `meta.name`.
+- The left bar shows its four rows without counts; counts come with the queries of phase 3. The
+  screens switch without TanStack Router (D-010): two screens do not need it yet.
+- A read-only open of a library that needs a migration is refused with `notSupported`; with only
+  format version 1 this cannot happen yet.
+- Checked on Linux under Xvfb with the real app: create, quit, restart (reopened), a second
+  instance (Welcome notice, then read-only with Open for editing), `kill -9` and restart (lock free,
+  unclean close detected). The Windows checks of the done check are still open.
