@@ -13,15 +13,18 @@ use app_store::{
     display_path,
 };
 use library_core::{
-    DuplicateNotice, ImportKind, ImportProgress, ImportState, ImportTicket, LibraryCounts,
-    LibraryInfo, LocationProblem, ReadOnlyReason, SourceError,
+    DuplicateNotice, ImportKind, ImportProgress, ImportState, ImportTicket, Item, ItemCell, ItemId,
+    LibraryCounts, LibraryInfo, LibraryQuery, LibrarySource, LocationProblem, Progress,
+    ReadOnlyReason, SourceError, Thumbnail, Views,
 };
 use library_native::{
-    DuplicateChoice, DuplicatePolicy, ImportObserver, Library, OpenOptions, create_library,
-    import_files, make_pending_previews, utc_file_stamp,
+    DuplicateChoice, DuplicatePolicy, ImportObserver, Library, NativeSource, OpenOptions,
+    create_library, import_files, make_pending_previews, utc_file_stamp,
 };
 use serde::Serialize;
 use ts_rs::TS;
+
+use crate::views::{Blocking, Emit, Event, ImageRequest, Refresher, ViewOpened, count, ready};
 
 /// What the app does on start: the reopened library, or why it shows Welcome instead.
 #[derive(Debug, Clone, PartialEq, Serialize, TS)]
@@ -32,9 +35,6 @@ pub struct StartupResult {
     /// Shown on Welcome when the last library was not reopened for a reason worth saying.
     pub notice: Option<String>,
 }
-
-/// Sends import progress to the UI (an `import-progress` event in the app).
-pub type Emit = Arc<dyn Fn(&ImportProgress) + Send + Sync>;
 
 /// What is on the clipboard: copied files, or an image (RGBA pixels).
 pub trait Clipboard {
@@ -52,6 +52,8 @@ pub struct Session {
     sync: SyncEnvironment,
     library: Mutex<Option<Arc<Library>>>,
     imports: Arc<Mutex<Imports>>,
+    /// Views of the open library; dropped when it closes.
+    views: Arc<Mutex<Views>>,
     emit: Emit,
 }
 
@@ -106,12 +108,17 @@ struct Observer {
     latest: Arc<Mutex<Option<ImportProgress>>>,
     decision: Arc<Decision>,
     cancel: Arc<AtomicBool>,
+    /// The library the import writes to, for recomputing the views.
+    source: NativeSource,
+    refresher: Refresher,
 }
 
 impl ImportObserver for Observer {
+    /// The views are recomputed first, so they show the new items once the UI hears "done".
     fn progress(&self, progress: &ImportProgress) {
+        self.refresher.after(progress, &self.source);
         *lock(&self.latest) = Some(progress.clone());
-        (self.emit)(progress);
+        (self.emit)(Event::ImportProgress(progress.clone()));
     }
 
     fn decide(&self, _duplicate: &DuplicateNotice) -> DuplicateChoice {
@@ -119,7 +126,7 @@ impl ImportObserver for Observer {
     }
 }
 
-fn lock<T>(mutex: &Mutex<T>) -> MutexGuard<'_, T> {
+pub(crate) fn lock<T>(mutex: &Mutex<T>) -> MutexGuard<'_, T> {
     mutex.lock().unwrap_or_else(PoisonError::into_inner)
 }
 
@@ -138,6 +145,7 @@ impl Session {
             sync,
             library: Mutex::new(None),
             imports: Arc::new(Mutex::new(Imports::default())),
+            views: Arc::new(Mutex::new(Views::default())),
             emit,
         }
     }
@@ -191,6 +199,7 @@ impl Session {
         self.stop_imports();
         // The previous library closes here, after the new one opened.
         let previous = lock(&self.library).replace(Arc::clone(&library));
+        lock(&self.views).clear();
         drop(previous);
         if let Err(error) =
             self.store
@@ -222,6 +231,63 @@ impl Session {
 
     pub fn counts(&self) -> Result<LibraryCounts, SourceError> {
         self.current_library().ok_or_else(no_library)?.counts()
+    }
+
+    /// Opens a view of the open library for `query` (docs/architecture.md §6.5).
+    pub fn open_view(
+        &self,
+        query: LibraryQuery,
+        progress: Progress<'_>,
+    ) -> Result<ViewOpened, SourceError> {
+        let source = self.source()?;
+        let mut views = lock(&self.views);
+        let view = views.open(query, &Blocking(&source), progress)?;
+        Ok(ViewOpened {
+            view_id: view.id(),
+            total: count(view.total()),
+        })
+    }
+
+    /// At most `MAX_WINDOW` cells of view `view_id`, from `start`.
+    pub fn view_range(
+        &self,
+        view_id: u64,
+        start: u32,
+        len: u32,
+    ) -> Result<Vec<ItemCell>, SourceError> {
+        let mut views = lock(&self.views);
+        let view = views.get(view_id).ok_or(SourceError::NotFound)?;
+        Ok(view.range(start as usize, len as usize))
+    }
+
+    /// The ids of positions `start..start + len` of a view, for selections.
+    pub fn view_ids(&self, view_id: u64, start: u32, len: u32) -> Result<Vec<ItemId>, SourceError> {
+        let mut views = lock(&self.views);
+        let view = views.get(view_id).ok_or(SourceError::NotFound)?;
+        Ok(view.ids(start as usize, len as usize))
+    }
+
+    pub fn close_view(&self, view_id: u64) {
+        lock(&self.views).close(view_id);
+    }
+
+    /// The full item for the details panel.
+    pub fn item_detail(&self, id: &str) -> Result<Option<Item>, SourceError> {
+        ready(self.source()?.item(&ItemId(id.to_owned())))
+    }
+
+    /// What the `thumb` scheme serves for a URL path: a thumbnail or an original of the open
+    /// library, or nothing (404).
+    pub fn image(&self, path: &str) -> Option<Thumbnail> {
+        let request = ImageRequest::parse(path)?;
+        let source = self.source().ok()?;
+        match request.read(&source) {
+            Ok(image) => image,
+            Err(error) => {
+                tracing::debug!("no image for {path}: {error}");
+                None
+            }
+        }
     }
 
     pub fn recent_libraries(&self) -> Vec<RecentLibrary> {
@@ -438,6 +504,8 @@ impl Session {
             latest: Arc::clone(&latest),
             decision: Arc::clone(&decision),
             cancel: Arc::clone(&cancel),
+            source: NativeSource::new(Arc::clone(&library)),
+            refresher: Refresher::new(Arc::clone(&self.views), Arc::clone(&self.emit)),
         };
         let registry = Arc::clone(&self.imports);
         let task_cancel = Arc::clone(&cancel);
@@ -447,6 +515,7 @@ impl Session {
             .name(format!("import-{id}"))
             .spawn(move || {
                 let done = work(&library, id, &observer, &task_cancel);
+                drop(observer);
                 drop(library);
                 let mut imports = lock(&registry);
                 imports.running.remove(&id);
@@ -483,9 +552,16 @@ impl Session {
         lock(&self.library).clone()
     }
 
+    fn source(&self) -> Result<NativeSource, SourceError> {
+        Ok(NativeSource::new(
+            self.current_library().ok_or_else(no_library)?,
+        ))
+    }
+
     /// Stops imports and takes the library out of the session.
     fn take_library(&self) -> Option<Library> {
         self.stop_imports();
+        lock(&self.views).clear();
         let library = lock(&self.library).take()?;
         // Import threads hold their clones only while they run.
         Arc::try_unwrap(library).ok()
@@ -528,7 +604,7 @@ mod tests {
             home.path().to_path_buf(),
             "0.1.0-test",
             sync,
-            Arc::new(|_: &ImportProgress| {}),
+            Arc::new(|_: Event| {}),
         );
         Fixture {
             _data: data,
@@ -747,7 +823,11 @@ mod tests {
             home.path().to_path_buf(),
             "0.1.0-test",
             SyncEnvironment::default(),
-            Arc::new(move |progress: &ImportProgress| sink.lock().unwrap().push(progress.clone())),
+            Arc::new(move |event: Event| {
+                if let Event::ImportProgress(progress) = event {
+                    sink.lock().unwrap().push(progress);
+                }
+            }),
         );
         assert!(matches!(
             session.add_files(vec![]),
@@ -905,6 +985,144 @@ mod tests {
             !f.session.has_running_imports(),
             "previews do not hold back quitting"
         );
+    }
+
+    /// A session whose events are recorded.
+    fn recording() -> (Fixture, Arc<Mutex<Vec<Event>>>) {
+        let events = Arc::new(Mutex::new(Vec::new()));
+        let sink = Arc::clone(&events);
+        let data = tempfile::tempdir().unwrap();
+        let home = tempfile::tempdir().unwrap();
+        let session = Session::new(
+            AppStore::new(data.path()),
+            home.path().to_path_buf(),
+            "0.1.0-test",
+            SyncEnvironment::default(),
+            Arc::new(move |event: Event| sink.lock().unwrap().push(event)),
+        );
+        (
+            Fixture {
+                _data: data,
+                home,
+                session,
+            },
+            events,
+        )
+    }
+
+    #[test]
+    fn views_follow_added_files_under_the_same_id() {
+        let (f, events) = recording();
+        f.session
+            .create_library(&f.home.path().to_string_lossy(), "Views")
+            .unwrap();
+        let progress = Mutex::new(Vec::new());
+        let opened = f
+            .session
+            .open_view(LibraryQuery::default(), &|loaded, total| {
+                progress.lock().unwrap().push((loaded, total));
+            })
+            .unwrap();
+        assert_eq!(opened.total, 0);
+        assert_eq!(*progress.lock().unwrap(), [(0, 0)]);
+
+        let ticket = f.session.add_files(images(f.home.path(), 3)).unwrap();
+        finished(&f.session, ticket.id);
+        let invalidated: Vec<_> = events
+            .lock()
+            .unwrap()
+            .iter()
+            .filter_map(|event| match event {
+                Event::ViewsInvalidated(views) => Some(views.views.clone()),
+                Event::ImportProgress(_) => None,
+            })
+            .collect();
+        assert_eq!(
+            invalidated.last().unwrap(),
+            &[ViewOpened {
+                view_id: opened.view_id,
+                total: 3
+            }]
+        );
+        let cells = f.session.view_range(opened.view_id, 0, 500).unwrap();
+        assert_eq!(cells.len(), 3);
+        assert!(
+            cells
+                .iter()
+                .all(|cell| cell.has_thumbnail && cell.thumb_version > 0)
+        );
+        assert!(cells.iter().all(|cell| cell.palette0.is_some()));
+        // Newest first: the last file added comes first.
+        let ids = f.session.view_ids(opened.view_id, 0, 3).unwrap();
+        assert_eq!(ids.len(), 3);
+        assert_eq!(ids[0], cells[0].id);
+
+        let detail = f.session.item_detail(&cells[0].id.0).unwrap().unwrap();
+        assert_eq!(detail.id, cells[0].id);
+        assert_eq!(f.session.item_detail("01NOTANITEM").unwrap(), None);
+
+        f.session.close_view(opened.view_id);
+        assert_eq!(
+            f.session.view_range(opened.view_id, 0, 10),
+            Err(SourceError::NotFound)
+        );
+    }
+
+    #[test]
+    fn views_need_a_library_and_go_with_it() {
+        let f = fixture();
+        assert!(matches!(
+            f.session.open_view(LibraryQuery::default(), &|_, _| {}),
+            Err(SourceError::Invalid(_))
+        ));
+        f.session
+            .create_library(&f.home.path().to_string_lossy(), "Gone")
+            .unwrap();
+        let opened = f
+            .session
+            .open_view(LibraryQuery::default(), &|_, _| {})
+            .unwrap();
+        f.session.close_library().unwrap();
+        assert_eq!(
+            f.session.view_range(opened.view_id, 0, 10),
+            Err(SourceError::NotFound)
+        );
+    }
+
+    #[test]
+    fn the_thumb_scheme_serves_only_items_of_the_open_library() {
+        let f = fixture();
+        assert_eq!(f.session.image("/01ANYTHING"), None, "no library");
+        f.session
+            .create_library(&f.home.path().to_string_lossy(), "Thumbs")
+            .unwrap();
+        let ticket = f.session.add_files(images(f.home.path(), 1)).unwrap();
+        finished(&f.session, ticket.id);
+        let opened = f
+            .session
+            .open_view(LibraryQuery::default(), &|_, _| {})
+            .unwrap();
+        let id = f.session.view_ids(opened.view_id, 0, 1).unwrap()[0]
+            .0
+            .clone();
+
+        let thumbnail = f.session.image(&format!("/{id}")).unwrap();
+        assert_eq!(thumbnail.content_type, "image/webp");
+        let original = f.session.image(&format!("/{id}/original")).unwrap();
+        assert_eq!(original.content_type, "image/png");
+        assert_eq!(
+            original.bytes,
+            fs::read(f.home.path().join("image-0.png")).unwrap()
+        );
+        for path in [
+            "/",
+            "/../library.db",
+            &format!("/{id}/other"),
+            "/01NOTANITEM",
+            "/a%2Fb",
+        ] {
+            assert_eq!(f.session.image(path), None, "{path}");
+        }
     }
 
     #[test]

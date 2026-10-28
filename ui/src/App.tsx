@@ -1,16 +1,29 @@
+import { QueryClient, QueryClientProvider } from "@tanstack/react-query";
 import { listen } from "@tauri-apps/api/event";
 import { getCurrentWebview } from "@tauri-apps/api/webview";
 import { open as openDialog } from "@tauri-apps/plugin-dialog";
-import { useCallback, useEffect, useMemo, useState } from "react";
+import { useCallback, useEffect, useMemo, useRef, useState } from "react";
+import { flushSync } from "react-dom";
 import { type CommandActions, type CommandState, needsWritableLibrary } from "@/commands/registry";
 import { useShortcuts } from "@/commands/useShortcuts";
 import { AboutDialog } from "@/features/about/AboutDialog";
+import { DetailsPanel } from "@/features/browse/DetailsPanel";
+import { ItemsView } from "@/features/browse/ItemsView";
+import { Preview } from "@/features/browse/Preview";
+import {
+  everything,
+  NOTHING,
+  type Selection,
+  selectedCount,
+  singleId,
+} from "@/features/browse/selection";
+import { useView } from "@/features/browse/useView";
 import { ConnectScreen } from "@/features/connect/ConnectScreen";
 import { DuplicateDialog } from "@/features/imports/DuplicateDialog";
 import { ImportsPanel } from "@/features/imports/ImportsPanel";
 import { importSummary } from "@/features/imports/importText";
 import { useImports } from "@/features/imports/useImports";
-import { LibraryScreen } from "@/features/library/LibraryScreen";
+import { LibraryScreen, type ScopeId, scopeOf } from "@/features/library/LibraryScreen";
 import { SettingsDialog } from "@/features/settings/SettingsDialog";
 import { AppMenu } from "@/features/shell/AppMenu";
 import { type Confirmation, ConfirmDialog } from "@/features/shell/ConfirmDialog";
@@ -19,6 +32,7 @@ import { CreateLibraryDialog } from "@/features/welcome/CreateLibraryDialog";
 import { WelcomeScreen } from "@/features/welcome/WelcomeScreen";
 import {
   type AppInfo,
+  type BrowsePreferences,
   type ConnectionSettings,
   DEFAULT_PREFERENCES,
   EVENTS,
@@ -27,7 +41,9 @@ import {
   type LibraryCounts,
   type LibraryInfo,
   type Preferences,
+  queryFor,
   type RecentLibrary,
+  THUMBNAIL_SIZES,
   type UiLayout,
 } from "@/ipc";
 import {
@@ -81,7 +97,39 @@ async function pickFiles(): Promise<string[]> {
   return Array.isArray(picked) ? picked : [picked];
 }
 
+/**
+ * Runs `update` as a View Transition when motion is on (D-028). Only in Chromium (WebView2):
+ * WebKitGTK crashed on View Transitions while phase 3 was checked (D-040).
+ */
+function withTransition(update: () => void) {
+  const reduced = window.matchMedia?.("(prefers-reduced-motion: reduce)").matches ?? false;
+  const chromium = /\bChrome\//.test(navigator.userAgent);
+  if (!document.startViewTransition || !chromium || reduced) {
+    update();
+    return;
+  }
+  document.startViewTransition(() => flushSync(update));
+}
+
+/** How far one Ctrl+= or Ctrl+- step changes the thumbnail size. */
+const ZOOM_STEP = 20;
+
 export function App() {
+  // One cache per window: views and windows of cells from Rust (docs/architecture.md §8).
+  const [client] = useState(
+    () =>
+      new QueryClient({
+        defaultOptions: { queries: { retry: false, refetchOnWindowFocus: false } },
+      }),
+  );
+  return (
+    <QueryClientProvider client={client}>
+      <AppShell />
+    </QueryClientProvider>
+  );
+}
+
+function AppShell() {
   const [info, setInfo] = useState<AppInfo | null>(null);
   const [defaults, setDefaults] = useState<ConnectionSettings>(FALLBACK_DEFAULTS);
   const [view, setView] = useState<View>({ kind: "welcome" });
@@ -95,6 +143,11 @@ export function App() {
   const [importsOpen, setImportsOpen] = useState(false);
   const [confirmation, setConfirmation] = useState<Confirmation | null>(null);
   const [dropping, setDropping] = useState(false);
+  const [scope, setScope] = useState<ScopeId>("all");
+  const [selection, setSelection] = useState<Selection>(NOTHING);
+  const [previewIndex, setPreviewIndex] = useState<number | null>(null);
+  const [transitionId, setTransitionId] = useState<string | null>(null);
+  const detailsRef = useRef<HTMLDivElement>(null);
 
   useEffect(() => installDesktopBehaviour(), []);
 
@@ -107,6 +160,25 @@ export function App() {
 
   const library = view.kind === "library" ? view.library : null;
   const imports = useImports(library?.path ?? null);
+
+  const browse = preferences.browse;
+  const query = useMemo(
+    () => (library ? queryFor(scopeOf(scope), browse) : null),
+    [library, scope, browse],
+  );
+  const opened = useView(query);
+  const total = opened.view?.total ?? 0;
+
+  // A new library or scope starts with nothing selected; a new sort keeps the selected items.
+  // biome-ignore lint/correctness/useExhaustiveDependencies: reset when the screen changes.
+  useEffect(() => {
+    setSelection(NOTHING);
+    setPreviewIndex(null);
+  }, [library?.path, scope]);
+  // biome-ignore lint/correctness/useExhaustiveDependencies: positions change with the order.
+  useEffect(() => {
+    setSelection((current) => ({ ...current, anchor: null, focus: null }));
+  }, [browse.sort, browse.ascending]);
   const addingFiles = imports.running.some((progress) => progress.kind === "files");
 
   // Counts follow the added files, at most every 300 ms.
@@ -169,9 +241,10 @@ export function App() {
     };
   }, [refreshRecent]);
 
-  const opened = useCallback(
+  const libraryOpened = useCallback(
     (next: LibraryInfo) => {
       setView({ kind: "library", library: next });
+      setScope("all");
       setStatus(undefined);
       setDialog(null);
       void refreshRecent();
@@ -182,13 +255,13 @@ export function App() {
   const openPath = useCallback(
     async (path: string) => {
       try {
-        opened(await ipc.openLibrary(path));
+        libraryOpened(await ipc.openLibrary(path));
       } catch (error) {
         setStatus(describeError(error));
         void refreshRecent();
       }
     },
-    [opened, refreshRecent],
+    [libraryOpened, refreshRecent],
   );
 
   const savePreferences = useCallback(async (next: Preferences) => {
@@ -206,6 +279,36 @@ export function App() {
     },
     [preferences],
   );
+
+  const changeBrowse = useCallback(
+    (next: BrowsePreferences, persist: boolean) => {
+      const updated = { ...preferences, browse: next };
+      setPreferences(updated);
+      if (persist && inTauri()) {
+        ipc.setPreferences(updated).catch((error: unknown) => setStatus(describeError(error)));
+      }
+    },
+    [preferences],
+  );
+
+  const openPreview = useCallback((index: number, id: string | null) => {
+    flushSync(() => setTransitionId(id));
+    withTransition(() => setPreviewIndex(index));
+  }, []);
+
+  const closePreview = useCallback((id: string | null) => {
+    withTransition(() => {
+      setTransitionId(id);
+      setPreviewIndex(null);
+    });
+  }, []);
+
+  const focusDetails = useCallback(() => {
+    if (!preferences.layout.rightOpen) {
+      changeLayout({ ...preferences.layout, rightOpen: true }, true);
+    }
+    requestAnimationFrame(() => detailsRef.current?.focus());
+  }, [preferences.layout, changeLayout]);
 
   /** Runs `action` now, or after the user agrees to stop the files being added. */
   const afterImports = useCallback(
@@ -290,8 +393,25 @@ export function App() {
         changeLayout({ ...preferences.layout, rightOpen: !preferences.layout.rightOpen }, true),
       shortcuts: () => setDialog("shortcuts"),
       about: () => setDialog("about"),
+      selectAll: () => setSelection((current) => everything(current)),
+      preview: () => openPreview(selection.focus ?? 0, singleId(selection)),
+      setViewMode: (viewMode) => changeBrowse({ ...browse, viewMode }, true),
+      zoom: (step) => {
+        const size = Math.min(
+          THUMBNAIL_SIZES.max,
+          Math.max(THUMBNAIL_SIZES.min, browse.thumbnailSize + step * ZOOM_STEP),
+        );
+        changeBrowse({ ...browse, thumbnailSize: size }, true);
+      },
+      toggleNames: () => changeBrowse({ ...browse, showNames: !browse.showNames }, true),
+      setSort: (sort) => changeBrowse({ ...browse, sort }, true),
+      setAscending: (ascending) => changeBrowse({ ...browse, ascending }, true),
     }),
     [
+      browse,
+      changeBrowse,
+      openPreview,
+      selection,
       afterImports,
       addPaths,
       openPath,
@@ -312,12 +432,19 @@ export function App() {
       fullscreen,
       leftOpen: preferences.layout.leftOpen,
       rightOpen: preferences.layout.rightOpen,
+      browse,
+      items: total,
+      selected: selectedCount(selection, total),
     }),
-    [library, recent, preferences, fullscreen],
+    [library, recent, preferences, fullscreen, browse, total, selection],
   );
 
   const modalOpen =
-    dialog !== null || importsOpen || confirmation !== null || imports.waiting !== undefined;
+    dialog !== null ||
+    importsOpen ||
+    confirmation !== null ||
+    imports.waiting !== undefined ||
+    previewIndex !== null;
   useShortcuts(commandState, actions, !modalOpen);
 
   // Files dragged onto the window: an overlay, then an import (paths only, D-029).
@@ -376,7 +503,7 @@ export function App() {
   const latestImport = imports.running[0] ?? imports.imports[0];
 
   const loadDefaultLocation = useCallback(() => ipc.defaultLibraryLocation(), []);
-  const browse = useCallback(
+  const browseFolders = useCallback(
     (current: string) => pickFolder("Choose a folder", current || undefined),
     [],
   );
@@ -403,6 +530,44 @@ export function App() {
           importStatus={latestImport ? importSummary(latestImport) : undefined}
           onOpenImports={() => setImportsOpen(true)}
           dropping={dropping}
+          scope={scope}
+          onScopeChange={setScope}
+          browse={browse}
+          onBrowseChange={changeBrowse}
+          itemCount={opened.view?.total}
+          selectedCount={selectedCount(selection, total)}
+          viewStatus={
+            opened.error ??
+            (opened.view === null && opened.progress
+              ? `Loading ${opened.progress.loaded.toLocaleString("en")} of ${opened.progress.total.toLocaleString("en")}…`
+              : undefined)
+          }
+          content={
+            opened.view && (
+              <ItemsView
+                viewId={opened.view.viewId}
+                total={opened.view.total}
+                mode={browse.viewMode}
+                cellSize={browse.thumbnailSize}
+                showNames={browse.showNames}
+                selection={selection}
+                onSelectionChange={setSelection}
+                onOpen={openPreview}
+                onEnter={focusDetails}
+                onZoom={actions.zoom}
+                onLost={opened.reopen}
+                transitionId={previewIndex === null ? transitionId : null}
+              />
+            )
+          }
+          details={
+            <DetailsPanel
+              ref={detailsRef}
+              count={selectedCount(selection, total)}
+              itemId={singleId(selection)}
+              onPreview={actions.preview}
+            />
+          }
         />
       ) : (
         <>
@@ -453,16 +618,16 @@ export function App() {
         open={dialog === "create"}
         onOpenChange={closeDialog}
         loadDefaultLocation={loadDefaultLocation}
-        browse={browse}
+        browse={browseFolders}
         create={ipc.createLibrary}
-        onCreated={opened}
+        onCreated={libraryOpened}
       />
       <SettingsDialog
         open={dialog === "settings"}
         onOpenChange={closeDialog}
         preferences={preferences}
         builtInLocation={builtInLocation}
-        browse={browse}
+        browse={browseFolders}
         save={savePreferences}
       />
       <AboutDialog open={dialog === "about"} onOpenChange={closeDialog} info={info} />
@@ -482,6 +647,16 @@ export function App() {
         }
       />
       <ConfirmDialog confirmation={confirmation} onClose={() => setConfirmation(null)} />
+      {opened.view && (
+        <Preview
+          viewId={opened.view.viewId}
+          total={opened.view.total}
+          index={previewIndex}
+          onIndexChange={setPreviewIndex}
+          onClose={closePreview}
+          onLost={opened.reopen}
+        />
+      )}
     </div>
   );
 }

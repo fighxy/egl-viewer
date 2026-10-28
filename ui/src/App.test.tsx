@@ -224,7 +224,9 @@ describe("Adding files", () => {
     total = 1;
     await act(() => emit("import-progress", progress()));
     expect(await screen.findByRole("button", { name: "Adding files: 1 of 3" })).toBeInTheDocument();
-    await waitFor(() => expect(screen.getByRole("main")).toHaveTextContent("1 item"));
+    await waitFor(() =>
+      expect(screen.getByRole("button", { name: /^All/ })).toHaveTextContent("1"),
+    );
 
     await act(() =>
       emit(

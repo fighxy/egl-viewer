@@ -1,4 +1,5 @@
 import { describe, expect, it, vi } from "vitest";
+import { DEFAULT_PREFERENCES } from "@/ipc";
 import { LIBRARY } from "@/test/backend";
 import {
   availability,
@@ -16,6 +17,9 @@ const state = (change: Partial<CommandState> = {}): CommandState => ({
   fullscreen: false,
   leftOpen: true,
   rightOpen: true,
+  browse: DEFAULT_PREFERENCES.browse,
+  items: 0,
+  selected: 0,
   ...change,
 });
 

@@ -1,4 +1,4 @@
-import { COMMANDS, type Command, MENUS } from "@/commands/registry";
+import { COMMANDS, type Command, MENUS, WIDGET_KEYS } from "@/commands/registry";
 import {
   Dialog,
   DialogContent,
@@ -18,7 +18,7 @@ export function ShortcutsDialog({ open, onOpenChange, commands = COMMANDS }: Pro
   const withShortcuts = commands.filter((command) => command.shortcut);
   return (
     <Dialog open={open} onOpenChange={onOpenChange}>
-      <DialogContent>
+      <DialogContent className="max-h-[85vh] overflow-y-auto">
         <DialogHeader>
           <DialogTitle>Keyboard shortcuts</DialogTitle>
           <DialogDescription>What the keyboard does in this version.</DialogDescription>
@@ -34,6 +34,17 @@ export function ShortcutsDialog({ open, onOpenChange, commands = COMMANDS }: Pro
                 <td className="py-1.5 text-right">
                   <kbd className="rounded border bg-muted px-1.5 py-0.5 font-sans text-xs">
                     {command.shortcut}
+                  </kbd>
+                </td>
+              </tr>
+            ))}
+            {WIDGET_KEYS.map((key) => (
+              <tr key={`${key.area}:${key.keys}`} className="border-b last:border-0">
+                <td className="py-1.5 text-muted-foreground">{key.area}</td>
+                <td className="py-1.5">{key.label}</td>
+                <td className="py-1.5 text-right">
+                  <kbd className="rounded border bg-muted px-1.5 py-0.5 font-sans text-xs">
+                    {key.keys}
                   </kbd>
                 </td>
               </tr>

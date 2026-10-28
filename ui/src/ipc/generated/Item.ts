@@ -10,4 +10,8 @@ export type Item = { id: ItemId, name: string, ext: string, width: number | null
 /**
  * EXIF strings (Eagle `rawMetas`, correction 38).
  */
-exif: JsonValue | null, noThumbnail: boolean, isDeleted: boolean, };
+exif: JsonValue | null, noThumbnail: boolean, 
+/**
+ * Part of the thumbnail URL, as in [`ItemLite::thumb_version`].
+ */
+thumbVersion: number, isDeleted: boolean, };

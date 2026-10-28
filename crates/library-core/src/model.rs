@@ -132,7 +132,11 @@ pub struct ItemLite {
     /// Eagle `mtime`, ms.
     pub file_modified_at: Option<i64>,
     pub duration: Option<f64>,
+    /// No thumbnail to show: the native library has not made one (yet), Eagle stored none.
     pub no_thumbnail: bool,
+    /// Changes when the thumbnail changes; part of its URL (native: `item.thumb_version`; Eagle:
+    /// `modificationTime`).
+    pub thumb_version: i64,
 }
 
 /// The full item for the detail panel.
@@ -160,6 +164,8 @@ pub struct Item {
     /// EXIF strings (Eagle `rawMetas`, correction 38).
     pub exif: Option<serde_json::Value>,
     pub no_thumbnail: bool,
+    /// Part of the thumbnail URL, as in [`ItemLite::thumb_version`].
+    pub thumb_version: i64,
     pub is_deleted: bool,
 }
 

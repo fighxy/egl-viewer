@@ -138,7 +138,8 @@ egl-viewer/
   crates/
     library-core/            no IO, no async runtime
       model/                 Item, ItemLite, Folder, FolderIndex, Tag, TagGroup, SmartFolder, LibraryInfo
-      query/                 LibraryQuery, Scope, TagMode, SortKey, pipeline(), matchers, sorter, lock filter, views
+      query/                 LibraryQuery, Scope, TagMode, SortKey; filter.rs (FolderIndex, lock filter, matchers),
+                             sort.rs (collation keys, random), view.rs (View, Views, ItemCell, ViewSource)
       edit/                  ItemEdit, cycle guard
       source.rs              the LibrarySource trait, Capabilities, SourceError (§15.2)
     library-native/          the native library: SQLite + files + thumbnails (§15.3); no Tauri
@@ -146,7 +147,8 @@ egl-viewer/
       create.rs, name.rs     creating a library in a temporary folder; library names
       library.rs, lock.rs    open, close, read-only modes; library.lock (OS file lock)
       recover.rs, backup.rs  pending_file recovery, files/.tmp; backups
-      scope.rs               (phase 3) load_scope in SQL, FTS5 search
+      scope.rs, source.rs    load_scope in SQL, the full item, tags, thumbnail and original bytes; NativeSource
+                             (FTS5 search in phase 6)
       write.rs               item edits, folders, tags, trash, change_log
       add.rs                 adding one file: temp copy, hash, duplicates, the pending_file journal, rows
       import.rs, preview.rs  batches (folders walked, one duplicate question, cancel, progress); thumbnails, counts
@@ -167,16 +169,18 @@ egl-viewer/
       plan.rs                plan() → FetchPlan, ServerFilter: the Eagle-specific query plan (§6.2)
       api_v2.rs              typed methods per route, FolderUpdateBody
   src-tauri/                 the app crate: thin
-    commands.rs              libraries now; views, items, folders, tags, imports, eagle later (§8)
-    session.rs               the open library and the app's files, without Tauri (tested); views and imports later
+    commands.rs              libraries, imports, views and items now; folders, tags, eagle later (§8)
+    session.rs               the open library, its imports and views, the app's files, without Tauri (tested)
+    views.rs                 view IPC types, the source read on a blocking thread, refreshing views after
+                             writes, parsing `thumb` URLs (the scheme itself is registered in lib.rs)
     window.rs                window size and position, showing the window after the first paint
-    thumbs.rs                (phase 3) the `thumb` URI scheme
     capabilities/            Tauri permissions: only our commands and the plugins in use
   ui/
     src/ipc/                 generated types (ts-rs) + typed invoke wrappers
     src/commands/            the command registry: menu bar, shortcuts, the Keyboard Shortcuts dialog (§8)
     src/routes/              (when routing arrives, D-010) welcome, library, item/$id, eagle/connect, eagle/import, eagle/export
-    src/features/            welcome, grid, tree, tag-sheet, filter-sheet, item-detail, folder-dialogs, imports, connect
+    src/features/            welcome, library, browse (grid, list, selection, details, preview), imports, connect;
+                             later tree, tag-sheet, filter-sheet, folder-dialogs
     src/components/ui/       shadcn/ui components
     src/lib/                 thumbUrl(), platform helpers
 ```
@@ -574,18 +578,18 @@ Steps in order, all pure functions in `library-core`, run on `tokio::task::spawn
 4. **Extra folder chips**, with the same matcher over ids.
 5. **ext, rating, shape.** Type buckets (`image`, later `video`, `audio`, …) come from a local extension table.
 6. **Text.** `LibrarySource::search_ids(text)` → a set of ids (cached per string; from 2 characters; the 300 ms debounce is in the UI) → intersection. The native library answers from FTS5 (§15.3), a running Eagle from `item/query`. Both keep Eagle's search syntax: `OR`, parentheses, `-`, search in notes, URLs, tags and folder names.
-7. **Sort.** Keys from §5 of the spec. Names use `icu_collator` with numeric ordering. Random order uses a seed derived from the query without its sort.
+7. **Sort.** Keys from §5 of the spec. Names use `icu_collator` (numeric, case-insensitive) through sort keys computed once per item: 100 000 titles sort in about 0.2 s in a release build. Random order uses a seed derived from the query without its sort. Ties fall back to date added, then the id.
 
 ### 6.5 Views and IPC windows
 
 A **view** is the sorted result of one `LibraryQuery`:
 
 ```rust
-pub struct View {
-    pub id: u64,
-    pub query: LibraryQuery,
-    pub plan: FetchPlan,
-    pub items: Arc<[ItemLite]>,
+pub struct View {                            // library-core: positions into the scope's snapshot
+    id: u64,
+    query: LibraryQuery,
+    snapshot: Arc<[ItemLite]>,               // shared with the snapshot LRU and the other views
+    order: Vec<u32>,                         // the pipeline's result
 }
 
 #[derive(Serialize, TS)]
@@ -598,13 +602,19 @@ pub struct ItemCell {                        // what one grid cell needs
     pub height: Option<u32>,
     pub star: u8,
     pub palette0: Option<[u8; 3]>,
-    pub has_thumbnail: bool,                 // native: the file exists; Eagle: a byte source exists
+    pub has_thumbnail: bool,                 // native: thumb_version > 0; Eagle: a byte source exists
     pub thumb_version: i64,                  // native: item.thumb_version; Eagle: modificationTime; part of the thumbnail URL
+    pub size: Option<u64>,                   // the list's columns
+    pub added_at: Option<i64>,
+    pub tags: Vec<String>,
 }
 ```
 
-- `open_view(query, on_progress) → { viewId, total }` builds or reuses the snapshot, runs the pipeline and stores the view. At most 4 views are kept (LRU); the UI closes views it no longer shows.
+`Views` (library-core) keeps the views and the snapshots and reads the source through `ViewSource`, a blocking adapter the app builds over `LibrarySource`. The Eagle source (`FetchPlan`) keys its own cache.
+
+- `open_view(query, on_progress) → { viewId, total }` builds or reuses the snapshot, runs the pipeline and stores the view. Every call gets its own view, so closing one never closes another with the same query (React runs effects twice in development, D-039). At most 4 views are kept (LRU); the UI closes the previous view once the new one is open.
 - `view_range(viewId, start, len) → Vec<ItemCell>`, with `len ≤ 200`.
+- `view_ids(viewId, start, len) → Vec<ItemId>`: ids only, for Shift ranges and the rubber band. Select All is a flag in the UI, never a list of ids (D-039).
 - After a write, affected views are recomputed **under the same id**, and Rust emits `views-invalidated { viewIds }`. The UI invalidates the TanStack Query keys of those views and refetches only the visible windows, so the scroll position survives.
 - UI side: a TanStack Virtual row virtualizer; `columns = floor(width / cellWidth)`, `rows = ceil(total / columns)`. The visible rows are turned into windows of 120 cells, each fetched with TanStack Query under the key `['view', viewId, windowIndex]`.
 
@@ -748,7 +758,8 @@ Later, for phones: the WebView prepares the image (`createImageBitmap`, long edg
 | `open_view` | `LibraryQuery`, `onProgress: Channel<Progress>` | `{ viewId, total }` |
 | `view_range` | viewId, start, len (≤ 200) | `ItemCell[]` |
 | `close_view` | viewId | — |
-| `item_detail` | id | `ItemDetail` |
+| `view_ids` | viewId, start, len | `ItemId[]` (selections) |
+| `item_detail` | id | `Item` or none (the details panel; also items in the trash) |
 | `apply_item_edit`, `apply_batch_edit` | id or ids, `ItemEdit` | `ItemCell` / count |
 | `undo` | — | — |
 | `save_folder`, `delete_folder`, `lock_folder`, `unlock_folder` | … | `FolderNode` tree |
@@ -774,7 +785,7 @@ Later, for phones: the WebView prepares the image (`createImageBitmap`, long edg
 
 Every command that works on a library goes through the open `LibrarySource`; a source that cannot do something returns `ReadOnly` or `NotSupported`, and the UI hides the control using `capabilities`.
 
-**Events** from Rust: `views-invalidated`, `import-progress`, `close-requested` (the window's close was held back because files are being added; the UI asks, then calls `quit`), `library-closed` (the library folder disappeared or the lock was lost), and for Eagle `connection-state` and `library-changed` (another library was opened on the PC).
+**Events** from Rust: `views-invalidated` (`{ views: [{ viewId, total }] }`, recomputed at most every 500 ms while an import writes and once at its end, before its final progress), `import-progress`, `close-requested` (the window's close was held back because files are being added; the UI asks, then calls `quit`), `library-closed` (the library folder disappeared or the lock was lost), and for Eagle `connection-state` and `library-changed` (another library was opened on the PC).
 
 **UI structure.** Routes: `/welcome`, `/library` with the scope and the filters in typed search parameters, `/item/$id` as a side panel or a dialog, `/eagle/connect`, `/eagle/import`, `/eagle/export`. The tag, filter and sort sheets are components of the library screen, not routes. Server state lives in TanStack Query (keys per view window, per item, for the tree and the vocabulary); local UI state stays in components. The last `LibraryQuery` per library is saved by `app-store` so that the app reopens where it was.
 
@@ -855,7 +866,8 @@ tauri::Builder::default()
     })
 ```
 
-- **URL.** `http://thumb.localhost/<id>?v=<thumbVersion>` on Windows (and later Android); `thumb://localhost/<id>?v=…` on macOS, iOS and Linux. The UI builds it with one helper (`thumbUrl(cell)`). `/<id>/original` serves the original for the full-size preview. The scheme serves the library that is open in this window.
+- **URL.** `http://thumb.localhost/<id>?v=<thumbVersion>` on Windows (and later Android); `thumb://localhost/<id>?v=…` on macOS, iOS and Linux. The UI builds it with one helper (`thumbUrl(cell)`, on top of `convertFileSrc("", "thumb")`). `/<id>/original` serves the original for the full-size preview. The scheme serves the library that is open in this window, through `LibrarySource::thumbnail` and `LibrarySource::original`; ids other than short ASCII letters and digits get a 404 before any lookup.
+- **Headers.** `Content-Security-Policy: default-src 'none'` and `X-Content-Type-Options: nosniff` on every response, so an SVG original is only ever an image.
 - **The URL is versioned**, so responses carry `Cache-Control: max-age=31536000, immutable`.
 - **Source, native library.** `thumbs/<shard>/<id>.webp` inside the library, written by the media pipeline (§15.4). A missing file means "not generated yet": the scheme answers 404, the cell keeps the palette placeholder, and `views-invalidated` with a new `thumb_version` makes it retry. No extra cache: the files are already local.
 - **Disk cache, Eagle only.** `app_cache_dir()/eagle-thumbs/<libraryKey>/<id>-<version>`, with a size limit (for example 500 MB, oldest first).
@@ -1078,6 +1090,7 @@ pub trait LibrarySource: Send + Sync {
     async fn tag_groups(&self) -> Result<Vec<TagGroup>, SourceError>;
     async fn smart_folders(&self) -> Result<Vec<SmartFolder>, SourceError>;
     async fn thumbnail(&self, id: &ItemId) -> Result<Option<Thumbnail>, SourceError>;
+    async fn original(&self, id: &ItemId) -> Result<Option<Thumbnail>, SourceError>;   // the full-size preview
     async fn changes_since(&self, token: &ChangeToken) -> Result<Changes, SourceError>;
 
     // Writes. A read-only source returns SourceError::ReadOnly.

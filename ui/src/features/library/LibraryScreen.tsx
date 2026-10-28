@@ -1,11 +1,35 @@
-import { Images, Lock, PanelRight, Plus, Tag, Trash2, Upload, X } from "lucide-react";
-import type { ComponentType } from "react";
+import {
+  Images,
+  LayoutGrid,
+  List,
+  Lock,
+  PanelRight,
+  Plus,
+  Tag,
+  Trash2,
+  Upload,
+  X,
+} from "lucide-react";
+import type { ComponentType, ReactNode } from "react";
 import type { Availability } from "@/commands/registry";
 import { Button } from "@/components/ui/button";
+import { Slider } from "@/components/ui/slider";
+import { SortButton } from "@/features/browse/SortButton";
 import { plural } from "@/features/imports/importText";
-import type { LibraryCounts, LibraryInfo, UiLayout } from "@/ipc";
+import {
+  type BrowsePreferences,
+  DEFAULT_PREFERENCES,
+  type LibraryCounts,
+  type LibraryInfo,
+  type Scope,
+  THUMBNAIL_SIZES,
+  type UiLayout,
+} from "@/ipc";
 import { ReadOnlyBanner } from "./ReadOnlyBanner";
 import { Splitter } from "./Splitter";
+
+/** The fixed rows of the left bar; their ids are the keys of `LibraryCounts`. */
+export type ScopeId = keyof LibraryCounts;
 
 type Props = {
   library: LibraryInfo;
@@ -25,10 +49,24 @@ type Props = {
   onOpenImports?: () => void;
   /** Files are being dragged over the window. */
   dropping?: boolean;
+  scope?: ScopeId;
+  onScopeChange?: (scope: ScopeId) => void;
+  browse?: BrowsePreferences;
+  /** `persist` is false while the size slider is being dragged. */
+  onBrowseChange?: (browse: BrowsePreferences, persist: boolean) => void;
+  /** Items in the open view; `undefined` while it opens. */
+  itemCount?: number;
+  selectedCount?: number;
+  /** The grid or the list, shown when the view has items. */
+  content?: ReactNode;
+  /** The right bar's contents. */
+  details?: ReactNode;
+  /** Why the view could not open, or how far its scope loaded. */
+  viewStatus?: string;
 };
 
 type Row = {
-  id: keyof LibraryCounts;
+  id: ScopeId;
   label: string;
   icon: ComponentType<{ className?: string }>;
 };
@@ -40,9 +78,30 @@ const SCOPES: readonly Row[] = [
   { id: "trash", label: "Trash", icon: Trash2 },
 ];
 
+/** The query scope of a left-bar row. */
+export function scopeOf(id: ScopeId): Scope {
+  switch (id) {
+    case "all":
+      return { kind: "all" };
+    case "uncategorized":
+      return { kind: "unfiled" };
+    case "untagged":
+      return { kind: "untagged" };
+    case "trash":
+      return { kind: "trash" };
+  }
+}
+
+/** What an empty scope says when the library itself has items. */
+const EMPTY_SCOPE: Record<Exclude<ScopeId, "all">, string> = {
+  uncategorized: "No items outside folders.",
+  untagged: "Every item has tags.",
+  trash: "The trash is empty.",
+};
+
 /**
  * The library screen: left bar, toolbar over the grid, right bar with metadata, status bar
- * (docs/spec.md §7.3). Phase 1 builds the frame; later phases fill the zones.
+ * (docs/spec.md §7.3).
  */
 export function LibraryScreen({
   library,
@@ -57,10 +116,54 @@ export function LibraryScreen({
   importStatus,
   onOpenImports,
   dropping = false,
+  scope = "all",
+  onScopeChange,
+  browse = DEFAULT_PREFERENCES.browse,
+  onBrowseChange,
+  itemCount,
+  selectedCount = 0,
+  content,
+  details,
+  viewStatus,
 }: Props) {
-  const total = counts?.all ?? 0;
+  const total = itemCount ?? counts?.[scope] ?? 0;
+  const libraryEmpty = (counts?.all ?? 0) === 0 && (itemCount ?? 0) === 0;
+  const scopeLabel = SCOPES.find((row) => row.id === scope)?.label ?? "All";
   const setLayout = (change: Partial<UiLayout>, persist: boolean) =>
     onLayoutChange({ ...layout, ...change }, persist);
+  const setBrowse = (change: Partial<BrowsePreferences>, persist = true) =>
+    onBrowseChange?.({ ...browse, ...change }, persist);
+  const known = itemCount !== undefined || counts;
+
+  let body: ReactNode;
+  if (total > 0 && content) {
+    body = content;
+  } else if (viewStatus) {
+    body = <p className="m-auto text-[13px] text-muted-foreground">{viewStatus}</p>;
+  } else if (scope === "all" && libraryEmpty) {
+    body = (
+      <div className="m-auto grid max-w-sm justify-items-center gap-2 rounded-xl border-2 border-dashed border-border px-10 py-8 text-center">
+        <Upload aria-hidden className="size-10 text-muted-foreground" />
+        <p className="text-sm font-medium">This library is empty</p>
+        <p className="text-[13px] text-muted-foreground">
+          Drop images here, paste with Ctrl+V, or add files.
+        </p>
+        <Button
+          size="sm"
+          variant="outline"
+          disabled={canAdd !== true}
+          title={canAdd === true ? undefined : canAdd}
+          onClick={onAddFiles}
+        >
+          Add files
+        </Button>
+      </div>
+    );
+  } else if (total === 0 && scope !== "all") {
+    body = <p className="m-auto text-[13px] text-muted-foreground">{EMPTY_SCOPE[scope]}</p>;
+  } else {
+    body = null;
+  }
 
   return (
     <div className="flex min-h-0 flex-1 flex-col">
@@ -102,8 +205,9 @@ export function LibraryScreen({
                   <li key={id}>
                     <button
                       type="button"
-                      aria-current={id === "all" ? "page" : undefined}
+                      aria-current={id === scope ? "page" : undefined}
                       className="flex h-7 w-full items-center gap-2 rounded-md px-2 text-left outline-none hover:bg-sidebar-accent focus-visible:ring-3 focus-visible:ring-ring/50 aria-[current=page]:bg-sidebar-accent aria-[current=page]:font-medium"
+                      onClick={() => onScopeChange?.(id)}
                     >
                       <Icon className="size-4 text-muted-foreground" />
                       {label}
@@ -130,11 +234,56 @@ export function LibraryScreen({
 
         <main aria-label="Library contents" className="flex min-w-0 flex-1 flex-col">
           <div className="flex h-11 shrink-0 items-center gap-2 border-b px-3">
-            <h1 className="text-sm font-medium">All</h1>
-            {counts && (
+            <h1 className="text-sm font-medium">{scopeLabel}</h1>
+            {known && (
               <span className="text-[13px] text-muted-foreground">{plural(total, "item")}</span>
             )}
             <div className="ml-auto flex items-center gap-1">
+              <SortButton
+                sort={browse.sort}
+                ascending={browse.ascending}
+                onSort={(sort) => setBrowse({ sort })}
+                onAscending={(ascending) => setBrowse({ ascending })}
+              />
+              <div className="flex items-center rounded-md border p-0.5">
+                <Button
+                  variant="ghost"
+                  size="icon-xs"
+                  aria-label="Grid"
+                  aria-pressed={browse.viewMode === "grid"}
+                  className="aria-pressed:bg-muted"
+                  onClick={() => setBrowse({ viewMode: "grid" })}
+                >
+                  <LayoutGrid aria-hidden />
+                </Button>
+                <Button
+                  variant="ghost"
+                  size="icon-xs"
+                  aria-label="List"
+                  aria-pressed={browse.viewMode === "list"}
+                  className="aria-pressed:bg-muted"
+                  onClick={() => setBrowse({ viewMode: "list" })}
+                >
+                  <List aria-hidden />
+                </Button>
+              </div>
+              {browse.viewMode === "grid" && (
+                <Slider
+                  aria-label="Thumbnail size"
+                  title="Thumbnail size (Ctrl+= / Ctrl+-)"
+                  className="mx-2 w-24"
+                  min={THUMBNAIL_SIZES.min}
+                  max={THUMBNAIL_SIZES.max}
+                  step={10}
+                  value={[browse.thumbnailSize]}
+                  onValueChange={([size]) => {
+                    if (size !== undefined) setBrowse({ thumbnailSize: size }, false);
+                  }}
+                  onValueCommit={([size]) => {
+                    if (size !== undefined) setBrowse({ thumbnailSize: size });
+                  }}
+                />
+              )}
               <Button
                 size="sm"
                 disabled={canAdd !== true}
@@ -156,33 +305,8 @@ export function LibraryScreen({
               </Button>
             </div>
           </div>
-          <div className="relative grid flex-1 place-items-center bg-grid p-6">
-            {total === 0 ? (
-              <div className="grid max-w-sm justify-items-center gap-2 rounded-xl border-2 border-dashed border-border px-10 py-8 text-center">
-                <Upload aria-hidden className="size-10 text-muted-foreground" />
-                <p className="text-sm font-medium">This library is empty</p>
-                <p className="text-[13px] text-muted-foreground">
-                  Drop images here, paste with Ctrl+V, or add files.
-                </p>
-                <Button
-                  size="sm"
-                  variant="outline"
-                  disabled={canAdd !== true}
-                  title={canAdd === true ? undefined : canAdd}
-                  onClick={onAddFiles}
-                >
-                  Add files
-                </Button>
-              </div>
-            ) : (
-              <div className="grid max-w-sm justify-items-center gap-2 text-center">
-                <Images aria-hidden className="size-10 text-muted-foreground" />
-                <p className="text-sm font-medium">{plural(total, "item")}</p>
-                <p className="text-[13px] text-muted-foreground">
-                  The grid that shows them comes in a later version.
-                </p>
-              </div>
-            )}
+          <div className="relative flex min-h-0 flex-1 flex-col bg-grid">
+            {body}
             {dropping && (
               <div
                 role="status"
@@ -210,13 +334,14 @@ export function LibraryScreen({
               className="flex shrink-0 flex-col bg-background p-4 text-[13px] max-[1200px]:absolute max-[1200px]:inset-y-0 max-[1200px]:right-0 max-[1200px]:z-10 max-[1200px]:border-l max-[1200px]:shadow-lg"
               style={{ width: layout.rightWidth }}
             >
-              <p className="m-auto text-muted-foreground">Select an item</p>
+              {details ?? <p className="m-auto text-muted-foreground">Select an item</p>}
             </aside>
           </>
         )}
       </div>
       <footer className="flex h-6 shrink-0 items-center gap-3 border-t px-3 text-xs text-muted-foreground">
-        <span className="truncate">{library.path}</span>
+        {known && <span>{plural(total, "item")}</span>}
+        {selectedCount > 0 && <span>{selectedCount.toLocaleString("en")} selected</span>}
         <span className="ml-auto flex items-center gap-3">
           {importStatus && (
             <button

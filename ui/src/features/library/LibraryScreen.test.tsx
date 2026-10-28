@@ -25,7 +25,7 @@ describe("LibraryScreen", () => {
     expect(screen.getByRole("complementary", { name: "Details" })).toHaveTextContent(
       "Select an item",
     );
-    expect(screen.getByRole("contentinfo")).toHaveTextContent(LIBRARY.path ?? "");
+    expect(screen.getByRole("contentinfo")).not.toHaveTextContent("selected");
     expect(screen.queryByRole("status", { name: "Read-only library" })).not.toBeInTheDocument();
   });
 
@@ -132,5 +132,59 @@ describe("LibraryScreen", () => {
       "cloud-synced folder",
     );
     expect(screen.queryByRole("button", { name: "Open for editing" })).not.toBeInTheDocument();
+  });
+
+  it("switches scopes from the left bar and says when a scope is empty", async () => {
+    const onScopeChange = vi.fn();
+    render(
+      <LibraryScreen
+        library={LIBRARY}
+        layout={DEFAULT_PREFERENCES.layout}
+        onLayoutChange={vi.fn()}
+        onOpenForEditing={vi.fn()}
+        counts={{ all: 3, uncategorized: 3, untagged: 3, trash: 0 }}
+        scope="trash"
+        itemCount={0}
+        onScopeChange={onScopeChange}
+      />,
+    );
+    expect(screen.getByRole("button", { name: /^Trash/ })).toHaveAttribute("aria-current", "page");
+    expect(screen.getByRole("heading", { level: 1 })).toHaveTextContent("Trash");
+    expect(screen.getByRole("main")).toHaveTextContent("The trash is empty.");
+    await userEvent.setup().click(screen.getByRole("button", { name: /^Untagged/ }));
+    expect(onScopeChange).toHaveBeenCalledWith("untagged");
+  });
+
+  it("changes the layout and the sort from the toolbar", async () => {
+    const onBrowseChange = vi.fn();
+    const user = userEvent.setup();
+    render(
+      <LibraryScreen
+        library={LIBRARY}
+        layout={DEFAULT_PREFERENCES.layout}
+        onLayoutChange={vi.fn()}
+        onOpenForEditing={vi.fn()}
+        itemCount={12}
+        selectedCount={2}
+        onBrowseChange={onBrowseChange}
+      />,
+    );
+    expect(screen.getByRole("contentinfo")).toHaveTextContent("12 items");
+    expect(screen.getByRole("contentinfo")).toHaveTextContent("2 selected");
+    expect(screen.getByRole("slider", { name: "Thumbnail size" })).toHaveAttribute(
+      "aria-valuenow",
+      "160",
+    );
+    await user.click(screen.getByRole("button", { name: "List" }));
+    expect(onBrowseChange).toHaveBeenLastCalledWith(
+      { ...DEFAULT_PREFERENCES.browse, viewMode: "list" },
+      true,
+    );
+    await user.click(screen.getByRole("button", { name: "Sort by Date Added" }));
+    await user.click(await screen.findByRole("menuitemradio", { name: "Title" }));
+    expect(onBrowseChange).toHaveBeenLastCalledWith(
+      { ...DEFAULT_PREFERENCES.browse, sort: "name" },
+      true,
+    );
   });
 });
