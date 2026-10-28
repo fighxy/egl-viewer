@@ -1,7 +1,15 @@
 // One registry of commands: the menu bar, shortcuts and the Keyboard Shortcuts dialog are built
 // from it, so a shortcut is defined once. Commands of later phases are absent, not disabled
 // (docs/spec.md §7.1, D-025).
-import type { LibraryInfo, RecentLibrary, Theme } from "@/ipc";
+import {
+  type BrowsePreferences,
+  type LibraryInfo,
+  type RecentLibrary,
+  type SortKey,
+  THUMBNAIL_SIZES,
+  type Theme,
+  type ViewMode,
+} from "@/ipc";
 
 export type MenuId = "file" | "edit" | "view" | "library" | "help";
 
@@ -20,6 +28,11 @@ export type CommandState = {
   fullscreen: boolean;
   leftOpen: boolean;
   rightOpen: boolean;
+  browse: BrowsePreferences;
+  /** Items in the open view. */
+  items: number;
+  /** Selected items in the open view. */
+  selected: number;
 };
 
 export type CommandActions = {
@@ -37,6 +50,14 @@ export type CommandActions = {
   toggleDetails: () => void;
   shortcuts: () => void;
   about: () => void;
+  selectAll: () => void;
+  preview: () => void;
+  setViewMode: (mode: ViewMode) => void;
+  /** `1` larger thumbnails, `-1` smaller. */
+  zoom: (step: 1 | -1) => void;
+  toggleNames: () => void;
+  setSort: (key: SortKey) => void;
+  setAscending: (ascending: boolean) => void;
 };
 
 /** `true`, or the reason the command is disabled (shown as a tooltip). */
@@ -48,6 +69,8 @@ export type SubmenuItem = {
   title?: string;
   /** Set for choices such as the theme: the submenu shows radio items. */
   checked?: boolean;
+  /** Items with different groups are separate choices, separated by a line. */
+  group?: number;
   run: (actions: CommandActions) => void;
 };
 
@@ -73,6 +96,53 @@ const needsLibrary = (state: CommandState): Availability =>
 export const needsWritableLibrary = (state: CommandState): Availability => {
   if (!state.library) return "Open a library first.";
   return state.library.readOnly ? "This library is read-only." : true;
+};
+
+/** The sort keys of the menu (docs/spec.md §5). Duration waits for video, Manual for folders. */
+export const SORT_KEYS: readonly { key: SortKey; label: string }[] = [
+  { key: "added", label: "Date Added" },
+  { key: "btime", label: "Date Created" },
+  { key: "mtime", label: "Date Modified" },
+  { key: "name", label: "Title" },
+  { key: "ext", label: "Extension" },
+  { key: "size", label: "File Size" },
+  { key: "resolution", label: "Dimensions" },
+  { key: "star", label: "Rating" },
+  { key: "tag", label: "Tags" },
+  { key: "random", label: "Random" },
+];
+
+/** Sort By: the keys, then the direction. */
+export function sortItems(state: CommandState): SubmenuItem[] {
+  const { sort, ascending } = state.browse;
+  return [
+    ...SORT_KEYS.map(({ key, label }) => ({
+      id: key,
+      label,
+      group: 0,
+      checked: sort === key,
+      run: (actions: CommandActions) => actions.setSort(key),
+    })),
+    {
+      id: "ascending",
+      label: "Ascending",
+      group: 1,
+      checked: ascending,
+      run: (actions: CommandActions) => actions.setAscending(true),
+    },
+    {
+      id: "descending",
+      label: "Descending",
+      group: 1,
+      checked: !ascending,
+      run: (actions: CommandActions) => actions.setAscending(false),
+    },
+  ];
+}
+
+const inGrid = (state: CommandState): Availability => {
+  if (!state.library) return "Open a library first.";
+  return state.browse.viewMode === "grid" ? true : "Thumbnails have a size in the grid.";
 };
 
 const THEMES: readonly { theme: Theme; label: string }[] = [
@@ -158,6 +228,18 @@ export const COMMANDS: readonly Command[] = [
     run: (actions) => actions.paste(),
   },
   {
+    id: "edit.selectAll",
+    label: "Select All",
+    menu: "edit",
+    group: 1,
+    shortcut: "Ctrl+A",
+    available: (state) => {
+      if (!state.library) return "Open a library first.";
+      return state.items > 0 ? true : "Nothing to select.";
+    },
+    run: (actions) => actions.selectAll(),
+  },
+  {
     id: "view.theme",
     label: "Theme",
     menu: "view",
@@ -200,6 +282,79 @@ export const COMMANDS: readonly Command[] = [
     run: (actions) => actions.toggleDetails(),
   },
   {
+    id: "view.grid",
+    label: "Grid",
+    menu: "view",
+    group: 2,
+    checked: (state) => state.browse.viewMode === "grid",
+    available: needsLibrary,
+    run: (actions) => actions.setViewMode("grid"),
+  },
+  {
+    id: "view.list",
+    label: "List",
+    menu: "view",
+    group: 2,
+    checked: (state) => state.browse.viewMode === "list",
+    available: needsLibrary,
+    run: (actions) => actions.setViewMode("list"),
+  },
+  {
+    id: "view.larger",
+    label: "Larger Thumbnails",
+    menu: "view",
+    group: 2,
+    shortcut: "Ctrl+=",
+    available: (state) => {
+      const grid = inGrid(state);
+      if (grid !== true) return grid;
+      return state.browse.thumbnailSize < THUMBNAIL_SIZES.max ? true : "Already the largest.";
+    },
+    run: (actions) => actions.zoom(1),
+  },
+  {
+    id: "view.smaller",
+    label: "Smaller Thumbnails",
+    menu: "view",
+    group: 2,
+    shortcut: "Ctrl+-",
+    available: (state) => {
+      const grid = inGrid(state);
+      if (grid !== true) return grid;
+      return state.browse.thumbnailSize > THUMBNAIL_SIZES.min ? true : "Already the smallest.";
+    },
+    run: (actions) => actions.zoom(-1),
+  },
+  {
+    id: "view.showNames",
+    label: "Show Names",
+    menu: "view",
+    group: 2,
+    checked: (state) => state.browse.showNames,
+    available: inGrid,
+    run: (actions) => actions.toggleNames(),
+  },
+  {
+    id: "view.sortBy",
+    label: "Sort By",
+    menu: "view",
+    group: 2,
+    available: needsLibrary,
+    submenu: sortItems,
+  },
+  {
+    id: "view.preview",
+    label: "Preview",
+    menu: "view",
+    group: 3,
+    shortcut: "Space",
+    available: (state) => {
+      if (!state.library) return "Open a library first.";
+      return state.selected > 0 ? true : "Select an item first.";
+    },
+    run: (actions) => actions.preview(),
+  },
+  {
     id: "help.shortcuts",
     label: "Keyboard Shortcuts",
     menu: "help",
@@ -214,6 +369,21 @@ export const COMMANDS: readonly Command[] = [
     group: 0,
     run: (actions) => actions.about(),
   },
+];
+
+/**
+ * Keys that a focused widget handles itself (the ARIA grid pattern); listed in the Keyboard
+ * Shortcuts dialog, not dispatched from here.
+ */
+export const WIDGET_KEYS: readonly { area: string; keys: string; label: string }[] = [
+  { area: "Grid", keys: "Arrow keys", label: "Move the selection" },
+  { area: "Grid", keys: "Shift+Arrow keys", label: "Extend the selection" },
+  { area: "Grid", keys: "Home / End", label: "First / last item" },
+  { area: "Grid", keys: "Enter", label: "Go to the details panel" },
+  { area: "Grid", keys: "Ctrl+Wheel", label: "Thumbnail size" },
+  { area: "Preview", keys: "← / →", label: "Previous / next item" },
+  { area: "Preview", keys: "+ / − / 0", label: "Zoom in / out / fit" },
+  { area: "Preview", keys: "Esc", label: "Close" },
 ];
 
 export function availability(command: Command, state: CommandState): Availability {

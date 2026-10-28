@@ -5,6 +5,7 @@ import {
   type Command,
   type CommandActions,
   type CommandState,
+  type SubmenuItem,
   visibleMenus,
 } from "@/commands/registry";
 import {
@@ -67,29 +68,13 @@ function MenuCommand({
   const shortcut = command.shortcut && <MenubarShortcut>{command.shortcut}</MenubarShortcut>;
 
   if (command.submenu) {
-    const items = command.submenu(state);
-    const radio = items.some((item) => item.checked !== undefined);
     return (
       <MenubarSub>
         <MenubarSubTrigger disabled={disabled} title={title}>
           {command.label}
         </MenubarSubTrigger>
         <MenubarSubContent>
-          {radio ? (
-            <MenubarRadioGroup value={items.find((item) => item.checked)?.id}>
-              {items.map((item) => (
-                <MenubarRadioItem key={item.id} value={item.id} onSelect={() => item.run(actions)}>
-                  {item.label}
-                </MenubarRadioItem>
-              ))}
-            </MenubarRadioGroup>
-          ) : (
-            items.map((item) => (
-              <MenubarItem key={item.id} title={item.title} onSelect={() => item.run(actions)}>
-                {item.label}
-              </MenubarItem>
-            ))
-          )}
+          <SubmenuGroups items={command.submenu(state)} actions={actions} />
         </MenubarSubContent>
       </MenubarSub>
     );
@@ -115,4 +100,37 @@ function MenuCommand({
       {shortcut}
     </MenubarItem>
   );
+}
+
+/** Each group of a submenu is its own choice (radio items) or a plain list, between lines. */
+function SubmenuGroups({ items, actions }: { items: SubmenuItem[]; actions: CommandActions }) {
+  const groups: SubmenuItem[][] = [];
+  for (const item of items) {
+    const last = groups[groups.length - 1];
+    if (last && (last[0]?.group ?? 0) === (item.group ?? 0)) last.push(item);
+    else groups.push([item]);
+  }
+  return groups.map((group, index) => {
+    const radio = group.some((item) => item.checked !== undefined);
+    return (
+      <Fragment key={group[0]?.id}>
+        {index > 0 && <MenubarSeparator />}
+        {radio ? (
+          <MenubarRadioGroup value={group.find((item) => item.checked)?.id}>
+            {group.map((item) => (
+              <MenubarRadioItem key={item.id} value={item.id} onSelect={() => item.run(actions)}>
+                {item.label}
+              </MenubarRadioItem>
+            ))}
+          </MenubarRadioGroup>
+        ) : (
+          group.map((item) => (
+            <MenubarItem key={item.id} title={item.title} onSelect={() => item.run(actions)}>
+              {item.label}
+            </MenubarItem>
+          ))
+        )}
+      </Fragment>
+    );
+  });
 }

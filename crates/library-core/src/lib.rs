@@ -18,5 +18,8 @@ pub use model::{
     LibraryHolder, LibraryInfo, LibraryKind, NewFile, Palette, ReadOnlyReason, SmartFolder, Tag,
     TagGroup, Thumbnail,
 };
+pub use query::filter::{FolderIndex, matches_tags, shape_of, type_matches};
+pub use query::sort::compare_names;
+pub use query::view::{ItemCell, MAX_WINDOW, View, ViewSource, Views};
 pub use query::{LibraryQuery, Scope, ScopeHints, SortKey, TagMode};
 pub use source::{Capabilities, LibrarySource, Progress};

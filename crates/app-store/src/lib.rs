@@ -13,7 +13,7 @@ pub mod settings;
 use std::path::PathBuf;
 
 pub use location::{SyncEnvironment, check_location, default_library_parent, display_path};
-pub use preferences::{Preferences, Theme, UiLayout, WindowState};
+pub use preferences::{BrowsePreferences, Preferences, Theme, UiLayout, ViewMode, WindowState};
 pub use recent::RecentLibrary;
 pub use settings::ConnectionSettings;
 

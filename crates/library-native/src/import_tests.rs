@@ -326,3 +326,32 @@ fn a_thousand_mixed_files() {
     );
     assert_eq!(files_under(&root.join("thumbs")).len(), 1000);
 }
+
+/// Makes a library for checking the app by hand: `Demo.eglib` with `EGL_DEMO_COUNT` (default
+/// 10 000) mixed images inside `EGL_DEMO_PARENT`. Run with
+/// `EGL_DEMO_PARENT=<folder> cargo test --release -p library-native -- --ignored demo_library`.
+#[test]
+#[ignore]
+fn demo_library() {
+    let Some(parent) = std::env::var_os("EGL_DEMO_PARENT") else {
+        eprintln!("set EGL_DEMO_PARENT to the folder that gets Demo.eglib");
+        return;
+    };
+    let count: u32 = std::env::var("EGL_DEMO_COUNT")
+        .ok()
+        .and_then(|count| count.parse().ok())
+        .unwrap_or(10_000);
+    let parent = std::path::PathBuf::from(parent);
+    let root = new_library(&parent, "Demo");
+    let library = open(&root);
+    let source = tempfile::tempdir().unwrap();
+    mixed_files(source.path(), count);
+    let done = import(
+        &library,
+        &[source.path().to_path_buf()],
+        &Script::answering(DuplicateChoice::Skip),
+    );
+    assert_eq!(done.added, count);
+    library.close().unwrap();
+    eprintln!("{} items in {}", count, root.display());
+}

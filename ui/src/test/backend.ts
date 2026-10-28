@@ -2,7 +2,13 @@
 import { mockIPC, mockWindows } from "@tauri-apps/api/mocks";
 import { waitFor } from "@testing-library/react";
 import { expect } from "vitest";
-import { DEFAULT_PREFERENCES, type ImportProgress, type LibraryInfo } from "@/ipc";
+import {
+  DEFAULT_PREFERENCES,
+  type ImportProgress,
+  type Item,
+  type ItemCell,
+  type LibraryInfo,
+} from "@/ipc";
 
 export const LIBRARY: LibraryInfo = {
   kind: "native",
@@ -43,6 +49,11 @@ export function mockBackend(overrides: Record<string, Handler> = {}): Call[] {
     cancel_import: () => null,
     imports: () => [],
     quit: () => null,
+    open_view: () => ({ viewId: 1, total: 0 }),
+    view_range: () => [],
+    view_ids: () => [],
+    close_view: () => null,
+    item_detail: () => null,
     "plugin:dialog|open": () => "C:\\Users\\me\\Libraries\\Refs.eglib",
     ...overrides,
   };
@@ -101,4 +112,80 @@ export function progress(change: Partial<ImportProgress> = {}): ImportProgress {
 
 export function called(calls: Call[], cmd: string): Call[] {
   return calls.filter((call) => call.cmd === cmd);
+}
+
+/** The cell at position `n` of a fake view. */
+export function cell(n: number, change: Partial<ItemCell> = {}): ItemCell {
+  return {
+    id: `ID${String(n).padStart(4, "0")}`,
+    name: `image-${n}`,
+    ext: "png",
+    width: 40,
+    height: 20,
+    size: 1000 + n,
+    star: 0,
+    palette0: [10, 20, 30],
+    hasThumbnail: true,
+    thumbVersion: 1,
+    addedAt: Date.UTC(2026, 9, 28, 10) + n,
+    tags: [],
+    ...change,
+  };
+}
+
+/** Handlers for a view of `total` items: windows and ids come from `cell`. */
+export function viewOf(total: number, viewId = 1) {
+  const slice = (args: Record<string, unknown>) => {
+    const start = Number(args.start);
+    const end = Math.min(total, start + Number(args.len));
+    return Array.from({ length: Math.max(0, end - start) }, (_, offset) => cell(start + offset));
+  };
+  return {
+    open_view: () => ({ viewId, total }),
+    view_range: (args: Record<string, unknown>) => slice(args),
+    view_ids: (args: Record<string, unknown>) => slice(args).map((item) => item.id),
+  };
+}
+
+/** The full item behind `cell(n)`. */
+export function item(n: number, change: Partial<Item> = {}): Item {
+  const base = cell(n);
+  return {
+    id: base.id,
+    name: base.name,
+    ext: base.ext,
+    width: base.width,
+    height: base.height,
+    size: base.size,
+    star: base.star,
+    tags: [],
+    folders: [],
+    annotation: "",
+    url: "",
+    palettes: [{ color: [10, 20, 30], ratio: 60 }],
+    addedAt: base.addedAt,
+    fileCreatedAt: null,
+    fileModifiedAt: null,
+    duration: null,
+    bpm: null,
+    exif: null,
+    noThumbnail: false,
+    thumbVersion: 1,
+    isDeleted: false,
+    ...change,
+  };
+}
+
+/**
+ * jsdom has no layout: give every element a size, so the virtualized grid shows rows.
+ * Returns a function that removes the fake size.
+ */
+export function fakeLayout(width = 800, height = 600): () => void {
+  const proto = HTMLElement.prototype;
+  Object.defineProperty(proto, "clientWidth", { configurable: true, get: () => width });
+  Object.defineProperty(proto, "clientHeight", { configurable: true, get: () => height });
+  return () => {
+    Reflect.deleteProperty(proto, "clientWidth");
+    Reflect.deleteProperty(proto, "clientHeight");
+  };
 }

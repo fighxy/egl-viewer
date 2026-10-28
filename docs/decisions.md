@@ -456,3 +456,77 @@ gigabytes. Thumbnails are encoded at quality 80 by the `webp` crate, which build
   (the ignored test `a_thousand_mixed_files`). In the real app under Xvfb: pasting an image from
   the clipboard, adding files through the GTK file dialog, the Imports panel and the duplicate
   question. The Windows checks are still open.
+
+## D-038 Dependencies of phase 3 (2026-10-28)
+
+The newest versions older than the minimum release age (D-002, D-003):
+
+| Where | Package | Version | Why |
+|---|---|---|---|
+| `library-core` | `icu_collator` (compiled data) | 2.4.0 | Natural, case-insensitive order for titles, extensions and tags, through sort keys (arch §6.4) |
+| UI | `@tanstack/react-virtual` | 3.14.23 | The virtualized grid and list |
+| UI | `@tanstack/react-query` | 5.105.0 | Windows of cells from Rust, invalidated by `views-invalidated` |
+
+TanStack Router is still not needed: the library screen and Welcome switch by state, and the
+preview is a layer, not a route (D-010, D-032). Biome formats `pnpm-lock.yaml`, so after
+`pnpm add` the lockfile is formatted with Biome to keep its diff to the new entries.
+
+## D-039 Views and selections (2026-10-28)
+
+- **Every `open_view` is a new view.** Reusing a view for an equal query let one screen close
+  another's view: React runs effects twice in development, so the first effect's late close
+  removed the view the second effect was showing. Four views are kept; the UI closes the previous
+  one once the new one is open, so the grid never flashes empty on a new sort.
+- **Snapshots** (six per library) are keyed by scope. After an import writes, every snapshot is
+  dropped and the open views are recomputed under their ids, at most every 500 ms and once at the
+  end, before the final progress goes out. Patching snapshots per item comes with edits (phase 7).
+- **The selection is ids**, not positions: positions move when an import adds items above. Shift
+  ranges and the rubber band ask Rust for the ids of a range (`view_ids`); Select All is a flag
+  ("everything except these ids"), never a list of every id. A plain click selects on mouse
+  down, as desktop apps do. A new scope clears the selection; a new sort keeps the selected
+  items and drops the anchor.
+- **Keys inside the grid** (arrows, Home, End, Page Up and Down, Enter, Ctrl + wheel) and inside
+  the preview are handled by those widgets, as in the ARIA grid pattern; the Keyboard Shortcuts
+  dialog lists them from `WIDGET_KEYS` in the registry. Everything with a menu item, including
+  Select All and Preview (`Space`), is a registry command. Space and Enter on a focused button,
+  link or field belong to that control.
+- **Shortcuts read the latest state.** The keyboard listener reads the state and actions from a
+  ref updated in a layout effect, so a key pressed right after a change never acts on the state
+  before it (found as a flaky test: Space opened the item selected before the click).
+
+## D-040 View Transitions only in WebView2 (2026-10-28)
+
+The preview grows out of its cell with the View Transitions API (D-028). On Linux, WebKitGTK
+crashed the app process (SIGSEGV) at `document.startViewTransition` under Xvfb with compositing
+turned off. The transition now runs only in Chromium (WebView2), the target of v1; elsewhere the
+preview simply appears. Revisit for macOS (WKWebView) when that target starts.
+
+## D-041 Phase 3 as built (2026-10-28)
+
+- **`library-core`** has the pipeline of arch §6.4 in full (lock filter, subfolder union, tag and
+  folder chips, type, rating, shape, search ids, sort), although folders, tags and search arrive
+  in phases 4–6: the core tests of spec §10 already run against it. An empty tag or folder
+  selection filters nothing, whatever the mode. Shapes follow Eagle (arch §16.6), including the
+  panoramic ones.
+- **The native `LibrarySource`** reads scopes, the item, tags, thumbnails and originals. Folders,
+  tag groups and smart folders answer empty lists until their phases; search answers
+  `notSupported` until FTS5 (phase 6). The app reads the async trait on a blocking thread with a
+  single poll (the native source never waits); a waiting source (Eagle, phase 9) needs a runtime
+  there.
+- **The sort menu** shows ten keys. Duration (no video in v1) and Manual (folders, phase 4) are
+  supported by the sorter but hidden. The global sort, the layout (grid or list), the thumbnail
+  size (80–320 px) and Show Names are preferences (`BrowsePreferences`); the last query per
+  library comes with phase 12.
+- **Thumbnail size** is two View menu items, Larger and Smaller (`Ctrl+=`, `Ctrl+-`), plus the
+  slider and `Ctrl` + wheel; the item at the top stays in place when the size changes. Images
+  smaller than their cell are not enlarged.
+- **The details panel** is read-only: preview, palette, name, rating, tags, note, link, file info
+  and EXIF. Several selected items show their count; the stack of thumbnails and the total size
+  come with batch edits (phase 7).
+- **The preview** shows originals the WebView can display (JPEG, PNG, GIF, WebP, AVIF, BMP, SVG)
+  and the 512 px thumbnail for TIFF and PSD. It zooms to 800 % with the wheel or `+` / `−`, pans
+  by dragging, and moves with the arrow keys.
+- **Checks:** a library of 10 000 items (made with the ignored test `demo_library`) in the real
+  app under Xvfb: scrolling with every thumbnail size, End, selection, list, preview, sort by
+  title and at random, Trash. 100 000 titles sort in 0.2 s, at random in 0.05 s (the ignored test
+  `sorting_100k_items`, release build). The Windows checks are still open.

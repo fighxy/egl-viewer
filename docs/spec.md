@@ -247,11 +247,13 @@ The top search field searches names, notes, links, tags and folder names, from 2
 | Dimensions | `resolution` | `width * height` |
 | Rating | `star` | Integer |
 | Duration | `duration` | Number, missing as 0 |
-| Tags | `tag` | First tag, collator |
+| Tags | `tag` | The item's smallest tag by the collator; items without tags first |
 | Random | `random` | One shuffle per query identity, stable while the query is unchanged |
 | Manual | `manual` | The item's position in the open folder, then `addedAt`. Drag to reorder inside a folder in the native library. |
 
 A folder or smart folder can carry its own sort (`orderBy`, ascending flag). It applies when the screen opens, until the user picks another sort; it replaces the global sort for that screen only.
+
+Missing values count as the smallest. Ties fall back to date added, then the id, so the order is total and the same on every run. Names, extensions and tags compare through collation sort keys computed once per item. Duration waits for video and Manual for folders: until then they are not in the Sort By menu, though the sorter supports them.
 
 Layout is presentation and does not affect the query: a grid whose column count follows the window width and a size slider, and a list.
 
@@ -318,7 +320,7 @@ One window with client-side routing and one library per window (D-024). The layo
 |---|---|
 | **File** | New Library… (1), Open Library… `Ctrl+O` (1), Open Recent ▸ (1), Close Library `Ctrl+W` (1) · Add Files… (2) · Import Eagle Library… (8), Connect to Eagle… (9), Export to Eagle… (11) · Settings… `Ctrl+,` (1) · Exit `Alt+F4` (1) |
 | **Edit** | Paste `Ctrl+V` (2) · Undo `Ctrl+Z` (7), Select All `Ctrl+A` (3), Copy File `Ctrl+C` (7), Move to Trash `Delete` (7), Find `Ctrl+F` (6) |
-| **View** | Theme ▸ System / Light / Dark (1), Full Screen `F11` (1) · Sidebar `Ctrl+B` (1), Details Panel `Ctrl+I` (1), Filter Bar (6) · Grid / List (3), Thumbnail Size ▸ `Ctrl+=` / `Ctrl+-` (3), Show Names (3), Sort By ▸ (3) · Include Subfolders (4) |
+| **View** | Theme ▸ System / Light / Dark (1), Full Screen `F11` (1) · Sidebar `Ctrl+B` (1), Details Panel `Ctrl+I` (1), Filter Bar (6) · Grid / List (3), Larger / Smaller Thumbnails `Ctrl+=` / `Ctrl+-` (3), Show Names (3), Sort By ▸ (3) · Preview `Space` (3) · Include Subfolders (4) |
 | **Library** | New Folder `Ctrl+Shift+N` (4) · Library Settings… (7), Back Up Now (7), Check Library (7), Rebuild Thumbnails (7), Show in Explorer (7) |
 | **Help** | Keyboard Shortcuts `F1` (1), About egl-viewer (1), Open Log Folder (12) |
 
@@ -438,7 +440,7 @@ Link     https://…  ↗
 
 ### 7.4 Other screens and dialogs
 
-1. **Full-size preview.** A layer over the whole window, not a new window. The original at window size, zoom and pan, previous and next in the current view; `Esc` closes it. It opens with a short zoom out of its cell (arch §8).
+1. **Full-size preview.** A layer over the whole window, not a new window. The original at window size, zoom and pan, previous and next in the current view; `Esc` closes it. It opens with a short zoom out of its cell (arch §8; in WebView2, D-040). Originals the WebView cannot show (TIFF, PSD) show their 512 px thumbnail.
 2. **Tags filter** (the tag sheet): the dropdown panel of the Tags filter. Search box over the vocabulary, mode segment Any / All / Exact / None, counts, recent tags, groups as sections; rename, merge and delete from a context menu.
 3. **Smart folder editor.** Name, AND/OR, the rules of the v1 subset.
 4. **Folder dialogs.** Create, rename, move, delete (with the item count and the trash option), lock and unlock. Lock and unlock, password change, and recovery are for the chosen folder. The lock dialog edits that folder's name and tag.
@@ -886,7 +888,8 @@ Done when: 1 000 mixed files (all v1 formats plus a few others) are added with t
 ### Phase 3 — Grid and detail
 
 - `load_scope` in SQL for All, Uncategorized, Untagged, Trash; the local pipeline, the sorter and views from `library-core` (arch §6.4, §6.5).
-- Commands `open_view` (with a progress `Channel`), `view_range`, `close_view`, `item`.
+- The native `LibrarySource` (D-032): scopes, the full item, tags, thumbnails and originals.
+- Commands `open_view` (with a progress `Channel`), `view_range`, `view_ids` (the ids of a range, for selections), `close_view`, `item_detail`.
 - The `thumb` URI scheme serving `thumbs/` with the palette placeholder while missing (arch §11).
 - UI: the virtualized grid (TanStack Virtual, windows of 100–200 cells), multi-select, sort menu, layout and size, the read-only right bar, the full-size preview (section 7.3).
 
@@ -1037,6 +1040,8 @@ Native library (`library-native`, `media`), with temporary folders:
 | Import of a folder with hidden and system files | They are skipped; nested folders are walked |
 | Duplicates in one batch | Asked once; skip, add anyway or cancel holds for the rest |
 | Crash during an import, then open | No row without a file; previews not made yet are made; adding again reports duplicates |
+| Scopes All, Uncategorized, Untagged, Trash | One query each; trashed items only in Trash; tag strings shared |
+| An item whose stored path points outside the library folder | The original is refused, nothing is read |
 | Folder delete | Subfolders gone, items stay, items without folders are Uncategorized |
 | Tag rename into an existing tag | Merged, no duplicate rows |
 | Search syntax `a OR b`, `-a`, parentheses, Cyrillic | Correct FTS5 query and results |
@@ -1083,7 +1088,7 @@ Running Eagle (`eagle-api`), unit tests and HTTP tests with `wiremock` and `fixt
 | Nested page | Parsed from `body.data.data` |
 | Same-PC thumbnail path outside the library folder | Refused, nothing is read |
 
-UI tests: Vitest and Testing Library with `mockIPC` from `@tauri-apps/api/mocks`: the Welcome screen, the read-only banner, the menu and shortcuts built from the command registry (no items of later phases, write commands disabled in a read-only library), the Settings and About dialogs, Connect error copy, the grid window loading, dialogs and empty states.
+UI tests: Vitest and Testing Library with `mockIPC` from `@tauri-apps/api/mocks`: the Welcome screen, the read-only banner, the menu and shortcuts built from the command registry (no items of later phases, write commands disabled in a read-only library), the Settings and About dialogs, Connect error copy, the grid window loading, selection (click, Ctrl, Shift, rubber band, arrow keys, Ctrl+A), sort, the list, the preview, `views-invalidated`, dialogs and empty states.
 
 Manual checks on Windows:
 

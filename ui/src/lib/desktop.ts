@@ -30,7 +30,8 @@ export function keyName(event: KeyboardEvent): string {
   if (event.ctrlKey || event.metaKey) parts.push("Ctrl");
   if (event.altKey) parts.push("Alt");
   if (event.shiftKey) parts.push("Shift");
-  const key = event.key.length === 1 ? event.key.toUpperCase() : event.key;
+  const key =
+    event.key === " " ? "Space" : event.key.length === 1 ? event.key.toUpperCase() : event.key;
   parts.push(key);
   return parts.join("+");
 }
@@ -39,6 +40,16 @@ export function isEditable(target: EventTarget | null): boolean {
   return (
     target instanceof HTMLElement &&
     (target.isContentEditable || target.closest("input, textarea, [contenteditable]") !== null)
+  );
+}
+
+/** Space and Enter press a focused button, link, field or menu item instead of a shortcut. */
+export function isInteractive(target: EventTarget | null): boolean {
+  return (
+    target instanceof HTMLElement &&
+    target.closest(
+      "button, a[href], input, select, textarea, summary, [contenteditable], [role=button], [role=menuitem], [role=menuitemradio], [role=menuitemcheckbox], [role=checkbox], [role=switch], [role=radio], [role=tab], [role=slider], [role=option]",
+    ) !== null
   );
 }
 

@@ -1,6 +1,6 @@
 //! App preferences and the window's last size and position (docs/spec.md §7.4, D-022, D-027).
 
-use library_core::SourceError;
+use library_core::{SortKey, SourceError};
 use serde::{Deserialize, Serialize};
 use ts_rs::TS;
 
@@ -54,6 +54,56 @@ impl UiLayout {
     }
 }
 
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Default, Serialize, Deserialize, TS)]
+#[serde(rename_all = "camelCase")]
+#[ts(export)]
+pub enum ViewMode {
+    #[default]
+    Grid,
+    List,
+}
+
+/// How the library screen shows items, the same in every library (docs/spec.md §5, §7.3).
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize, TS)]
+#[serde(rename_all = "camelCase", default)]
+#[ts(export)]
+pub struct BrowsePreferences {
+    pub view_mode: ViewMode,
+    /// The width of a grid cell in CSS pixels.
+    pub thumbnail_size: u32,
+    pub show_names: bool,
+    /// The sort of every screen without its own (a folder's sort override comes in phase 4).
+    pub sort: SortKey,
+    pub ascending: bool,
+}
+
+impl BrowsePreferences {
+    pub const MIN_THUMBNAIL: u32 = 80;
+    pub const MAX_THUMBNAIL: u32 = 320;
+
+    pub fn clamped(self) -> Self {
+        Self {
+            thumbnail_size: self
+                .thumbnail_size
+                .clamp(Self::MIN_THUMBNAIL, Self::MAX_THUMBNAIL),
+            ..self
+        }
+    }
+}
+
+impl Default for BrowsePreferences {
+    /// A grid of 160 px cells with names, newest first.
+    fn default() -> Self {
+        Self {
+            view_mode: ViewMode::Grid,
+            thumbnail_size: 160,
+            show_names: true,
+            sort: SortKey::DateAdded,
+            ascending: false,
+        }
+    }
+}
+
 #[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize, TS)]
 #[serde(rename_all = "camelCase", default)]
 #[ts(export)]
@@ -63,6 +113,7 @@ pub struct Preferences {
     /// Where Create library starts; `None` means `%USERPROFILE%\egl-library` (D-021).
     pub default_library_parent: Option<String>,
     pub layout: UiLayout,
+    pub browse: BrowsePreferences,
 }
 
 impl Default for Preferences {
@@ -72,6 +123,7 @@ impl Default for Preferences {
             reopen_last_library: true,
             default_library_parent: None,
             layout: UiLayout::default(),
+            browse: BrowsePreferences::default(),
         }
     }
 }
@@ -96,6 +148,7 @@ impl AppStore {
     pub fn save_preferences(&self, preferences: &Preferences) -> Result<(), SourceError> {
         let mut preferences = preferences.clone();
         preferences.layout = preferences.layout.clamped();
+        preferences.browse = preferences.browse.clamped();
         JsonFile::new(self.dir(), PREFERENCES).update(|stored: &mut Preferences| {
             *stored = preferences;
         })
@@ -126,6 +179,9 @@ mod tests {
         assert!(preferences.reopen_last_library);
         assert_eq!(preferences.default_library_parent, None);
         assert_eq!(preferences.layout, UiLayout::default());
+        assert_eq!(preferences.browse.view_mode, ViewMode::Grid);
+        assert_eq!(preferences.browse.sort, SortKey::DateAdded);
+        assert!(!preferences.browse.ascending);
     }
 
     #[test]
@@ -142,6 +198,13 @@ mod tests {
                 left_open: false,
                 right_open: true,
             },
+            browse: BrowsePreferences {
+                view_mode: ViewMode::List,
+                thumbnail_size: 1000,
+                show_names: false,
+                sort: SortKey::Title,
+                ascending: true,
+            },
         };
         store.save_preferences(&preferences).unwrap();
         let stored = store.preferences();
@@ -155,6 +218,13 @@ mod tests {
             (200, 480)
         );
         assert!(!stored.layout.left_open);
+        assert_eq!(
+            stored.browse,
+            BrowsePreferences {
+                thumbnail_size: BrowsePreferences::MAX_THUMBNAIL,
+                ..preferences.browse
+            }
+        );
     }
 
     #[test]

@@ -14,12 +14,16 @@ mod name;
 mod preview;
 mod recover;
 mod schema;
+mod scope;
+mod source;
 mod time;
 
 pub use time::utc_file_stamp;
 
 #[cfg(test)]
 mod import_tests;
+#[cfg(test)]
+mod scope_tests;
 #[cfg(test)]
 mod test_support;
 #[cfg(test)]
@@ -36,6 +40,7 @@ pub use library::{Library, OpenOptions};
 pub use name::validate_library_name;
 pub use preview::{NO_PREVIEW, PendingPreview};
 pub use schema::{APPLICATION_ID, FORMAT_VERSION};
+pub use source::NativeSource;
 
 /// Library folders end in `.eglib` (D-016).
 pub const LIBRARY_SUFFIX: &str = "eglib";

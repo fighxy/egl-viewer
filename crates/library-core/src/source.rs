@@ -72,6 +72,11 @@ pub trait LibrarySource: Send + Sync {
         Ok(None)
     }
 
+    /// The original file, for the full-size preview, when the source can read it.
+    async fn original(&self, _id: &ItemId) -> Result<Option<Thumbnail>, SourceError> {
+        Ok(None)
+    }
+
     async fn changes_since(&self, _token: &ChangeToken) -> Result<Changes, SourceError> {
         Err(SourceError::NotSupported("change feed".into()))
     }

@@ -3,13 +3,18 @@
 use std::path::PathBuf;
 
 use app_store::{ConnectionSettings, Preferences, RecentLibrary};
-use library_core::{ImportProgress, ImportTicket, LibraryCounts, LibraryInfo, SourceError};
+use library_core::{
+    ImportProgress, ImportTicket, Item, ItemCell, ItemId, LibraryCounts, LibraryInfo, LibraryQuery,
+    SourceError,
+};
 use library_native::DuplicateChoice;
 use serde::{Deserialize, Serialize};
+use tauri::ipc::Channel;
 use tauri::{AppHandle, Manager, State};
 use ts_rs::TS;
 
 use crate::session::{Clipboard, Session, StartupResult};
+use crate::views::{ScopeProgress, ViewOpened, count};
 
 #[derive(Debug, Clone, PartialEq, Eq, Serialize, TS)]
 #[serde(rename_all = "camelCase")]
@@ -111,6 +116,61 @@ pub async fn startup(app: AppHandle) -> Result<StartupResult, SourceError> {
 #[tauri::command]
 pub async fn library_counts(app: AppHandle) -> Result<LibraryCounts, SourceError> {
     blocking(app, Session::counts).await
+}
+
+/// Opens a view for `query`; `on_progress` hears how far the scope loaded
+/// (docs/architecture.md §6.5).
+#[tauri::command]
+pub async fn open_view(
+    app: AppHandle,
+    query: LibraryQuery,
+    on_progress: Channel<ScopeProgress>,
+) -> Result<ViewOpened, SourceError> {
+    blocking(app, move |session| {
+        session.open_view(query, &|loaded, total| {
+            let _ = on_progress.send(ScopeProgress {
+                loaded: count(loaded),
+                total: count(total),
+            });
+        })
+    })
+    .await
+}
+
+/// A window of a view: at most 200 cells. Whole item lists never cross IPC.
+#[tauri::command]
+pub async fn view_range(
+    app: AppHandle,
+    view_id: u64,
+    start: u32,
+    len: u32,
+) -> Result<Vec<ItemCell>, SourceError> {
+    blocking(app, move |session| session.view_range(view_id, start, len)).await
+}
+
+/// Ids only, for a selection range.
+#[tauri::command]
+pub async fn view_ids(
+    app: AppHandle,
+    view_id: u64,
+    start: u32,
+    len: u32,
+) -> Result<Vec<ItemId>, SourceError> {
+    blocking(app, move |session| session.view_ids(view_id, start, len)).await
+}
+
+#[tauri::command]
+pub async fn close_view(app: AppHandle, view_id: u64) -> Result<(), SourceError> {
+    blocking(app, move |session| {
+        session.close_view(view_id);
+        Ok(())
+    })
+    .await
+}
+
+#[tauri::command]
+pub async fn item_detail(app: AppHandle, id: String) -> Result<Option<Item>, SourceError> {
+    blocking(app, move |session| session.item_detail(&id)).await
 }
 
 /// Files and folders by path (picked, dropped or pasted); their bytes never cross IPC.

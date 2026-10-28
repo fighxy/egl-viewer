@@ -18,8 +18,9 @@ React UI. Windows first; no AI features.
 |---|---|
 | 0. Project skeleton | Done (2026-10-28): workspace, core types, the `LibrarySource` trait, Welcome screen, Connect screen without networking, tests, CI |
 | 1. Native library: create and open | Implemented (2026-10-28), CI on Windows green, the manual done check on Windows still open: `library-native` (create, open, the OS lock, recovery, backups, `add_file`), library locations and recent libraries in `app-store`, the library commands, the window frame with the menu bar, Welcome, the empty library screen, Settings, About and Keyboard Shortcuts (D-032) |
-| 2. Adding files and the media pipeline | Implemented (2026-10-28), waiting for the done check on Windows: the `media` crate (thumbnails, palettes, EXIF), batches with one duplicate question, Add files, dropping and pasting, progress, the Imports panel, counts (D-037) |
-| 3–7. Grid, folders, tags, search and smart folders, editing and trash | Planned |
+| 2. Adding files and the media pipeline | Implemented (2026-10-28), CI on Windows green, the manual done check on Windows still open: the `media` crate (thumbnails, palettes, EXIF), batches with one duplicate question, Add files, dropping and pasting, progress, the Imports panel, counts (D-037) |
+| 3. Grid and detail | Implemented (2026-10-28), waiting for the done check on Windows: the local pipeline, the sorter and views in `library-core`, `load_scope` in SQL and the native `LibrarySource`, the view commands, the `thumb` scheme, the virtualized grid and list, selection, sort, thumbnail size, the read-only details panel, the full-size preview (D-041) |
+| 4–7. Folders, tags, search and smart folders, editing and trash | Planned |
 | 8–11. Eagle: import, live connection, export | Planned |
 | 12. Hardening and the Windows release | Planned |
 
@@ -54,12 +55,13 @@ pnpm dev
 | `pnpm test` | UI tests (Vitest) |
 | `pnpm lint` | Biome lint and format check |
 | `pnpm typecheck` | TypeScript type check |
+| `EGL_DEMO_PARENT=<folder> cargo test --release -p library-native -- --ignored demo_library` | Makes `Demo.eglib` with 10 000 images in that folder, for checking the app by hand (`EGL_DEMO_COUNT` changes the number) |
 
 ## Layout
 
 ```
-crates/library-core/   models, queries, edits, errors, the LibrarySource trait (no IO)
-crates/library-native/ the native library: create, open, the library lock, recovery, adding a file
+crates/library-core/   models, queries and views (filters, sorter), edits, errors, the LibrarySource trait (no IO)
+crates/library-native/ the native library: create, open, the library lock, recovery, adding files, scopes in SQL
 crates/app-store/      settings, recent libraries, library locations, secrets
 crates/eagle-api/      a running Eagle as a LibrarySource (transport from phase 9)
 crates/media/          decoding, thumbnails, palettes and EXIF for the native library

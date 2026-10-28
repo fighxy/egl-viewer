@@ -3,6 +3,13 @@
 use serde::{Deserialize, Serialize};
 use ts_rs::TS;
 
+pub mod filter;
+pub mod sort;
+pub mod view;
+
+#[cfg(test)]
+mod tests;
+
 /// The part of a query that decides what to load. Everything else is computed locally.
 #[derive(Debug, Clone, PartialEq, Eq, Hash, Default, Serialize, Deserialize, TS)]
 #[serde(
@@ -140,7 +147,7 @@ pub struct ScopeHints {
 }
 
 #[cfg(test)]
-mod tests {
+mod wire_tests {
     use super::*;
     use serde_json::json;
 

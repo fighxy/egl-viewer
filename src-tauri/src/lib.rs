@@ -2,19 +2,24 @@
 
 mod commands;
 mod session;
+mod views;
 mod window;
 
 use std::sync::Arc;
 
 use app_store::{AppStore, SyncEnvironment};
-use library_core::ImportProgress;
+use library_core::Thumbnail;
+use tauri::http::{Response, StatusCode, header};
 use tauri::{Emitter, Manager, RunEvent, WindowEvent};
 use tracing_subscriber::EnvFilter;
 
 use crate::session::Session;
+use crate::views::Event;
 
 /// Import progress for the UI (docs/architecture.md §8).
 const IMPORT_PROGRESS: &str = "import-progress";
+/// Views recomputed after a write; the UI refetches their visible windows.
+const VIEWS_INVALIDATED: &str = "views-invalidated";
 /// The window's close was held back because files are being added; the UI asks the user.
 const CLOSE_REQUESTED: &str = "close-requested";
 
@@ -22,11 +27,26 @@ pub fn run() {
     init_logging();
     let app = tauri::Builder::default()
         .plugin(tauri_plugin_dialog::init())
+        // Thumbnails and originals of the open library (docs/architecture.md §11).
+        .register_asynchronous_uri_scheme_protocol("thumb", |ctx, request, responder| {
+            let app = ctx.app_handle().clone();
+            let path = request.uri().path().to_owned();
+            tauri::async_runtime::spawn_blocking(move || {
+                // Before `setup` has made the session there is no library to serve.
+                let image = app
+                    .try_state::<Session>()
+                    .and_then(|session| session.image(&path));
+                responder.respond(image_response(image));
+            });
+        })
         .setup(|app| {
             let store = AppStore::new(app.path().app_local_data_dir()?);
             let handle = app.handle().clone();
-            let emit = Arc::new(move |progress: &ImportProgress| {
-                let _ = handle.emit(IMPORT_PROGRESS, progress);
+            let emit = Arc::new(move |event: Event| {
+                let _ = match event {
+                    Event::ImportProgress(progress) => handle.emit(IMPORT_PROGRESS, progress),
+                    Event::ViewsInvalidated(views) => handle.emit(VIEWS_INVALIDATED, views),
+                };
             });
             let session = Session::new(
                 store,
@@ -68,6 +88,11 @@ pub fn run() {
             commands::set_preferences,
             commands::startup,
             commands::library_counts,
+            commands::open_view,
+            commands::view_range,
+            commands::view_ids,
+            commands::close_view,
+            commands::item_detail,
             commands::add_files,
             commands::paste_files,
             commands::answer_import,
@@ -84,6 +109,35 @@ pub fn run() {
             app.state::<Session>().shutdown();
         }
     });
+}
+
+/// A versioned URL never changes its image, so the WebView may keep it. SVG originals are
+/// images, never documents: no scripts, no sniffing.
+fn image_response(image: Option<Thumbnail>) -> Response<Vec<u8>> {
+    let response = match image {
+        Some(image) => Response::builder()
+            .status(StatusCode::OK)
+            .header(header::CONTENT_TYPE, image.content_type)
+            .header(header::CACHE_CONTROL, "max-age=31536000, immutable")
+            .body(image.bytes),
+        None => Response::builder()
+            .status(StatusCode::NOT_FOUND)
+            .body(Vec::new()),
+    };
+    response
+        .map(|mut response| {
+            let headers = response.headers_mut();
+            headers.insert(
+                header::CONTENT_SECURITY_POLICY,
+                header::HeaderValue::from_static("default-src 'none'"),
+            );
+            headers.insert(
+                header::X_CONTENT_TYPE_OPTIONS,
+                header::HeaderValue::from_static("nosniff"),
+            );
+            response
+        })
+        .unwrap_or_default()
 }
 
 /// `RUST_LOG` controls the level (default `info`). Never log the token or raw bodies of
