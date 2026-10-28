@@ -9,6 +9,7 @@ React UI. Windows first; no AI features.
 - What the app does: [`docs/spec.md`](docs/spec.md)
 - How it is built: [`docs/architecture.md`](docs/architecture.md)
 - Decisions taken so far: [`docs/decisions.md`](docs/decisions.md)
+- The native library format: [`docs/library-format.md`](docs/library-format.md)
 - Captured Eagle responses for tests: [`fixtures/eagle-api/`](fixtures/eagle-api/)
 
 ## Status
@@ -16,7 +17,7 @@ React UI. Windows first; no AI features.
 | Phase | State |
 |---|---|
 | 0. Project skeleton | Done (2026-10-28): workspace, core types, the `LibrarySource` trait, Welcome screen, Connect screen without networking, tests, CI |
-| 1. Native library: create and open | Next |
+| 1. Native library: create and open | Next: format version 1, the lock, locations and adding a file are written down in `docs/library-format.md` (2026-10-28); code not started |
 | 2–7. Adding files, grid, folders, tags, search and smart folders, editing and trash | Planned |
 | 8–11. Eagle: import, live connection, export | Planned |
 | 12. Hardening and the Windows release | Planned |

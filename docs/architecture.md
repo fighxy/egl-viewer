@@ -23,7 +23,7 @@ Live verification (2026-10-27): two test JPEGs were added to the open library th
 | Shell | **Tauri 2.12** (stable). Not Tauri 3, which is in alpha (§2) |
 | Core | Rust workspace: `library-core` (no IO), `library-native` (the native library), `media` (thumbnails, palettes, hashes), `app-store` (settings, recent libraries, secrets), and for Eagle `eagle-folder` and `eagle-api`; the Tauri app crate is a thin layer of commands |
 | Library sources | One `LibrarySource` trait in `library-core`. Implementations: the native library, an Eagle library folder on disk (read only), a running Eagle (API) (§15.2) |
-| Library format | A folder `Name.eglib` (D-016): SQLite (`library.db`) as the single source of truth, the original files copied in (D-014), regenerable thumbnails; documented and versioned (§15.3) |
+| Library format | A folder `Name.eglib` (D-016): SQLite (`library.db`) as the single source of truth, the original files copied in (D-014), regenerable thumbnails; documented in `library-format.md` and versioned (§15.3) |
 | Media | v1 previews for JPEG, PNG, GIF, WebP, AVIF, SVG, TIFF, BMP and PSD composites; other files are stored with a placeholder (D-015, §15.4) |
 | UI | React + TypeScript (strict) + Vite, Tailwind + shadcn/ui; TanStack Virtual for the grid, TanStack Query for data from Rust, TanStack Router for screens. The first screen is Welcome (D-017) |
 | Types across IPC | `ts-rs` generates TypeScript from the Rust structs that cross IPC |
@@ -35,9 +35,9 @@ Live verification (2026-10-27): two test JPEGs were added to the open library th
 | Who talks to Eagle | **Only Rust.** The UI never calls the Eagle API and never sees the token |
 | HTTP | Only for Eagle: `reqwest` with rustls on `tokio`, our own `EagleHttp` with all protocol rules (§4) |
 | Secrets | Only the Eagle token, in Windows Credential Manager (`keyring`); later the macOS/iOS Keychain and Android Keystore |
-| Settings | `tauri-plugin-store`: recent libraries, the last query per library, preferences, the Eagle endpoint |
+| Settings | `app-store`: JSON files in the app's local data folder for recent libraries, the last query per library, preferences, the Eagle endpoint; not `tauri-plugin-store` (D-022) |
 | Background | Imports and thumbnail generation run as tasks of the open app. No background service; a running Eagle is refreshed when the window regains focus and on demand |
-| Sync | Native: one writer per library, backups, no file sync while open; sync between devices later (§15.8). Eagle: only Eagle writes its library; every change goes through the API (§12) |
+| Sync | Native: one writer per library (an OS file lock), local disks only (no cloud folders, no network shares), backups; sync between devices later (§15.8). Eagle: only Eagle writes its library; every change goes through the API (§12) |
 | Eagle compatibility | Import of `.library` folders without Eagle running; live work through the API; export into Eagle through its API. The app never writes Eagle's files (§15.5) |
 | AI | Out of scope: no `aiSearch` calls, no semantic or image search |
 
@@ -115,7 +115,7 @@ The "Spec said" column quotes the wording of the **first** version of the spec (
 | Secrets | `keyring` (Windows Credential Manager), `secrecy` for the Eagle token in memory | Later: macOS/iOS Keychain, Android Keystore |
 | Collation | `icu_collator` (ICU4X) with numeric ordering | Pure Rust, identical on every platform |
 | Files | `tauri-plugin-dialog` (file and folder pickers), Tauri drag-and-drop events (file paths) | |
-| Settings | `tauri-plugin-store` | Recent libraries, the last query per library, preferences, the Eagle endpoint |
+| Settings | `app-store` (own JSON files, atomic replace) | Recent libraries, the last query per library, preferences, the Eagle endpoint; several app processes share them (D-022). `tauri-plugin-store` is not used |
 | Links | `tauri-plugin-opener` | Opens an item's `url` in the system browser (limited to `https` and `http`), an original in its default app, and the library folder in Explorer |
 | Types across IPC | `ts-rs` | Generated files are committed and checked in CI |
 | UI | React, TypeScript (strict), Vite, `@tanstack/react-virtual`, `@tanstack/react-query`, `@tanstack/react-router` | |
@@ -142,14 +142,16 @@ egl-viewer/
       edit/                  ItemEdit, cycle guard
       source.rs              the LibrarySource trait, Capabilities, SourceError (§15.2)
     library-native/          the native library: SQLite + files + thumbnails (§15.3); no Tauri
-      schema/                migrations, format version, docs/library-format.md is written from it
-      open.rs                create, open, library.lock, backups
+      schema/                migrations, format version; docs/library-format.md describes it
+      open.rs                create, open, close, library.lock (OS file lock), recovery, backups
       scope.rs               load_scope in SQL, FTS5 search
       write.rs               item edits, folders, tags, trash, change_log
-      add.rs                 adding files: temp copy, hash, duplicates, rows
+      add.rs                 adding files: temp copy, hash, duplicates, the pending_file journal, rows
     media/                   hashing, probing, thumbnails, palettes (§15.4); no Tauri
     app-store/               file IO; no Tauri
-      settings.rs            preferences, recent libraries, the Eagle endpoint
+      settings.rs            preferences, the Eagle endpoint; JSON files with atomic replace (D-022)
+      recent.rs              recent libraries, the last library, "closed explicitly"
+      location.rs            default library folder; sync folder and network path checks (Windows code behind a trait)
       secrets.rs             SecretStore trait + keyring implementation (the Eagle token)
       offline.rs             (later) offline index of the Eagle source (CBOR), pinned thumbnails, outbox
     eagle-folder/            an Eagle `.library` folder on disk, read only: the import (§15.6)
@@ -685,15 +687,16 @@ The Windows app adds files that the user picks in the file dialog (`tauri-plugin
 
 ```
 paths ─► Rust: an import task per batch, owned by AppState; files processed by a bounded pool
-      ─► per file: stream-copy into <library>/files/.tmp/<ulid> while hashing (BLAKE3)
-      ─► duplicate? (content_hash index) → the batch's choice: skip | add anyway | add existing item to the target folder
-      ─► rename the temp file to files/<shard>/<id>/<original name>; INSERT item (+ folders, tags) in one transaction
+      ─► per file (library-native add_file): stream-copy into <library>/files/.tmp/<ulid> while hashing (BLAKE3); sync_all
+      ─► duplicate? (content_hash index, the trash included) → the batch's choice: skip | add anyway | add existing item to the target folder
+      ─► INSERT pending_file(path), commit; rename the temp file to files/<shard>/<id>/<file name> (retried on sharing violations)
+      ─► INSERT item (+ folders, tags, change_log, item_fts) and DELETE pending_file in one transaction
       ─► import-progress event; the item appears in views with the placeholder
       ─► media job (rayon): probe, thumbnail, palette → UPDATE item, thumb_version += 1 → views-invalidated
 ```
 
-- A crash before the rename leaves only a file in `files/.tmp/`; opening the library deletes that folder's content. A crash after the rename but before the commit leaves an orphan file that "Check library" reports. The rename and the insert are ordered so that a row never points at a missing file.
-- `name` is the file name without extension; `ext` the lowercase extension. Folder ids are checked against the tree, and the tags of the target folder and its ancestors are added to the item (spec §3).
+- A crash before the journal entry leaves only a file in `files/.tmp/`; opening the library deletes that folder's content. A crash after it leaves a `pending_file` row, and the next open deletes the file unless an item points at it. So a row never points at a missing file, and no file stays without a row, without walking `files/` (`library-format.md` §6, D-023). `synchronous = FULL` makes each commit durable, which this order relies on.
+- `name` is the file name without extension; `ext` the lowercase extension. The stored file keeps the original name with the part before the extension cut to 100 UTF-16 units. Folder ids are checked against the tree, and the tags of the target folder and its ancestors are added to the item (spec §3).
 - Files of any type are accepted; only the v1 formats get previews (D-015).
 - Cancelling stops the batch after the current file; added items stay.
 
@@ -729,8 +732,9 @@ Later, for phones: the WebView prepares the image (`createImageBitmap`, long edg
 | Command | Input | Output |
 |---|---|---|
 | `app_info`, `connection_defaults` | — | version; Eagle connection defaults (phase 0) |
+| `default_library_location` | — | the parent folder the Create dialog starts in: the user's preference, else `%USERPROFILE%\egl-library` (D-021) |
 | `create_library` | parent folder, name | `LibraryInfo`; the library is open |
-| `open_library` | path | `LibraryInfo` with `readOnly` |
+| `open_library` | path | `LibraryInfo` with `readOnly` and `readOnlyReason`; on the library that is open read-only it retries the lock ("Open for editing") |
 | `close_library` | — | — |
 | `recent_libraries`, `forget_recent_library` | —, path | `RecentLibrary[]` (name, path, last opened, missing) |
 | `folder_tree` | — | `FolderNode` tree (no passwords) |
@@ -760,7 +764,7 @@ Every command that works on a library goes through the open `LibrarySource`; a s
 
 **Events** from Rust: `views-invalidated`, `import-progress`, `library-closed` (the library folder disappeared or the lock was lost), and for Eagle `connection-state` and `library-changed` (another library was opened on the PC).
 
-**UI structure.** Routes: `/welcome`, `/library` with the scope and the filters in typed search parameters, `/item/$id` as a side panel or a dialog, `/eagle/connect`, `/eagle/import`, `/eagle/export`. The tag, filter and sort sheets are components of the library screen, not routes. Server state lives in TanStack Query (keys per view window, per item, for the tree and the vocabulary); local UI state stays in components. The last `LibraryQuery` per library is saved in `tauri-plugin-store` so that the app reopens where it was.
+**UI structure.** Routes: `/welcome`, `/library` with the scope and the filters in typed search parameters, `/item/$id` as a side panel or a dialog, `/eagle/connect`, `/eagle/import`, `/eagle/export`. The tag, filter and sort sheets are components of the library screen, not routes. Server state lives in TanStack Query (keys per view window, per item, for the tree and the vocabulary); local UI state stays in components. The last `LibraryQuery` per library is saved by `app-store` so that the app reopens where it was.
 
 **Layout.** Desktop-first: a sidebar with the tree, the grid in the middle, the detail panel on the right. Keyboard navigation in the grid, `Delete` for trash (with confirmation), `Ctrl+F` for search, `Ctrl+Z` for undo. The layout is responsive, so a narrow phone layout can be added later without restructuring.
 
@@ -770,10 +774,12 @@ Every command that works on a library goes through the open `LibrarySource`; a s
 
 **Native library.**
 
-- **Start:** the app reopens the last library unless it was closed explicitly (or `Shift` is held), otherwise it shows Welcome. A missing library goes back to Welcome with a message.
-- **Open:** take `library.lock` (or open read-only), run migrations after a backup, clear `files/.tmp/`, make the daily backup, load the tree and the vocabulary.
-- **While open:** the app is the only writer, so data never goes stale; writes update snapshots and views directly (§6.3). The lock file is refreshed every minute; a lock older than 5 minutes whose process is gone counts as stale and is taken over.
-- **Close** (another library, Welcome, quitting): finish or cancel running imports after asking, close the database (WAL checkpoint), release the lock.
+- **Start:** the app reopens the last library unless it was closed explicitly, `Shift` is held (read in Rust at startup: the WebView cannot see a key held before it loads) or `--no-reopen` is passed; otherwise it shows Welcome. A missing or refused library, or one that another instance has open, goes back to Welcome with a message (D-022).
+- **Open:** the steps of `library-format.md` §7: the location check, the header check on a read-only connection, the OS lock on `library.lock` (or read-only), `quick_check` after an unclean close, `meta.open_by`, migrations after a backup, `pending_file` recovery, clearing `files/.tmp/`, the daily backup; then the tree and the vocabulary.
+- **While open:** the writer is the only writer, so its data never goes stale; writes update snapshots and views directly (§6.3). The lock is an OS file lock held by the process (`File::try_lock`), so a crash or a kill releases it at once; there is no heartbeat (D-020). A read-only instance compares `PRAGMA data_version` when the window regains focus and reloads when another process has written; "Open for editing" retries the lock.
+- **Switching** to another library opens and checks the new one first, taking its lock, and closes the current one only on success; on failure the current library stays open (D-024).
+- **Close** (another library, Welcome, quitting): finish or cancel running imports after asking, WAL checkpoint, remove `meta.open_by`, close the database, release the lock. Quitting is not an explicit close.
+- **Processes:** several app processes may run; each has one window and one library (D-024).
 
 **Running Eagle.**
 
@@ -795,11 +801,11 @@ Every command that works on a library goes through the open `LibrarySource`; a s
 3. Folder passwords are dropped while parsing JSON (§5). Raw bodies of `library/info` and `folder/get` are never logged.
 4. The Host bypass (correction 5) is Eagle's problem, not the client's. The client never uses it. Help text on the Connect screen: "Allow port 41595 in the firewall for the private network only; better, only for this computer's IP".
 5. `/api/script/inject` and `/api/check` are absent from the client entirely: no method, not even a path string.
-6. Tauri capabilities allow only the app's own commands and the plugins in use (`store`, `dialog`, `opener` limited to `http`/`https`). No `shell`, no `fs`, no `http` plugin: the UI cannot read files or make requests on its own.
+6. Tauri capabilities allow only the app's own commands and the plugins in use (`dialog`, `opener` limited to `http`/`https`). No `shell`, no `fs`, no `http` plugin: the UI cannot read files or make requests on its own.
 7. A strict CSP in `tauri.conf.json`: scripts only from the app bundle; images from `'self'`, `data:`, `blob:` and the `thumb` scheme (`http://thumb.localhost` on Windows).
 8. Commands validate their input in Rust (lengths up to 10 000, star 0–5, known folder ids) before any write or request.
 9. The `thumb` scheme and the commands that open or reveal files only touch files whose canonical path is inside the open library folder (the native library, or an Eagle library on the same PC). Item ids from the UI are looked up in the database; the UI never passes file paths for them.
-10. Paths the user picked in a dialog or dropped on the window are only read (to copy them into the library); the app never writes outside the library folder, the app data folder and a folder the user chose for a new library.
+10. Paths the user picked in a dialog or dropped on the window are only read (to copy them into the library); the app never writes outside the library folder, the app's local data folder and a folder the user chose for a new library.
 11. A native locked folder stores salt, Argon2id parameters, and wrapped age identities on the folder row (D-018). The password, the recovery secret, and the unwrapped identity are not stored. The lock dialog says the lock encrypts that folder on disk. The name and the tag (label and colour) stay plaintext. The Eagle token stays in Windows Credential Manager.
 
 ---
@@ -952,7 +958,7 @@ The same direct path to the API, but over Tailscale or WireGuard to the Eagle PC
 | Level | What | Where |
 |---|---|---|
 | Rust unit, `library-core` | The core table in §10 of the spec, plus: `matches_locally` for snapshot updates; the lock filter with descendants; stable random sort; the smart folder evaluator against the cases of §16 | `cargo test`, CI |
-| Rust, `library-native` | Create and open; a newer format version is refused; migrations on an older schema run after a backup; `library.lock` blocks a second writer and a stale lock is taken over; a crash between copy and insert leaves no row and the temp file is cleaned; duplicates by hash; FTS5 translation of `OR`, parentheses, `-` and Cyrillic; case-sensitive tags; folder delete semantics; emptying the trash deletes rows and files | `cargo test` on temporary folders, CI |
+| Rust, `library-native` | Create and open; a newer format version is refused; migrations on an older schema run after a backup; `library.lock` blocks a second writer, which opens read-only and writes nothing; after a killed writer the lock is free at once and the unclean close is detected; a library in a sync folder opens read-only and one on a network path is refused; a crash at any step of `add_file` leaves neither a row without a file nor a file without a row; the reserved locked-folder columns and tables exist and stay empty; duplicates by hash, the trash included; FTS5 translation of `OR`, parentheses, `-` and Cyrillic; case-sensitive tags; folder delete semantics; emptying the trash deletes rows and files | `cargo test` on temporary folders, CI |
 | Rust, `media` | Each v1 format (small files in `fixtures/media/`, made for the tests) gives dimensions, a thumbnail and a palette; an undecodable file gives a clean error | `cargo test`, CI |
 | Rust, app crate | `view_range` windows; views recomputed under the same id after a write; `thumb` paths outside the library are refused | `cargo test`, CI |
 | Rust, Eagle import | A synthetic `.library` fixture in `fixtures/eagle-library/` (`metadata.json`, `mtime.json`, a few `.info` folders) → a native library with the expected rows, folder order and mapped ids, and no passwords; a truncated `metadata.json` is retried; an interrupted import resumes without duplicates | `cargo test`, CI |
@@ -997,7 +1003,7 @@ The same direct path to the API, but over Tailscale or WireGuard to the Eagle PC
 The full plan with done checks is in §9 of the spec. Key technical points per phase:
 
 - **Phase 0 (done).** Workspace with `library-core` (including the `LibrarySource` trait, §15.2), an `eagle-api` stub, `app-store` and the app crate; React app, `ts-rs` export, minimal capabilities and CSP, CI on Windows. The other crates of §3 appear with their phases.
-- **Phase 1.** `library-native`: schema v1 and migrations, `library.lock`, backups; `docs/library-format.md`; `app-store` settings and recent libraries; library commands; the Welcome screen.
+- **Phase 1.** `library-native`: schema v1 from `docs/library-format.md` and migrations, the OS file lock on `library.lock`, recovery after an unclean close, backups, `add_file` for one file; `app-store`: settings, recent libraries, the location check; library commands; the Welcome screen.
 - **Phase 2.** `media` (hash, probe, thumbnails, palettes, §15.4); `add_files` with the temp-copy protocol (§7.4); import tasks and progress events.
 - **Phase 3.** `load_scope` in SQL; the pipeline, sorter and views (§6.4, §6.5); the `thumb` scheme (§11); the virtualized grid.
 - **Phase 4.** Folders: `save_folder`, `delete_folder`, locks (age at rest, one Argon2id identity per folder, plaintext name and tag, the Locked folders sidebar), cycle guard (§7.3), `sort_key` reordering, manual order.
@@ -1073,9 +1079,9 @@ The trait grows with the phases: folder delete and locks (phase 4), tag delete a
 
 - `ScopeHints` carries the chips of the query. The Eagle source uses them for safe server prefilters on large libraries (§6.2). The native source ignores them: one SQL query per scope is fast enough.
 - `ItemId` is an opaque string: Eagle ids for the Eagle sources, ULIDs for the native library.
-- `SourceError` (in `library-core`) is one flat set of kinds for every source: the Eagle kinds of §4.4 plus `ReadOnly`, `NotSupported` and `Storage`. `EagleError` maps onto it one to one. It reaches the UI as `{ kind, detail }` (decisions.md, D-004).
+- `SourceError` (in `library-core`) is one flat set of kinds for every source: the Eagle kinds of §4.4 plus `ReadOnly`, `NotSupported` and `Storage`. Phase 1 adds `NotALibrary`, `NewerFormat`, `UnsupportedLocation` and `AlreadyExists` for creating and opening native libraries. `EagleError` maps onto it one to one. It reaches the UI as `{ kind, detail }` (decisions.md, D-004).
 - The UI reads `capabilities` and hides what the open library cannot do (for example "Delete folder" exists only for the native library).
-- One window has one open library. The Welcome screen (spec §7, D-017) creates or opens a native library, imports an Eagle library or connects to a running Eagle.
+- One window has one open library (D-024). `LibraryInfo` carries `id`, `readOnly` and `readOnlyReason` (`otherInstance`, `syncFolder`, `readOnlyMedium`) so the UI can explain a read-only library. The Welcome screen (spec §7, D-017) creates or opens a native library, imports an Eagle library or connects to a running Eagle.
 
 ### 15.3 The native library format
 
@@ -1088,94 +1094,26 @@ My Library.eglib/               the folder suffix is a convention (D-016); the a
   files/.tmp/                   files being copied in; emptied when the library opens (§7.4)
   thumbs/7Q/01JB…7Q.webp        thumbnails: regenerable, may be deleted at any time
   backups/library-2026-10-28.db automatic copies (VACUUM INTO), the last 10 kept
-  library.lock                  who has the library open: process id, computer name, time
+  library.lock                  held with an OS file lock while a writer has the library open; the holder is in meta.open_by
 ```
 
 Decisions:
 
-- **SQLite is the source of truth.** No per-item JSON files: they duplicate the data and drift apart (Eagle's `mtime.json` problems in §12.2 come from exactly that). Other tools can read the database while the app writes (WAL allows readers). The schema is published in `docs/library-format.md` in the repository.
+- **SQLite is the source of truth.** No per-item JSON files: they duplicate the data and drift apart (Eagle's `mtime.json` problems in §12.2 come from exactly that). Other tools can read the database while the app writes (WAL allows readers). The schema and the protocols are in [`library-format.md`](library-format.md).
 - **Originals are copied into `files/`** (D-014), as Eagle does, so the library is self-contained and portable. Later options: hard links instead of copies for imports from the same NTFS volume (saves space; both names point at the same data, and the UI says so), and linked folders that index files where they are (§15.8).
-- **Ids** are ULIDs: time-ordered and unique without coordination. Items that came from Eagle keep the Eagle id in `eagle_id`.
+- **Ids** are ULIDs: time-ordered and unique without coordination. Items that came from Eagle keep the Eagle id in `eagle_id`. Ids are stored as `TEXT`; `item` also has an explicit `seq INTEGER PRIMARY KEY` that keys `item_fts`, because implicit rowids change on `VACUUM` and in backups.
 - **Tags are case-sensitive strings**, as in Eagle (`"Poster"` and `"poster"` are different), stored once in `tag` and linked through `item_tag`.
 - **Folder order** among siblings is a `sort_key` string (fractional indexing): moving a folder changes one row.
 - **Trash** is `deleted_at`. Emptying the trash deletes the rows and the files. Unlike Eagle's API, the native library can delete items, folders and tags.
-- **Locked folders** encrypt their content at rest (D-018, `docs/age-locked-folders.md`). Each locked folder has its own password, Argon2id salt, age X25519 identity, and recovery secret. Nothing is shared, and unlocking one folder loads only that identity into memory (`secrecy`) for the session. Argon2id wraps the identity; the password is not stored. A second wrap uses the recovery secret, which is shown once at creation (128-bit key, the same bits as a word phrase, or an optional file outside the library) and is not stored in the library. Originals under `files/`, thumbnails under `thumbs/`, and the item columns name, annotation, url, exif, and palette are age ciphertext. The age header, including nonces, stays inside the ciphertext. Each locked folder has its own user-editable name (`folder.name`) and tag — a label and a colour (`label`, `label_color`) — stored in plaintext on the folder row. They are not encrypted fields, and the tag is not an item tag. The left sidebar has an expandable Locked folders section that lists each locked folder with that name and tag. Choosing a row prompts for that folder only and does not unlock any other folder. Also plaintext on the row: id, lock metadata, salt, KDF parameters, and the wrapped identities. An item in two locked folders has its own item key, wrapped separately by each folder identity. A folder imported locked from Eagle has the locked flag and no identity until the user sets a password; its files stay plaintext until then (§15.5). An optional YubiKey PIV slot 9d adds a third wrap of the same identity (`age-plugin-yubikey`): the card stores a P-256 key, and the age X25519 identity stays wrapped in the folder row. Several cards can wrap one folder. Absent the key, the password and the recovery secret still unwrap it. This is not encryption of the whole database, of settings, or of the Eagle token.
+- **Locked folders** encrypt their content at rest (D-018, `docs/age-locked-folders.md`). Each locked folder has its own password, Argon2id salt, age X25519 identity, and recovery secret. Nothing is shared, and unlocking one folder loads only that identity into memory (`secrecy`) for the session. Argon2id wraps the identity; the password is not stored. A second wrap uses the recovery secret, which is shown once at creation (128-bit key, the same bits as a word phrase, or an optional file outside the library) and is not stored in the library. Originals under `files/`, thumbnails under `thumbs/`, and the item columns name, annotation, url, exif, and palette are age ciphertext. The age header, including nonces, stays inside the ciphertext. Each locked folder has its own user-editable name (`folder.name`) and tag — a label and a colour (`label`, `label_color`) — stored in plaintext on the folder row. They are not encrypted fields, and the tag is not an item tag. The left sidebar has an expandable Locked folders section that lists each locked folder with that name and tag. Choosing a row prompts for that folder only and does not unlock any other folder. Also plaintext on the row: id, lock metadata, salt, KDF parameters, and the wrapped identities. An item in two locked folders has its own item key, wrapped separately by each folder identity (`item_key_wrap`). A folder imported locked from Eagle has the locked flag and no identity until the user sets a password; its files stay plaintext until then (§15.5). An optional YubiKey PIV slot 9d adds a third wrap of the same identity (`age-plugin-yubikey`): the card stores a P-256 key, and the age X25519 identity stays wrapped in `folder_piv_wrap`, one row per card. Several cards can wrap one folder. Absent the key, the password and the recovery secret still unwrap it. This is not encryption of the whole database, of settings, or of the Eagle token. The columns and tables of locked folders (`item.encrypted`, `item.sealed`, the lock columns of `folder`, `item_key_wrap`, `folder_piv_wrap`) exist from format version 1 and stay empty until phase 4. While an item is encrypted, its five sensitive fields are one age message in `item.sealed`, and the plaintext columns are empty (D-019).
 - **Smart folders** keep Eagle's rule language (`conditions` with `property`, `method`, `value`) as JSON, so they survive import and export unchanged. The evaluator in `library-core` grows from the v1 subset (§5 of the spec).
 - **Search** uses an FTS5 table over name, annotation, url, tag names and folder names. The Eagle-style query syntax (`OR`, parentheses, a leading `-`) is translated into FTS5 syntax.
 - **Changes**: every write appends a row to `change_log`. It drives `changes_since`, view updates and, later, the sync between devices.
-- **One writer.** `library.lock` plus SQLite's own locking; a second app instance opens the library read-only. The library folder must not be synced by Syncthing, OneDrive or similar tools while it is open: copying a live database can corrupt it. Use the backups, or later the app's own sync (§15.8).
-- **Versioning**: `PRAGMA user_version` and `meta.format_version`. Migrations run forward only, after an automatic backup.
+- **One writer.** `library.lock` is held with an OS file lock (`File::try_lock`), which the OS releases when the process ends; a second app instance opens the library read-only and writes nothing (D-020). **Local disks only:** cloud sync tools (OneDrive, Dropbox, Syncthing and similar) copy a live database mid-write, and WAL does not work over a network share. Creating a library there is refused, a library found in a sync folder opens read-only, and a network path is refused (spec §3, D-021). Use the backups, or later the app's own sync (§15.8).
+- **Versioning**: `PRAGMA application_id` (`EGLB`) marks the file, and `PRAGMA user_version` is the format version (D-019). Migrations run forward only, after an automatic backup.
 - **Access** through `rusqlite` with the bundled SQLite (check that FTS5 is enabled in the build), on a blocking thread pool.
 
-Core tables (a sketch; indexes on `item_folder(folder_id)`, `item(added_at)` and `item(content_hash)` are needed too):
-
-```sql
-CREATE TABLE meta (key TEXT PRIMARY KEY, value TEXT NOT NULL);   -- library_id, name, format_version, created_at
-
-CREATE TABLE item (
-  id               TEXT PRIMARY KEY,                -- ULID
-  name             TEXT NOT NULL,
-  ext              TEXT NOT NULL,                   -- lowercase, no dot
-  file_path        TEXT NOT NULL,                   -- relative to the library folder
-  size             INTEGER NOT NULL,
-  width            INTEGER,
-  height           INTEGER,
-  duration         REAL,
-  bpm              REAL,
-  exif             TEXT,                            -- JSON from Eagle rawMetas: camera, iso, aperture, focal length, shutter, capture time
-  star             INTEGER NOT NULL DEFAULT 0 CHECK (star BETWEEN 0 AND 5),
-  annotation       TEXT NOT NULL DEFAULT '',
-  url              TEXT NOT NULL DEFAULT '',
-  added_at         INTEGER NOT NULL,                -- ms; Eagle modificationTime
-  file_created_at  INTEGER,                         -- Eagle btime
-  file_modified_at INTEGER,                         -- Eagle mtime
-  content_hash     BLOB NOT NULL,                   -- BLAKE3 of the original
-  palette          TEXT,                            -- JSON in the shape of Eagle palettes
-  thumb_version    INTEGER NOT NULL DEFAULT 0,
-  deleted_at       INTEGER,                         -- trash
-  updated_at       INTEGER NOT NULL,
-  eagle_id         TEXT UNIQUE
-);
-
-CREATE TABLE folder (
-  id             TEXT PRIMARY KEY,
-  parent_id      TEXT REFERENCES folder(id),
-  name           TEXT NOT NULL,
-  description    TEXT NOT NULL DEFAULT '',
-  icon_color     TEXT,
-  sort_key       TEXT NOT NULL,
-  order_by       TEXT,
-  sort_ascending INTEGER,
-  locked         INTEGER NOT NULL DEFAULT 0,
-  label          TEXT,                              -- tag caption; plaintext; not an item tag
-  label_color    TEXT,                              -- tag colour; plaintext
-  kdf_salt       BLOB,                              -- Argon2id salt; NULL until a password is set
-  kdf_params     TEXT,                              -- Argon2id parameters
-  wrapped_identity BLOB,                            -- age identity wrapped by Argon2id(password)
-  recovery_wrap  BLOB,                              -- same identity wrapped by the recovery secret
-  cover_item_id  TEXT,
-  created_at     INTEGER NOT NULL,
-  updated_at     INTEGER NOT NULL,
-  eagle_id       TEXT UNIQUE
-);
-
-CREATE TABLE tag           (id INTEGER PRIMARY KEY, name TEXT NOT NULL UNIQUE);   -- BINARY collation: case-sensitive
-CREATE TABLE item_tag      (item_id TEXT NOT NULL, tag_id INTEGER NOT NULL, PRIMARY KEY (item_id, tag_id)) WITHOUT ROWID;
-CREATE TABLE item_folder   (item_id TEXT NOT NULL, folder_id TEXT NOT NULL, position REAL,             -- position: manual order
-                            PRIMARY KEY (item_id, folder_id)) WITHOUT ROWID;
-CREATE TABLE folder_tag    (folder_id TEXT NOT NULL, tag_id INTEGER NOT NULL, PRIMARY KEY (folder_id, tag_id)) WITHOUT ROWID;
-CREATE TABLE tag_group     (id TEXT PRIMARY KEY, name TEXT NOT NULL, color TEXT, description TEXT,
-                            sort_key TEXT NOT NULL, eagle_id TEXT UNIQUE);
-CREATE TABLE tag_group_tag (group_id TEXT NOT NULL, tag_id INTEGER NOT NULL, PRIMARY KEY (group_id, tag_id)) WITHOUT ROWID;
-CREATE TABLE smart_folder  (id TEXT PRIMARY KEY, parent_id TEXT, name TEXT NOT NULL, conditions TEXT NOT NULL,
-                            order_by TEXT, sort_ascending INTEGER, sort_key TEXT NOT NULL, eagle_id TEXT UNIQUE);
-CREATE TABLE comment       (id TEXT PRIMARY KEY, item_id TEXT NOT NULL, annotation TEXT NOT NULL,
-                            x INTEGER, y INTEGER, w INTEGER, h INTEGER, at_seconds REAL, updated_at INTEGER NOT NULL);
-CREATE TABLE change_log    (seq INTEGER PRIMARY KEY, entity TEXT NOT NULL, entity_id TEXT NOT NULL,
-                            op TEXT NOT NULL, at INTEGER NOT NULL);
-CREATE VIRTUAL TABLE item_fts USING fts5(name, annotation, url, tags, folders,
-                                         tokenize = 'unicode61 remove_diacritics 2');
-```
+The full schema of format version 1, the connection settings, and the protocols for the lock, opening, recovery, backups and adding a file are in [`library-format.md`](library-format.md). The tables: `meta`, `item`, `folder`, `item_folder`, `tag`, `item_tag`, `folder_tag`, `tag_group`, `tag_group_tag`, `smart_folder`, `comment`, `change_log`, `pending_file` (the journal of adding a file), the FTS5 table `item_fts`, and the reserved `item_key_wrap` and `folder_piv_wrap`.
 
 `load_scope` is one query per scope (for example `item JOIN item_folder` for a folder, `NOT EXISTS item_folder` for Uncategorized, `deleted_at IS NULL` everywhere), producing the same `ItemLite` list that the pipeline and the views (§6.4, §6.5) already use. Pushing filters and sorting into SQL is a later optimisation, not a requirement.
 

@@ -91,7 +91,7 @@ what the Rust code generates. Do not edit them by hand.
 
 Phase 0 has a single screen, so TanStack Router and TanStack Query (architecture.md §8) are not
 installed yet. They arrive with the first phase that needs routing or server state (phase 1 or
-3). The same holds for the store plugin (phase 1), and for HTTP (`reqwest`) and the secret store
+3). The same holds for the store plugin (phase 1; dropped by D-022), and for HTTP (`reqwest`) and the secret store
 (`keyring`), which come with the Eagle connection (phase 9 since D-013).
 
 ## D-011 Desktop-only crate type (2026-10-28)
@@ -140,8 +140,8 @@ PDF, fonts and RAW come later.
 ## D-016 Library folders end in `.eglib` (2026-10-28)
 
 A new library is a folder `Name.eglib`. The suffix tells people (and the folder picker) what the
-folder is; the app itself recognises a library by `library.db` and its `meta.format_version`,
-not by the name, so a renamed folder still opens. Revisit together with the product name (D-001).
+folder is; the app itself recognises a library by `library.db` and the application id and
+format version in its header (D-019), not by the name, so a renamed folder still opens. Revisit together with the product name (D-001).
 
 ## D-017 Welcome is the first screen (2026-10-28)
 
@@ -169,3 +169,117 @@ identity itself. Touch unlocks that folder when the key is present; the password
 the recovery secret still work when it is absent. Several keys can wrap one folder.
 Detail: `docs/age-locked-folders.md`. Phase 4. Revisit if a
 full-database cipher is ever required; it is out of scope here.
+
+## D-019 Schema v1 and how a library is recognised (2026-10-28)
+
+- `PRAGMA application_id = 1162300482` (ASCII `EGLB`) marks the file as an egl-viewer library;
+  `PRAGMA user_version` is the format version and the only version number. Before, the docs named
+  both `user_version` and `meta.format_version`: two sources of truth.
+- A library from a newer format version is refused. Considered and not taken: a second
+  `min_reader_version` that lets older apps read additive changes, and a list of required
+  features. Revisit if one library is often used by different app versions.
+- The version goes up when the meaning of stored data changes, not only the schema: the first
+  locked folder raises it although its columns already exist, because an older app would add
+  plaintext files to a locked folder.
+- The storage of locked folders is reserved in version 1 and stays empty until phase 4:
+  `item.encrypted`, `item.sealed`, the lock columns of `folder`, and the tables `item_key_wrap`
+  and `folder_piv_wrap`. `item.sealed` holds the five sensitive fields as one age message while
+  the plaintext columns are empty. Ciphertext in the same columns was rejected: it breaks
+  `NOT NULL`, `STRICT` types, sorting by name and the FTS index. `folder_piv_wrap` replaces the
+  single `folder.piv_wrap` of `age-locked-folders.md`, because one folder can have several cards.
+- What cannot change without rewriting the file is fixed at creation: `STRICT` tables,
+  `auto_vacuum = INCREMENTAL`, and `item.seq INTEGER PRIMARY KEY` as the key of `item_fts`
+  (implicit rowids change on `VACUUM` and `VACUUM INTO`). `CHECK` constraints only for invariants
+  that never change.
+- `synchronous = FULL`: a commit survives power loss, which adding a file relies on (D-023);
+  metadata writes are small.
+- `meta.name` is the display name; renaming the folder by hand does not rename the library.
+- Detail: `library-format.md`.
+
+## D-020 The library lock is an OS file lock (2026-10-28)
+
+- A writer holds `library.lock` with `std::fs::File::try_lock` (stable since Rust 1.89, no
+  `unsafe`). The OS releases it when the process ends, so a crash or a kill never leaves a stale
+  lock. This replaces the JSON lock file with a heartbeat every minute and a five-minute stale
+  rule; Windows reuses process ids quickly, which made "the process is gone" unreliable.
+- On Windows the lock is mandatory and nobody else can read the file, so the holder (computer,
+  process id, since) is in `meta.open_by`, set after taking the lock and removed on a clean close.
+  A free lock with `open_by` set means an unclean close; the next writer runs `PRAGMA quick_check`.
+- `library.lock` is never deleted.
+- A read-only instance writes nothing (no `open_by`, no cleanup of `files/.tmp/`, no recovery,
+  backups or migrations), reloads when `PRAGMA data_version` has changed on window focus, and
+  offers "Open for editing", which retries the lock.
+- Rejected: SQLite's `locking_mode = EXCLUSIVE`, which in WAL mode shuts other processes out
+  completely, readers included.
+
+## D-021 Libraries live on local disks outside sync folders (2026-10-28)
+
+- Cloud sync tools copy a live SQLite database mid-write, and WAL does not work over a network
+  file system. On the development PC, Pictures is already inside OneDrive (D-012): Windows'
+  OneDrive folder backup moves Desktop, Documents and Pictures.
+- New libraries default to `%USERPROFILE%\egl-library`. OneDrive does not move the profile root,
+  and the app never puts a library into OneDrive on its own. The Create dialog can pick another
+  local folder every time. The default itself is a preference in `app-store` that the user can
+  change later, with the same location check; a control for it comes with the app preferences,
+  after phase 1. Changing it does not move existing libraries.
+- Detection is best effort, in `app-store` behind a trait: the `OneDrive`, `OneDriveConsumer` and
+  `OneDriveCommercial` variables; the sync roots registered with the Windows Cloud Files API
+  (`HKLM\SOFTWARE\Microsoft\Windows\CurrentVersion\Explorer\SyncRootManager\*\UserSyncRoots`:
+  OneDrive, recent Dropbox, iCloud, Box); the markers `.dropbox.cache` and `.stfolder` in the
+  folder or an ancestor; a network path when the canonical path is a UNC path. Google Drive and
+  Yandex Disk are not guaranteed; add them when a reliable signal is known. The registry reader is
+  a new dependency, chosen and recorded when the phase 1 code lands.
+- Create is refused in a sync folder, on a network path, and inside another native library or an
+  Eagle `.library` folder. Open: a library in a sync folder opens read-only with `immutable=1`
+  (SQLite writes no `-wal` or `-shm` there) and a message to move the folder out while the app is
+  closed; a network path is refused. No override in v1; "Move library…" can come with the library
+  settings (phase 7).
+- This replaces "warn and offer the backups" in spec §3.
+
+## D-022 Settings and recent libraries are app-store files (2026-10-28)
+
+- `app-store` writes small JSON files in the app's local data folder
+  (`%LOCALAPPDATA%\com.fighxy.eglviewer`; not Roaming, because the paths belong to one computer):
+  re-read, change, write a temp file, rename. Several app processes (D-024) merge instead of
+  overwriting each other, and the code is tested without Tauri.
+- `tauri-plugin-store` is not used (D-010 expected it in phase 1): it keeps a file in memory and
+  saves it whole, so a second process overwrites the first one's changes, and it would add a
+  JavaScript store API to the capabilities.
+- Recent libraries are keyed by the canonical path, because a copied library has the same
+  `library_id`. Each entry has the path, name, library id and last opened time; 20 entries, newest
+  first. A library that is gone is shown as missing and kept, since a USB drive comes back.
+- Start: `lastLibrary` and `closedExplicitly`; quitting is not an explicit close. The last library
+  is not reopened when another instance has it open; Welcome says so. `Shift` is read in Rust at
+  startup, because the WebView cannot see a key held before it loads; `--no-reopen` does the same
+  for tests.
+
+## D-023 Adding a file: a journal before the rename (2026-10-28)
+
+- `pending_file` records the target path before the rename; the item insert and the journal
+  delete are one transaction; the writer resolves leftover rows on open. A row never points at a
+  missing file, and no file is left without a row, without walking `files/`. Before, such orphans
+  were left to "Check library".
+- One pass copies and hashes. The temp file is flushed (`sync_all`) before the rename, and the
+  rename is retried for up to a second on sharing violations (antivirus scanners hold new files
+  briefly). The source size is compared before and after the copy.
+- An item in the trash counts as a duplicate and is reported as such.
+- The stored file keeps the original name with the part before the extension cut to 100 UTF-16
+  units: paths over 260 characters break Explorer and other apps. `name` keeps the full name.
+- `library-native` gets `add_file` for one file in phase 1, with tests and without a command or
+  UI, so the schema is exercised before the grid. Batches, the media pipeline and the UI stay in
+  phase 2. Later: when no item has the same size, the file cannot be a duplicate, which saves the
+  lookup for large imports.
+
+## D-024 Several processes, one window and one library each (2026-10-28)
+
+- No single-instance plugin: a second app process may run, and on the same library it is
+  read-only (the phase 1 done check). Two libraries at the same time means two processes until
+  multi-window support comes.
+- Switching libraries in a window opens and checks the new one first and closes the current one
+  only on success.
+- `AppState` holds `Option<OpenLibrary>` behind one accessor, so a map per window is a local
+  change later.
+- `LibraryInfo` gains `id`, `readOnly` and `readOnlyReason` (`otherInstance`, `syncFolder`,
+  `readOnlyMedium`). `Capabilities.locked_folders` is false for the native library until phase 4.
+  App login (spec §13.2) stays outside phase 1; Welcome remains the entry route, so a gate can be
+  put in front of it later.

@@ -10,6 +10,7 @@ Source of truth for the Eagle parts: Eagle **4.0.0** (build 20260401), Electron 
 >
 > - [`architecture.md`](architecture.md): stack, crates, the native library format, the media pipeline, the query engine, IPC between Rust and the UI, write rules, the Eagle transport, sync and offline, smart folder rule semantics, the `.eaglepack` format, plus 41 numbered corrections found by reverse engineering Eagle 4.0.0 with REA and by live API calls. Facts marked **[live]** there were verified against a running Eagle.
 > - [`decisions.md`](decisions.md): decisions taken during development, with dates and reasons.
+> - [`library-format.md`](library-format.md): the on-disk format of a native library: the schema, the lock, opening and closing, adding a file.
 > - [`fixtures/eagle-api/`](../fixtures/eagle-api/): 49 real request and response captures from Eagle 4.0.0, for HTTP mock tests (`wiremock`).
 >
 > "arch §6" means section 6 of the architecture document; "correction 7" means row 7 of its section 1; "D-013" is an entry in `decisions.md`. The spec says *what* the app does; the architecture document says *how* it is built. If you find a conflict, the architecture document wins and this spec must be fixed.
@@ -57,7 +58,7 @@ v1 file formats (D-015): JPEG, PNG, GIF, WebP, AVIF, SVG, TIFF, BMP and the comp
 | UI | React + TypeScript (strict) + Vite, Tailwind CSS and shadcn/ui on Radix (D-006). TanStack Virtual for the grid, TanStack Query for data from Rust, TanStack Router for screens. |
 | Types across IPC | `ts-rs` generates TypeScript types from the Rust structs that cross IPC. |
 | Images in the UI | A custom URI scheme handled in Rust (`thumb`, arch §11). |
-| Settings | `tauri-plugin-store` for recent libraries, the last query per library, preferences and the Eagle endpoint. |
+| Settings | Small JSON files written by `app-store` in the app's local data folder: recent libraries, the last query per library, preferences and the Eagle endpoint (D-022). |
 | Secrets | Only the Eagle token, in Windows Credential Manager (`keyring` crate). Never in the WebView, never in the store file. |
 | Files | `tauri-plugin-dialog` for file and folder pickers; Tauri drag-and-drop events give file paths to Rust. |
 | Background | Imports and thumbnail generation run as tasks owned by the app state. No background service when the window is closed. |
@@ -93,15 +94,16 @@ Name.eglib/
   files/           the original files, one folder per item
   thumbs/          thumbnails: regenerable, may be deleted at any time
   backups/         automatic copies of library.db
-  library.lock     who has the library open
+  library.lock     held while one app instance writes the library
 ```
 
-The exact layout and schema are in arch §15.3 and will be published as `docs/library-format.md` together with phase 1.
+The exact layout, the schema and the protocols are in [`library-format.md`](library-format.md) (format version 1).
 
-- A folder is a library when it contains `library.db` with a `meta.format_version` the app knows. The `.eglib` suffix is a convention for people and for the folder picker; the app does not depend on it.
-- **One writer.** While one app instance has a library open, a second instance opens it read-only and says so.
-- A library must not be synced by OneDrive, Dropbox, Syncthing or similar tools while it is open: copying a live database can corrupt it. The app warns when the library path is inside a known sync folder (OneDrive, Dropbox), and offers the backups instead.
-- **Versioning.** A library made by a newer app version is refused with a clear message. An older library is migrated forward after an automatic backup.
+- A folder is a library when it contains `library.db` with egl-viewer's SQLite application id and a format version the app knows (D-019). The `.eglib` suffix is a convention for people and for the folder picker; the app does not depend on it.
+- **One writer.** While one app instance has a library open, a second instance opens it read-only, says where and since when it is open, and offers **Open for editing** once the other one has closed it. Killing the app releases the lock at once; the next open notices the unclean close and checks the database (D-020).
+- **Local disks only.** Cloud sync tools (OneDrive, Dropbox, Google Drive, iCloud, Syncthing and similar) copy a live database mid-write and corrupt it, and SQLite's WAL mode does not work over a network share. A new library cannot be created in a sync folder, on a network path, or inside another library or an Eagle `.library` folder. A library found in a sync folder opens read-only, with a message to move the folder out while the app is closed; one on a network path is refused. Detection is best effort (D-021).
+- **Default location** for new libraries: `%USERPROFILE%\egl-library`. Not Pictures or Documents: Windows' OneDrive folder backup often moves them into OneDrive, and the app never puts a library into OneDrive on its own. The Create dialog can pick another local folder, and the default itself is a preference the user can change later (D-021).
+- **Versioning.** A library made by a newer app version is refused with a clear message, and nothing is written to it. An older library is migrated forward after an automatic backup.
 - **Backups.** A copy of `library.db` in `backups/` when the library opens (at most once a day) and before every migration; the last 10 are kept.
 
 ### Items
@@ -167,9 +169,9 @@ Smart folders live in their own tree (nested, with their own order).
 
 ### What happens to one file (arch §7.4, §15.4)
 
-1. Hash with BLAKE3 while copying it to a temporary file inside the library. A crash leaves only a temp file that the next open removes.
-2. **Duplicates:** if an item with the same hash exists, the batch asks once what to do: skip duplicates, add them anyway, or add the existing item to the target folder.
-3. Move the copy to `files/<shard>/<id>/<original file name>` and insert the item in one transaction.
+1. Hash with BLAKE3 while copying it to a temporary file inside the library, then flush the copy to disk. A crash leaves only a temp file that the next open removes.
+2. **Duplicates:** if an item with the same hash exists (in the trash too, which the report says), the batch asks once what to do: skip duplicates, add them anyway, or add the existing item to the target folder.
+3. Record the target path in a journal, move the copy to `files/<shard>/<id>/<file name>`, then insert the item and clear the journal entry in one transaction. A row never points at a missing file, and a crash never leaves a file without a row ([`library-format.md`](library-format.md) §6). The stored file keeps the original name, cut to 100 characters before the extension; a pasted image gets a name like `Pasted 2026-10-28 10-42-05.png`.
 4. Probe and generate the thumbnail (512 px on the long edge, WebP) and the palette in the background. The item is visible in the grid at once, with the extension placeholder, until its thumbnail exists.
 5. If decoding fails, the item stays, with the placeholder and a note in the import report.
 
@@ -308,15 +310,15 @@ Changing chips or sort on the same scope does not reload the scope.
 One window with client-side routing. Desktop-first layout: a sidebar, the grid, a detail panel. The layout is responsive, so a phone layout can be added later without restructuring. UI text is English (D-007).
 
 1. **Welcome** (no library open; the first screen after login, D-017). The login gate is section 13.
-   - Primary: **Create library** (name and location; makes `Name.eglib`), **Open library** (folder picker), **Recent libraries** (name, path, last opened; a missing library is marked and can be removed from the list).
+   - Primary: **Create library** (name and location; makes `Name.eglib`; the location starts at the default folder, `%USERPROFILE%\egl-library` unless changed, and sync folders and network paths are refused), **Open library** (folder picker; an Eagle library folder gets its own message), **Recent libraries** (name, path, last opened; a missing library is marked and can be removed from the list).
    - Secondary, under "Eagle": **Import an Eagle library** (section 8.2) and **Connect to a running Eagle** (section 8.3).
-   - On start the app reopens the last library unless it was closed explicitly, or the user holds `Shift`.
+   - On start the app reopens the last library unless it was closed explicitly, the user holds `Shift`, or another instance has it open (then Welcome says so).
 2. **Library.**
    - Sidebar: All, Uncategorized, Untagged, Trash; the folder tree with counts (direct items with subfolders off, items including subfolders with it on); an expandable **Locked folders** section that lists each locked folder with its name and tag (label and colour); smart folders; tags; tag groups. Choosing a row prompts for that folder only.
    - Top bar: search, sort, filter chips, layout and size, Add files.
    - Grid: thumbnails, or the first palette colour and the extension until the thumbnail exists; star and type badges. Multi-select with `Ctrl` and `Shift`, a rubber band, `Ctrl+A`.
    - Keyboard: arrows, `Enter` opens the detail, `Space` the full-size preview, `Delete` to trash (with confirmation), `Ctrl+F` search, `Ctrl+Z` undo.
-   - The window title shows the library name; a read-only library and a connected Eagle show a badge.
+   - The window title shows the library name; a read-only library and a connected Eagle show a badge. A read-only library also shows a banner with the reason: open in another instance (with **Open for editing**), inside a sync folder, or on a read-only medium.
 3. **Item detail** (side panel). Large preview, name, ext, size, dimensions, dates, EXIF, palette, rating editor, tag editor (vocabulary suggestions, new names), folder checklist (the tree with multi-select), note, link (opens in the system browser), comments read-only.
 4. **Full-size preview.** The original at window size, zoom and pan, previous and next in the current view.
 5. **Tag sheet.** Search box over the vocabulary, mode segment Any / All / Exact / None, counts, recent tags, groups as sections; rename, merge and delete from a context menu.
@@ -737,19 +739,21 @@ Done: the desktop app starts on Windows and shows its first screen.
 
 ### Phase 1 — Native library: create and open
 
-- `library-native`: create a library (`Name.eglib`, `library.db` with schema version 1, `meta`, `library.lock`), open one (checks, migrations with a backup first, the lock), close it. A second instance opens read-only. The schema goes to `docs/library-format.md`.
-- `app-store`: settings in `tauri-plugin-store`, recent libraries.
-- Commands `create_library`, `open_library`, `close_library`, `recent_libraries`, `forget_recent_library`.
-- UI: the Welcome screen (section 7) with working Create, Open and Recent; an empty Library screen with the library name and the sidebar rows.
+- The format on paper first: [`library-format.md`](library-format.md), format version 1 (written 2026-10-28; D-019 to D-024).
+- `library-native`: create a library (`Name.eglib`, built in a temporary folder and renamed; `library.db` with format version 1, `meta`, `library.lock`), open one (location and header checks, the OS file lock, the check after an unclean close, migrations with a backup first, `pending_file` recovery, emptying `files/.tmp/`), close it. A second instance opens read-only and writes nothing.
+- `library-native`: `add_file` for one file (temp copy with BLAKE3, flush, duplicate check, the `pending_file` journal, rename, insert), with tests; no command and no UI yet.
+- `app-store`: the location check (OneDrive variables, sync roots registered with Windows, Dropbox and Syncthing markers, network paths) and the default location; settings and recent libraries as JSON files in the app's local data folder.
+- Commands `create_library`, `open_library`, `close_library`, `recent_libraries`, `forget_recent_library`, `default_library_location`.
+- UI: the Welcome screen (section 7) with working Create, Open and Recent; an empty Library screen with the library name, the sidebar rows and the read-only banner.
 - Reopen the last library on start.
+- One window, one library. App login (section 13) and locked folders (phase 4) are not part of this phase.
 
-Done when: a library created in a chosen folder reopens from Recent after a restart; a second instance opens it read-only and says so; a folder that is not a library, and a library from a newer format version, are refused with clear messages; killing the app leaves a lock that the next start recognises as stale.
+Done when: a library created in a chosen folder reopens from Recent after a restart; a second instance opens it read-only and says so; a folder that is not a library, an Eagle library folder, and a library from a newer format version are refused with clear messages; a library cannot be created in a OneDrive folder or on a network path, and one found in a sync folder opens read-only; killing the app releases the lock, and the next start reports the unclean close and checks the database; `add_file` tests show that a crash at any step leaves neither a row without a file nor a file without a row, and that the same file added again is reported as a duplicate.
 
 ### Phase 2 — Adding files and the media pipeline
 
 - `media`: BLAKE3 while copying, probing (dimensions, EXIF), thumbnails (512 px WebP) for the v1 formats including PSD composites, palettes.
-- `add_files`: file dialog, drop of files and folders, paste from the clipboard; copy into `files/` through a temp file; one transaction per item; duplicates handled per batch; background thumbnails; `import-progress` events; cancel.
-- Opening a library removes leftover temp files.
+- `add_files`: file dialog, drop of files and folders, paste from the clipboard; batches on top of the phase 1 `add_file` (temp copy, journal, one transaction per item); duplicates handled per batch; background thumbnails; `import-progress` events; cancel.
 - The Imports panel.
 
 Done when: 1 000 mixed files (all v1 formats plus a few others) are added with thumbnails and palettes; killing the app during an import leaves a consistent library and adding the same files again reports them as duplicates; an undecodable file is added with a placeholder and a report line.
@@ -888,19 +892,36 @@ Native library (`library-native`, `media`), with temporary folders:
 
 | Case | Expect |
 |---|---|
-| Create, close, open | Same name, id and format version |
+| Create, close, open | Same name, id, `application_id` and `user_version` |
+| Reserved locked-folder columns and tables | Exist and stay empty |
 | Open a library from a newer format version | Refused, nothing written |
-| Second open while locked | Read-only |
-| Stale lock (dead process) | Taken over |
+| Open a folder without `library.db`, a SQLite file with another application id, an Eagle library folder | Refused as not a library; the Eagle case says so |
+| Create with an invalid name (`CON`, `a<b`, `name.`, empty) or an existing target | Refused, nothing created |
+| Create fails midway (simulated) | No `Name.eglib`; the temporary folder is gone |
+| Second open while locked | Read-only, reason `otherInstance`; `files/.tmp/` untouched, no backup, nothing written |
+| Writer killed (the OS released the lock, `meta.open_by` left) | The next open takes the lock, reports the unclean close and runs `quick_check` |
+| Library in a sync folder (fake OneDrive variable, registered sync root, `.stfolder`) | Create refused; open read-only with `immutable`, no `-wal` or `-shm` created |
+| Network path | Create and open refused |
 | Migration | Backup first, then the new version |
-| Crash between copy and insert (simulated) | No item, the temp file is removed on the next open |
-| Same file added twice | Reported as a duplicate by hash |
+| `add_file`: crash after the copy, after the journal commit, after the rename (simulated) | After the next open: no row without a file, no file without a row, `files/.tmp/` empty |
+| Source file changes during the copy | Error, nothing added |
+| Same file added twice; the first copy in the trash | Reported as a duplicate by hash, with `inTrash` |
 | Each v1 format, including a PSD | Dimensions, a thumbnail and a palette |
 | Undecodable file | Added with a placeholder |
 | Folder delete | Subfolders gone, items stay, items without folders are Uncategorized |
 | Tag rename into an existing tag | Merged, no duplicate rows |
 | Search syntax `a OR b`, `-a`, parentheses, Cyrillic | Correct FTS5 query and results |
 | Trash, restore, empty | Folders and tags restored; files removed on empty |
+
+Settings (`app-store`), with temporary folders:
+
+| Case | Expect |
+|---|---|
+| Two processes update recent libraries at the same time | Both entries kept |
+| More than 20 recent libraries | The oldest is dropped |
+| A recent library that is gone | Listed as missing, not removed |
+| Default location with `Pictures` inside OneDrive | `%USERPROFILE%\egl-library`, outside OneDrive |
+| Default location changed to a folder inside OneDrive or on a network path | Refused; the old default stays |
 
 Eagle import (`eagle-folder`), with `fixtures/eagle-library/`:
 
@@ -933,7 +954,7 @@ Running Eagle (`eagle-api`), unit tests and HTTP tests with `wiremock` and `fixt
 | Nested page | Parsed from `body.data.data` |
 | Same-PC thumbnail path outside the library folder | Refused, nothing is read |
 
-UI tests: Vitest and Testing Library with `mockIPC` from `@tauri-apps/api/mocks`: the Welcome screen, Connect error copy, the grid window loading, dialogs and empty states.
+UI tests: Vitest and Testing Library with `mockIPC` from `@tauri-apps/api/mocks`: the Welcome screen, the read-only banner, Connect error copy, the grid window loading, dialogs and empty states.
 
 Manual checks on Windows:
 
@@ -954,6 +975,10 @@ General:
 - Folder tags are not item tags; they reach an item only when a file is added into the folder.
 - Never send a whole item list over Tauri IPC. Serve windows of a view.
 - Never copy or sync a library folder while it is open; use the backups.
+- Never create or write a library on a network path or in a cloud-synced folder: WAL needs a local disk, and sync tools copy a live database mid-write.
+- `item_fts` is keyed by `item.seq`, an explicit `INTEGER PRIMARY KEY`. Implicit rowids change on `VACUUM` and in backups.
+- A read-only instance never cleans `files/.tmp/` and never recovers `pending_file`: the writer may be using them.
+- The lock on `library.lock` is mandatory on Windows, so nobody else can read the file; the holder is in `meta.open_by`. Never delete `library.lock`.
 - File bytes never pass through the WebView; Rust reads files by path.
 - `thumb` URLs differ by platform: `http://thumb.localhost/…` on Windows (and later Android), `thumb://localhost/…` on macOS, iOS and Linux (arch §11).
 
