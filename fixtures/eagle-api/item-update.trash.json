@@ -1,0 +1,96 @@
+{
+  "request": {
+    "method": "POST",
+    "path": "/api/v2/item/update",
+    "body": {
+      "id": "MVQTEQPE8FAQM",
+      "isDeleted": true
+    }
+  },
+  "response": {
+    "http": 200,
+    "body": {
+      "status": "success",
+      "data": {
+        "id": "MVQTEQPE8FAQM",
+        "name": "eagle-api-test-1",
+        "size": 16228,
+        "btime": 1793113379764,
+        "mtime": 1793113379764,
+        "ext": "jpg",
+        "tags": [
+          "eagle-api-test",
+          "тест-апи"
+        ],
+        "folders": [],
+        "isDeleted": true,
+        "url": "https://example.com/source",
+        "annotation": "Тестовая заметка",
+        "modificationTime": 1793113379762,
+        "star": 3,
+        "height": 400,
+        "width": 640,
+        "noThumbnail": true,
+        "palettes": [
+          {
+            "color": [
+              142,
+              83,
+              55
+            ],
+            "ratio": 47
+          },
+          {
+            "color": [
+              89,
+              56,
+              81
+            ],
+            "ratio": 14
+          },
+          {
+            "color": [
+              218,
+              122,
+              20
+            ],
+            "ratio": 12
+          },
+          {
+            "color": [
+              186,
+              105,
+              33
+            ],
+            "ratio": 12
+          },
+          {
+            "color": [
+              56,
+              40,
+              96
+            ],
+            "ratio": 8
+          },
+          {
+            "color": [
+              108,
+              68,
+              76
+            ],
+            "ratio": 3.25
+          },
+          {
+            "color": [
+              251,
+              246,
+              227
+            ],
+            "ratio": 0.74
+          }
+        ],
+        "lastModified": 1793113444591
+      }
+    }
+  }
+}

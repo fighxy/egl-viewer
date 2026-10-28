@@ -1,0 +1,18 @@
+{
+  "request": {
+    "method": "POST",
+    "path": "/api/v2/item/update",
+    "body": {
+      "id": "MVQTEQPE8FAQM",
+      "name": "<10001 x>"
+    }
+  },
+  "response": {
+    "http": 500,
+    "body": {
+      "status": "error",
+      "message": "name too long (max 10000)",
+      "data": {}
+    }
+  }
+}

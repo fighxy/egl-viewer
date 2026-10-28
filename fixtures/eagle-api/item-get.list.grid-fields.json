@@ -1,0 +1,196 @@
+{
+  "request": {
+    "method": "POST",
+    "path": "/api/v2/item/get",
+    "body": {
+      "fields": [
+        "id",
+        "name",
+        "ext",
+        "width",
+        "height",
+        "size",
+        "star",
+        "tags",
+        "folders",
+        "palettes",
+        "modificationTime",
+        "mtime",
+        "btime",
+        "duration",
+        "noThumbnail"
+      ],
+      "limit": 1000
+    }
+  },
+  "response": {
+    "http": 200,
+    "body": {
+      "status": "success",
+      "data": {
+        "data": [
+          {
+            "id": "MVQTEQPE8FAQM",
+            "name": "eagle-api-test-1",
+            "ext": "jpg",
+            "width": 640,
+            "height": 400,
+            "size": 16228,
+            "tags": [
+              "eagle-api-test",
+              "тест-апи"
+            ],
+            "folders": [],
+            "palettes": [
+              {
+                "color": [
+                  142,
+                  83,
+                  55
+                ],
+                "ratio": 47
+              },
+              {
+                "color": [
+                  89,
+                  56,
+                  81
+                ],
+                "ratio": 14
+              },
+              {
+                "color": [
+                  218,
+                  122,
+                  20
+                ],
+                "ratio": 12
+              },
+              {
+                "color": [
+                  186,
+                  105,
+                  33
+                ],
+                "ratio": 12
+              },
+              {
+                "color": [
+                  56,
+                  40,
+                  96
+                ],
+                "ratio": 8
+              },
+              {
+                "color": [
+                  108,
+                  68,
+                  76
+                ],
+                "ratio": 3.25
+              },
+              {
+                "color": [
+                  251,
+                  246,
+                  227
+                ],
+                "ratio": 0.74
+              }
+            ],
+            "modificationTime": 1793113379762,
+            "mtime": 1793113379764,
+            "btime": 1793113379764,
+            "noThumbnail": true
+          },
+          {
+            "id": "MVQTEQPM2IAAG",
+            "name": "eagle-api-test-2",
+            "ext": "jpg",
+            "width": 320,
+            "height": 320,
+            "size": 5626,
+            "tags": [
+              "eagle-api-test"
+            ],
+            "folders": [],
+            "palettes": [
+              {
+                "color": [
+                  121,
+                  88,
+                  76
+                ],
+                "ratio": 45
+              },
+              {
+                "color": [
+                  174,
+                  52,
+                  68
+                ],
+                "ratio": 18
+              },
+              {
+                "color": [
+                  151,
+                  69,
+                  73
+                ],
+                "ratio": 12
+              },
+              {
+                "color": [
+                  88,
+                  111,
+                  83
+                ],
+                "ratio": 8
+              },
+              {
+                "color": [
+                  67,
+                  125,
+                  84
+                ],
+                "ratio": 6
+              },
+              {
+                "color": [
+                  201,
+                  33,
+                  63
+                ],
+                "ratio": 4.73
+              },
+              {
+                "color": [
+                  156,
+                  60,
+                  68
+                ],
+                "ratio": 2.03
+              },
+              {
+                "color": [
+                  241,
+                  248,
+                  244
+                ],
+                "ratio": 1.25
+              }
+            ],
+            "modificationTime": 1700000000000,
+            "mtime": 1793113379772,
+            "btime": 1793113379771,
+            "noThumbnail": true
+          }
+        ],
+        "total": 2,
+        "offset": 0,
+        "limit": 1000
+      }
+    }
+  }
+}

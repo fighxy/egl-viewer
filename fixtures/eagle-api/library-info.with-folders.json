@@ -1,0 +1,46 @@
+{
+  "request": {
+    "method": "GET",
+    "path": "/api/v2/library/info"
+  },
+  "response": {
+    "http": 200,
+    "body": {
+      "status": "success",
+      "data": {
+        "folders": [
+          {
+            "id": "MVQTKKFBN2JVC",
+            "name": "eagle-api-test-parent",
+            "description": "test parent",
+            "children": [
+              {
+                "id": "MVQTKKFPFANOO",
+                "name": "eagle-api-test-child",
+                "description": "",
+                "children": [],
+                "modificationTime": 1793113651573,
+                "tags": [],
+                "iconColor": "red",
+                "password": "",
+                "passwordTips": ""
+              }
+            ],
+            "modificationTime": 1793113651559,
+            "tags": [],
+            "iconColor": "blue",
+            "password": "",
+            "passwordTips": ""
+          }
+        ],
+        "smartFolders": [],
+        "quickAccess": [],
+        "tagsGroups": [],
+        "modificationTime": 1793113651878,
+        "applicationVersion": "4.0.0",
+        "path": "C:\\Users\\kirkw\\OneDrive\\Pictures\\ggwp.library",
+        "name": "ggwp"
+      }
+    }
+  }
+}

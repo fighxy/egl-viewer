@@ -1,0 +1,107 @@
+{
+  "request": {
+    "method": "POST",
+    "path": "/api/v2/item/get",
+    "body": {
+      "id": "MVQTEQPM2IAAG"
+    }
+  },
+  "response": {
+    "http": 200,
+    "body": {
+      "status": "success",
+      "data": {
+        "data": [
+          {
+            "id": "MVQTEQPM2IAAG",
+            "name": "eagle-api-test-2",
+            "size": 5626,
+            "btime": 1793113379771,
+            "mtime": 1793113379772,
+            "ext": "jpg",
+            "tags": [
+              "eagle-api-test"
+            ],
+            "folders": [],
+            "isDeleted": false,
+            "url": "",
+            "annotation": "",
+            "modificationTime": 1700000000000,
+            "height": 320,
+            "width": 320,
+            "noThumbnail": true,
+            "palettes": [
+              {
+                "color": [
+                  121,
+                  88,
+                  76
+                ],
+                "ratio": 45
+              },
+              {
+                "color": [
+                  174,
+                  52,
+                  68
+                ],
+                "ratio": 18
+              },
+              {
+                "color": [
+                  151,
+                  69,
+                  73
+                ],
+                "ratio": 12
+              },
+              {
+                "color": [
+                  88,
+                  111,
+                  83
+                ],
+                "ratio": 8
+              },
+              {
+                "color": [
+                  67,
+                  125,
+                  84
+                ],
+                "ratio": 6
+              },
+              {
+                "color": [
+                  201,
+                  33,
+                  63
+                ],
+                "ratio": 4.73
+              },
+              {
+                "color": [
+                  156,
+                  60,
+                  68
+                ],
+                "ratio": 2.03
+              },
+              {
+                "color": [
+                  241,
+                  248,
+                  244
+                ],
+                "ratio": 1.25
+              }
+            ]
+          }
+        ],
+        "total": 1,
+        "offset": 0,
+        "limit": 50
+      }
+    }
+  }
+}

@@ -1,0 +1,19 @@
+{
+  "request": {
+    "method": "GET",
+    "path": "/api/v2/folder/get",
+    "query": "limit=1000"
+  },
+  "response": {
+    "http": 200,
+    "body": {
+      "status": "success",
+      "data": {
+        "data": [],
+        "total": 0,
+        "offset": 0,
+        "limit": 1000
+      }
+    }
+  }
+}

@@ -1,0 +1,32 @@
+{
+  "request": {
+    "method": "GET",
+    "path": "/api/v2/tag/get",
+    "query": "limit=1000"
+  },
+  "response": {
+    "http": 200,
+    "body": {
+      "status": "success",
+      "data": {
+        "data": [
+          {
+            "name": "eagle-api-test",
+            "imageCount": 2,
+            "groups": [],
+            "pinyin": "eagle-api-test"
+          },
+          {
+            "name": "тест-апи",
+            "imageCount": 1,
+            "groups": [],
+            "pinyin": "тест-апи"
+          }
+        ],
+        "total": 2,
+        "offset": 0,
+        "limit": 1000
+      }
+    }
+  }
+}

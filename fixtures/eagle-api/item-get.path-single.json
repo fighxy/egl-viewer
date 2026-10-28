@@ -1,0 +1,107 @@
+{
+  "request": {
+    "method": "POST",
+    "path": "/api/v2/item/get",
+    "body": {
+      "id": "MVRCO6QLFNSBZ"
+    }
+  },
+  "response": {
+    "http": 200,
+    "body": {
+      "status": "success",
+      "data": {
+        "data": [
+          {
+            "id": "MVRCO6QLFNSBZ",
+            "name": "eagle-api-path-single",
+            "size": 5626,
+            "btime": 1793145708912,
+            "mtime": 1793113341800,
+            "ext": "jpg",
+            "tags": [
+              "eagle-api-test"
+            ],
+            "folders": [
+              "MVRCO6P7GT03B"
+            ],
+            "isDeleted": false,
+            "url": "https://example.com/single",
+            "annotation": "Одиночный режим",
+            "modificationTime": 1793145733149,
+            "height": 320,
+            "width": 320,
+            "noThumbnail": true,
+            "palettes": [
+              {
+                "color": [
+                  121,
+                  88,
+                  76
+                ],
+                "ratio": 45
+              },
+              {
+                "color": [
+                  174,
+                  52,
+                  68
+                ],
+                "ratio": 18
+              },
+              {
+                "color": [
+                  151,
+                  69,
+                  73
+                ],
+                "ratio": 12
+              },
+              {
+                "color": [
+                  88,
+                  111,
+                  83
+                ],
+                "ratio": 8
+              },
+              {
+                "color": [
+                  67,
+                  125,
+                  84
+                ],
+                "ratio": 6
+              },
+              {
+                "color": [
+                  201,
+                  33,
+                  63
+                ],
+                "ratio": 4.73
+              },
+              {
+                "color": [
+                  156,
+                  60,
+                  68
+                ],
+                "ratio": 2.03
+              },
+              {
+                "color": [
+                  241,
+                  248,
+                  244
+                ],
+                "ratio": 1.25
+              }
+            ],
+            "lastModified": 1793145733171
+          }
+        ]
+      }
+    }
+  }
+}

@@ -1,0 +1,50 @@
+{
+  "request": {
+    "method": "POST",
+    "path": "/api/v2/item/get",
+    "body": {
+      "id": "MVRCO6PP2BT1C"
+    }
+  },
+  "response": {
+    "http": 200,
+    "body": {
+      "status": "success",
+      "data": {
+        "data": [
+          {
+            "id": "MVRCO6PP2BT1C",
+            "name": "eagle-api-path-batch-2",
+            "size": 2231,
+            "btime": 1793145708934,
+            "mtime": 1793145708934,
+            "ext": "png",
+            "tags": [
+              "eagle-api-test"
+            ],
+            "folders": [
+              "MVRCO6P7GT03B"
+            ],
+            "isDeleted": false,
+            "url": "",
+            "annotation": "",
+            "modificationTime": 1600000000000,
+            "height": 300,
+            "width": 400,
+            "noThumbnail": true,
+            "palettes": [
+              {
+                "color": [
+                  148,
+                  116,
+                  220
+                ],
+                "ratio": 99
+              }
+            ]
+          }
+        ]
+      }
+    }
+  }
+}

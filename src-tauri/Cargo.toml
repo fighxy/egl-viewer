@@ -1,0 +1,29 @@
+[package]
+name = "egl-viewer"
+description = "egl-viewer desktop app"
+version.workspace = true
+edition.workspace = true
+rust-version.workspace = true
+license.workspace = true
+publish.workspace = true
+
+[lib]
+name = "egl_viewer_lib"
+# Desktop only for now; mobile targets will add "staticlib" and "cdylib".
+crate-type = ["rlib"]
+
+[build-dependencies]
+tauri-build.workspace = true
+
+[dependencies]
+app-store.workspace = true
+library-core.workspace = true
+serde.workspace = true
+serde_json.workspace = true
+tauri.workspace = true
+tracing.workspace = true
+tracing-subscriber.workspace = true
+ts-rs.workspace = true
+
+[lints]
+workspace = true

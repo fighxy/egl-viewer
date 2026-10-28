@@ -1,0 +1,22 @@
+{
+  "name": "egl-viewer",
+  "private": true,
+  "type": "module",
+  "packageManager": "pnpm@12.15.0",
+  "engines": {
+    "node": ">=24.22.1"
+  },
+  "scripts": {
+    "tauri": "tauri",
+    "dev": "tauri dev",
+    "build": "tauri build",
+    "test": "pnpm --filter egl-viewer-ui test",
+    "lint": "pnpm --filter egl-viewer-ui lint",
+    "typecheck": "pnpm --filter egl-viewer-ui typecheck",
+    "check": "cargo fmt --all --check && cargo clippy --workspace --all-targets -- -D warnings && cargo test --workspace && pnpm lint && pnpm typecheck && pnpm test"
+  },
+  "devDependencies": {
+    "@biomejs/biome": "2.6.3",
+    "@tauri-apps/cli": "2.12.4"
+  }
+}

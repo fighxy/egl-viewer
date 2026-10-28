@@ -1,0 +1,19 @@
+{
+  "MVQTEQPE8FAQM": {
+    "http": 200,
+    "status": "success",
+    "isDeleted": true,
+    "keys": 18
+  },
+  "MVQTEQPM2IAAG": {
+    "http": 200,
+    "status": "success",
+    "isDeleted": true,
+    "keys": 17
+  },
+  "listTotal": 0,
+  "byId": 0,
+  "query": 0,
+  "countAll": 2,
+  "tagsAfterTrash": []
+}

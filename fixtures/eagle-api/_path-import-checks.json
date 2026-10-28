@@ -1,0 +1,68 @@
+{
+  "folderId": "MVRCO6P7GT03B",
+  "importMs": {
+    "batch1": 6,
+    "batch2": 6,
+    "single": 1
+  },
+  "batch1": {
+    "name": "eagle-api-path-batch-1",
+    "ext": "jpg",
+    "tags": [
+      "eagle-api-test",
+      "тест-путь"
+    ],
+    "folders": [
+      "MVRCO6P7GT03B"
+    ],
+    "annotation": "Заметка из пакета",
+    "url": "https://example.com/batch",
+    "star": 4,
+    "modificationTime": 1700000000000,
+    "width": 640,
+    "height": 400,
+    "noThumbnail": true
+  },
+  "batch2": {
+    "name": "eagle-api-path-batch-2",
+    "ext": "png",
+    "tags": [
+      "eagle-api-test"
+    ],
+    "folders": [
+      "MVRCO6P7GT03B"
+    ],
+    "annotation": "",
+    "url": "",
+    "star": "(absent)",
+    "modificationTime": 1600000000000,
+    "width": 400,
+    "height": 300,
+    "noThumbnail": true
+  },
+  "single": {
+    "name": "eagle-api-path-single",
+    "ext": "jpg",
+    "tags": [
+      "eagle-api-test"
+    ],
+    "folders": [
+      "MVRCO6P7GT03B"
+    ],
+    "annotation": "Одиночный режим",
+    "url": "https://example.com/single",
+    "star": "(absent)",
+    "modificationTime": 1793145733149,
+    "width": 320,
+    "height": 320,
+    "noThumbnail": true
+  },
+  "singleModificationTimeIsNow": true,
+  "sourceFilesStillExist": [
+    true,
+    true,
+    true
+  ],
+  "folderMembers": 3,
+  "visibleAfterTrash": 0
+}

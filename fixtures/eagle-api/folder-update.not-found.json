@@ -1,0 +1,16 @@
+{
+  "request": {
+    "method": "POST",
+    "path": "/api/v2/folder/update",
+    "body": {
+      "id": "ZZZZZZZZZZZZZ",
+      "name": "x"
+    }
+  },
+  "response": {
+    "http": 200,
+    "body": {
+      "status": "success"
+    }
+  }
+}

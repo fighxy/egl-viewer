@@ -1,0 +1,47 @@
+{
+  "request": {
+    "method": "GET",
+    "path": "/api/v2/folder/get",
+    "query": "limit=1000"
+  },
+  "response": {
+    "http": 200,
+    "body": {
+      "status": "success",
+      "data": {
+        "data": [
+          {
+            "id": "MVQTKKFBN2JVC",
+            "name": "eagle-api-test-parent",
+            "description": "test parent",
+            "images": [],
+            "folders": [],
+            "modificationTime": 1793113651559,
+            "imagesMappings": {},
+            "tags": [],
+            "children": [
+              {
+                "id": "MVQTKKFPFANOO",
+                "name": "eagle-api-test-child",
+                "description": "",
+                "images": [],
+                "folders": [],
+                "modificationTime": 1793113651573,
+                "imagesMappings": {},
+                "tags": [],
+                "children": [],
+                "isExpand": true,
+                "iconColor": "red"
+              }
+            ],
+            "isExpand": true,
+            "iconColor": "blue"
+          }
+        ],
+        "total": 1,
+        "offset": 0,
+        "limit": 1000
+      }
+    }
+  }
+}

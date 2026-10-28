@@ -1,0 +1,23 @@
+{
+  "request": {
+    "method": "GET",
+    "path": "/api/v2/library/info",
+    "query": ""
+  },
+  "response": {
+    "http": 200,
+    "body": {
+      "status": "success",
+      "data": {
+        "folders": [],
+        "smartFolders": [],
+        "quickAccess": [],
+        "tagsGroups": [],
+        "modificationTime": 1793109752071,
+        "applicationVersion": "4.0.0",
+        "path": "C:\\Users\\kirkw\\OneDrive\\Pictures\\ggwp.library",
+        "name": "ggwp"
+      }
+    }
+  }
+}

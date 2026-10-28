@@ -1,0 +1,92 @@
+{
+  "request": {
+    "method": "GET",
+    "path": "/api/v2/folder/get",
+    "query": "limit=1000"
+  },
+  "response": {
+    "http": 200,
+    "body": {
+      "status": "success",
+      "data": {
+        "data": [
+          {
+            "id": "MVQTKKFBN2JVC",
+            "name": "eagle-api-test-parent",
+            "description": "test parent",
+            "images": [],
+            "folders": [],
+            "modificationTime": 1793113651559,
+            "imagesMappings": {},
+            "tags": [
+              "eagle-api-folder-tag"
+            ],
+            "children": [
+              {
+                "id": "MVQTKKFPFANOO",
+                "name": "eagle-api-test-child",
+                "description": "",
+                "images": [],
+                "folders": [],
+                "modificationTime": 1793113651573,
+                "imagesMappings": {},
+                "tags": [],
+                "children": [],
+                "isExpand": true,
+                "iconColor": "red",
+                "size": 27,
+                "vstype": "folder",
+                "guidelines": [
+                  "blue"
+                ],
+                "styles": {
+                  "depth": 1,
+                  "first": false,
+                  "last": true
+                },
+                "isVisible": true,
+                "index": 12,
+                "$$hashKey": "object:2720",
+                "newFolderName": "eagle-api-test-child",
+                "imageCount": 0,
+                "depth": 1,
+                "descendantImageCount": 0,
+                "pinyin": "eagle-api-test-child",
+                "extendTags": [
+                  "eagle-api-folder-tag"
+                ],
+                "covers": [],
+                "parent": "MVQTKKFBN2JVC"
+              }
+            ],
+            "isExpand": true,
+            "iconColor": "blue",
+            "size": 27,
+            "vstype": "folder",
+            "guidelines": [],
+            "styles": {
+              "depth": 0,
+              "first": false,
+              "last": true
+            },
+            "isVisible": true,
+            "index": 11,
+            "$$hashKey": "object:2719",
+            "newFolderName": "eagle-api-test-parent",
+            "imageCount": 0,
+            "depth": 0,
+            "descendantImageCount": 0,
+            "pinyin": "eagle-api-test-parent",
+            "extendTags": [
+              "eagle-api-folder-tag"
+            ],
+            "covers": []
+          }
+        ],
+        "total": 1,
+        "offset": 0,
+        "limit": 1000
+      }
+    }
+  }
+}

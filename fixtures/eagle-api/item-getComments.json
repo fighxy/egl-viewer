@@ -1,0 +1,14 @@
+{
+  "request": {
+    "method": "GET",
+    "path": "/api/v2/item/getComments",
+    "query": "id=MVQTEQPE8FAQM"
+  },
+  "response": {
+    "http": 200,
+    "body": {
+      "status": "success",
+      "data": []
+    }
+  }
+}

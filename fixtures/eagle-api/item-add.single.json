@@ -1,0 +1,26 @@
+{
+  "request": {
+    "method": "POST",
+    "path": "/api/v2/item/add",
+    "body": {
+      "base64": "data:image/jpeg;base64,/9j/4AAQSkZJRgABA…",
+      "name": "eagle-api-test-1",
+      "tags": [
+        "eagle-api-test",
+        "тест-апи"
+      ],
+      "annotation": "Тестовая заметка",
+      "website": "https://example.com/source",
+      "star": 3
+    }
+  },
+  "response": {
+    "http": 200,
+    "body": {
+      "status": "success",
+      "data": {
+        "id": "MVQTEQPE8FAQM"
+      }
+    }
+  }
+}

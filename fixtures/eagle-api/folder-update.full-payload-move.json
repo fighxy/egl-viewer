@@ -1,0 +1,56 @@
+{
+  "request": {
+    "method": "POST",
+    "path": "/api/v2/folder/update",
+    "body": {
+      "id": "MVQTKKFPFANOO",
+      "name": "eagle-api-test-child",
+      "description": "",
+      "tags": [],
+      "iconColor": "red",
+      "parent": "MVQTKKFBN2JVC"
+    }
+  },
+  "response": {
+    "http": 200,
+    "body": {
+      "status": "success",
+      "data": {
+        "id": "MVQTKKFPFANOO",
+        "name": "eagle-api-test-child",
+        "description": "",
+        "images": [],
+        "folders": [],
+        "modificationTime": 1793113651573,
+        "imagesMappings": {},
+        "tags": [],
+        "children": [],
+        "isExpand": true,
+        "iconColor": "red",
+        "size": 27,
+        "vstype": "folder",
+        "guidelines": [
+          "blue"
+        ],
+        "styles": {
+          "depth": 1,
+          "first": false,
+          "last": true
+        },
+        "isVisible": true,
+        "index": 12,
+        "$$hashKey": "object:2720",
+        "newFolderName": "eagle-api-test-child",
+        "imageCount": 1,
+        "depth": 1,
+        "descendantImageCount": 1,
+        "pinyin": "eagle-api-test-child",
+        "extendTags": [],
+        "covers": [
+          "<img class=\"sub-folder-cover \" src=\"file:///C:/Users/kirkw/OneDrive/Pictures/ggwp.library/images/MVQTEQPE8FAQM.info/eagle-api-test-1.jpg\" style=\"aspect-ratio: 1.6;\">"
+        ],
+        "parent": "MVQTKKFBN2JVC"
+      }
+    }
+  }
+}

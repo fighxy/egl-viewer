@@ -1,0 +1,19 @@
+{
+  "request": {
+    "method": "GET",
+    "path": "/api/v2/app/info",
+    "query": ""
+  },
+  "response": {
+    "http": 200,
+    "body": {
+      "status": "success",
+      "data": {
+        "version": "4.0.0",
+        "prereleaseVersion": null,
+        "buildVersion": "20260401",
+        "platform": "win32"
+      }
+    }
+  }
+}

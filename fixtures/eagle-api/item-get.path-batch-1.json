@@ -1,0 +1,100 @@
+{
+  "request": {
+    "method": "POST",
+    "path": "/api/v2/item/get",
+    "body": {
+      "id": "MVRCO6PP4SGZ5"
+    }
+  },
+  "response": {
+    "http": 200,
+    "body": {
+      "status": "success",
+      "data": {
+        "data": [
+          {
+            "id": "MVRCO6PP4SGZ5",
+            "name": "eagle-api-path-batch-1",
+            "size": 16228,
+            "btime": 1793145708912,
+            "mtime": 1793113341797,
+            "ext": "jpg",
+            "tags": [
+              "eagle-api-test",
+              "тест-путь"
+            ],
+            "folders": [
+              "MVRCO6P7GT03B"
+            ],
+            "isDeleted": false,
+            "url": "https://example.com/batch",
+            "annotation": "Заметка из пакета",
+            "modificationTime": 1700000000000,
+            "star": 4,
+            "height": 400,
+            "width": 640,
+            "noThumbnail": true,
+            "palettes": [
+              {
+                "color": [
+                  142,
+                  83,
+                  55
+                ],
+                "ratio": 47
+              },
+              {
+                "color": [
+                  89,
+                  56,
+                  81
+                ],
+                "ratio": 14
+              },
+              {
+                "color": [
+                  218,
+                  122,
+                  20
+                ],
+                "ratio": 12
+              },
+              {
+                "color": [
+                  186,
+                  105,
+                  33
+                ],
+                "ratio": 12
+              },
+              {
+                "color": [
+                  56,
+                  40,
+                  96
+                ],
+                "ratio": 8
+              },
+              {
+                "color": [
+                  108,
+                  68,
+                  76
+                ],
+                "ratio": 3.25
+              },
+              {
+                "color": [
+                  251,
+                  246,
+                  227
+                ],
+                "ratio": 0.74
+              }
+            ]
+          }
+        ]
+      }
+    }
+  }
+}

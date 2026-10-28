@@ -1,0 +1,33 @@
+{
+  "request": {
+    "method": "GET",
+    "path": "/api/v2/folder/get",
+    "query": "id=MVQTKKFPFANOO"
+  },
+  "response": {
+    "http": 200,
+    "body": {
+      "status": "success",
+      "data": {
+        "data": [
+          {
+            "id": "MVQTKKFPFANOO",
+            "name": "eagle-api-test-child",
+            "description": "",
+            "images": [],
+            "folders": [],
+            "modificationTime": 1793113651573,
+            "imagesMappings": {},
+            "tags": [],
+            "children": [],
+            "isExpand": true,
+            "iconColor": "red"
+          }
+        ],
+        "total": 1,
+        "offset": 0,
+        "limit": 50
+      }
+    }
+  }
+}

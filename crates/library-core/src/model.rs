@@ -1,0 +1,302 @@
+//! Library data shared by every source (docs/architecture.md §5, §15).
+
+use std::sync::Arc;
+
+use serde::{Deserialize, Serialize};
+use ts_rs::TS;
+
+/// Opaque item id: an Eagle id for the Eagle sources, a ULID for the native library.
+/// A newtype, so serde writes it as a plain string.
+#[derive(
+    Debug, Clone, PartialEq, Eq, Hash, PartialOrd, Ord, Default, Serialize, Deserialize, TS,
+)]
+#[ts(export)]
+pub struct ItemId(pub String);
+
+impl From<&str> for ItemId {
+    fn from(id: &str) -> Self {
+        Self(id.to_owned())
+    }
+}
+
+/// Which kind of library a source serves.
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize, TS)]
+#[serde(rename_all = "camelCase")]
+#[ts(export)]
+pub enum LibraryKind {
+    /// A running Eagle, through its HTTP API.
+    EagleApi,
+    /// An Eagle `.library` folder on disk, read only.
+    EagleFolder,
+    /// The app's own library format.
+    Native,
+}
+
+#[derive(Debug, Clone, PartialEq, Serialize, Deserialize, TS)]
+#[serde(rename_all = "camelCase")]
+#[ts(export)]
+pub struct LibraryInfo {
+    pub kind: LibraryKind,
+    pub name: String,
+    /// Path of the library on the computer that holds it, when known.
+    pub path: Option<String>,
+    /// Changes when folder or smart folder metadata changes (Eagle `modificationTime`, ms).
+    pub modification_time: Option<i64>,
+}
+
+/// A folder node. The parent is implied by nesting: Eagle's `folder/get` has no `parent` field
+/// (correction 8). Passwords never reach this type, only `is_locked` (§5).
+#[derive(Debug, Clone, PartialEq, Default, Serialize, Deserialize, TS)]
+#[serde(rename_all = "camelCase", default)]
+#[ts(export)]
+pub struct Folder {
+    pub id: String,
+    pub name: String,
+    pub description: String,
+    pub icon_color: Option<String>,
+    /// The folder's own labels, not item tags.
+    pub tags: Vec<String>,
+    /// Folder tags plus ancestor tags, computed by the source; display only.
+    pub extend_tags: Vec<String>,
+    pub children: Vec<Folder>,
+    /// Items directly in the folder; `None` when the source has not counted yet (correction 32).
+    pub image_count: Option<u32>,
+    /// Items in the folder and all descendants, own items included.
+    pub descendant_image_count: Option<u32>,
+    pub is_locked: bool,
+    pub is_unlocked: bool,
+    pub cover_item_id: Option<String>,
+    pub order_by: Option<String>,
+    pub sort_ascending: Option<bool>,
+}
+
+/// One colour of an item's palette, as Eagle stores it: `{ color: [r, g, b], ratio }`.
+#[derive(Debug, Clone, Copy, PartialEq, Serialize, Deserialize, TS)]
+#[ts(export)]
+pub struct Palette {
+    pub color: [u8; 3],
+    /// Share of the image in percent; can be fractional.
+    pub ratio: f64,
+}
+
+/// What snapshots keep and the grid needs. Never crosses IPC as a whole list (§6.5).
+#[derive(Debug, Clone, PartialEq, Default)]
+pub struct ItemLite {
+    pub id: ItemId,
+    pub name: String,
+    pub ext: String,
+    pub width: Option<u32>,
+    pub height: Option<u32>,
+    pub size: Option<u64>,
+    /// 0 when unrated: Eagle omits the key until a rating is set.
+    pub star: u8,
+    /// Interned: large libraries repeat the same tag strings many times.
+    pub tags: Vec<Arc<str>>,
+    /// `None` and an empty list are different cases in Eagle (correction 15).
+    pub folders: Option<Vec<String>>,
+    pub palette0: Option<[u8; 3]>,
+    /// Date added, ms (Eagle `modificationTime`).
+    pub added_at: Option<i64>,
+    /// Eagle `btime`, ms.
+    pub file_created_at: Option<i64>,
+    /// Eagle `mtime`, ms.
+    pub file_modified_at: Option<i64>,
+    pub duration: Option<f64>,
+    pub no_thumbnail: bool,
+}
+
+/// The full item for the detail panel.
+#[derive(Debug, Clone, PartialEq, Default, Serialize, Deserialize, TS)]
+#[serde(rename_all = "camelCase", default)]
+#[ts(export)]
+pub struct Item {
+    pub id: ItemId,
+    pub name: String,
+    pub ext: String,
+    pub width: Option<u32>,
+    pub height: Option<u32>,
+    pub size: Option<u64>,
+    pub star: u8,
+    pub tags: Vec<String>,
+    pub folders: Vec<String>,
+    pub annotation: String,
+    pub url: String,
+    pub palettes: Vec<Palette>,
+    pub added_at: Option<i64>,
+    pub file_created_at: Option<i64>,
+    pub file_modified_at: Option<i64>,
+    pub duration: Option<f64>,
+    pub bpm: Option<f64>,
+    /// EXIF strings (Eagle `rawMetas`, correction 38).
+    pub exif: Option<serde_json::Value>,
+    pub no_thumbnail: bool,
+    pub is_deleted: bool,
+}
+
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize, TS)]
+#[serde(rename_all = "camelCase")]
+#[ts(export)]
+pub struct Tag {
+    /// The tag's identity is the exact, case-sensitive string.
+    pub name: String,
+    /// Items carrying the tag, trash excluded, when the source knows it.
+    pub image_count: Option<u32>,
+}
+
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize, TS)]
+#[serde(rename_all = "camelCase")]
+#[ts(export)]
+pub struct TagGroup {
+    pub id: String,
+    pub name: String,
+    pub color: Option<String>,
+    pub tags: Vec<String>,
+}
+
+#[derive(Debug, Clone, PartialEq, Serialize, Deserialize, TS)]
+#[serde(rename_all = "camelCase")]
+#[ts(export)]
+pub struct SmartFolder {
+    pub id: String,
+    pub name: String,
+    pub children: Vec<SmartFolder>,
+    /// Eagle's rule language, kept unchanged (docs/architecture.md §16).
+    pub conditions: serde_json::Value,
+    pub order_by: Option<String>,
+    pub sort_ascending: Option<bool>,
+}
+
+/// Image bytes served to the WebView through the `thumb` URI scheme (§11).
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub struct Thumbnail {
+    pub bytes: Vec<u8>,
+    pub content_type: String,
+}
+
+/// Where a change feed continues from; opaque to everyone but its source.
+#[derive(Debug, Clone, PartialEq, Eq, Default)]
+pub struct ChangeToken(pub String);
+
+#[derive(Debug, Clone, PartialEq, Eq, Default)]
+pub struct Changes {
+    pub changed: Vec<ItemId>,
+    pub removed: Vec<ItemId>,
+    pub next: ChangeToken,
+}
+
+/// A file to add, by path on the computer that runs the app.
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize, TS)]
+#[serde(rename_all = "camelCase")]
+#[ts(export)]
+pub struct NewFile {
+    pub path: String,
+    /// Defaults to the file name without extension.
+    pub name: Option<String>,
+}
+
+/// Where and how added files land.
+#[derive(Debug, Clone, PartialEq, Eq, Default, Serialize, Deserialize, TS)]
+#[serde(rename_all = "camelCase", default)]
+#[ts(export)]
+pub struct AddTarget {
+    pub folders: Vec<String>,
+    pub tags: Vec<String>,
+    pub star: Option<u8>,
+    pub annotation: Option<String>,
+}
+
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize, TS)]
+#[ts(export)]
+pub struct ImportTicket {
+    pub id: u64,
+}
+
+/// A folder edit. `Update` always carries the full desired state: Eagle moves a nested folder
+/// to the root and clears its colour when fields are missing (corrections 3, 31).
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize, TS)]
+#[serde(
+    tag = "type",
+    rename_all = "camelCase",
+    rename_all_fields = "camelCase"
+)]
+#[ts(export)]
+pub enum FolderChange {
+    Create {
+        name: String,
+        parent: Option<String>,
+        description: String,
+        icon_color: Option<String>,
+    },
+    Update {
+        id: String,
+        name: String,
+        description: String,
+        tags: Vec<String>,
+        icon_color: Option<String>,
+        parent: Option<String>,
+    },
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+    use serde_json::json;
+
+    #[test]
+    fn folder_uses_camel_case_and_fills_missing_fields() {
+        let folder: Folder = serde_json::from_value(json!({
+            "id": "F1",
+            "name": "Posters",
+            "iconColor": "red",
+            "imageCount": 3,
+            "children": [{ "id": "F2", "name": "Child" }]
+        }))
+        .unwrap();
+        assert_eq!(folder.icon_color.as_deref(), Some("red"));
+        assert_eq!(folder.image_count, Some(3));
+        assert_eq!(folder.descendant_image_count, None);
+        assert_eq!(folder.children[0].name, "Child");
+        assert!(folder.children[0].children.is_empty());
+        assert!(!folder.is_locked);
+    }
+
+    #[test]
+    fn palette_matches_eagle_shape() {
+        let palette: Palette =
+            serde_json::from_value(json!({ "color": [142, 83, 55], "ratio": 3.25 })).unwrap();
+        assert_eq!(palette.color, [142, 83, 55]);
+        assert!((palette.ratio - 3.25).abs() < f64::EPSILON);
+    }
+
+    #[test]
+    fn folder_change_update_is_tagged_and_camel_case() {
+        let change = FolderChange::Update {
+            id: "F1".into(),
+            name: "Posters".into(),
+            description: String::new(),
+            tags: vec![],
+            icon_color: Some("blue".into()),
+            parent: Some("F0".into()),
+        };
+        assert_eq!(
+            serde_json::to_value(&change).unwrap(),
+            json!({
+                "type": "update",
+                "id": "F1",
+                "name": "Posters",
+                "description": "",
+                "tags": [],
+                "iconColor": "blue",
+                "parent": "F0"
+            })
+        );
+    }
+
+    #[test]
+    fn item_id_is_a_plain_string_on_the_wire() {
+        assert_eq!(
+            serde_json::to_value(ItemId::from("MVQ1")).unwrap(),
+            json!("MVQ1")
+        );
+    }
+}

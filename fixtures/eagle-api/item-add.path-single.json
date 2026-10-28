@@ -1,0 +1,29 @@
+{
+  "request": {
+    "method": "POST",
+    "path": "/api/v2/item/add",
+    "body": {
+      "path": "C:\\Users\\kirkw\\AppData\\Local\\Temp\\claude\\C--Program-Files-Eagle\\65f0333e-692f-45b3-b10a-121d844661ac\\scratchpad\\path-import\\eagle-api-path-single.jpg",
+      "name": "eagle-api-path-single",
+      "tags": [
+        "eagle-api-test"
+      ],
+      "folders": [
+        "MVRCO6P7GT03B"
+      ],
+      "annotation": "Одиночный режим",
+      "website": "https://example.com/single",
+      "modificationTime": 1650000000000,
+      "star": 2
+    }
+  },
+  "response": {
+    "http": 200,
+    "body": {
+      "status": "success",
+      "data": {
+        "id": "MVRCO6QLFNSBZ"
+      }
+    }
+  }
+}

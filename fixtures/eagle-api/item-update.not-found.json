@@ -1,0 +1,17 @@
+{
+  "request": {
+    "method": "POST",
+    "path": "/api/v2/item/update",
+    "body": {
+      "id": "ZZZZZZZZZZZZZ",
+      "star": 1
+    }
+  },
+  "response": {
+    "http": 200,
+    "body": {
+      "status": "success",
+      "data": false
+    }
+  }
+}

@@ -1,0 +1,23 @@
+{
+  "starAfterUpdate": 3,
+  "notFound": {
+    "http": 200,
+    "status": "success",
+    "data": false
+  },
+  "validationError": {
+    "http": 500,
+    "status": "error",
+    "message": "name too long (max 10000)"
+  },
+  "utf8Raw": {
+    "http": 200,
+    "intact": false,
+    "replacementChars": 2
+  },
+  "utf8Escaped": {
+    "http": 200,
+    "intact": true,
+    "replacementChars": 0
+  }
+}

@@ -1,0 +1,124 @@
+{
+  "ids": {
+    "pid": "MVQTKKFBN2JVC",
+    "cid": "MVQTKKFPFANOO"
+  },
+  "createResponseKeys": [
+    "id",
+    "name",
+    "description",
+    "images",
+    "folders",
+    "modificationTime",
+    "imagesMappings",
+    "tags",
+    "children",
+    "isExpand",
+    "iconColor"
+  ],
+  "libraryInfoImmediately": {
+    "parent": false,
+    "child": false
+  },
+  "rootNodeKeys": [
+    "id",
+    "name",
+    "description",
+    "images",
+    "folders",
+    "modificationTime",
+    "imagesMappings",
+    "tags",
+    "children",
+    "isExpand",
+    "iconColor"
+  ],
+  "childNodeKeys": [
+    "id",
+    "name",
+    "description",
+    "images",
+    "folders",
+    "modificationTime",
+    "imagesMappings",
+    "tags",
+    "children",
+    "isExpand",
+    "iconColor"
+  ],
+  "childParentField": null,
+  "rootParentField": null,
+  "byIdTotal": 1,
+  "libraryInfoAfter2s": {
+    "parent": true,
+    "child": true
+  },
+  "counts": {
+    "parent": {
+      "imageCount": 0,
+      "descendantImageCount": 1
+    },
+    "child": {
+      "imageCount": 1,
+      "descendantImageCount": 1
+    }
+  },
+  "itemGetParentFolderTotal": 0,
+  "itemGetChildFolderTotal": 1,
+  "afterPartialUpdate": {
+    "childAtRoot": true,
+    "childIconColor": null,
+    "rootOrder": [
+      "parent",
+      "child"
+    ]
+  },
+  "rootOrderAfterNullParent": [
+    "child",
+    "parent"
+  ],
+  "rootOrderAfterOmittedParent": [
+    "child",
+    "parent"
+  ],
+  "afterFullUpdate": {
+    "childUnderParent": true,
+    "childIconColor": "red",
+    "childName": "eagle-api-test-child"
+  },
+  "renameWithFullPayload": {
+    "childUnderParent": true,
+    "childIconColor": "red"
+  },
+  "extendTags": {
+    "parent": [
+      "eagle-api-folder-tag"
+    ],
+    "child": [
+      "eagle-api-folder-tag"
+    ]
+  },
+  "itemTagsAfterFolderTag": [
+    "eagle-api-test",
+    "тест-апи"
+  ],
+  "cycle": {
+    "http": 200,
+    "status": "success",
+    "returnedParent": null,
+    "parentStillRoot": true,
+    "childStillUnderParent": true
+  },
+  "notFound": {
+    "http": 200,
+    "status": "success",
+    "hasData": false
+  },
+  "final": {
+    "rootOrder": [
+      "parent"
+    ],
+    "childUnderParent": true,
+    "visibleItems": 0
+  }
+}

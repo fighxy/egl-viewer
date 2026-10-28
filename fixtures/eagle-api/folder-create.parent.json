@@ -1,0 +1,30 @@
+{
+  "request": {
+    "method": "POST",
+    "path": "/api/v2/folder/create",
+    "body": {
+      "name": "eagle-api-test-parent",
+      "description": "test parent",
+      "iconColor": "blue"
+    }
+  },
+  "response": {
+    "http": 200,
+    "body": {
+      "status": "success",
+      "data": {
+        "id": "MVQTKKFBN2JVC",
+        "name": "eagle-api-test-parent",
+        "description": "test parent",
+        "images": [],
+        "folders": [],
+        "modificationTime": 1793113651559,
+        "imagesMappings": {},
+        "tags": [],
+        "children": [],
+        "isExpand": true,
+        "iconColor": "blue"
+      }
+    }
+  }
+}

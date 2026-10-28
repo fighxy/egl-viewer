@@ -1,0 +1,4 @@
+packages:
+  - ui
+# pnpm's default minimum release age stays on: packages younger than about a day are not
+# installed (supply-chain protection, docs/decisions.md D-003). No exclusions.

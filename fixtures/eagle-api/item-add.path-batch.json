@@ -1,0 +1,50 @@
+{
+  "request": {
+    "method": "POST",
+    "path": "/api/v2/item/add",
+    "body": {
+      "items": [
+        {
+          "path": "C:\\Users\\kirkw\\AppData\\Local\\Temp\\claude\\C--Program-Files-Eagle\\65f0333e-692f-45b3-b10a-121d844661ac\\scratchpad\\path-import\\eagle-api-path-batch-1.jpg",
+          "name": "eagle-api-path-batch-1",
+          "tags": [
+            "eagle-api-test",
+            "тест-путь"
+          ],
+          "folders": [
+            "MVRCO6P7GT03B"
+          ],
+          "annotation": "Заметка из пакета",
+          "website": "https://example.com/batch",
+          "modificationTime": 1700000000000,
+          "star": 4
+        },
+        {
+          "path": "C:\\Users\\kirkw\\AppData\\Local\\Temp\\claude\\C--Program-Files-Eagle\\65f0333e-692f-45b3-b10a-121d844661ac\\scratchpad\\path-import\\eagle-api-path-batch-2.png",
+          "name": "eagle-api-path-batch-2",
+          "tags": [
+            "eagle-api-test"
+          ],
+          "folders": [
+            "MVRCO6P7GT03B",
+            "NOSUCHFOLDER0"
+          ],
+          "annotation": "",
+          "modificationTime": 1600000000000
+        }
+      ]
+    }
+  },
+  "response": {
+    "http": 200,
+    "body": {
+      "status": "success",
+      "data": {
+        "ids": [
+          "MVRCO6PP4SGZ5",
+          "MVRCO6PP2BT1C"
+        ]
+      }
+    }
+  }
+}

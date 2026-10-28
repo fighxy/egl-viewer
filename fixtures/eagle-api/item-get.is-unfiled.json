@@ -1,0 +1,34 @@
+{
+  "request": {
+    "method": "POST",
+    "path": "/api/v2/item/get",
+    "body": {
+      "isUnfiled": true,
+      "fields": [
+        "id",
+        "folders"
+      ]
+    }
+  },
+  "response": {
+    "http": 200,
+    "body": {
+      "status": "success",
+      "data": {
+        "data": [
+          {
+            "id": "MVQTEQPE8FAQM",
+            "folders": []
+          },
+          {
+            "id": "MVQTEQPM2IAAG",
+            "folders": []
+          }
+        ],
+        "total": 2,
+        "offset": 0,
+        "limit": 50
+      }
+    }
+  }
+}
