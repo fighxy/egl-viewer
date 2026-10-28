@@ -559,7 +559,7 @@ pub fn plan(q: &LibraryQuery, library_count: usize) -> FetchPlan {
 
 Steps in order, all pure functions in `library-core`, run on `tokio::task::spawn_blocking` for large snapshots:
 
-1. **Lock filter.** `locked_ids` = locked folders that are not unlocked, together with their descendants. Drop items where `folders ∩ locked_ids ≠ ∅`. For Eagle a folder is locked when `is_locked && !is_unlock` (correction 9; the desktop hides such items in every view); for the native library when `lock_hash` is set and the folder was not unlocked in this session.
+1. **Lock filter.** `locked_ids` = locked folders that are not unlocked, together with their descendants. Drop items where `folders ∩ locked_ids ≠ ∅`. For Eagle a folder is locked when `is_locked && !is_unlock` (correction 9; the desktop hides such items in every view); for the native library when `locked` is set and the folder was not unlocked in this session, including a folder imported from Eagle that has no identity yet. Unlocking one folder does not unlock the others.
 2. **Scope.** For `Folder { include_descendants: true }` keep items where `folders ∩ descendant_ids(root) ≠ ∅`. For `Unfiled` keep items whose `folders` is missing or empty.
 3. **Tags.** `matches_tags` (Any / All / Exact / None); strings are compared exactly, case-sensitive.
 4. **Extra folder chips**, with the same matcher over ids.
@@ -800,7 +800,7 @@ Every command that works on a library goes through the open `LibrarySource`; a s
 8. Commands validate their input in Rust (lengths up to 10 000, star 0–5, known folder ids) before any write or request.
 9. The `thumb` scheme and the commands that open or reveal files only touch files whose canonical path is inside the open library folder (the native library, or an Eagle library on the same PC). Item ids from the UI are looked up in the database; the UI never passes file paths for them.
 10. Paths the user picked in a dialog or dropped on the window are only read (to copy them into the library); the app never writes outside the library folder, the app data folder and a folder the user chose for a new library.
-11. Folder passwords of the native library are stored as Argon2id hashes; the UI says that a lock is not encryption.
+11. A native locked folder stores salt, Argon2id parameters, and wrapped age identities on the folder row (D-018). The password, the recovery secret, and the unwrapped identity are not stored. The lock dialog says the lock encrypts that folder on disk. The name and the tag (label and colour) stay plaintext. The Eagle token stays in Windows Credential Manager.
 
 ---
 
@@ -1000,7 +1000,7 @@ The full plan with done checks is in §9 of the spec. Key technical points per p
 - **Phase 1.** `library-native`: schema v1 and migrations, `library.lock`, backups; `docs/library-format.md`; `app-store` settings and recent libraries; library commands; the Welcome screen.
 - **Phase 2.** `media` (hash, probe, thumbnails, palettes, §15.4); `add_files` with the temp-copy protocol (§7.4); import tasks and progress events.
 - **Phase 3.** `load_scope` in SQL; the pipeline, sorter and views (§6.4, §6.5); the `thumb` scheme (§11); the virtualized grid.
-- **Phase 4.** Folders: `save_folder`, `delete_folder`, locks (Argon2id), cycle guard (§7.3), `sort_key` reordering, manual order.
+- **Phase 4.** Folders: `save_folder`, `delete_folder`, locks (age at rest, one Argon2id identity per folder, plaintext name and tag, the Locked folders sidebar), cycle guard (§7.3), `sort_key` reordering, manual order.
 - **Phase 5.** Tags: vocabulary with counts, rename, merge, delete, tag groups; batch edits.
 - **Phase 6.** FTS5 search with the Eagle syntax; filter chips; the smart folder evaluator for the v1 subset (§16).
 - **Phase 7.** The remaining item edits, undo, trash, file actions, library maintenance.
@@ -1099,7 +1099,7 @@ Decisions:
 - **Tags are case-sensitive strings**, as in Eagle (`"Poster"` and `"poster"` are different), stored once in `tag` and linked through `item_tag`.
 - **Folder order** among siblings is a `sort_key` string (fractional indexing): moving a folder changes one row.
 - **Trash** is `deleted_at`. Emptying the trash deletes the rows and the files. Unlike Eagle's API, the native library can delete items, folders and tags.
-- **Locked folders** encrypt their content at rest (D-018, `docs/age-locked-folders.md`). Each locked folder has its own password, Argon2id salt, age X25519 identity, and recovery secret. Nothing is shared, and unlocking one folder loads only that identity into memory (`secrecy`) for the session. Argon2id wraps the identity; the password is not stored. A second wrap uses the recovery secret, which is shown once at creation (128-bit key, the same bits as a word phrase, or an optional file outside the library) and is not stored in the library. Originals under `files/`, thumbnails under `thumbs/`, and the item columns name, annotation, url, exif, and palette are age ciphertext. The age header, including nonces, stays inside the ciphertext. Plaintext on the folder row: id, name, label caption and colour, lock metadata, salt, KDF parameters, and the two wrapped identities. An item in two locked folders has its own item key, wrapped separately by each folder identity. A folder imported locked from Eagle has the locked flag and no identity until the user sets a password; its files stay plaintext until then (§15.5). An optional YubiKey PIV slot 9d adds a third wrap of the same identity (`age-plugin-yubikey`): the card stores a P-256 key, and the age X25519 identity stays wrapped in the folder row. Several cards can wrap one folder. Absent the key, the password and the recovery secret still unwrap it. This is not encryption of the whole database, of settings, or of the Eagle token.
+- **Locked folders** encrypt their content at rest (D-018, `docs/age-locked-folders.md`). Each locked folder has its own password, Argon2id salt, age X25519 identity, and recovery secret. Nothing is shared, and unlocking one folder loads only that identity into memory (`secrecy`) for the session. Argon2id wraps the identity; the password is not stored. A second wrap uses the recovery secret, which is shown once at creation (128-bit key, the same bits as a word phrase, or an optional file outside the library) and is not stored in the library. Originals under `files/`, thumbnails under `thumbs/`, and the item columns name, annotation, url, exif, and palette are age ciphertext. The age header, including nonces, stays inside the ciphertext. Each locked folder has its own user-editable name (`folder.name`) and tag — a label and a colour (`label`, `label_color`) — stored in plaintext on the folder row. They are not encrypted fields, and the tag is not an item tag. The left sidebar has an expandable Locked folders section that lists each locked folder with that name and tag. Choosing a row prompts for that folder only and does not unlock any other folder. Also plaintext on the row: id, lock metadata, salt, KDF parameters, and the wrapped identities. An item in two locked folders has its own item key, wrapped separately by each folder identity. A folder imported locked from Eagle has the locked flag and no identity until the user sets a password; its files stay plaintext until then (§15.5). An optional YubiKey PIV slot 9d adds a third wrap of the same identity (`age-plugin-yubikey`): the card stores a P-256 key, and the age X25519 identity stays wrapped in the folder row. Several cards can wrap one folder. Absent the key, the password and the recovery secret still unwrap it. This is not encryption of the whole database, of settings, or of the Eagle token.
 - **Smart folders** keep Eagle's rule language (`conditions` with `property`, `method`, `value`) as JSON, so they survive import and export unchanged. The evaluator in `library-core` grows from the v1 subset (§5 of the spec).
 - **Search** uses an FTS5 table over name, annotation, url, tag names and folder names. The Eagle-style query syntax (`OR`, parentheses, a leading `-`) is translated into FTS5 syntax.
 - **Changes**: every write appends a row to `change_log`. It drives `changes_since`, view updates and, later, the sync between devices.
@@ -1147,12 +1147,12 @@ CREATE TABLE folder (
   order_by       TEXT,
   sort_ascending INTEGER,
   locked         INTEGER NOT NULL DEFAULT 0,
-  label          TEXT,                              -- user-editable caption; plaintext
+  label          TEXT,                              -- tag caption; plaintext; not an item tag
+  label_color    TEXT,                              -- tag colour; plaintext
   kdf_salt       BLOB,                              -- Argon2id salt; NULL until a password is set
   kdf_params     TEXT,                              -- Argon2id parameters
   wrapped_identity BLOB,                            -- age identity wrapped by Argon2id(password)
   recovery_wrap  BLOB,                              -- same identity wrapped by the recovery secret
-  lock_hash      TEXT,                              -- legacy note: no longer a bare hash; see wrapped_identity (D-018)
   cover_item_id  TEXT,
   created_at     INTEGER NOT NULL,
   updated_at     INTEGER NOT NULL,
@@ -1228,7 +1228,7 @@ Field mapping, Eagle → native:
 | `lastModified` (on disk only) | kept in the import state for incremental re-import |
 | folder tree, order of `children` | `folder.parent_id`, `sort_key` in the same order |
 | folder `iconColor`, `description`, `tags`, `orderBy`, `sortIncrease`, `coverId` | the same fields |
-| folder `password` | **not imported**: the folder gets `locked = 1` without a hash; its content stays hidden until the user sets a new password or removes the lock after the import |
+| folder `password` | **not imported**: the folder gets `locked = 1` with no salt and no identity; files stay plaintext and the content stays hidden until the user sets a password or removes the lock |
 | `extendTags` | not stored; computed from the tree |
 | smart folder `conditions` | `smart_folder.conditions`, unchanged |
 | `tagsGroups` | `tag_group` + `tag_group_tag` |

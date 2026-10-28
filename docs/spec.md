@@ -135,7 +135,7 @@ The exact layout and schema are in arch §15.3 and will be published as `docs/li
 - **Folder tags** are labels on the folder, not on its items. When a file is added into a folder, the tags of that folder and of its ancestors are added to the new item (as in Eagle, correction 12). Changing a folder's tags later does not change items already inside.
 - **Moving** a folder under itself or under one of its descendants is rejected before anything is written (cycle guard, arch §7.3).
 - **Deleting** a folder deletes it and all its subfolders and confirms first with the number of affected items. Items stay in the library: they lose those folder ids, and items left without any folder become Uncategorized. The dialog has an option "Also move items that are only in these folders to the trash".
-- **Locked folders** hide their content in every scope until unlocked for the session, and they encrypt that content at rest (D-018, [`age-locked-folders.md`](age-locked-folders.md)). A library can hold several locked folders. Each one has its own password, its own Argon2id salt and parameters, its own age identity, and its own recovery secret. Unlocking one folder does not unlock the others. The password and the recovery secret are never stored; each wraps that folder's age identity. Originals in `files/`, thumbnails in `thumbs/`, and the sensitive item columns (name, annotation, url, exif, palette) are age ciphertext. Name and label (a caption and a colour) stay plaintext and are editable. At creation the user is shown a recovery secret once: a 128-bit key, the same bits as a word phrase, or an optional plaintext file outside the `.eglib` folder. Recovery unwraps the same identity so a new password can be set without re-encrypting files. The dialog says the lock encrypts the folder on disk. An optional YubiKey PIV slot 9d is a third wrap of the same identity: touch (and the slot PIN if required) unlocks that folder when the key is present; without the key the password and the recovery secret still work. Several keys can wrap one folder. See [`age-locked-folders.md`](age-locked-folders.md) §9.
+- **Locked folders** hide their content in every scope until unlocked for the session, and they encrypt that content at rest (D-018, [`age-locked-folders.md`](age-locked-folders.md)). A library can hold several locked folders. Each one has its own password, its own Argon2id salt and parameters, its own age identity, and its own recovery secret. Unlocking one folder does not unlock the others. An item in two locked folders has its own item key, wrapped separately by each folder's identity. Folder A's password decrypts the item in A and does not unlock folder B. The password and the recovery secret are never stored; each wraps that folder's age identity. Originals in `files/`, thumbnails in `thumbs/`, and the sensitive item columns (name, annotation, url, exif, palette) are age ciphertext. Each locked folder has its own user-editable name and tag (a label and a colour), stored in plaintext on the folder row; they are not encrypted fields, and the tag is not an item tag. The left sidebar has an expandable **Locked folders** section that lists them with that name and tag. Choosing a row prompts for that folder only. At creation the user is shown a recovery secret once: a 128-bit key, the same bits as a word phrase, or an optional plaintext file outside the `.eglib` folder. Recovery unwraps the same identity so a new password can be set without re-encrypting files. The dialog says the lock encrypts the folder on disk. An optional YubiKey PIV slot 9d is a third wrap of the same identity: touch (and the slot PIN if required) unlocks that folder when the key is present; without the key the password and the recovery secret still work. Several keys can wrap one folder. See [`age-locked-folders.md`](age-locked-folders.md) §9.
 
 ### Tags
 
@@ -312,7 +312,7 @@ One window with client-side routing. Desktop-first layout: a sidebar, the grid, 
    - Secondary, under "Eagle": **Import an Eagle library** (section 8.2) and **Connect to a running Eagle** (section 8.3).
    - On start the app reopens the last library unless it was closed explicitly, or the user holds `Shift`.
 2. **Library.**
-   - Sidebar: All, Uncategorized, Untagged, Trash; the folder tree with counts (direct items with subfolders off, items including subfolders with it on); an expandable **Locked folders** section that lists each locked folder with its name and label; smart folders; tags; tag groups. Choosing a locked folder asks for that folder's password only.
+   - Sidebar: All, Uncategorized, Untagged, Trash; the folder tree with counts (direct items with subfolders off, items including subfolders with it on); an expandable **Locked folders** section that lists each locked folder with its name and tag (label and colour); smart folders; tags; tag groups. Choosing a row prompts for that folder only.
    - Top bar: search, sort, filter chips, layout and size, Add files.
    - Grid: thumbnails, or the first palette colour and the extension until the thumbnail exists; star and type badges. Multi-select with `Ctrl` and `Shift`, a rubber band, `Ctrl+A`.
    - Keyboard: arrows, `Enter` opens the detail, `Space` the full-size preview, `Delete` to trash (with confirmation), `Ctrl+F` search, `Ctrl+Z` undo.
@@ -322,7 +322,7 @@ One window with client-side routing. Desktop-first layout: a sidebar, the grid, 
 5. **Tag sheet.** Search box over the vocabulary, mode segment Any / All / Exact / None, counts, recent tags, groups as sections; rename, merge and delete from a context menu.
 6. **Filter sheet.** The v1 chips of section 5. Clear all. Save as smart folder.
 7. **Smart folder editor.** Name, AND/OR, the rules of the v1 subset.
-8. **Folder dialogs.** Create, rename, move, delete (with the item count and the trash option), lock and unlock.
+8. **Folder dialogs.** Create, rename, move, delete (with the item count and the trash option), lock and unlock. Lock and unlock, password change, and recovery are for the chosen folder. The lock dialog edits that folder's name and tag.
 9. **Imports panel.** Running and finished imports, progress, failures, duplicates.
 10. **Library settings.** Name, location (reveal in Explorer), size on disk, backups (make one now, restore), rebuild thumbnails, check library.
 11. **Eagle screens:** the import wizard (section 8.2), Connect (section 8.3), export (section 8.4).
@@ -376,7 +376,7 @@ Rules (arch §15.5, §15.6):
 - Never read or write Eagle's cache in `%APPDATA%\Eagle` (correction 36).
 - Mapping: name, ext, size, dimensions, duration, bpm, note, link, rating (absent means 0), date added (`modificationTime`), file dates (`btime`, `mtime`), palettes, tags (case preserved), folders (same tree and order), folder colours, descriptions, folder tags, per-folder sort, covers, smart folders (`conditions` unchanged), tag groups (`tagsGroups`), comments, EXIF from `rawMetas` (correction 38), manual order from `order` (correction 39). Eagle ids are kept as `eagle_id`.
 - Eagle's `_thumbnail.png` is used as the first thumbnail when present, so the import is fast; missing thumbnails are generated in the background.
-- **Folder passwords are not imported.** Locked Eagle folders are imported as locked folders without a password; the report lists them and the user sets a new password (or unlocks them) after the import. Their content stays hidden until then.
+- **Folder passwords are not imported.** Locked Eagle folders are imported as locked folders with no password, no salt, and no identity. The report lists them. Files stay plaintext, and the content stays hidden, until the user sets a password or removes the lock.
 - Duplicates inside the Eagle library are kept as separate items (they are separate in Eagle). Eagle's own notion of a duplicate is a metadata fingerprint, not content (correction 41).
 
 Later: `.eaglepack` files as a second import source (arch §17); "Follow Eagle", an incremental re-import through `mtime.json`.
@@ -765,12 +765,12 @@ Done when: a 10 000-item library scrolls smoothly at every thumbnail size; every
 
 ### Phase 4 — Folders
 
-- The folder tree with counts, create, rename, description, colour, move (cycle guard), reorder siblings, delete (section 3), lock and unlock. Locking encrypts the folder at rest (D-018): its own age identity, wrapped by Argon2id(password) and by a recovery secret shown once. Several locked folders stay independent. The sidebar lists them under **Locked folders** with a per-folder name and label.
+- The folder tree with counts, create, rename, description, colour, move (cycle guard), reorder siblings, delete (section 3), lock and unlock. Locking encrypts the folder at rest (D-018): its own age identity, wrapped by Argon2id(password) and by a recovery secret shown once. Several locked folders stay independent. Each has its own user-editable name and tag (a label and a colour), stored in plaintext on the folder row. The sidebar has an expandable **Locked folders** section that lists them with that name and tag. Choosing a row prompts for that folder only.
 - Item membership: folder checklist in the detail, drag items onto a folder, add files into the open folder (with folder tags added to new items).
 - The "Include subfolders" switch.
 - Per-folder sort override; manual order with drag to reorder.
 
-Done when: folder A does not show items that exist only in a child of A, and does with subfolders on; an item added to a second folder stays in the first; a move under its own descendant is refused before writing; deleting a folder leaves its items in the library and Uncategorized shows those without folders; a locked folder's items are hidden in All, search and tags until that folder is unlocked, and its files on disk are age ciphertext that the password of another locked folder does not decrypt.
+Done when: folder A does not show items that exist only in a child of A, and does with subfolders on; an item added to a second folder stays in the first; a move under its own descendant is refused before writing; deleting a folder leaves its items in the library and Uncategorized shows those without folders; a locked folder's items are hidden in All, search and tags until that folder is unlocked, and its files on disk are age ciphertext that the password of another locked folder does not decrypt; the Locked folders section lists each locked folder with its name and tag, and choosing a row prompts for that folder only.
 
 ### Phase 5 — Tags
 
@@ -901,7 +901,7 @@ Eagle import (`eagle-folder`), with `fixtures/eagle-library/`:
 |---|---|
 | Fixture library | Every item, folder (same order), tag, tag group and smart folder imported |
 | A truncated `metadata.json` (Eagle writing in place) | Retried, then skipped with a report line |
-| Locked folder | Imported locked without a password; the password string is not kept anywhere |
+| Locked folder | Imported locked with no password and no identity; files stay plaintext; the password string is not kept anywhere |
 | Interrupted import, run again | Finishes without duplicates |
 
 Running Eagle (`eagle-api`), unit tests and HTTP tests with `wiremock` and `fixtures/eagle-api/`:
