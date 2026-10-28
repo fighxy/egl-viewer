@@ -1,6 +1,8 @@
 // A fake Rust side for UI tests: every command the UI may call, overridable per test.
 import { mockIPC, mockWindows } from "@tauri-apps/api/mocks";
-import { DEFAULT_PREFERENCES, type LibraryInfo } from "@/ipc";
+import { waitFor } from "@testing-library/react";
+import { expect } from "vitest";
+import { DEFAULT_PREFERENCES, type ImportProgress, type LibraryInfo } from "@/ipc";
 
 export const LIBRARY: LibraryInfo = {
   kind: "native",
@@ -15,6 +17,10 @@ export const LIBRARY: LibraryInfo = {
 
 type Handler = (args: Record<string, unknown>) => unknown;
 export type Call = { cmd: string; args: Record<string, unknown> };
+type Invoke = (cmd: string, args?: unknown, options?: unknown) => Promise<unknown>;
+
+/** Events the UI subscribed to since the last `mockBackend`. */
+const heard = new Set<string>();
 
 export function mockBackend(overrides: Record<string, Handler> = {}): Call[] {
   const calls: Call[] = [];
@@ -30,19 +36,67 @@ export function mockBackend(overrides: Record<string, Handler> = {}): Call[] {
     create_library: (args) => ({ ...LIBRARY, name: String(args.name) }),
     open_library: () => LIBRARY,
     close_library: () => null,
+    library_counts: () => ({ all: 0, uncategorized: 0, untagged: 0, trash: 0 }),
+    add_files: () => ({ id: 1 }),
+    paste_files: () => ({ id: 1 }),
+    answer_import: () => null,
+    cancel_import: () => null,
+    imports: () => [],
+    quit: () => null,
     "plugin:dialog|open": () => "C:\\Users\\me\\Libraries\\Refs.eglib",
     ...overrides,
   };
   mockWindows("main");
-  mockIPC((cmd, args) => {
-    const payload = (args ?? {}) as Record<string, unknown>;
-    calls.push({ cmd, args: payload });
-    if (cmd.startsWith("plugin:window|")) return null;
-    const handler = handlers[cmd];
-    if (!handler) throw new Error(`unexpected command ${cmd}`);
-    return handler(payload);
-  });
+  mockIPC(
+    (cmd, args) => {
+      const payload = (args ?? {}) as Record<string, unknown>;
+      calls.push({ cmd, args: payload });
+      if (cmd.startsWith("plugin:window|")) return null;
+      const handler = handlers[cmd];
+      if (!handler) throw new Error(`unexpected command ${cmd}`);
+      return handler(payload);
+    },
+    { shouldMockEvents: true },
+  );
+  // The mock adds a listener synchronously inside `invoke`; note which events have one.
+  heard.clear();
+  const internals = (window as unknown as { __TAURI_INTERNALS__: { invoke: Invoke } })
+    .__TAURI_INTERNALS__;
+  const invoke = internals.invoke;
+  internals.invoke = (cmd, args, options) => {
+    const result = invoke(cmd, args, options);
+    if (cmd === "plugin:event|listen") heard.add(String((args as { event: unknown }).event));
+    return result;
+  };
   return calls;
+}
+
+/** Waits until the UI listens to `events`: listeners subscribe asynchronously after a render. */
+export async function listening(...events: string[]) {
+  await waitFor(() => expect(events.filter((event) => !heard.has(event))).toEqual([]));
+}
+
+/** An import's progress as Rust sends it, with defaults for what a test does not care about. */
+export function progress(change: Partial<ImportProgress> = {}): ImportProgress {
+  return {
+    id: 1,
+    kind: "files",
+    state: "adding",
+    total: 3,
+    processed: 1,
+    added: 1,
+    duplicates: 0,
+    failed: 0,
+    previewsTotal: 1,
+    previewsDone: 0,
+    current: "a.jpg",
+    duplicate: null,
+    failures: [],
+    skipped: [],
+    startedAt: Date.UTC(2026, 9, 28, 10),
+    finishedAt: null,
+    ...change,
+  };
 }
 
 export function called(calls: Call[], cmd: string): Call[] {

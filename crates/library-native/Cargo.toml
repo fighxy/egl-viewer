@@ -10,6 +10,8 @@ publish.workspace = true
 [dependencies]
 blake3.workspace = true
 library-core.workspace = true
+media.workspace = true
+rayon.workspace = true
 rusqlite.workspace = true
 serde.workspace = true
 serde_json.workspace = true
@@ -17,6 +19,8 @@ tracing.workspace = true
 ulid.workspace = true
 
 [dev-dependencies]
+image.workspace = true
+media = { workspace = true, features = ["fixtures"] }
 tempfile.workspace = true
 
 [lints]

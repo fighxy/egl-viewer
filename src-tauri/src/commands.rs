@@ -1,12 +1,15 @@
 //! IPC commands. Each one parses input, calls the core and returns a UI-shaped result.
 
+use std::path::PathBuf;
+
 use app_store::{ConnectionSettings, Preferences, RecentLibrary};
-use library_core::{LibraryInfo, SourceError};
-use serde::Serialize;
+use library_core::{ImportProgress, ImportTicket, LibraryCounts, LibraryInfo, SourceError};
+use library_native::DuplicateChoice;
+use serde::{Deserialize, Serialize};
 use tauri::{AppHandle, Manager, State};
 use ts_rs::TS;
 
-use crate::session::{Session, StartupResult};
+use crate::session::{Clipboard, Session, StartupResult};
 
 #[derive(Debug, Clone, PartialEq, Eq, Serialize, TS)]
 #[serde(rename_all = "camelCase")]
@@ -103,6 +106,91 @@ pub async fn set_preferences(
 pub async fn startup(app: AppHandle) -> Result<StartupResult, SourceError> {
     let no_reopen = std::env::args().any(|arg| arg == "--no-reopen");
     blocking(app, move |session| Ok(session.startup(no_reopen))).await
+}
+
+#[tauri::command]
+pub async fn library_counts(app: AppHandle) -> Result<LibraryCounts, SourceError> {
+    blocking(app, Session::counts).await
+}
+
+/// Files and folders by path (picked, dropped or pasted); their bytes never cross IPC.
+#[tauri::command]
+pub async fn add_files(app: AppHandle, paths: Vec<String>) -> Result<ImportTicket, SourceError> {
+    blocking(app, move |session| session.add_files(paths)).await
+}
+
+/// Copied files or an image on the clipboard; `None` when there is nothing to add.
+#[tauri::command]
+pub async fn paste_files(app: AppHandle) -> Result<Option<ImportTicket>, SourceError> {
+    blocking(app, |session| session.paste(&SystemClipboard)).await
+}
+
+/// The user's answer to the duplicate question of an import.
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Deserialize, TS)]
+#[serde(rename_all = "camelCase")]
+#[ts(export)]
+pub enum DuplicateAnswer {
+    Skip,
+    AddAnyway,
+    Cancel,
+}
+
+#[tauri::command]
+pub fn answer_import(
+    session: State<'_, Session>,
+    id: u64,
+    answer: DuplicateAnswer,
+) -> Result<(), SourceError> {
+    let choice = match answer {
+        DuplicateAnswer::Skip => DuplicateChoice::Skip,
+        DuplicateAnswer::AddAnyway => DuplicateChoice::AddAnyway,
+        DuplicateAnswer::Cancel => DuplicateChoice::Cancel,
+    };
+    session.answer_import(id, choice)
+}
+
+#[tauri::command]
+pub fn cancel_import(session: State<'_, Session>, id: u64) -> Result<(), SourceError> {
+    session.cancel_import(id)
+}
+
+#[tauri::command]
+pub fn imports(session: State<'_, Session>) -> Vec<ImportProgress> {
+    session.imports()
+}
+
+/// Quits after the user agreed to stop running imports (the window's close was held back).
+#[tauri::command]
+pub async fn quit(app: AppHandle) -> Result<(), SourceError> {
+    if let Some(window) = app.get_webview_window("main") {
+        crate::window::remember(&window.as_ref().window(), app.state::<Session>().store());
+    }
+    let handle = app.clone();
+    blocking(app, |session| {
+        session.stop_imports();
+        Ok(())
+    })
+    .await?;
+    handle.exit(0);
+    Ok(())
+}
+
+/// The system clipboard through `arboard`.
+struct SystemClipboard;
+
+impl Clipboard for SystemClipboard {
+    fn files(&self) -> Option<Vec<PathBuf>> {
+        arboard::Clipboard::new().ok()?.get().file_list().ok()
+    }
+
+    fn image(&self) -> Option<(u32, u32, Vec<u8>)> {
+        let image = arboard::Clipboard::new().ok()?.get().image().ok()?;
+        Some((
+            u32::try_from(image.width).ok()?,
+            u32::try_from(image.height).ok()?,
+            image.bytes.into_owned(),
+        ))
+    }
 }
 
 /// Runs file and database work off the main thread.

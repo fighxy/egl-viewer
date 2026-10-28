@@ -241,6 +241,92 @@ pub struct ImportTicket {
     pub id: u64,
 }
 
+/// What an import task is doing (docs/spec.md §4).
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize, TS)]
+#[serde(rename_all = "camelCase")]
+#[ts(export)]
+pub enum ImportState {
+    /// Walking dropped folders.
+    Scanning,
+    /// Copying files into the library.
+    Adding,
+    /// The first duplicate of the batch waits for the user's choice.
+    WaitingForDecision,
+    /// Every file is in; thumbnails and palettes are still being made.
+    Previews,
+    Done,
+    Cancelled,
+}
+
+/// Files the user added, or previews that the library makes after a restart.
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize, TS)]
+#[serde(rename_all = "camelCase")]
+#[ts(export)]
+pub enum ImportKind {
+    Files,
+    Previews,
+}
+
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize, TS)]
+#[serde(rename_all = "camelCase")]
+#[ts(export)]
+pub struct ImportFailure {
+    pub path: String,
+    pub reason: String,
+}
+
+/// A file whose content is already in the library.
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize, TS)]
+#[serde(rename_all = "camelCase")]
+#[ts(export)]
+pub struct DuplicateNotice {
+    pub path: String,
+    /// The id of the item that has the same content.
+    pub existing: String,
+    pub in_trash: bool,
+}
+
+/// The state of one import task, sent to the UI as it changes (`import-progress` events).
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize, TS)]
+#[serde(rename_all = "camelCase")]
+#[ts(export)]
+pub struct ImportProgress {
+    pub id: u64,
+    pub kind: ImportKind,
+    pub state: ImportState,
+    /// Files found; known once scanning ends.
+    pub total: u32,
+    /// Files handled so far: added, skipped as duplicates or failed.
+    pub processed: u32,
+    pub added: u32,
+    pub duplicates: u32,
+    pub failed: u32,
+    pub previews_total: u32,
+    pub previews_done: u32,
+    /// The file being copied.
+    pub current: Option<String>,
+    /// The duplicate that waits for a decision.
+    pub duplicate: Option<DuplicateNotice>,
+    /// Failures and files without a preview, at most the first 200.
+    pub failures: Vec<ImportFailure>,
+    /// Duplicates that were skipped, at most the first 200.
+    pub skipped: Vec<DuplicateNotice>,
+    /// ms
+    pub started_at: i64,
+    pub finished_at: Option<i64>,
+}
+
+/// Items per fixed row of the left bar (docs/spec.md §7.3).
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Default, Serialize, Deserialize, TS)]
+#[serde(rename_all = "camelCase")]
+#[ts(export)]
+pub struct LibraryCounts {
+    pub all: u32,
+    pub uncategorized: u32,
+    pub untagged: u32,
+    pub trash: u32,
+}
+
 /// A folder edit. `Update` always carries the full desired state: Eagle moves a nested folder
 /// to the root and clears its colour when fields are missing (corrections 3, 31).
 #[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize, TS)]

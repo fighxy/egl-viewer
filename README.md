@@ -17,8 +17,9 @@ React UI. Windows first; no AI features.
 | Phase | State |
 |---|---|
 | 0. Project skeleton | Done (2026-10-28): workspace, core types, the `LibrarySource` trait, Welcome screen, Connect screen without networking, tests, CI |
-| 1. Native library: create and open | Implemented (2026-10-28), waiting for the done check on Windows: `library-native` (create, open, the OS lock, recovery, backups, `add_file`), library locations and recent libraries in `app-store`, the library commands, the window frame with the menu bar, Welcome, the empty library screen, Settings, About and Keyboard Shortcuts (D-032) |
-| 2–7. Adding files, grid, folders, tags, search and smart folders, editing and trash | Planned |
+| 1. Native library: create and open | Implemented (2026-10-28), CI on Windows green, the manual done check on Windows still open: `library-native` (create, open, the OS lock, recovery, backups, `add_file`), library locations and recent libraries in `app-store`, the library commands, the window frame with the menu bar, Welcome, the empty library screen, Settings, About and Keyboard Shortcuts (D-032) |
+| 2. Adding files and the media pipeline | Implemented (2026-10-28), waiting for the done check on Windows: the `media` crate (thumbnails, palettes, EXIF), batches with one duplicate question, Add files, dropping and pasting, progress, the Imports panel, counts (D-037) |
+| 3–7. Grid, folders, tags, search and smart folders, editing and trash | Planned |
 | 8–11. Eagle: import, live connection, export | Planned |
 | 12. Hardening and the Windows release | Planned |
 
@@ -61,7 +62,8 @@ crates/library-core/   models, queries, edits, errors, the LibrarySource trait (
 crates/library-native/ the native library: create, open, the library lock, recovery, adding a file
 crates/app-store/      settings, recent libraries, library locations, secrets
 crates/eagle-api/      a running Eagle as a LibrarySource (transport from phase 9)
-(later crates)         media (phase 2), eagle-folder (phase 8)
+crates/media/          decoding, thumbnails, palettes and EXIF for the native library
+(later crates)         eagle-folder (phase 8)
 src-tauri/             the Tauri app: commands, configuration, capabilities, icons
 ui/                    React + TypeScript + Tailwind + shadcn/ui
 docs/                  spec, architecture, decisions

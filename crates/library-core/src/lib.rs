@@ -13,7 +13,8 @@ pub mod source;
 pub use edit::ItemEdit;
 pub use error::{LocationProblem, NetworkError, SourceError};
 pub use model::{
-    AddTarget, ChangeToken, Changes, Folder, FolderChange, ImportTicket, Item, ItemId, ItemLite,
+    AddTarget, ChangeToken, Changes, DuplicateNotice, Folder, FolderChange, ImportFailure,
+    ImportKind, ImportProgress, ImportState, ImportTicket, Item, ItemId, ItemLite, LibraryCounts,
     LibraryHolder, LibraryInfo, LibraryKind, NewFile, Palette, ReadOnlyReason, SmartFolder, Tag,
     TagGroup, Thumbnail,
 };

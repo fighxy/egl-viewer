@@ -136,7 +136,7 @@ CREATE TABLE item (
   file_modified_at INTEGER,                         -- Eagle mtime
   content_hash     BLOB NOT NULL CHECK (length(content_hash) = 32),   -- BLAKE3 of the plaintext original
   palette          TEXT,                            -- JSON in the shape of Eagle palettes
-  thumb_version    INTEGER NOT NULL DEFAULT 0,
+  thumb_version    INTEGER NOT NULL DEFAULT 0,      -- 0 not made yet, -1 no preview possible, then 1, 2, …
   deleted_at       INTEGER,                         -- set while in the trash
   updated_at       INTEGER NOT NULL,
   eagle_id         TEXT UNIQUE,
@@ -333,10 +333,12 @@ Read-only reasons reach the UI in `LibraryInfo.readOnlyReason`: `otherInstance`,
 - `synchronous = FULL` makes each commit durable, which this order relies on. NTFS journals the
   rename itself; the temp file's data is flushed in step 2.
 - The source file is only read; it stays where it was.
-- **Phase 1:** `library-native` exposes `add_file(source, duplicates)` with
-  `duplicates: Report | AddAnyway`, with tests, no command and no UI. Phase 2 adds batches,
-  target folders and tags, the media pipeline, progress and cancel; phase 4 adds "add the existing
-  item to the target folder" and encryption for a locked target folder.
+- `add_file(source, duplicates)` with `duplicates: Report | AddAnyway` adds one file (phase 1).
+  `import_files` adds batches on top of it (phase 2): dropped folders are walked, the first
+  duplicate asks once for the batch, cancelling stops after the current file, and previews are made
+  on a small thread pool. A preview is written to `thumbs/<shard>/<id>.webp` through a temp file
+  before `thumb_version` goes up; a file that cannot be decoded gets `thumb_version = -1`. Phase 4
+  adds "add the existing item to the target folder" and encryption for a locked target folder.
 
 ## 7. Opening and closing
 

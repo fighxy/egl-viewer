@@ -136,7 +136,7 @@ The v1 media pipeline reads dimensions and makes thumbnails and palettes for JPE
 WebP, AVIF, SVG, TIFF, BMP and the composite image of PSD files, with pure Rust crates
 (architecture.md §15.4). Any other file can still be added; it is stored and shown with an
 extension placeholder, so imports from Eagle never drop files. Video (bundled `ffmpeg`), audio,
-PDF, fonts and RAW come later.
+PDF, fonts and RAW come later. (AVIF previews are postponed: D-035.)
 
 ## D-016 Library folders end in `.eglib` (2026-10-28)
 
@@ -396,3 +396,63 @@ replace them when the registry is reachable. No new npm package was needed.
 - Checked on Linux under Xvfb with the real app: create, quit, restart (reopened), a second
   instance (Welcome notice, then read-only with Open for editing), `kill -9` and restart (lock free,
   unclean close detected). The Windows checks of the done check are still open.
+
+## D-033 Dependencies of phase 2 (2026-10-28)
+
+The newest versions older than the minimum release age (D-002, D-003):
+
+| Where | Package | Version | Why |
+|---|---|---|---|
+| `media` | `image`, default features off: `bmp`, `gif`, `jpeg`, `png`, `tiff`, `webp` | 0.25.10 | Decoding raster images and the EXIF orientation; no AVIF encoder (it would pull `rav1e`) |
+| `media` | `fast_image_resize` | 6.1.0 | Lanczos3 downscaling with alpha handled |
+| `media` | `resvg` | 0.49.0 | SVG rendering, system fonts for text |
+| `media` | `psd` | 0.3.5 | The composite image of PSD files |
+| `media` | `kamadak-exif` | 0.6.1 | EXIF from JPEG, TIFF, PNG and WebP |
+| `media` | `webp`, default features off | 0.3.1 | Lossy WebP thumbnails through libwebp (D-036) |
+| `library-native` | `rayon` | 1.12.0 | The thread pool for previews (at most four threads) |
+| app | `arboard` | 3.7.0 | Reading copied files and images from the clipboard in Rust, so no bytes cross the WebView |
+
+## D-034 Media test files are made in code (2026-10-28)
+
+Architecture §13 planned small binary files in `fixtures/media/`. Instead, `media::fixtures` (behind
+the `fixtures` feature, used by the tests of `media`, `library-native` and the app) makes every v1
+format on the fly: JPEG with an EXIF block, PNG, GIF, WebP, TIFF, BMP, SVG, and a PSD written byte by
+byte. Every seed gives different pixels, so 1 000 files never collide as duplicates. The repository
+holds no binary fixtures, and a test can make as many files as it needs.
+
+## D-035 AVIF previews are postponed (2026-10-28)
+
+There is no safe, pure Rust AVIF decoder to use yet: `image` decodes AVIF only through the C
+library `dav1d` installed on the system, and `rav1d` offers dav1d's C interface, which would need
+`unsafe`. AVIF files are added like any other file, with an extension placeholder, and the add dialog
+still lists them under "Images". Revisit when a safe decoder exists, or decide to build `dav1d`
+in CI. This narrows D-015.
+
+## D-036 Thumbnails are lossy WebP through libwebp (2026-10-28)
+
+The WebP encoder of `image` writes lossless files only: a 512 px photo becomes several hundred
+kilobytes, about ten times a lossy one, which would make `thumbs/` of a large library many
+gigabytes. Thumbnails are encoded at quality 80 by the `webp` crate, which builds libwebp from C
+(like the bundled SQLite). Opaque images are encoded without an alpha channel.
+
+## D-037 Phase 2 as built (2026-10-28)
+
+- **The duplicate question:** the first duplicate of a batch pauses the import and asks "Skip
+  duplicates", "Add anyway" or "Cancel import"; the answer holds for the rest of the batch. "Add the
+  existing item to the target folder" joins with folders (phase 4).
+- **Waiting for later phases:** mirroring dropped folders (phase 4), tags and rating for a batch
+  (phases 5 and 7). The add dialog is the system file picker without extra options.
+- **Paste** is Edit → Paste (`Ctrl+V`), new in the menu table of spec §7.1. Text fields keep their
+  own `Ctrl+V`. A pasted image is named `Pasted YYYY-MM-DD HH-MM-SS.png` in UTC; the time zone
+  needs a dependency that phase 2 does not otherwise need.
+- **Previews** run on a pool of at most four threads. `thumb_version = -1` marks a file that cannot
+  be decoded, so it is not tried again; previews that a crash or a cancel left undone are made the
+  next time the library opens, as a "Previews" task that does not hold back quitting.
+- **Quitting or closing while adding:** the window's close is held back and the UI asks
+  (`close-requested`); closing or switching the library asks the same in the UI.
+- **Counts** of the left bar and the toolbar arrive in phase 2 (D-032 expected them in phase 3):
+  with files going in, the screen needs to show that they did.
+- **Checks:** 1 020 files (1 000 previews, 20 PDF placeholders) in 2.6 s in a release build on Linux
+  (the ignored test `a_thousand_mixed_files`). In the real app under Xvfb: pasting an image from
+  the clipboard, adding files through the GTK file dialog, the Imports panel and the duplicate
+  question. The Windows checks are still open.

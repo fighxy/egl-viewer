@@ -27,7 +27,18 @@ const command = (id: string) => {
 
 describe("command registry", () => {
   it("shows only menus that have commands in this phase", () => {
-    expect(visibleMenus().map((menu) => menu.label)).toEqual(["File", "View", "Help"]);
+    expect(visibleMenus().map((menu) => menu.label)).toEqual(["File", "Edit", "View", "Help"]);
+  });
+
+  it("adds and pastes only into a library that can be written", () => {
+    for (const id of ["file.addFiles", "edit.paste"]) {
+      expect(availability(command(id), state())).toBe("Open a library first.");
+      expect(availability(command(id), state({ library: { ...LIBRARY, readOnly: true } }))).toBe(
+        "This library is read-only.",
+      );
+      expect(availability(command(id), state({ library: LIBRARY }))).toBe(true);
+    }
+    expect(commandForShortcut("Ctrl+V")?.id).toBe("edit.paste");
   });
 
   it("defines each shortcut once", () => {

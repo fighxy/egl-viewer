@@ -30,8 +30,15 @@ pub enum Duplicates {
 
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub enum AddOutcome {
-    Added { id: String },
-    Duplicate { existing: String, in_trash: bool },
+    /// `file` is the stored copy inside the library.
+    Added {
+        id: String,
+        file: std::path::PathBuf,
+    },
+    Duplicate {
+        existing: String,
+        in_trash: bool,
+    },
 }
 
 /// Where a simulated crash stops `add_file`, for the recovery tests.
@@ -163,7 +170,7 @@ impl Library {
             }
             return Err(error);
         }
-        Ok(Some(AddOutcome::Added { id }))
+        Ok(Some(AddOutcome::Added { id, file: target }))
     }
 
     fn find_by_hash(&self, hash: &blake3::Hash) -> Result<Option<(String, bool)>> {

@@ -1,5 +1,5 @@
 import { useEffect } from "react";
-import { keyName } from "@/lib/desktop";
+import { isEditable, keyName } from "@/lib/desktop";
 import {
   availability,
   COMMANDS,
@@ -8,6 +8,9 @@ import {
   type CommandState,
   commandForShortcut,
 } from "./registry";
+
+/** Text fields keep their own cut, copy, paste, select all and undo. */
+const TEXT_KEYS = new Set(["Ctrl+A", "Ctrl+C", "Ctrl+V", "Ctrl+X", "Ctrl+Z", "Ctrl+Y"]);
 
 /** Runs registry commands from the keyboard while `enabled` (off while a dialog is open). */
 export function useShortcuts(
@@ -19,7 +22,9 @@ export function useShortcuts(
   useEffect(() => {
     if (!enabled) return;
     const onKeyDown = (event: KeyboardEvent) => {
-      const command = commandForShortcut(keyName(event), commands);
+      const name = keyName(event);
+      if (TEXT_KEYS.has(name) && isEditable(event.target)) return;
+      const command = commandForShortcut(name, commands);
       if (!command?.run || availability(command, state) !== true) return;
       event.preventDefault();
       command.run(actions);

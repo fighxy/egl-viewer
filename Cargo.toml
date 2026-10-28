@@ -14,11 +14,19 @@ publish = false
 [workspace.dependencies]
 library-core = { path = "crates/library-core" }
 library-native = { path = "crates/library-native" }
+media = { path = "crates/media" }
 eagle-api = { path = "crates/eagle-api" }
 app-store = { path = "crates/app-store" }
 
+arboard = "3.7.0"
 async-trait = "0.1.92"
 blake3 = "1.8.7"
+fast_image_resize = "6.1.0"
+image = { version = "0.25.10", default-features = false, features = ["bmp", "gif", "jpeg", "png", "tiff", "webp"] }
+kamadak-exif = "0.6.1"
+psd = "0.3.5"
+rayon = "1.12.0"
+resvg = "0.49.0"
 rusqlite = { version = "0.41.0", features = ["bundled"] }
 serde = { version = "1.0.229", features = ["derive"] }
 serde_json = "1.0.154"
@@ -32,6 +40,7 @@ tracing = "0.1.44"
 tracing-subscriber = { version = "0.3.23", features = ["env-filter"] }
 ts-rs = { version = "12.0.1", features = ["serde-json-impl"] }
 ulid = "3.0.0"
+webp = { version = "0.3.1", default-features = false }
 winreg = "0.56.0"
 
 [workspace.lints.rust]
