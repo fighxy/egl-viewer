@@ -155,6 +155,16 @@ fn pasted_pixels_become_a_png() {
 }
 
 #[test]
+fn a_thumbnail_becomes_a_small_png_to_drag() {
+    let rendered =
+        crate::render_bytes(&fixtures::raster(ImageFormat::Png, 640, 320, 3), "png").unwrap();
+    let png = crate::drag_image(&rendered.thumbnail.webp, 96).unwrap();
+    let decoded = image::load_from_memory_with_format(&png, ImageFormat::Png).unwrap();
+    assert_eq!((decoded.width(), decoded.height()), (96, 48));
+    assert!(crate::drag_image(b"not an image", 96).is_err());
+}
+
+#[test]
 fn extensions_are_matched_without_case() {
     assert_eq!(kind("JPG"), Kind::Raster);
     assert_eq!(kind("Tiff"), Kind::Raster);

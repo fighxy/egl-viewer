@@ -8,6 +8,7 @@ import {
   type ImportProgress,
   type Item,
   type ItemCell,
+  type LibraryCheck,
   type LibraryInfo,
 } from "@/ipc";
 
@@ -20,6 +21,19 @@ export const LIBRARY: LibraryInfo = {
   readOnly: false,
   readOnlyReason: null,
   holder: null,
+};
+
+/** What Check Library says about a library without problems. */
+export const CLEAN_CHECK: LibraryCheck = {
+  items: 3,
+  databaseOk: true,
+  databaseProblems: [],
+  missingCount: 0,
+  missing: [],
+  orphanCount: 0,
+  orphanBytes: 0,
+  orphans: [],
+  orphanThumbnails: 0,
 };
 
 /** The 12 words the mocked locks hand out. */
@@ -65,6 +79,29 @@ export function mockBackend(overrides: Record<string, Handler> = {}): Call[] {
     apply_item_edit: () => null,
     apply_batch_edit: () => 0,
     reorder_items: () => null,
+    undo: () => null,
+    undo_status: () => null,
+    delete_permanently: () => 0,
+    empty_trash: () => 0,
+    open_original: () => null,
+    reveal_originals: () => null,
+    copy_originals: () => 1,
+    open_link: () => null,
+    start_drag: () => null,
+    reveal_library: () => null,
+    backups: () => [],
+    back_up_now: () => ({
+      name: "library-2026-10-29-120000.db",
+      kind: "manual",
+      createdAt: Date.UTC(2026, 9, 29, 12),
+      size: 4096,
+    }),
+    restore_backup: () => LIBRARY,
+    rename_library: (args) => ({ ...LIBRARY, name: String(args.name) }),
+    check_library: () => CLEAN_CHECK,
+    repair_library: () => CLEAN_CHECK,
+    library_stats: () => ({ originals: 1000, thumbnails: 100, database: 50, backups: 25 }),
+    rebuild_thumbnails: () => 0,
     selection_tags: () => ({ items: 0, tags: [] }),
     tag_vocabulary: () => [],
     tag_groups: () => [],
@@ -188,6 +225,7 @@ export function cell(n: number, change: Partial<ItemCell> = {}): ItemCell {
     hasThumbnail: true,
     thumbVersion: 1,
     addedAt: Date.UTC(2026, 9, 28, 10) + n,
+    deletedAt: null,
     tags: [],
     ...change,
   };
@@ -232,6 +270,7 @@ export function item(n: number, change: Partial<Item> = {}): Item {
     noThumbnail: false,
     thumbVersion: 1,
     isDeleted: false,
+    deletedAt: null,
     ...change,
   };
 }

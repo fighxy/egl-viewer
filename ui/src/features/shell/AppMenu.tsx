@@ -5,6 +5,7 @@ import {
   type Command,
   type CommandActions,
   type CommandState,
+  labelOf,
   type SubmenuItem,
   visibleMenus,
 } from "@/commands/registry";
@@ -66,6 +67,7 @@ function MenuCommand({
   const disabled = available !== true;
   const title = disabled ? available : undefined;
   const shortcut = command.shortcut && <MenubarShortcut>{command.shortcut}</MenubarShortcut>;
+  const label = labelOf(command, state);
 
   if (command.submenu) {
     return (
@@ -88,7 +90,7 @@ function MenuCommand({
         title={title}
         onSelect={() => command.run?.(actions)}
       >
-        {command.label}
+        {label}
         {shortcut}
       </MenubarCheckboxItem>
     );
@@ -96,7 +98,7 @@ function MenuCommand({
 
   return (
     <MenubarItem disabled={disabled} title={title} onSelect={() => command.run?.(actions)}>
-      {command.label}
+      {label}
       {shortcut}
     </MenubarItem>
   );

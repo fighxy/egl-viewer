@@ -13,11 +13,12 @@ use app_store::{
     display_path,
 };
 use library_core::{
-    DuplicateNotice, ExtensionCount, Folder, FolderChange, FolderIndex, ImportKind, ImportProgress,
-    ImportState, ImportTicket, Item, ItemCell, ItemEdit, ItemId, LibraryCounts, LibraryInfo,
-    LibraryQuery, LibrarySource, LocationProblem, Progress, ReadOnlyReason, RecoveryKey,
-    SelectionTags, SmartFolder, SmartFolderChange, SourceError, Tag, TagGroup, TagGroupChange,
-    Thumbnail, Views, rules_from_query,
+    Backup, DuplicateNotice, ExtensionCount, Folder, FolderChange, FolderIndex, ImportKind,
+    ImportProgress, ImportState, ImportTicket, Item, ItemCell, ItemEdit, ItemId, LibraryCheck,
+    LibraryCounts, LibraryInfo, LibraryQuery, LibrarySource, LibraryStats, LocationProblem,
+    Progress, ReadOnlyReason, RecoveryKey, RepairOptions, SelectionTags, SmartFolder,
+    SmartFolderChange, SourceError, Tag, TagGroup, TagGroupChange, Thumbnail, UndoStack,
+    UndoStatus, Views, rules_from_query,
 };
 use library_native::{
     DuplicateChoice, DuplicatePolicy, ImportObserver, ImportTarget, Library, NativeSource,
@@ -70,6 +71,8 @@ pub struct Session {
     imports: Arc<Mutex<Imports>>,
     /// Views of the open library; dropped when it closes.
     views: Arc<Mutex<Views>>,
+    /// How to take back the last item edits of the open library (docs/spec.md §6).
+    undo: Mutex<UndoStack>,
     emit: Emit,
 }
 
@@ -162,6 +165,7 @@ impl Session {
             library: Mutex::new(None),
             imports: Arc::new(Mutex::new(Imports::default())),
             views: Arc::new(Mutex::new(Views::default())),
+            undo: Mutex::new(UndoStack::default()),
             emit,
         }
     }
@@ -216,6 +220,7 @@ impl Session {
         // The previous library closes here, after the new one opened.
         let previous = lock(&self.library).replace(Arc::clone(&library));
         lock(&self.views).clear();
+        lock(&self.undo).clear();
         drop(previous);
         if let Err(error) =
             self.store
@@ -428,35 +433,181 @@ impl Session {
         Ok(tree)
     }
 
+    /// Edits one item; `Ctrl+Z` can take the edit back.
     pub fn apply_item_edit(&self, id: &str, edit: ItemEdit) -> Result<Item, SourceError> {
-        let item = ready(self.source()?.apply_item_edit(&ItemId(id.to_owned()), edit))?;
+        let ids = [ItemId(id.to_owned())];
+        let before = self.writable_library()?.item_states(&ids)?;
+        let item = ready(self.source()?.apply_item_edit(&ids[0], edit.clone()))?;
+        lock(&self.undo).push(&edit, &before);
         self.refresh_views();
         Ok(item)
     }
 
-    /// One edit for a selection; returns how many items changed.
+    /// One edit for a selection; returns how many items changed. `Ctrl+Z` can take it back.
     pub fn apply_batch_edit(
         &self,
         target: ItemsTarget,
         edit: ItemEdit,
     ) -> Result<u32, SourceError> {
-        let ids = if target.all {
-            let view_id = target
-                .view_id
-                .ok_or_else(|| SourceError::Invalid("Select All needs its view.".into()))?;
-            let mut views = lock(&self.views);
-            let view = views.get(view_id).ok_or(SourceError::NotFound)?;
-            let except: std::collections::HashSet<&ItemId> = target.ids.iter().collect();
-            view.ids(0, view.total())
-                .into_iter()
-                .filter(|id| !except.contains(id))
-                .collect()
-        } else {
-            target.ids
-        };
-        let edited = ready(self.source()?.apply_batch_edit(&ids, edit))?;
+        let ids = self.target_ids(target)?;
+        let before = self.writable_library()?.item_states(&ids)?;
+        let edited = ready(self.source()?.apply_batch_edit(&ids, edit.clone()))?;
+        lock(&self.undo).push(&edit, &before);
         self.refresh_views();
         Ok(edited)
+    }
+
+    /// The ids of a selection: listed, or a whole view except some.
+    fn target_ids(&self, target: ItemsTarget) -> Result<Vec<ItemId>, SourceError> {
+        if !target.all {
+            return Ok(target.ids);
+        }
+        let view_id = target
+            .view_id
+            .ok_or_else(|| SourceError::Invalid("Select All needs its view.".into()))?;
+        let mut views = lock(&self.views);
+        let view = views.get(view_id).ok_or(SourceError::NotFound)?;
+        let except: std::collections::HashSet<&ItemId> = target.ids.iter().collect();
+        Ok(view
+            .ids(0, view.total())
+            .into_iter()
+            .filter(|id| !except.contains(id))
+            .collect())
+    }
+
+    /// `Ctrl+Z`: applies the inverse of the last item edit as new edits. Returns what was taken
+    /// back, or `None` when there is nothing to undo.
+    pub fn undo(&self) -> Result<Option<UndoStatus>, SourceError> {
+        let source = self.source()?;
+        let Some(entry) = lock(&self.undo).pop() else {
+            return Ok(None);
+        };
+        let mut result = Ok(Some(entry.status()));
+        for step in entry.steps {
+            if let Err(error) = ready(source.apply_batch_edit(&step.ids, step.edit)) {
+                result = Err(error);
+                break;
+            }
+        }
+        self.refresh_views();
+        result
+    }
+
+    /// What `Ctrl+Z` would take back, for the Edit menu.
+    pub fn undo_status(&self) -> Option<UndoStatus> {
+        lock(&self.undo).status()
+    }
+
+    /// Delete Permanently: the selected items of the trash, with their files. No undo.
+    pub fn delete_permanently(&self, target: ItemsTarget) -> Result<u32, SourceError> {
+        let ids = self.target_ids(target)?;
+        let removed = ready(self.source()?.delete_items(&ids))?;
+        self.refresh_views();
+        Ok(removed)
+    }
+
+    /// Empty Trash, with the files. No undo.
+    pub fn empty_trash(&self) -> Result<u32, SourceError> {
+        let removed = ready(self.source()?.empty_trash())?;
+        self.refresh_views();
+        Ok(removed)
+    }
+
+    /// The originals of the selected items, for Open, Show in Explorer, Copy File and dragging
+    /// out. Refused for an item of a locked folder: its file is encrypted.
+    pub fn original_paths(&self, ids: &[ItemId]) -> Result<Vec<PathBuf>, SourceError> {
+        let library = self.current_library().ok_or_else(no_library)?;
+        ids.iter().map(|id| library.original_path(&id.0)).collect()
+    }
+
+    /// The image under the cursor while an item is dragged out: its thumbnail, small.
+    pub fn drag_image(&self, id: &ItemId) -> Option<Vec<u8>> {
+        let thumbnail = self.current_library()?.thumbnail(&id.0).ok()??;
+        media::drag_image(&thumbnail.bytes, 96).ok()
+    }
+
+    /// The library folder, for Library → Show in Explorer.
+    pub fn library_folder(&self) -> Result<PathBuf, SourceError> {
+        Ok(self
+            .current_library()
+            .ok_or_else(no_library)?
+            .root()
+            .to_path_buf())
+    }
+
+    pub fn backups(&self) -> Result<Vec<Backup>, SourceError> {
+        self.current_library().ok_or_else(no_library)?.backups()
+    }
+
+    pub fn back_up_now(&self) -> Result<Backup, SourceError> {
+        self.writable_library()?.back_up_now()
+    }
+
+    /// Restores a backup into the open library. Imports stop first; views, undo and unlocked
+    /// folders start over, as after opening the library.
+    pub fn restore_backup(&self, name: &str) -> Result<LibraryInfo, SourceError> {
+        let library = self.writable_library()?;
+        self.stop_imports();
+        library.restore_backup(name)?;
+        lock(&self.views).clear();
+        lock(&self.undo).clear();
+        if library
+            .pending_previews(1)
+            .is_ok_and(|next| !next.is_empty())
+        {
+            self.start(
+                Arc::clone(&library),
+                ImportKind::Previews,
+                make_pending_previews,
+            );
+        }
+        Ok(library.info())
+    }
+
+    pub fn rename_library(&self, name: &str) -> Result<LibraryInfo, SourceError> {
+        let library = self.writable_library()?;
+        library.rename_library(name)?;
+        let info = library.info();
+        if let Some(path) = &info.path
+            && let Err(error) =
+                self.store
+                    .remember_opened(path, &info.name, info.id.as_deref(), now_ms())
+        {
+            tracing::warn!("cannot update recent libraries: {error}");
+        }
+        Ok(info)
+    }
+
+    pub fn check_library(&self) -> Result<LibraryCheck, SourceError> {
+        self.current_library()
+            .ok_or_else(no_library)?
+            .check_library()
+    }
+
+    pub fn repair_library(&self, options: RepairOptions) -> Result<LibraryCheck, SourceError> {
+        let check = self.writable_library()?.repair_library(options)?;
+        self.refresh_views();
+        Ok(check)
+    }
+
+    pub fn library_stats(&self) -> Result<LibraryStats, SourceError> {
+        self.current_library().ok_or_else(no_library)?.stats()
+    }
+
+    /// Rebuild Thumbnails: every preview is made again by the preview task. Returns how many
+    /// items wait.
+    pub fn rebuild_thumbnails(&self) -> Result<u32, SourceError> {
+        let library = self.writable_library()?;
+        let waiting = library.rebuild_previews()?;
+        self.refresh_views();
+        let previewing = lock(&self.imports)
+            .running
+            .values()
+            .any(|running| running.kind == ImportKind::Previews);
+        if waiting > 0 && !previewing {
+            self.start(library, ImportKind::Previews, make_pending_previews);
+        }
+        Ok(waiting)
     }
 
     /// The tag vocabulary with item counts (trash excluded).
@@ -907,6 +1058,7 @@ impl Session {
     fn take_library(&self) -> Option<Library> {
         self.stop_imports();
         lock(&self.views).clear();
+        lock(&self.undo).clear();
         let library = lock(&self.library).take()?;
         // Import threads hold their clones only while they run.
         Arc::try_unwrap(library).ok()
@@ -1962,5 +2114,139 @@ mod tests {
         let path = f.session.recent_libraries()[0].path.clone();
         f.session.forget_recent_library(&path).unwrap();
         assert!(f.session.recent_libraries().is_empty());
+    }
+
+    #[test]
+    fn undo_takes_back_the_last_edits_one_by_one() {
+        let (f, events) = recording();
+        f.session
+            .create_library(&f.home.path().to_string_lossy(), "Undo")
+            .unwrap();
+        let ticket = f.session.add_files(images(f.home.path(), 2), None).unwrap();
+        finished(&f.session, ticket.id);
+        let all = f
+            .session
+            .open_view(LibraryQuery::default(), &|_, _| {})
+            .unwrap();
+        let ids = f.session.view_ids(all.view_id, 0, 2).unwrap();
+        let id = ids[0].0.clone();
+        assert_eq!(f.session.undo_status(), None);
+
+        f.session
+            .apply_item_edit(&id, ItemEdit::Rename("Renamed".into()))
+            .unwrap();
+        f.session
+            .apply_item_edit(&id, ItemEdit::SetStar(4))
+            .unwrap();
+        f.session
+            .apply_batch_edit(
+                ItemsTarget {
+                    view_id: Some(all.view_id),
+                    all: true,
+                    ids: Vec::new(),
+                },
+                ItemEdit::Trash,
+            )
+            .unwrap();
+        assert!(last_totals(&events).contains(&ViewOpened {
+            view_id: all.view_id,
+            total: 0
+        }));
+        assert_eq!(
+            f.session.undo_status(),
+            Some(UndoStatus {
+                kind: library_core::EditKind::Trash,
+                items: 2
+            })
+        );
+
+        let undone = f.session.undo().unwrap().unwrap();
+        assert_eq!(undone.kind, library_core::EditKind::Trash);
+        assert!(last_totals(&events).contains(&ViewOpened {
+            view_id: all.view_id,
+            total: 2
+        }));
+        f.session.undo().unwrap();
+        assert_eq!(f.session.item_detail(&id).unwrap().unwrap().star, 0);
+        f.session.undo().unwrap();
+        let item = f.session.item_detail(&id).unwrap().unwrap();
+        assert_ne!(item.name, "Renamed");
+        assert!(f.session.original_paths(&ids).unwrap()[0].is_file());
+        assert_eq!(f.session.undo().unwrap(), None);
+    }
+
+    #[test]
+    fn the_trash_empties_for_good_and_takes_no_undo() {
+        let f = fixture();
+        f.session
+            .create_library(&f.home.path().to_string_lossy(), "Trash")
+            .unwrap();
+        let ticket = f.session.add_files(images(f.home.path(), 3), None).unwrap();
+        finished(&f.session, ticket.id);
+        let all = f
+            .session
+            .open_view(LibraryQuery::default(), &|_, _| {})
+            .unwrap();
+        let ids = f.session.view_ids(all.view_id, 0, 3).unwrap();
+        let paths = f.session.original_paths(&ids).unwrap();
+        let target = |ids: &[ItemId]| ItemsTarget {
+            view_id: None,
+            all: false,
+            ids: ids.to_vec(),
+        };
+        f.session
+            .apply_batch_edit(target(&ids[..2]), ItemEdit::Trash)
+            .unwrap();
+        assert_eq!(f.session.delete_permanently(target(&ids[..1])).unwrap(), 1);
+        assert!(!paths[0].exists());
+        assert_eq!(f.session.empty_trash().unwrap(), 1);
+        assert!(!paths[1].exists() && paths[2].exists());
+        assert_eq!(f.session.counts().unwrap().trash, 0);
+        // The trash edit is still the last undoable one; its items are gone, so nothing returns.
+        f.session.undo().unwrap();
+        assert_eq!(f.session.counts().unwrap().all, 1);
+    }
+
+    #[test]
+    fn restoring_a_backup_starts_the_library_over() {
+        let f = fixture();
+        f.session
+            .create_library(&f.home.path().to_string_lossy(), "Backups")
+            .unwrap();
+        let backup = f.session.back_up_now().unwrap();
+        let ticket = f.session.add_files(images(f.home.path(), 2), None).unwrap();
+        finished(&f.session, ticket.id);
+        let all = f
+            .session
+            .open_view(LibraryQuery::default(), &|_, _| {})
+            .unwrap();
+        let ids = f.session.view_ids(all.view_id, 0, 1).unwrap();
+        f.session
+            .apply_item_edit(&ids[0].0, ItemEdit::SetStar(3))
+            .unwrap();
+        assert!(f.session.backups().unwrap().len() >= 2);
+
+        let info = f.session.restore_backup(&backup.name).unwrap();
+        assert_eq!(info.name, "Backups");
+        assert_eq!(f.session.counts().unwrap().all, 0);
+        assert_eq!(f.session.undo_status(), None);
+        assert!(matches!(
+            f.session.view_range(all.view_id, 0, 1),
+            Err(SourceError::NotFound)
+        ));
+        let check = f.session.check_library().unwrap();
+        assert_eq!(check.orphan_count, 2);
+        let repaired = f
+            .session
+            .repair_library(RepairOptions {
+                orphans: true,
+                missing: true,
+            })
+            .unwrap();
+        assert!(repaired.is_clean());
+        assert!(f.session.library_stats().unwrap().backups > 0);
+        let renamed = f.session.rename_library("Renamed").unwrap();
+        assert_eq!(renamed.name, "Renamed");
+        assert_eq!(f.session.recent_libraries()[0].name, "Renamed");
     }
 }

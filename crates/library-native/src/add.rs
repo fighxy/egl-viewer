@@ -16,6 +16,7 @@ use crate::folders::{add_link, ensure_tag};
 use crate::fsutil::rename_with_retry;
 use crate::library::Library;
 use crate::locks::{LockMap, VISIBLE};
+use crate::name::{FORBIDDEN, RESERVED};
 use crate::recover::{library_file, remove_with_empty_parent};
 use crate::seal::{copy_hash_encrypt, sealed_stored_path};
 use crate::time::{now_ms, system_ms};
@@ -433,6 +434,43 @@ fn name_and_ext(file_name: &str) -> (String, String) {
     (name, ext)
 }
 
+/// The stored file name for an item name, which the user may have typed: characters Windows
+/// refuses become `_`, the stem is cut to 100 UTF-16 units without trailing dots or spaces, and
+/// a device name gets a leading `_`. `ext` is the item's extension.
+pub(crate) fn file_name_for(name: &str, ext: &str) -> String {
+    let mut units = 0;
+    let cut: String = name
+        .chars()
+        .map(|c| {
+            if c.is_control() || FORBIDDEN.contains(&c) {
+                '_'
+            } else {
+                c
+            }
+        })
+        .take_while(|c| {
+            units += c.len_utf16();
+            units <= MAX_STORED_STEM
+        })
+        .collect();
+    let mut stem = cut.trim_end_matches(['.', ' ']).to_owned();
+    if stem.trim().is_empty() {
+        stem = "file".to_owned();
+    }
+    let device = stem.split('.').next().unwrap_or_default().trim_end();
+    if RESERVED
+        .iter()
+        .any(|reserved| reserved.eq_ignore_ascii_case(device))
+    {
+        stem.insert(0, '_');
+    }
+    if ext.is_empty() {
+        stem
+    } else {
+        format!("{stem}.{ext}")
+    }
+}
+
 /// The original name with the part before the extension cut to 100 UTF-16 units.
 pub(crate) fn stored_file_name(file_name: &str) -> String {
     let path = Path::new(file_name);
@@ -488,5 +526,21 @@ mod tests {
         assert_eq!(stored, format!("{}.png", "я".repeat(100)));
         let emoji = format!("{}.png", "🖼".repeat(60));
         assert_eq!(stored_file_name(&emoji), format!("{}.png", "🖼".repeat(50)));
+    }
+
+    #[test]
+    fn typed_names_become_file_names_windows_accepts() {
+        assert_eq!(file_name_for("IMG_1042", "jpg"), "IMG_1042.jpg");
+        assert_eq!(file_name_for("a/b:c*d?", "png"), "a_b_c_d_.png");
+        assert_eq!(file_name_for("end. . ", "png"), "end.png");
+        assert_eq!(file_name_for("...", "png"), "file.png");
+        assert_eq!(file_name_for("con", "jpg"), "_con.jpg");
+        assert_eq!(file_name_for("LPT1.draft", "jpg"), "_LPT1.draft.jpg");
+        assert_eq!(file_name_for("console", "jpg"), "console.jpg");
+        assert_eq!(file_name_for("tab\there", ""), "tab_here");
+        assert_eq!(
+            file_name_for(&"я".repeat(150), "png"),
+            format!("{}.png", "я".repeat(100))
+        );
     }
 }

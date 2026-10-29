@@ -104,7 +104,7 @@ The exact layout, the schema and the protocols are in [`library-format.md`](libr
 - **Local disks only.** Cloud sync tools (OneDrive, Dropbox, Google Drive, iCloud, Syncthing and similar) copy a live database mid-write and corrupt it, and SQLite's WAL mode does not work over a network share. A new library cannot be created in a sync folder, on a network path, or inside another library or an Eagle `.library` folder. A library found in a sync folder opens read-only, with a message to move the folder out while the app is closed; one on a network path is refused. Detection is best effort (D-021).
 - **Default location** for new libraries: `%USERPROFILE%\egl-library`. Not Pictures or Documents: Windows' OneDrive folder backup often moves them into OneDrive, and the app never puts a library into OneDrive on its own. The Create dialog can pick another local folder, and the default itself is a preference the user can change later (D-021).
 - **Versioning.** A library made by a newer app version is refused with a clear message, and nothing is written to it. An older library is migrated forward after an automatic backup.
-- **Backups.** A copy of `library.db` in `backups/` when the library opens (at most once a day) and before every migration; the last 10 are kept.
+- **Backups.** A copy of `library.db` in `backups/` when the library opens (at most once a day), before every migration, on Back Up Now and before a restore; the last 10 are kept. Library Settings restores one into the open library, after backing up the current state; files are not part of a backup, so Check Library then lists files without an item and items without a file (D-051).
 
 ### Items
 
@@ -148,7 +148,7 @@ The exact layout, the schema and the protocols are in [`library-format.md`](libr
 
 ### Trash
 
-Trashed items disappear from every scope except Trash. Trash shows them with the date of deletion. Restore puts an item back with its folders and tags. Delete permanently and Empty trash remove the rows and the files after a confirmation; there is no undo.
+Trashed items disappear from every scope except Trash. Trash shows them with the date of deletion. Restore puts an item back with its folders and tags. Delete permanently and Empty trash remove the rows and the files after a confirmation; there is no undo. Items of a locked folder stay in the trash until the folder is unlocked (D-051).
 
 ### Smart folders
 
@@ -300,10 +300,10 @@ Changing chips or sort on the same scope does not reload the scope.
 - **Several items:** with a multi-selection in the grid, add or remove tags, add to or remove from folders, set the rating, move to the trash. One transaction per batch; progress for large batches.
 - **Optimistic UI:** the UI shows the intended state at once. On an error, Rust returns the stored state, the view is recomputed and the UI rolls back.
 - **Validation before writing:** rating 0–5, name not empty, name and note at most 10 000 UTF-16 units, no empty tags or folder ids.
-- **Undo:** the last edit (not a permanent delete) can be undone with `Ctrl+Z` while the window is open. Later: a longer history from `change_log`.
+- **Undo:** the last item edits (not a permanent delete) can be undone with `Ctrl+Z`, one at a time, while the library is open: up to 50, kept in memory (D-050). Folder and tag-vocabulary changes are not undone. Later: a longer history from `change_log`.
 - **Folders:** create, rename, description, colour, move (drag in the tree or "Move to…"), reorder siblings, delete, lock and unlock, set the sort override.
 - **Tags:** rename, merge, delete everywhere; tag groups: create, rename, colour, add and remove tags, delete.
-- **Open:** "Open with the default app" and "Show in Explorer" for the original file; "Copy file" puts the file on the clipboard; dragging an item out of the window drops the original file into other apps.
+- **Open:** "Open with the default app" and "Show in Explorer" for the original file; "Copy file" puts the file on the clipboard; dragging the preview (or a selection's stack of thumbnails) out of the right bar drops the original files into other apps. Items of locked folders stay inside: their originals are encrypted (D-052).
 
 ---
 
@@ -423,6 +423,7 @@ Link     https://…  ↗
 - **One item:** as above. A field saves on `Enter` or when focus leaves it, and `Esc` reverts it; there is no Save button. The UI shows the change at once and rolls back on an error (section 6). Tags get vocabulary suggestions and accept new names; the folder picker is the tree with multi-select; the link opens in the system browser. Fields are disabled in a read-only library.
 - **Several items:** "N items selected" with a stack of thumbnails (phase 7; phase 4 has the count and Add to folder…). Tags on every selected item look normal, tags on only some of them are dimmed. Batch rating, add or remove tags, add to or remove from folders, move to the trash; the total size.
 - **Nothing selected:** the open folder's properties (name, description, colour, folder tags, sort override); outside a folder, "Select an item".
+- **In the Trash:** Restore and Delete permanently instead of the file buttons, and "In the trash since …".
 
 **Status bar:** the item count, the selection count, import progress (a click opens the Imports panel), the read-only badge.
 
@@ -929,6 +930,8 @@ Done when: search inside a folder never shows items from other folders; `a OR b`
 
 ### Phase 7 — Editing and trash
 
+Implemented 2026-10-29 (D-049 to D-052).
+
 - The remaining item fields: name (renames the stored file), note, link, rating; batch edits on a selection; undo of the last edit.
 - Trash: move, restore, delete permanently, empty (files removed).
 - Open with the default app, show in Explorer, copy file, drag out of the window.
@@ -1053,6 +1056,10 @@ Native library (`library-native`, `media`), with temporary folders:
 | Tag rename into an existing tag | Merged, no duplicate rows |
 | Search syntax `a OR b`, `-a`, parentheses, Cyrillic | Correct FTS5 query and results |
 | Trash, restore, empty | Folders and tags restored; files removed on empty |
+| Rename an item, also with a crash before or after the row commits | The original keeps its bytes under the new name; after the next open exactly one name is left |
+| Back up, change things, restore the backup | Items, folders and fields as they were; the lock still held; a backup of the state before; an older backup migrated |
+| Check Library after deleting an original and adding a stray file | Both reported; repair removes only what was asked |
+| Undo after rating, renaming, trashing a selection | Each item back to its own earlier value, one edit per `Ctrl+Z` |
 
 Settings (`app-store`), with temporary folders:
 

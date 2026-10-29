@@ -167,7 +167,9 @@ describe("Tag editor", () => {
     render(<App />);
     fireEvent.mouseDown(await screen.findByRole("gridcell", { name: "image-0" }));
     const panel = details();
-    await waitFor(() => expect(panel).toHaveTextContent("image-0"));
+    await waitFor(() =>
+      expect(within(panel).getByRole("textbox", { name: "Name" })).toHaveValue("image-0"),
+    );
     fireEvent.mouseDown(screen.getByRole("gridcell", { name: "image-1" }), { ctrlKey: true });
     await waitFor(() => expect(panel).toHaveTextContent("2 items selected"));
     fireEvent.mouseDown(screen.getByRole("gridcell", { name: "image-2" }), { ctrlKey: true });

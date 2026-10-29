@@ -797,3 +797,125 @@ unoptimised, one Argon2id of 64 MiB and the X25519 of every item took seconds.
   Type filter listed the library's extensions with counts; Type GIF (1 250 items) saved as a
   smart folder opened with the same 1 250; adding "Name contains 99" in the editor recomputed it
   to 21. The Windows checks are still open.
+
+## D-049 Dependencies of phase 7 (2026-10-29)
+
+The newest versions older than the minimum release age (D-002, D-003):
+
+| Where | Package | Version | Why |
+|---|---|---|---|
+| Rust | `tauri-plugin-opener` | 2.7.2 | Open with the default app, Show in Explorer (`SHOpenFolderAndSelectItems` on Windows) and links in the browser. Used as a library: its free functions only. The plugin is not registered, so the WebView gets no opener commands and the UI cannot open a path itself |
+| Rust | `drag` | 2.1.1 | Dragging originals out of the window (OLE `DoDragDrop` on Windows, GTK on Linux). It brings `windows` 0.52 next to Tauri's newer `windows`; only a second copy at build time |
+
+`rusqlite` turns on its `backup` feature (no new crate) for restoring a backup into the open
+connection (D-051). Copy File uses `arboard`, already there for Paste.
+
+## D-050 Phase 7 item edits, renames and undo (2026-10-29)
+
+- **Name, note, link and rating** are written by `apply_batch_edit` like the other intents, in
+  one transaction for a selection, with the search row of a plaintext item. An encrypted item
+  gets its sealed fields sealed again; its original keeps its sealed name `<id>.age`.
+- **A rename renames the stored original** (spec §6) without a moment where the row points at a
+  missing file: the new name is journaled and hard-linked next to the old one, the row commits
+  (it also clears the new name from `pending_file` and journals the old one), then the old name
+  is removed and leaves the journal. A crash at any step leaves both names or one, and recovery
+  on open deletes the name no row points at. A drive without hard links (FAT32, exFAT) gets a
+  flushed copy through `files/.tmp` instead. A rename that only changes the case on a file system
+  that ignores case renames in place without the journal, because recovery would delete the one
+  file under its other spelling. An original that is missing keeps its path.
+- **Stored names come from the item name** (`file_name_for`): characters Windows refuses become
+  `_`, the stem is cut to 100 UTF-16 units without trailing dots or spaces, a device name such as
+  `CON` gets a leading `_`, and the extension is the item's. Decrypting an item uses the same rule,
+  so a name typed with `/` can no longer produce a bad path.
+- **Undo** keeps the inverse of the last 50 item edits of the session in memory (`UndoStack` in
+  `library-core`): before an edit, the session reads the items' state (`item_states`), and the
+  inverse is grouped into one batch per distinct edit (each item back to its own rating, name,
+  note, link, folder set; tags and folders added are removed again, and only those). `Ctrl+Z`
+  applies one entry as new edits; the Edit menu names it ("Undo Rating"). Folder, tag-vocabulary
+  and lock operations are not undone, nor permanent deletes; the stack empties when the library
+  closes, another one opens, or a backup is restored. Undoing Restore puts items back in the trash
+  with a new date.
+- **Optimistic fields**: the right bar shows a change at once and rolls back to the stored item
+  when Rust refuses it. A field shows its draft only while it is being edited; otherwise it always
+  shows the stored value, so a refusal that arrives before the next render is not lost.
+
+## D-051 Phase 7 trash, backups and maintenance (2026-10-29)
+
+- **Delete Permanently and Empty Trash** take only visible items of the trash. One transaction
+  deletes the rows (links, tags, comments and key wraps cascade, tags left unused go) and
+  journals the original and both preview names; the files are deleted after it commits, each
+  leaving the journal once gone. A file that cannot be deleted now (open in another app) is
+  deleted by recovery on the next open. Items of a locked folder stay in the trash until it is
+  unlocked.
+- **Backups** are `library-YYYY-MM-DD.db` (daily), `-vN` (before a migration),
+  `-HHMMSS.db` (Back Up Now) and `-HHMMSS-restore.db` (before a restore), all in UTC; the last 10
+  of all kinds are kept, by name order.
+- **Restoring a backup** keeps the library open and its lock held: the backup is checked
+  (egl-viewer's application id, a format this build knows, the same `library_id`,
+  `quick_check`), the current state is backed up first (not pruned yet, so the chosen backup
+  cannot go), then SQLite's backup API copies the backup's pages into the open connection. The
+  writer settings and `meta.open_by` are written again, an older format is migrated after its own
+  backup, unlocked folders lock again, views and undo start over. The backup's add journal is
+  dropped without deleting files: files added after the backup have no row now, and rows removed
+  for good since then point at nothing. Check Library reports both and deletes nothing unless
+  asked, because the backup made before the restore still needs those files.
+- **Check Library** runs `PRAGMA quick_check`, lists items whose original is missing (names of
+  hidden items stay empty) and files under `files/` (outside `.tmp`) and thumbnails that no item
+  or journal entry points at. It holds the connection while it walks the folders: a new file is
+  journaled before it appears, which needs the connection, so no file being added counts as
+  stray. **Repair** deletes stray files and thumbnails, or removes visible items without a file
+  for good, only what the user switches on.
+- **Rebuild Thumbnails** asks every visible item of a previewable type for its preview again,
+  files that could not be read before included, and starts the preview task. A rebuild is marked
+  by a negative `thumb_version` (`-1 - version`): the old thumbnail keeps showing under that URL
+  until the new one is written, and the new thumbnail continues the old number, so its URL is new
+  and the WebView's year-long cache cannot serve the old image. A rebuild that is cut short goes
+  on when the library opens again.
+- **Library Settings** shows the name (editable: `meta.name` only, the folder keeps its name),
+  the location with Show in Explorer, the size on disk (originals, thumbnails, database,
+  backups), the backups with Back up now and Restore (a second click confirms), Rebuild
+  thumbnails and Check library.
+
+## D-052 Phase 7 file actions and the right bar (2026-10-29)
+
+- **Files leave through Rust only.** Open with default app, Show in Explorer, Copy File and
+  dragging out take item ids; Rust finds the original inside the library folder and refuses an
+  item of a locked folder, whose original is ciphertext (a decrypted copy would put the file on
+  disk in plaintext). Links open in the browser only if they are `http` or `https`.
+- **Dragging out** starts from the right bar: the preview of one item, or the stack of thumbnails
+  of a selection, after the pointer moves a few pixels. Rust starts an OS drag of the originals
+  on the main thread with a 96 px PNG of the thumbnail. The grid keeps its own drag onto folders
+  (D-042). Files of the open library dragged back over the window get no drop overlay and are not
+  added (the import refuses them anyway).
+- **Copy File** keeps one `arboard` clipboard for the whole run: on X11 and Wayland the files stay
+  on the clipboard only while it lives; Windows keeps them on its own.
+- **The right bar** edits name, rating, note and link in place (Enter or leaving the field saves,
+  `Ctrl+Enter` in the note, `Esc` reverts; a link must be a web link). A selection shows a fanned
+  stack of its first three thumbnails, its total size (both from the view, in the selection
+  summary), a rating for all, tags, Add to folder and the buttons. In the Trash the buttons are
+  Restore and Delete permanently, and an item says since when it is there; the list's date column
+  shows the date of deletion.
+- **Menus and keys**: Edit gets Undo (`Ctrl+Z`), Copy File (`Ctrl+C`) and Move to Trash
+  (`Delete`; in the Trash, Delete Permanently…), each confirmed except Undo and Copy. `Delete` in
+  a text field or on the folder tree stays theirs. Library gets Library Settings…, Back Up Now,
+  Check Library, Rebuild Thumbnails and Show in Explorer. The grid and the list have a right-click
+  menu (Preview, Open with Default App, Show in Explorer, Copy File, Move to Trash; in the Trash,
+  Restore and Delete Permanently); a right click on an item outside the selection selects it.
+  The Trash's toolbar has Empty Trash, only its icon on a narrow toolbar (as the size slider,
+  D-048).
+- **Fixed on the way:** switching from the list to the grid after starting in the list gave
+  zero-width cells. The scroll container moved in the tree between the two modes, so it was
+  mounted again while the width observer still watched the old, detached element. It now stays in
+  one place for both modes.
+- **Checks:** the 10 000-item demo library in the real app under Xvfb: a rename to
+  `Poster: final?` stored `Poster_ final_.psd` with the thumbnail still shown and the journal
+  empty; Undo Rating and `Ctrl+Z` brought back the rating and the old file name; three items went
+  to the trash with Delete and a confirmation (counts of All, folders and tags followed), the Trash
+  list showed the date of deletion, Restore brought back folders and tags, Empty Trash removed the
+  item folders and thumbnails from disk; Back Up Now, a rename, then Restore brought back the
+  earlier name, Check Library reported the one missing original and the one stray file, and
+  restoring the "before a restore" backup made the check clean again; Copy File put a
+  `text/uri-list` on the X clipboard; the right-click menu selected its item; dragging the preview
+  started an OS drag with the thumbnail; Rebuild Thumbnails moved all 9 998 thumbnails to version
+  2 and went on after a restart. The Windows checks (Explorer, the default app, dropping into other
+  apps) are still open.

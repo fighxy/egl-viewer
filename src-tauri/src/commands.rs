@@ -1,17 +1,19 @@
 //! IPC commands. Each one parses input, calls the core and returns a UI-shaped result.
 
 use std::path::PathBuf;
+use std::sync::{Mutex, PoisonError};
 
 use app_store::{ConnectionSettings, Preferences, RecentLibrary};
 use library_core::{
-    ExtensionCount, Folder, FolderChange, ImportProgress, ImportTicket, Item, ItemCell, ItemEdit,
-    ItemId, LibraryCounts, LibraryInfo, LibraryQuery, RecoveryKey, SelectionTags, SmartFolder,
-    SmartFolderChange, SourceError, Tag, TagGroup, TagGroupChange,
+    Backup, ExtensionCount, Folder, FolderChange, ImportProgress, ImportTicket, Item, ItemCell,
+    ItemEdit, ItemId, LibraryCheck, LibraryCounts, LibraryInfo, LibraryQuery, LibraryStats,
+    RecoveryKey, RepairOptions, SelectionTags, SmartFolder, SmartFolderChange, SourceError, Tag,
+    TagGroup, TagGroupChange, UndoStatus, is_web_link,
 };
 use library_native::DuplicateChoice;
 use serde::{Deserialize, Serialize};
 use tauri::ipc::Channel;
-use tauri::{AppHandle, Manager, State};
+use tauri::{AppHandle, Manager, State, WebviewWindow};
 use ts_rs::TS;
 
 use crate::session::{Clipboard, Session, SmartDraft, StartupResult};
@@ -329,6 +331,159 @@ pub async fn apply_batch_edit(
     edit: ItemEdit,
 ) -> Result<u32, SourceError> {
     blocking(app, move |session| session.apply_batch_edit(target, edit)).await
+}
+
+/// `Ctrl+Z`: takes back the last item edit; returns what it was, or `None`.
+#[tauri::command]
+pub async fn undo(app: AppHandle) -> Result<Option<UndoStatus>, SourceError> {
+    blocking(app, Session::undo).await
+}
+
+/// What `Ctrl+Z` would take back.
+#[tauri::command]
+pub fn undo_status(session: State<'_, Session>) -> Option<UndoStatus> {
+    session.undo_status()
+}
+
+/// Removes selected items of the trash for good, with their files.
+#[tauri::command]
+pub async fn delete_permanently(app: AppHandle, target: ItemsTarget) -> Result<u32, SourceError> {
+    blocking(app, move |session| session.delete_permanently(target)).await
+}
+
+#[tauri::command]
+pub async fn empty_trash(app: AppHandle) -> Result<u32, SourceError> {
+    blocking(app, Session::empty_trash).await
+}
+
+/// Opens the original with the app Windows associates with its type.
+#[tauri::command]
+pub async fn open_original(app: AppHandle, id: ItemId) -> Result<(), SourceError> {
+    let paths = blocking(app, move |session| session.original_paths(&[id])).await?;
+    for path in paths {
+        tauri_plugin_opener::open_path(&path, None::<&str>).map_err(opener_error)?;
+    }
+    Ok(())
+}
+
+/// Shows the originals selected in Explorer.
+#[tauri::command]
+pub async fn reveal_originals(app: AppHandle, ids: Vec<ItemId>) -> Result<(), SourceError> {
+    let paths = blocking(app, move |session| session.original_paths(&ids)).await?;
+    tauri_plugin_opener::reveal_items_in_dir(&paths).map_err(opener_error)
+}
+
+/// Puts the originals on the clipboard as files, ready to paste in Explorer or another app.
+#[tauri::command]
+pub async fn copy_originals(app: AppHandle, ids: Vec<ItemId>) -> Result<u32, SourceError> {
+    let paths = blocking(app, move |session| session.original_paths(&ids)).await?;
+    copy_files(&paths)
+        .map_err(|error| SourceError::Storage(format!("copy to the clipboard: {error}")))?;
+    Ok(u32::try_from(paths.len()).unwrap_or(u32::MAX))
+}
+
+/// On X11 and Wayland the copied files stay on the clipboard only while arboard's `Clipboard`
+/// lives, so Copy File keeps one for the whole run. Windows keeps the data on its own.
+static CLIPBOARD: Mutex<Option<arboard::Clipboard>> = Mutex::new(None);
+
+fn copy_files(paths: &[PathBuf]) -> Result<(), arboard::Error> {
+    let mut slot = CLIPBOARD.lock().unwrap_or_else(PoisonError::into_inner);
+    let clipboard = match slot.as_mut() {
+        Some(clipboard) => clipboard,
+        None => slot.insert(arboard::Clipboard::new()?),
+    };
+    clipboard.set().file_list(paths)
+}
+
+/// Opens an item's link in the system browser; only `http` and `https` links.
+#[tauri::command]
+pub fn open_link(url: String) -> Result<(), SourceError> {
+    if !is_web_link(&url) {
+        return Err(SourceError::Invalid(
+            "Only http and https links open in the browser.".into(),
+        ));
+    }
+    tauri_plugin_opener::open_url(url.trim(), None::<&str>).map_err(opener_error)
+}
+
+/// Starts an OS drag of the originals, so they can be dropped into other apps.
+#[tauri::command]
+pub async fn start_drag(
+    app: AppHandle,
+    window: WebviewWindow,
+    ids: Vec<ItemId>,
+) -> Result<(), SourceError> {
+    let (paths, image) = blocking(app.clone(), move |session| {
+        let paths = session.original_paths(&ids)?;
+        let image = ids.first().and_then(|id| session.drag_image(id));
+        Ok((paths, image))
+    })
+    .await?;
+    if paths.is_empty() {
+        return Ok(());
+    }
+    app.run_on_main_thread(move || {
+        if let Err(error) = crate::drag_out::start(&window, paths, image) {
+            tracing::warn!("cannot drag files out of the window: {error}");
+        }
+    })
+    .map_err(|error| SourceError::Storage(format!("start the drag: {error}")))
+}
+
+/// Library → Show in Explorer.
+#[tauri::command]
+pub async fn reveal_library(app: AppHandle) -> Result<(), SourceError> {
+    let folder = blocking(app, Session::library_folder).await?;
+    tauri_plugin_opener::reveal_item_in_dir(&folder).map_err(opener_error)
+}
+
+#[tauri::command]
+pub async fn backups(app: AppHandle) -> Result<Vec<Backup>, SourceError> {
+    blocking(app, Session::backups).await
+}
+
+#[tauri::command]
+pub async fn back_up_now(app: AppHandle) -> Result<Backup, SourceError> {
+    blocking(app, Session::back_up_now).await
+}
+
+/// Restores a backup (by file name) into the open library; the state before is backed up.
+#[tauri::command]
+pub async fn restore_backup(app: AppHandle, name: String) -> Result<LibraryInfo, SourceError> {
+    blocking(app, move |session| session.restore_backup(&name)).await
+}
+
+#[tauri::command]
+pub async fn rename_library(app: AppHandle, name: String) -> Result<LibraryInfo, SourceError> {
+    blocking(app, move |session| session.rename_library(&name)).await
+}
+
+#[tauri::command]
+pub async fn check_library(app: AppHandle) -> Result<LibraryCheck, SourceError> {
+    blocking(app, Session::check_library).await
+}
+
+#[tauri::command]
+pub async fn repair_library(
+    app: AppHandle,
+    options: RepairOptions,
+) -> Result<LibraryCheck, SourceError> {
+    blocking(app, move |session| session.repair_library(options)).await
+}
+
+#[tauri::command]
+pub async fn library_stats(app: AppHandle) -> Result<LibraryStats, SourceError> {
+    blocking(app, Session::library_stats).await
+}
+
+/// Makes every thumbnail again in the background; returns how many items wait.
+#[tauri::command]
+pub async fn rebuild_thumbnails(app: AppHandle) -> Result<u32, SourceError> {
+    blocking(app, Session::rebuild_thumbnails).await
+}
+
+fn opener_error(error: tauri_plugin_opener::Error) -> SourceError {
+    SourceError::Storage(format!("open with the system: {error}"))
 }
 
 /// The tags of a selection with how many selected items carry each.

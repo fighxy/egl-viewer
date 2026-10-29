@@ -105,6 +105,18 @@ pub fn png_from_rgba(width: u32, height: u32, rgba: Vec<u8>) -> Result<Vec<u8>, 
     Ok(png.into_inner())
 }
 
+/// A small PNG of a thumbnail: the image under the cursor while files are dragged out of the
+/// window. PNG, because every platform's drag helper decodes it.
+pub fn drag_image(thumbnail: &[u8], size: u32) -> Result<Vec<u8>, MediaError> {
+    let decoded = decode::raster_bytes(thumbnail)?;
+    let (width, height) = thumbnail::fit(decoded.width, decoded.height, size);
+    png_from_rgba(
+        width,
+        height,
+        thumbnail::resize(&decoded.pixels, width, height)?,
+    )
+}
+
 /// Decodes `path`, makes the thumbnail and the palette, and reads EXIF.
 pub fn render(path: &Path, ext: &str) -> Result<Rendered, MediaError> {
     let decoded = match kind(ext) {

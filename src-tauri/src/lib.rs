@@ -1,6 +1,7 @@
 //! The Tauri app crate: a thin layer of commands over the core crates (docs/architecture.md §3).
 
 mod commands;
+mod drag_out;
 mod session;
 mod views;
 mod window;
@@ -98,6 +99,24 @@ pub fn run() {
             commands::delete_folder,
             commands::apply_item_edit,
             commands::apply_batch_edit,
+            commands::undo,
+            commands::undo_status,
+            commands::delete_permanently,
+            commands::empty_trash,
+            commands::open_original,
+            commands::reveal_originals,
+            commands::copy_originals,
+            commands::open_link,
+            commands::start_drag,
+            commands::reveal_library,
+            commands::backups,
+            commands::back_up_now,
+            commands::restore_backup,
+            commands::rename_library,
+            commands::check_library,
+            commands::repair_library,
+            commands::library_stats,
+            commands::rebuild_thumbnails,
             commands::reorder_items,
             commands::selection_tags,
             commands::tag_vocabulary,

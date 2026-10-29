@@ -2,6 +2,7 @@ import { QueryClient, QueryClientProvider, useQuery, useQueryClient } from "@tan
 import { listen } from "@tauri-apps/api/event";
 import { getCurrentWebview } from "@tauri-apps/api/webview";
 import { open as openDialog } from "@tauri-apps/plugin-dialog";
+import { Trash2 } from "lucide-react";
 import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import { flushSync } from "react-dom";
 import {
@@ -11,8 +12,10 @@ import {
   needsWritableLibrary,
 } from "@/commands/registry";
 import { useShortcuts } from "@/commands/useShortcuts";
+import { Button } from "@/components/ui/button";
 import { AboutDialog } from "@/features/about/AboutDialog";
-import { DetailsPanel } from "@/features/browse/DetailsPanel";
+import { DetailsPanel, type ItemActions } from "@/features/browse/DetailsPanel";
+import { ItemMenu } from "@/features/browse/ItemMenu";
 import { ItemsView } from "@/features/browse/ItemsView";
 import { Preview } from "@/features/browse/Preview";
 import {
@@ -52,6 +55,8 @@ import { LibraryScreen, type Place, scopeOf } from "@/features/library/LibrarySc
 import { SearchField } from "@/features/library/SearchField";
 import { type LockDialog, LockDialogs } from "@/features/locks/LockDialogs";
 import { LockedFolders, lockedFolders } from "@/features/locks/LockedFolders";
+import { CheckLibraryDialog } from "@/features/maintenance/CheckLibraryDialog";
+import { LibrarySettingsDialog } from "@/features/maintenance/LibrarySettingsDialog";
 import { SettingsDialog } from "@/features/settings/SettingsDialog";
 import { AppMenu } from "@/features/shell/AppMenu";
 import { type Confirmation, ConfirmDialog } from "@/features/shell/ConfirmDialog";
@@ -106,7 +111,13 @@ import { applyTheme, watchSystemTheme } from "@/lib/theme";
 export const FALLBACK_DEFAULTS: ConnectionSettings = { host: "127.0.0.1", port: 41595 };
 
 type View = { kind: "welcome" } | { kind: "connect" } | { kind: "library"; library: LibraryInfo };
-type DialogKind = "create" | "settings" | "about" | "shortcuts";
+type DialogKind =
+  | "create"
+  | "settings"
+  | "about"
+  | "shortcuts"
+  | "librarySettings"
+  | "checkLibrary";
 
 async function pickFolder(title: string, defaultPath?: string): Promise<string | null> {
   const picked = await openDialog({ directory: true, multiple: false, title, defaultPath });
@@ -154,6 +165,18 @@ function withTransition(update: () => void) {
     return;
   }
   document.startViewTransition(() => flushSync(update));
+}
+
+/** Every path lies inside `folder`; Windows paths compare without case. */
+function insideFolder(paths: readonly string[], folder: string): boolean {
+  const normal = (path: string) => path.replaceAll("\\", "/").toLowerCase();
+  const base = `${normal(folder).replace(/\/+$/, "")}/`;
+  return paths.length > 0 && paths.every((path) => normal(path).startsWith(base));
+}
+
+/** "1 item", "3 items". */
+function many(count: number): string {
+  return count === 1 ? "1 item" : `${count.toLocaleString("en")} items`;
 }
 
 /** How far one Ctrl+= or Ctrl+- step changes the thumbnail size. */
@@ -312,6 +335,12 @@ function AppShell() {
     enabled: library !== null && inTauri(),
   });
   const extensions = useMemo(() => extensionsQuery.data ?? [], [extensionsQuery.data]);
+  // What Ctrl+Z would take back; every write can change it.
+  const undoQuery = useQuery({
+    queryKey: ["undo", library?.path ?? null],
+    queryFn: ipc.undoStatus,
+    enabled: library !== null && inTauri(),
+  });
   const [expanded, setExpanded] = useExpanded(library?.path ?? null);
   const openFolder = place.kind === "folder" ? findFolder(tree, place.id) : undefined;
 
@@ -397,6 +426,7 @@ function AppShell() {
       void client.invalidateQueries({ queryKey: ["selectionTags"] });
       void client.invalidateQueries({ queryKey: ["item"] });
       void client.invalidateQueries({ queryKey: ["extensions"] });
+      void client.invalidateQueries({ queryKey: ["undo"] });
     })
       .then((stop) => {
         if (cancelled) stop();
@@ -648,11 +678,21 @@ function AppShell() {
   );
 
   const editItems = useCallback(
-    (target: ItemsTarget, edit: ItemEdit) => {
-      ipc.applyBatchEdit(target, edit).catch(failed);
-    },
-    [failed],
+    (target: ItemsTarget, edit: ItemEdit) =>
+      ipc
+        .applyBatchEdit(target, edit)
+        .catch(failed)
+        .finally(() => void client.invalidateQueries({ queryKey: ["undo"] })),
+    [failed, client],
   );
+
+  /** The ids of the selected items; Select All asks the view for them. */
+  const selectedIds = useCallback(async (): Promise<string[]> => {
+    if (!selection.all) return [...selection.ids];
+    if (!opened.view) return [];
+    const ids = await ipc.viewIds(opened.view.viewId, 0, total);
+    return ids.filter((id) => !selection.ids.has(id));
+  }, [selection, opened.view, total]);
 
   // The tags of a selection of several items, counted in Rust from the view.
   const selected = selectedCount(selection, total);
@@ -719,6 +759,125 @@ function AppShell() {
       ipc.applyBatchEdit(selectedTarget(), edit).catch(failed).finally(tagsChanged);
     },
     [selection, selectionKey, selectedTarget, client, failed, tagsChanged, recentTags],
+  );
+
+  /**
+   * A field of the one selected item: shown at once, saved in Rust, rolled back to the stored
+   * item on an error (docs/spec.md §6).
+   */
+  const editItem = useCallback(
+    (edit: ItemEdit) => {
+      const id = singleId(selection);
+      if (!id) return;
+      client.setQueryData<Item | null>(["item", id], (item) => {
+        if (!item) return item;
+        switch (edit.type) {
+          case "rename":
+            return { ...item, name: edit.value };
+          case "setStar":
+            return { ...item, star: edit.value };
+          case "setAnnotation":
+            return { ...item, annotation: edit.value };
+          case "setUrl":
+            return { ...item, url: edit.value };
+          default:
+            return item;
+        }
+      });
+      ipc
+        .applyItemEdit(id, edit)
+        .then((item) => client.setQueryData(["item", id], item))
+        .catch((error: unknown) => {
+          failed(error);
+          void client.invalidateQueries({ queryKey: ["item", id] });
+        })
+        .finally(() => void client.invalidateQueries({ queryKey: ["undo"] }));
+    },
+    [selection, client, failed],
+  );
+
+  /** Delete in the grid: to the trash after a confirmation (docs/spec.md §7.3). */
+  const trashSelection = useCallback(() => {
+    const target = selectedTarget();
+    setConfirmation({
+      title: "Move to the trash?",
+      description: `${many(selected)} go to the trash. You can restore them from there.`,
+      confirm: "Move to Trash",
+      cancel: "Cancel",
+      onConfirm: () => {
+        setSelection(NOTHING);
+        void editItems(target, { type: "trash" });
+      },
+    });
+  }, [selectedTarget, selected, editItems]);
+
+  /** Delete Permanently: rows and files go; there is no undo (docs/spec.md §3 Trash). */
+  const deleteSelection = useCallback(() => {
+    const target = selectedTarget();
+    setConfirmation({
+      title: "Delete permanently?",
+      description: `${many(selected)} and their files are removed from the disk. There is no undo.`,
+      confirm: "Delete permanently",
+      cancel: "Cancel",
+      onConfirm: () => {
+        setSelection(NOTHING);
+        ipc.deletePermanently(target).catch(failed);
+      },
+    });
+  }, [selectedTarget, selected, failed]);
+
+  const emptyTrash = useCallback(() => {
+    const items = counts?.trash ?? 0;
+    setConfirmation({
+      title: "Empty the trash?",
+      description: `${many(items)} and their files are removed from the disk. There is no undo.`,
+      confirm: "Empty Trash",
+      cancel: "Cancel",
+      onConfirm: () => {
+        setSelection(NOTHING);
+        ipc.emptyTrash().catch(failed);
+      },
+    });
+  }, [counts, failed]);
+
+  const itemActions = useMemo<ItemActions>(
+    () => ({
+      onEdit: editItem,
+      onSetStar: (star) => void editItems(selectedTarget(), { type: "setStar", value: star }),
+      onTrash: trashSelection,
+      onRestore: () => {
+        const target = selectedTarget();
+        setSelection(NOTHING);
+        void editItems(target, { type: "restore" });
+      },
+      onDeletePermanently: deleteSelection,
+      onOpenOriginal: () => {
+        const id = singleId(selection);
+        if (id) ipc.openOriginal(id).catch(failed);
+      },
+      onReveal: () => {
+        selectedIds().then(ipc.revealOriginals).catch(failed);
+      },
+      onCopy: () => {
+        selectedIds().then(ipc.copyOriginals).catch(failed);
+      },
+      onOpenLink: (url) => {
+        ipc.openLink(url).catch(failed);
+      },
+      onDragOut: () => {
+        selectedIds().then(ipc.startDrag).catch(failed);
+      },
+    }),
+    [
+      editItem,
+      editItems,
+      selectedTarget,
+      trashSelection,
+      deleteSelection,
+      selection,
+      selectedIds,
+      failed,
+    ],
   );
 
   /** A tag was renamed or merged into `to`, or deleted (`to` null), everywhere. */
@@ -1010,6 +1169,41 @@ function AppShell() {
             .filter((folder) => folder.isUnlocked)
             .map((folder) => folder.id),
         ),
+      undo: () => {
+        ipc
+          .undo()
+          .catch(failed)
+          .finally(() => {
+            void client.invalidateQueries({ queryKey: ["undo"] });
+            void client.invalidateQueries({ queryKey: ["item"] });
+          });
+      },
+      copyFile: itemActions.onCopy,
+      deleteSelection: () =>
+        place.kind === "trash" ? itemActions.onDeletePermanently() : itemActions.onTrash(),
+      librarySettings: () => setDialog("librarySettings"),
+      backUpNow: () => {
+        ipc
+          .backUpNow()
+          .then(() => setStatus("The library was backed up."))
+          .catch(failed);
+      },
+      checkLibrary: () => setDialog("checkLibrary"),
+      rebuildThumbnails: () => {
+        ipc
+          .rebuildThumbnails()
+          .then((waiting) =>
+            setStatus(
+              waiting === 0
+                ? "There are no thumbnails to make."
+                : `Making ${many(waiting).replace("item", "thumbnail")} again…`,
+            ),
+          )
+          .catch(failed);
+      },
+      revealLibrary: () => {
+        ipc.revealLibrary().catch(failed);
+      },
     }),
     [
       browse,
@@ -1031,6 +1225,10 @@ function AppShell() {
       builtInLocation,
       relock,
       tree,
+      failed,
+      client,
+      itemActions,
+      place.kind,
     ],
   );
 
@@ -1049,6 +1247,8 @@ function AppShell() {
       unlockedFolders: lockedFolders(tree).filter((folder) => folder.isUnlocked).length,
       items: total,
       selected: selectedCount(selection, total),
+      inTrash: place.kind === "trash",
+      undo: undoQuery.data ?? null,
     }),
     [
       library,
@@ -1062,6 +1262,8 @@ function AppShell() {
       total,
       selection,
       tree,
+      place.kind,
+      undoQuery.data,
     ],
   );
 
@@ -1077,8 +1279,10 @@ function AppShell() {
     previewIndex !== null;
   useShortcuts(commandState, actions, !modalOpen);
 
-  // Files dragged onto the window: an overlay, then an import (paths only, D-029).
+  // Files dragged onto the window: an overlay, then an import (paths only, D-029). Originals
+  // dragged out of this library and back over the window are not offered as new files.
   const canAdd = needsWritableLibrary(commandState);
+  const ownDrag = useRef(false);
   useEffect(() => {
     if (!inTauri()) return;
     let unlisten: (() => void) | undefined;
@@ -1086,6 +1290,13 @@ function AppShell() {
     getCurrentWebview()
       .onDragDropEvent((event) => {
         const payload = event.payload;
+        if (payload.type === "enter") {
+          ownDrag.current = library?.path ? insideFolder(payload.paths, library.path) : false;
+        }
+        if (ownDrag.current) {
+          if (payload.type === "drop" || payload.type === "leave") ownDrag.current = false;
+          return;
+        }
         if (payload.type === "enter" || payload.type === "over") setDropping(true);
         else if (payload.type === "leave") setDropping(false);
         else if (payload.type === "drop") {
@@ -1254,6 +1465,27 @@ function AppShell() {
             }}
             browse={browse}
             onBrowseChange={changeBrowse}
+            placeActions={
+              place.kind === "trash" ? (
+                <Button
+                  variant="outline"
+                  size="sm"
+                  disabled={writable !== true || (counts?.trash ?? 0) === 0}
+                  title={
+                    writable !== true
+                      ? writable
+                      : (counts?.trash ?? 0) === 0
+                        ? "The trash is empty."
+                        : "Empty Trash: every item of the trash goes, with its file"
+                  }
+                  onClick={emptyTrash}
+                >
+                  <Trash2 aria-hidden />
+                  {/* A narrow toolbar keeps the icon (docs/decisions.md D-048). */}
+                  <span className="@max-3xl:sr-only">Empty Trash</span>
+                </Button>
+              ) : undefined
+            }
             itemCount={opened.view?.total}
             selectedCount={selected}
             viewStatus={
@@ -1277,8 +1509,18 @@ function AppShell() {
                   onZoom={actions.zoom}
                   onLost={opened.reopen}
                   transitionId={previewIndex === null ? transitionId : null}
-                  draggable={writable === true}
+                  draggable={writable === true && place.kind !== "trash"}
                   reorderable={reorderable}
+                  inTrash={place.kind === "trash"}
+                  menu={
+                    <ItemMenu
+                      actions={itemActions}
+                      count={selected}
+                      writable={writable}
+                      inTrash={place.kind === "trash"}
+                      onPreview={actions.preview}
+                    />
+                  }
                 />
               )
             }
@@ -1308,6 +1550,8 @@ function AppShell() {
                 selectionTags={several ? (selectionTags.data ?? null) : null}
                 onAddTag={(name) => changeTag(name, true)}
                 onRemoveTag={(name) => changeTag(name, false)}
+                actions={itemActions}
+                inTrash={place.kind === "trash"}
                 empty={
                   openFolder && (
                     <FolderProperties
@@ -1399,6 +1643,40 @@ function AppShell() {
         />
         <AboutDialog open={dialog === "about"} onOpenChange={closeDialog} info={info} />
         <ShortcutsDialog open={dialog === "shortcuts"} onOpenChange={closeDialog} />
+        {library && (
+          <LibrarySettingsDialog
+            open={dialog === "librarySettings"}
+            onOpenChange={closeDialog}
+            library={library}
+            writable={writable}
+            onChanged={(next, restored) => {
+              setView({ kind: "library", library: next });
+              void refreshRecent();
+              if (!restored) return;
+              // Everything may differ now: the views, folders, tags and smart folders.
+              setPlace({ kind: "all" });
+              setSelection(NOTHING);
+              setStatus("The backup was restored. The state before it was backed up first.");
+              void client.invalidateQueries();
+              setRevision((count) => count + 1);
+            }}
+            onCheck={() => setDialog("checkLibrary")}
+            onRebuild={actions.rebuildThumbnails}
+            onReveal={actions.revealLibrary}
+          />
+        )}
+        <CheckLibraryDialog
+          open={dialog === "checkLibrary"}
+          onOpenChange={closeDialog}
+          libraryPath={library?.path ?? null}
+          writable={writable}
+          onRepaired={() => {
+            setSelection(NOTHING);
+            setRevision((count) => count + 1);
+            void client.invalidateQueries({ queryKey: ["folders"] });
+            void client.invalidateQueries({ queryKey: ["tags"] });
+          }}
+        />
         <ImportsPanel
           open={importsOpen}
           onOpenChange={setImportsOpen}

@@ -94,6 +94,8 @@ type Props = {
   filterOpen?: boolean;
   onFilterOpenChange?: (open: boolean) => void;
   onClearFilters?: () => void;
+  /** Buttons of the open place in the toolbar, for example Empty Trash. */
+  placeActions?: ReactNode;
 };
 
 type Row = {
@@ -182,6 +184,7 @@ export function LibraryScreen({
   filterOpen = false,
   onFilterOpenChange,
   onClearFilters,
+  placeActions,
 }: Props) {
   const total =
     itemCount ??
@@ -397,6 +400,7 @@ export function LibraryScreen({
                   }}
                 />
               )}
+              {placeActions}
               <Button
                 size="sm"
                 disabled={canAdd !== true}

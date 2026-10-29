@@ -6,6 +6,7 @@ use std::path::{Path, PathBuf};
 use image::ImageFormat;
 use library_core::{Folder, FolderChange, ItemEdit, Scope};
 use media::fixtures;
+use rusqlite::Connection;
 
 use crate::{AddOutcome, Duplicates, Library, OpenOptions, create_library};
 
@@ -110,4 +111,20 @@ pub(crate) fn folder_scope(id: &str, include_descendants: bool) -> Scope {
         id: id.into(),
         include_descendants,
     }
+}
+
+/// Turns a library database back into format version 1: the old index, the old version.
+pub(crate) fn make_version_one(db: &Path) {
+    let conn = Connection::open(db).unwrap();
+    conn.execute_batch(
+        "DROP TABLE item_fts;
+         CREATE VIRTUAL TABLE item_fts USING fts5(
+           name, annotation, url, tags, folders,
+           tokenize = 'unicode61 remove_diacritics 2'
+         );
+         INSERT INTO item_fts (rowid, name, annotation, url, tags, folders)
+           SELECT seq, name, annotation, url, '', '' FROM item;
+         PRAGMA user_version = 1;",
+    )
+    .unwrap();
 }

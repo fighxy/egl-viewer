@@ -7,15 +7,20 @@
 pub mod edit;
 pub mod error;
 pub mod folder;
+pub mod maintenance;
 pub mod model;
 pub mod query;
 pub mod smart;
 pub mod source;
 pub mod tag;
+pub mod undo;
 
-pub use edit::ItemEdit;
+pub use edit::{ItemEdit, is_web_link};
 pub use error::{LocationProblem, NetworkError, SourceError};
 pub use folder::{FOLDER_COLORS, FolderChange, order_key_between};
+pub use maintenance::{
+    Backup, BackupKind, LibraryCheck, LibraryStats, MissingOriginal, RepairOptions,
+};
 pub use model::{
     AddTarget, ChangeToken, Changes, DuplicateNotice, ExtensionCount, Folder, ImportFailure,
     ImportKind, ImportProgress, ImportState, ImportTicket, Item, ItemId, ItemLite, LibraryCounts,
@@ -30,3 +35,4 @@ pub use query::{LibraryQuery, Scope, ScopeHints, SortKey, TagMode};
 pub use smart::{RuleItem, SmartFolderChange, SmartRules, rules_from_query};
 pub use source::{Capabilities, LibrarySource, Progress};
 pub use tag::{SelectionTags, TagGroupChange, validate_tag_names};
+pub use undo::{EditKind, ItemState, UndoStack, UndoStatus, UndoStep};

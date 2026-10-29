@@ -3,11 +3,13 @@
 // (docs/spec.md §7.1, D-025).
 import {
   type BrowsePreferences,
+  type EditKind,
   type LibraryInfo,
   type RecentLibrary,
   type SortKey,
   THUMBNAIL_SIZES,
   type Theme,
+  type UndoStatus,
   type ViewMode,
 } from "@/ipc";
 
@@ -40,6 +42,10 @@ export type CommandState = {
   items: number;
   /** Selected items in the open view. */
   selected: number;
+  /** The Trash is open: Delete removes items for good. */
+  inTrash: boolean;
+  /** What `Ctrl+Z` would take back. */
+  undo: UndoStatus | null;
 };
 
 export type CommandActions = {
@@ -70,6 +76,16 @@ export type CommandActions = {
   lockAll: () => void;
   /** Focuses the search field. */
   find: () => void;
+  undo: () => void;
+  /** Puts the selected originals on the clipboard. */
+  copyFile: () => void;
+  /** Moves the selection to the trash, or in the Trash removes it for good; both confirm. */
+  deleteSelection: () => void;
+  librarySettings: () => void;
+  backUpNow: () => void;
+  checkLibrary: () => void;
+  rebuildThumbnails: () => void;
+  revealLibrary: () => void;
 };
 
 /** `true`, or the reason the command is disabled (shown as a tooltip). */
@@ -89,6 +105,8 @@ export type SubmenuItem = {
 export type Command = {
   id: string;
   label: string;
+  /** The menu's label when it depends on the state, for example "Undo Rename". */
+  labelFor?: (state: CommandState) => string;
   menu: MenuId;
   /** Items with different groups are separated by a line. */
   group: number;
@@ -155,6 +173,33 @@ export function sortItems(state: CommandState): SubmenuItem[] {
     },
   ];
 }
+
+/** The menu names an edit by what it changed: "Undo Rating". */
+export const EDIT_NAMES: Record<EditKind, string> = {
+  addTags: "Add Tags",
+  removeTags: "Remove Tags",
+  addToFolders: "Add to Folder",
+  removeFromFolders: "Remove from Folder",
+  setFolders: "Folders",
+  setStar: "Rating",
+  setAnnotation: "Note",
+  setUrl: "Link",
+  rename: "Rename",
+  trash: "Move to Trash",
+  restore: "Restore",
+};
+
+/** Commands on the selected items. */
+const needsSelection = (state: CommandState): Availability => {
+  if (!state.library) return "Open a library first.";
+  return state.selected > 0 ? true : "Select an item first.";
+};
+
+const needsWritableSelection = (state: CommandState): Availability => {
+  const writable = needsWritableLibrary(state);
+  if (writable !== true) return writable;
+  return state.selected > 0 ? true : "Select an item first.";
+};
 
 const inGrid = (state: CommandState): Availability => {
   if (!state.library) return "Open a library first.";
@@ -244,6 +289,20 @@ export const COMMANDS: readonly Command[] = [
     run: (actions) => actions.paste(),
   },
   {
+    id: "edit.undo",
+    label: "Undo",
+    labelFor: (state) => (state.undo ? `Undo ${EDIT_NAMES[state.undo.kind]}` : "Undo"),
+    menu: "edit",
+    group: 1,
+    shortcut: "Ctrl+Z",
+    available: (state) => {
+      const writable = needsWritableLibrary(state);
+      if (writable !== true) return writable;
+      return state.undo ? true : "Nothing to undo.";
+    },
+    run: (actions) => actions.undo(),
+  },
+  {
     id: "edit.selectAll",
     label: "Select All",
     menu: "edit",
@@ -254,6 +313,25 @@ export const COMMANDS: readonly Command[] = [
       return state.items > 0 ? true : "Nothing to select.";
     },
     run: (actions) => actions.selectAll(),
+  },
+  {
+    id: "edit.copyFile",
+    label: "Copy File",
+    menu: "edit",
+    group: 1,
+    shortcut: "Ctrl+C",
+    available: needsSelection,
+    run: (actions) => actions.copyFile(),
+  },
+  {
+    id: "edit.delete",
+    label: "Move to Trash",
+    labelFor: (state) => (state.inTrash ? "Delete Permanently…" : "Move to Trash"),
+    menu: "edit",
+    group: 1,
+    shortcut: "Delete",
+    available: needsWritableSelection,
+    run: (actions) => actions.deleteSelection(),
   },
   {
     id: "edit.find",
@@ -389,6 +467,46 @@ export const COMMANDS: readonly Command[] = [
     run: (actions) => actions.lockAll(),
   },
   {
+    id: "library.settings",
+    label: "Library Settings…",
+    menu: "library",
+    group: 2,
+    available: needsLibrary,
+    run: (actions) => actions.librarySettings(),
+  },
+  {
+    id: "library.backUp",
+    label: "Back Up Now",
+    menu: "library",
+    group: 2,
+    available: needsWritableLibrary,
+    run: (actions) => actions.backUpNow(),
+  },
+  {
+    id: "library.check",
+    label: "Check Library",
+    menu: "library",
+    group: 2,
+    available: needsLibrary,
+    run: (actions) => actions.checkLibrary(),
+  },
+  {
+    id: "library.rebuildThumbnails",
+    label: "Rebuild Thumbnails",
+    menu: "library",
+    group: 2,
+    available: needsWritableLibrary,
+    run: (actions) => actions.rebuildThumbnails(),
+  },
+  {
+    id: "library.reveal",
+    label: "Show in Explorer",
+    menu: "library",
+    group: 2,
+    available: needsLibrary,
+    run: (actions) => actions.revealLibrary(),
+  },
+  {
     id: "view.preview",
     label: "Preview",
     menu: "view",
@@ -435,6 +553,7 @@ export const WIDGET_KEYS: readonly { area: string; keys: string; label: string }
   { area: "Grid", keys: "Shift+Arrow keys", label: "Extend the selection" },
   { area: "Grid", keys: "Home / End", label: "First / last item" },
   { area: "Grid", keys: "Enter", label: "Go to the details panel" },
+  { area: "Details", keys: "Enter / Esc", label: "Save / revert a field" },
   { area: "Grid", keys: "Ctrl+Wheel", label: "Thumbnail size" },
   { area: "Folders", keys: "Arrow keys / Enter", label: "Move through folders / open one" },
   { area: "Folders", keys: "F2 / Delete", label: "Rename / delete the folder" },
@@ -445,6 +564,11 @@ export const WIDGET_KEYS: readonly { area: string; keys: string; label: string }
 
 export function availability(command: Command, state: CommandState): Availability {
   return command.available ? command.available(state) : true;
+}
+
+/** What the menu shows for a command. */
+export function labelOf(command: Command, state: CommandState): string {
+  return command.labelFor ? command.labelFor(state) : command.label;
 }
 
 /** The menus that have commands, in menu bar order; empty menus are hidden. */

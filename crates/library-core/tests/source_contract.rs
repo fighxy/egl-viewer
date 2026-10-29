@@ -138,6 +138,14 @@ async fn writes_are_refused_by_default() {
         source.merge_tags("a", "b").await.unwrap_err(),
         SourceError::ReadOnly
     );
+    assert_eq!(
+        source.delete_items(&[id]).await.unwrap_err(),
+        SourceError::ReadOnly
+    );
+    assert_eq!(
+        source.empty_trash().await.unwrap_err(),
+        SourceError::ReadOnly
+    );
 }
 
 #[tokio::test]

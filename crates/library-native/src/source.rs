@@ -29,6 +29,7 @@ impl LibrarySource for NativeSource {
     fn capabilities(&self) -> Capabilities {
         Capabilities {
             writable: self.library.read_only_reason().is_none(),
+            delete_items: self.library.read_only_reason().is_none(),
             delete_folders: self.library.read_only_reason().is_none(),
             ..Capabilities::READ_ONLY
         }
@@ -97,6 +98,14 @@ impl LibrarySource for NativeSource {
 
     async fn apply_batch_edit(&self, ids: &[ItemId], edit: ItemEdit) -> Result<u32, SourceError> {
         self.library.apply_batch_edit(ids, &edit)
+    }
+
+    async fn delete_items(&self, ids: &[ItemId]) -> Result<u32, SourceError> {
+        self.library.delete_items(ids)
+    }
+
+    async fn empty_trash(&self) -> Result<u32, SourceError> {
+        self.library.empty_trash()
     }
 
     async fn reorder_items(

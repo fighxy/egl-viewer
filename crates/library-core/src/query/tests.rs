@@ -744,6 +744,9 @@ fn selection_tags_count_each_tag_over_the_selected_items() {
         items[0].tags = tags(&["Poster", "Swiss"]);
         items[1].tags = tags(&["Poster"]);
         items[2].tags = tags(&["poster"]);
+        for (n, item) in items.iter_mut().enumerate() {
+            item.size = Some(100 * (n as u64 + 1));
+        }
     }
     let mut views = Views::default();
     let (id, _) = open(&mut views, &source, LibraryQuery::default());
@@ -765,4 +768,13 @@ fn selection_tags_count_each_tag_over_the_selected_items() {
     assert_eq!(counted.items, 3);
     let names: Vec<&str> = counted.tags.iter().map(|tag| tag.name.as_str()).collect();
     assert_eq!(names, ["Poster", "poster", "Swiss"]);
+    // The total size, and a stack of the first three in view order.
+    assert_eq!(counted.size, 100 + 300 + 400);
+    assert_eq!(counted.stack.len(), 3);
+    assert!(
+        counted
+            .stack
+            .iter()
+            .all(|cell| cell.id != ItemId::from("0001"))
+    );
 }

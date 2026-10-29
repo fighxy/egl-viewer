@@ -3,7 +3,7 @@
 use std::sync::atomic::AtomicBool;
 
 use library_core::{DuplicateNotice, ImportProgress, ItemEdit, ItemId, SearchMatch};
-use rusqlite::{Connection, params};
+use rusqlite::params;
 
 use crate::import::{DuplicateChoice, ImportObserver, make_pending_previews};
 use crate::test_support::*;
@@ -192,22 +192,6 @@ fn encrypted_items_are_found_only_while_their_folder_is_open() {
     assert!(library.search("pl").unwrap().contains(&id));
 }
 
-/// Turns a new library back into format version 1: the old index, the old version.
-fn make_version_one(root: &std::path::Path) {
-    let conn = Connection::open(root.join(DB_FILE)).unwrap();
-    conn.execute_batch(
-        "DROP TABLE item_fts;
-         CREATE VIRTUAL TABLE item_fts USING fts5(
-           name, annotation, url, tags, folders,
-           tokenize = 'unicode61 remove_diacritics 2'
-         );
-         INSERT INTO item_fts (rowid, name, annotation, url, tags, folders)
-           SELECT seq, name, annotation, url, '', '' FROM item;
-         PRAGMA user_version = 1;",
-    )
-    .unwrap();
-}
-
 #[test]
 fn an_older_library_gets_the_new_index_after_a_backup() {
     let dir = tempfile::tempdir().unwrap();
@@ -215,7 +199,7 @@ fn an_older_library_gets_the_new_index_after_a_backup() {
     let library = open(&root);
     let poster = add_png(&library, dir.path(), "Poster Final.png", 1);
     library.close().unwrap();
-    make_version_one(&root);
+    make_version_one(&root.join(DB_FILE));
 
     let library = open(&root);
     let version: u32 = library
