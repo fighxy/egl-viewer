@@ -941,3 +941,10 @@ connection (D-051). Copy File uses `arboard`, already there for Paste.
   The thumb is the `ring` token and the track is transparent, so the bar shows the surface under
   it (the grid's `--grid`, the sidebar's own background) and the light theme stays a readable
   grey, not a hardcoded colour.
+
+## D-055 Search field in the toolbar (2026-10-29)
+
+- The toolbar search was a fixed 9rem box packed against Filter, with empty space beside it.
+  It is now 24rem (`w-96`), centered in the free space between the place title and the Filter
+  button, and it shrinks to that space (`max-w-full`) so Filter, sort and Add files stay where
+  they are. It does not grow across the whole row.

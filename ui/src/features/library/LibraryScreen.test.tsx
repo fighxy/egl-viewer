@@ -4,6 +4,7 @@ import { describe, expect, it, vi } from "vitest";
 import { DEFAULT_PREFERENCES, type LibraryInfo } from "@/ipc";
 import { LIBRARY } from "@/test/backend";
 import { LibraryScreen } from "./LibraryScreen";
+import { SearchField } from "./SearchField";
 
 function renderScreen(library: LibraryInfo = LIBRARY, layout = DEFAULT_PREFERENCES.layout) {
   const handlers = { onLayoutChange: vi.fn(), onOpenForEditing: vi.fn() };
@@ -186,5 +187,45 @@ describe("LibraryScreen", () => {
       { ...DEFAULT_PREFERENCES.browse, sort: "name" },
       true,
     );
+  });
+
+  it("centers a wider search field in the free space of the toolbar", () => {
+    render(
+      <LibraryScreen
+        library={LIBRARY}
+        layout={DEFAULT_PREFERENCES.layout}
+        onLayoutChange={vi.fn()}
+        onOpenForEditing={vi.fn()}
+        search={<SearchField value="" onChange={vi.fn()} />}
+        filterBar={<span>Tags</span>}
+      />,
+    );
+    const field = screen.getByRole("searchbox", { name: "Search" });
+    expect(field).toHaveClass("w-full", "min-w-0");
+    expect(field.className.split(/\s+/)).not.toContain("w-36");
+    const slot = field.parentElement?.parentElement;
+    expect(slot).toHaveClass("w-96", "max-w-full", "min-w-0");
+    const freeSpace = slot?.parentElement;
+    expect(freeSpace).toHaveClass("flex-1", "justify-center");
+    const toolbar = freeSpace?.parentElement;
+    expect(toolbar).toHaveClass("@container");
+    const filter = screen.getByRole("button", { name: "Filter" });
+    const sort = screen.getByRole("button", { name: "Sort by Date Added" });
+    const add = screen.getAllByRole("button", { name: "Add files" }).find((button) => {
+      return toolbar?.contains(button) ?? false;
+    });
+    expect(add).toBeDefined();
+    expect(freeSpace).not.toContainElement(filter);
+    expect(toolbar).toContainElement(filter);
+    expect(toolbar).toContainElement(sort);
+    if (!add) throw new Error("toolbar Add files missing");
+    expect(toolbar).toContainElement(add);
+    const actions = filter.parentElement;
+    expect(actions).toHaveClass("shrink-0");
+    expect(actions).toContainElement(sort);
+    expect(actions).toContainElement(add);
+    expect(field.compareDocumentPosition(filter) & Node.DOCUMENT_POSITION_FOLLOWING).toBeTruthy();
+    const title = screen.getByRole("heading", { level: 1, name: "All" });
+    expect(title.compareDocumentPosition(field) & Node.DOCUMENT_POSITION_FOLLOWING).toBeTruthy();
   });
 });

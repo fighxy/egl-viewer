@@ -327,16 +327,21 @@ export function LibraryScreen({
         <main aria-label="Library contents" className="flex min-w-0 flex-1 flex-col">
           {/* A container: a narrow toolbar drops the size slider (Ctrl+wheel and Ctrl+= stay). */}
           <div className="@container flex h-11 shrink-0 items-center gap-2 border-b px-3">
-            <h1 className="min-w-10 truncate text-sm font-medium" title={heading}>
-              {heading}
-            </h1>
-            {known && (
-              <span className="shrink-0 text-[13px] whitespace-nowrap text-muted-foreground">
-                {plural(total, "item")}
-              </span>
-            )}
-            <div className="ml-auto flex items-center gap-1">
-              {search}
+            <div className="flex min-w-0 items-center gap-2">
+              <h1 className="min-w-10 truncate text-sm font-medium" title={heading}>
+                {heading}
+              </h1>
+              {known && (
+                <span className="shrink-0 text-[13px] whitespace-nowrap text-muted-foreground">
+                  {plural(total, "item")}
+                </span>
+              )}
+            </div>
+            {/* Centered in the free space: wider than a short box, not stretched across the row. */}
+            <div className="flex min-w-0 flex-1 justify-center">
+              {search ? <div className="w-96 min-w-0 max-w-full">{search}</div> : null}
+            </div>
+            <div className="flex shrink-0 items-center gap-1">
               {filterBar !== undefined && (
                 <Button
                   variant="ghost"

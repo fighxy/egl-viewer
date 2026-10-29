@@ -29,7 +29,7 @@ export const SearchField = forwardRef<HTMLInputElement, Props>(function SearchFi
     return () => window.clearTimeout(timer);
   }, [text, value, onChange]);
   return (
-    <div className="relative flex items-center">
+    <div className="relative flex w-full min-w-0 items-center">
       <Search
         aria-hidden
         className="pointer-events-none absolute left-2 size-3.5 text-muted-foreground"
@@ -50,7 +50,7 @@ export const SearchField = forwardRef<HTMLInputElement, Props>(function SearchFi
             onChange("");
           }
         }}
-        className="h-7 w-36 rounded-md border bg-background pr-6 pl-7 text-[13px] outline-none focus:ring-2 focus:ring-ring/50 [&::-webkit-search-cancel-button]:hidden"
+        className="h-7 w-full min-w-0 rounded-md border bg-background pr-6 pl-7 text-[13px] outline-none focus:ring-2 focus:ring-ring/50 [&::-webkit-search-cancel-button]:hidden"
       />
       {text !== "" && (
         <button
