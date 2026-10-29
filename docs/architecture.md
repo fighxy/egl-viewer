@@ -577,7 +577,7 @@ Steps in order, all pure functions in `library-core`, run on `tokio::task::spawn
 3. **Tags.** `matches_tags` (Any / All / Exact / None); strings are compared exactly, case-sensitive.
 4. **Extra folder chips**, with the same matcher over ids.
 5. **ext, rating, shape.** Type buckets (`image`, later `video`, `audio`, …) come from a local extension table.
-6. **Text.** `LibrarySource::search_ids(text)` → a set of ids (cached per string; from 2 characters; the 300 ms debounce is in the UI) → intersection. The native library answers from FTS5 (§15.3), a running Eagle from `item/query`. Both keep Eagle's search syntax: `OR`, parentheses, `-`, search in notes, URLs, tags and folder names.
+6. **Text.** `LibrarySource::search_ids(text)` → a `SearchMatch`: the ids that match (`Only`), or, for a search that only excludes (`-draft`), the ids that do not (`Except`), so no list of every item is needed (from 2 characters; the 300 ms debounce is in the UI). `library-core` parses Eagle's syntax (`OR`, parentheses, a leading `-`, `"…"` for spaces) into a `SearchExpr`; the native library matches each term as a case-insensitive substring of names, notes, links, tags and folder names (§15.3, D-047) and combines them, a running Eagle answers from `item/query`.
 7. **Sort.** Keys from §5 of the spec. Names use `icu_collator` (numeric, case-insensitive) through sort keys computed once per item: 100 000 titles sort in about 0.2 s in a release build. Random order uses a seed derived from the query without its sort. Ties fall back to date added, then the id.
 
 ### 6.5 Views and IPC windows
@@ -775,7 +775,10 @@ Later, for phones: the WebView prepares the image (`createImageBitmap`, long edg
 | `selection_tags` | `ItemsTarget` | `SelectionTags`: the number of selected items and, per tag, on how many of them it is (read from the view) |
 | `tag_groups`, `save_tag_group`, `delete_tag_group` | —, `TagGroupChange` (create, update with every property), id | `TagGroup[]` in their order |
 | `rename_tag`, `merge_tags`, `delete_tag` | from and to, source and target, name | — (views recomputed); a rename onto an existing tag merges (D-046) |
-| `save_smart_folder`, `delete_smart_folder` | … | smart folder tree |
+| `smart_folders` | — | `SmartFolder` tree, each with the rules this build cannot evaluate (`unsupported`) |
+| `smart_rules` | `LibraryQuery` | `SmartDraft { parent, conditions }` for Save as smart folder; refused for search text, the trash, or nothing to keep (D-048) |
+| `extensions` | — | `ExtensionCount[]` for the Type filter |
+| `save_smart_folder`, `delete_smart_folder` | `SmartFolderChange` (create under a parent, update name and rules), id | smart folder tree; open views of it are recomputed |
 | `restore_items`, `delete_permanently`, `empty_trash` | ids / — | counts |
 | `add_files` | paths, the open folder or none | `ImportTicket`; dropped folders are mirrored (phase 4); tags and rating for the batch come with phases 5 and 7 |
 | `paste_files` | the open folder or none | `ImportTicket` or none: copied files, or a pasted image as a PNG |
@@ -1061,7 +1064,7 @@ The full plan with done checks is in §9 of the spec. Key technical points per p
 - **Phase 3.** `load_scope` in SQL; the pipeline, sorter and views (§6.4, §6.5); the `thumb` scheme (§11); the virtualized grid.
 - **Phase 4.** Folders: `save_folder`, `delete_folder`, locks (age at rest, one Argon2id identity per folder, plaintext name and tag, the Locked folders sidebar), cycle guard (§7.3), `sort_key` reordering, manual order.
 - **Phase 5.** Tags: vocabulary with counts, rename, merge, delete, tag groups; batch edits. Built 2026-10-28 (D-046).
-- **Phase 6.** FTS5 search with the Eagle syntax; filter chips; the smart folder evaluator for the v1 subset (§16).
+- **Phase 6.** FTS5 search with the Eagle syntax; filter chips; the smart folder evaluator for the v1 subset (§16). Built 2026-10-29 (D-047, D-048).
 - **Phase 7.** The remaining item edits, undo, trash, file actions, library maintenance.
 - **Phase 8.** `eagle-folder` reader with retries (correction 37) and the import into `library-native` (§15.6).
 - **Phase 9.** `EagleHttp`, `escape_non_ascii`, `EagleError`, `page_all` with `wiremock` tests; `SecretStore` on Credential Manager; `connect_eagle` and the Connect screen (404 → "update Eagle to 4.0", `{}` → "open a library on the PC"); `FolderDto` with the password dropped; `plan` + snapshot cache (§6.2, §6.3); search via `item/query`; smart folders via `smartFolder/getItems`.
@@ -1094,7 +1097,7 @@ pub trait LibrarySource: Send + Sync {
     async fn info(&self) -> Result<LibraryInfo, SourceError>;
     async fn folder_tree(&self) -> Result<Vec<Folder>, SourceError>;
     async fn load_scope(&self, scope: &Scope, hints: &ScopeHints, progress: Progress<'_>) -> Result<Vec<ItemLite>, SourceError>;
-    async fn search_ids(&self, text: &str) -> Result<HashSet<ItemId>, SourceError>;
+    async fn search_ids(&self, text: &str) -> Result<SearchMatch, SourceError>;
     async fn item(&self, id: &ItemId) -> Result<Option<Item>, SourceError>;
     async fn tags(&self) -> Result<Vec<Tag>, SourceError>;
     async fn tag_groups(&self) -> Result<Vec<TagGroup>, SourceError>;
@@ -1112,6 +1115,9 @@ pub trait LibrarySource: Send + Sync {
     async fn delete_tag(&self, name: &str) -> Result<(), SourceError>;
     async fn save_tag_group(&self, change: TagGroupChange) -> Result<Vec<TagGroup>, SourceError>;
     async fn delete_tag_group(&self, id: &str) -> Result<Vec<TagGroup>, SourceError>;
+    async fn extensions(&self) -> Result<Vec<ExtensionCount>, SourceError>;
+    async fn save_smart_folder(&self, change: SmartFolderChange) -> Result<Vec<SmartFolder>, SourceError>;
+    async fn delete_smart_folder(&self, id: &str) -> Result<Vec<SmartFolder>, SourceError>;
 }
 
 pub struct Capabilities {
@@ -1164,7 +1170,7 @@ Decisions:
 - **Trash** is `deleted_at`. Emptying the trash deletes the rows and the files. Unlike Eagle's API, the native library can delete items, folders and tags.
 - **Locked folders** encrypt their content at rest (D-018, `docs/age-locked-folders.md`). Each locked folder has its own password, Argon2id salt, age X25519 identity, and recovery secret. Nothing is shared, and unlocking one folder loads only that identity into memory (`secrecy`) for the session. Argon2id wraps the identity; the password is not stored. A second wrap uses the recovery secret, which is shown once at creation (128-bit key, the same bits as a word phrase, or an optional file outside the library) and is not stored in the library. Originals under `files/`, thumbnails under `thumbs/`, and the item columns name, annotation, url, exif, and palette are age ciphertext. The age header, including nonces, stays inside the ciphertext. Each locked folder has its own user-editable name (`folder.name`) and tag — a label and a colour (`label`, `label_color`) — stored in plaintext on the folder row. They are not encrypted fields, and the tag is not an item tag. The left sidebar has an expandable Locked folders section that lists each locked folder with that name and tag. Choosing a row prompts for that folder only and does not unlock any other folder. Also plaintext on the row: id, lock metadata, salt, KDF parameters, and the wrapped identities. An item in two locked folders has its own item key, wrapped separately by each folder identity (`item_key_wrap`). A folder imported locked from Eagle has the locked flag and no identity until the user sets a password; its files stay plaintext until then (§15.5). An optional YubiKey PIV slot 9d adds a third wrap of the same identity (`age-plugin-yubikey`): the card stores a P-256 key, and the age X25519 identity stays wrapped in `folder_piv_wrap`, one row per card. Several cards can wrap one folder. Absent the key, the password and the recovery secret still unwrap it. This is not encryption of the whole database, of settings, or of the Eagle token. The columns and tables of locked folders (`item.encrypted`, `item.sealed`, the lock columns of `folder`, `item_key_wrap`, `folder_piv_wrap`) exist from format version 1 and stay empty until phase 4. While an item is encrypted, its five sensitive fields are one age message in `item.sealed`, and the plaintext columns are empty (D-019).
 - **Smart folders** keep Eagle's rule language (`conditions` with `property`, `method`, `value`) as JSON, so they survive import and export unchanged. The evaluator in `library-core` grows from the v1 subset (§5 of the spec).
-- **Search** uses an FTS5 table over name, annotation, url, tag names and folder names. The Eagle-style query syntax (`OR`, parentheses, a leading `-`) is translated into FTS5 syntax.
+- **Search** finds any part of a word without case, as Eagle does. An FTS5 table with the `trigram` tokenizer covers the item's own texts (name, annotation, url) for terms of three or more characters; a shorter term reads the rows, an encrypted item of an unlocked folder is matched on its opened fields, and tags and folder names are matched on their own tables, so renaming a tag or a folder rewrites no index. `library-core` parses the Eagle syntax (`OR`, parentheses, a leading `-`) and combines the terms (format version 3, D-047).
 - **Changes**: every write appends a row to `change_log`. It drives `changes_since`, view updates and, later, the sync between devices.
 - **One writer.** `library.lock` is held with an OS file lock (`File::try_lock`), which the OS releases when the process ends; a second app instance opens the library read-only and writes nothing (D-020). **Local disks only:** cloud sync tools (OneDrive, Dropbox, Syncthing and similar) copy a live database mid-write, and WAL does not work over a network share. Creating a library there is refused, a library found in a sync folder opens read-only, and a network path is refused (spec §3, D-021). Use the backups, or later the app's own sync (§15.8).
 - **Versioning**: `PRAGMA application_id` (`EGLB`) marks the file, and `PRAGMA user_version` is the format version (D-019). Migrations run forward only, after an automatic backup.
@@ -1348,7 +1354,7 @@ Methods: `union`, `intersection`, `equal`, `identity`, `empty`, `not-empty`.
 
 - Until the local evaluator covers every property and quirk, open Eagle smart folders through `smartFolder/getItems`, which evaluates on the desktop. The plan already does this.
 - The same rules power `item/get` filters (correction 40): `ext` accepts the categories above, and `rating: 0` matches unrated items.
-- The native library stores `conditions` unchanged (§15.3) and evaluates them with the same code. Two cases need a product decision there: `fontActivated` (no installed-font list) and the time zone of `on`.
+- The native library stores `conditions` unchanged (§15.3) and evaluates them with `library_core::SmartRules`. The v1 subset and its differences from the desktop are in D-048: `on` uses the day start the editor computed in the user's time zone; `startWith` and `endWith` are literal, not regular expressions; `regex`, `color`, `folderName`, `camera`, `comments`, EXIF numbers, `duration`, `bpm`, custom shapes and `fontActivated` are not evaluated yet, never match, and are listed so the UI warns.
 
 ---
 

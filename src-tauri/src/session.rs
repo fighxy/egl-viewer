@@ -13,10 +13,11 @@ use app_store::{
     display_path,
 };
 use library_core::{
-    DuplicateNotice, Folder, FolderChange, ImportKind, ImportProgress, ImportState, ImportTicket,
-    Item, ItemCell, ItemEdit, ItemId, LibraryCounts, LibraryInfo, LibraryQuery, LibrarySource,
-    LocationProblem, Progress, ReadOnlyReason, RecoveryKey, SelectionTags, SourceError, Tag,
-    TagGroup, TagGroupChange, Thumbnail, Views,
+    DuplicateNotice, ExtensionCount, Folder, FolderChange, FolderIndex, ImportKind, ImportProgress,
+    ImportState, ImportTicket, Item, ItemCell, ItemEdit, ItemId, LibraryCounts, LibraryInfo,
+    LibraryQuery, LibrarySource, LocationProblem, Progress, ReadOnlyReason, RecoveryKey,
+    SelectionTags, SmartFolder, SmartFolderChange, SourceError, Tag, TagGroup, TagGroupChange,
+    Thumbnail, Views, rules_from_query,
 };
 use library_native::{
     DuplicateChoice, DuplicatePolicy, ImportObserver, ImportTarget, Library, NativeSource,
@@ -29,6 +30,17 @@ use crate::views::{
     Blocking, Emit, Event, ImageRequest, ItemsTarget, Refresher, ViewOpened, count, invalidated,
     ready,
 };
+
+/// "Save as smart folder": the rules that keep what a screen shows, and the smart folder the new
+/// one goes under (the open smart folder, so its rules apply too).
+#[derive(Debug, Clone, PartialEq, Serialize, TS)]
+#[serde(rename_all = "camelCase")]
+#[ts(export)]
+pub struct SmartDraft {
+    pub parent: Option<String>,
+    /// Eagle's `conditions` array.
+    pub conditions: serde_json::Value,
+}
 
 /// What the app does on start: the reopened library, or why it shows Welcome instead.
 #[derive(Debug, Clone, PartialEq, Serialize, TS)]
@@ -495,6 +507,40 @@ impl Session {
         let view = views.get(view_id).ok_or(SourceError::NotFound)?;
         let ids = target.ids.into_iter().collect();
         Ok(view.selection_tags(target.all, &ids))
+    }
+
+    /// The smart folder tree, each with the rules this build cannot evaluate.
+    pub fn smart_folders(&self) -> Result<Vec<SmartFolder>, SourceError> {
+        ready(self.source()?.smart_folders())
+    }
+
+    /// Creates or edits a smart folder; returns the tree. Open views of it follow.
+    pub fn save_smart_folder(
+        &self,
+        change: SmartFolderChange,
+    ) -> Result<Vec<SmartFolder>, SourceError> {
+        let tree = ready(self.source()?.save_smart_folder(change))?;
+        self.refresh_views();
+        Ok(tree)
+    }
+
+    pub fn delete_smart_folder(&self, id: &str) -> Result<Vec<SmartFolder>, SourceError> {
+        let tree = ready(self.source()?.delete_smart_folder(id))?;
+        self.refresh_views();
+        Ok(tree)
+    }
+
+    /// The rules for "Save as smart folder"; refused with the reason for what rules cannot hold
+    /// (search text, the trash, nothing to keep).
+    pub fn smart_rules(&self, query: &LibraryQuery) -> Result<SmartDraft, SourceError> {
+        let folders = FolderIndex::new(&ready(self.source()?.folder_tree())?);
+        let (parent, conditions) = rules_from_query(query, &folders)?;
+        Ok(SmartDraft { parent, conditions })
+    }
+
+    /// File types with their item counts, for the Type filter.
+    pub fn extensions(&self) -> Result<Vec<ExtensionCount>, SourceError> {
+        ready(self.source()?.extensions())
     }
 
     /// Manual order inside `folder`.
@@ -1746,6 +1792,136 @@ mod tests {
             .map(|tag| tag.name)
             .collect();
         assert_eq!(vocabulary, ["Posters", "Swiss"]);
+    }
+
+    #[test]
+    fn search_stays_in_the_scope_and_smart_folders_keep_what_the_chips_showed() {
+        let (f, events) = recording();
+        f.session
+            .create_library(&f.home.path().to_string_lossy(), "Search")
+            .unwrap();
+        let ticket = f.session.add_files(images(f.home.path(), 4), None).unwrap();
+        finished(&f.session, ticket.id);
+        let tree = f
+            .session
+            .save_folder(FolderChange::Create {
+                name: "Posters".into(),
+                parent: None,
+                description: String::new(),
+                icon_color: None,
+            })
+            .unwrap();
+        let folder = tree[0].id.clone();
+        let all = f
+            .session
+            .open_view(LibraryQuery::default(), &|_, _| {})
+            .unwrap();
+        let ids = f.session.view_ids(all.view_id, 0, 4).unwrap();
+        f.session
+            .apply_batch_edit(
+                ItemsTarget {
+                    view_id: Some(all.view_id),
+                    all: false,
+                    ids: ids[0..1].to_vec(),
+                },
+                ItemEdit::AddToFolders(vec![folder.clone()]),
+            )
+            .unwrap();
+        f.session
+            .apply_batch_edit(
+                ItemsTarget {
+                    view_id: Some(all.view_id),
+                    all: false,
+                    ids: ids[0..2].to_vec(),
+                },
+                ItemEdit::AddTags(vec!["Swiss".into()]),
+            )
+            .unwrap();
+        f.session.close_view(all.view_id);
+        let total = |query: LibraryQuery| {
+            let view = f.session.open_view(query, &|_, _| {}).unwrap();
+            f.session.close_view(view.view_id);
+            view.total
+        };
+        // Every file is named image-N: the search matches all four, the folder holds one.
+        let search = |text: &str| LibraryQuery {
+            text: Some(text.into()),
+            ..LibraryQuery::default()
+        };
+        assert_eq!(total(search("image")), 4);
+        assert_eq!(total(search("swiss")), 2);
+        assert_eq!(total(search("image -swiss")), 2);
+        assert_eq!(total(search("ima")), 4);
+        assert_eq!(
+            total(LibraryQuery {
+                scope: library_core::Scope::Folder {
+                    id: folder.clone(),
+                    include_descendants: false,
+                },
+                ..search("image")
+            }),
+            1
+        );
+        // One character searches nothing yet.
+        assert_eq!(total(search("x")), 4);
+
+        let chips = LibraryQuery {
+            tags: vec!["Swiss".into()],
+            ext: Some("png".into()),
+            ..LibraryQuery::default()
+        };
+        let shown = total(chips.clone());
+        let draft = f.session.smart_rules(&chips).unwrap();
+        assert_eq!(draft.parent, None);
+        let smart = f
+            .session
+            .save_smart_folder(SmartFolderChange::Create {
+                name: "Swiss".into(),
+                parent: draft.parent,
+                conditions: draft.conditions,
+            })
+            .unwrap();
+        let smart_view = f
+            .session
+            .open_view(
+                LibraryQuery {
+                    scope: library_core::Scope::Smart {
+                        id: smart[0].id.clone(),
+                    },
+                    ..LibraryQuery::default()
+                },
+                &|_, _| {},
+            )
+            .unwrap();
+        assert_eq!(smart_view.total, shown);
+        assert_eq!(shown, 2);
+        // Editing the rules recomputes the open smart view.
+        f.session
+            .save_smart_folder(SmartFolderChange::Update {
+                id: smart[0].id.clone(),
+                name: "Everything".into(),
+                conditions: serde_json::json!([{ "match": "AND", "rules": [
+                    { "property": "type", "method": "equal", "value": "image" }
+                ]}]),
+            })
+            .unwrap();
+        assert!(last_totals(&events).contains(&ViewOpened {
+            view_id: smart_view.view_id,
+            total: 4
+        }));
+        assert!(matches!(
+            f.session.smart_rules(&search("swiss")),
+            Err(SourceError::Invalid(_))
+        ));
+        let counts = f.session.extensions().unwrap();
+        assert_eq!(counts.len(), 1);
+        assert_eq!((counts[0].ext.as_str(), counts[0].count), ("png", 4));
+        assert!(
+            f.session
+                .delete_smart_folder(&smart[0].id)
+                .unwrap()
+                .is_empty()
+        );
     }
 
     #[test]

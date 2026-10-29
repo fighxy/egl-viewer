@@ -44,16 +44,20 @@ import { useImports } from "@/features/imports/useImports";
 import {
   activeFilters,
   FilterBar,
-  NO_TAG_FILTER,
-  type TagFilter,
+  type Filters,
+  NO_FILTERS,
+  SHAPES,
 } from "@/features/library/FilterBar";
 import { LibraryScreen, type Place, scopeOf } from "@/features/library/LibraryScreen";
+import { SearchField } from "@/features/library/SearchField";
 import { type LockDialog, LockDialogs } from "@/features/locks/LockDialogs";
 import { LockedFolders, lockedFolders } from "@/features/locks/LockedFolders";
 import { SettingsDialog } from "@/features/settings/SettingsDialog";
 import { AppMenu } from "@/features/shell/AppMenu";
 import { type Confirmation, ConfirmDialog } from "@/features/shell/ConfirmDialog";
 import { ShortcutsDialog } from "@/features/shortcuts/ShortcutsDialog";
+import { type SmartDialog, SmartFolderDialogs } from "@/features/smart/SmartFolderDialog";
+import { SmartFolders, smartIds, smartPath } from "@/features/smart/SmartFolders";
 import { replaced, useRecentTags } from "@/features/tags/recent";
 import { type TagDialog, TagDialogs } from "@/features/tags/TagDialogs";
 import type { TagActions } from "@/features/tags/TagMenu";
@@ -79,6 +83,8 @@ import {
   queryFor,
   type RecentLibrary,
   type SelectionTags,
+  type SmartFolder,
+  type SmartFolderChange,
   type SortKey,
   type TagGroup,
   type TagGroupChange,
@@ -155,7 +161,9 @@ const ZOOM_STEP = 20;
 
 /** A key for a place, for effects and for the sort picked on that screen. */
 function placeKey(place: Place): string {
-  return place.kind === "folder" ? `folder:${place.id}` : place.kind;
+  return place.kind === "folder" || place.kind === "smart"
+    ? `${place.kind}:${place.id}`
+    : place.kind;
 }
 
 /** Every folder id of a tree. */
@@ -163,6 +171,20 @@ function folderIds(tree: readonly Folder[]): Set<string> {
   const ids = new Set<string>();
   for (const folder of tree) for (const id of subtreeIds(folder)) ids.add(id);
   return ids;
+}
+
+/** A name for a smart folder saved from these filters: what they keep, in a few words. */
+function smartName(filters: Filters, tree: readonly Folder[]): string {
+  const shape = SHAPES.find((entry) => entry.value === filters.shape)?.label;
+  return [
+    ...filters.tags,
+    ...filters.folders.map((id) => findFolder(tree, id)?.name ?? ""),
+    filters.ext === null ? "" : filters.ext === "image" ? "Images" : filters.ext.toUpperCase(),
+    filters.rating === null ? "" : filters.rating === 0 ? "Unrated" : `${filters.rating} stars`,
+    shape ?? "",
+  ]
+    .filter((part) => part !== "")
+    .join(", ");
 }
 
 /** A folder's full properties with some changed: `update` always sends all of them. */
@@ -222,9 +244,12 @@ function AppShell() {
   const [folderDialog, setFolderDialog] = useState<FolderDialog | null>(null);
   const [lockDialog, setLockDialog] = useState<LockDialog | null>(null);
   const [tagDialog, setTagDialog] = useState<TagDialog | null>(null);
-  /** Tags are filters on top of the place, not places (docs/spec.md §5). */
-  const [tagFilter, setTagFilter] = useState<TagFilter>(NO_TAG_FILTER);
+  const [smartDialog, setSmartDialog] = useState<SmartDialog | null>(null);
+  /** Filters and the search sit on top of the place; tags are filters, not places (spec §5). */
+  const [filters, setFilters] = useState<Filters>(NO_FILTERS);
+  const [searchText, setSearchText] = useState("");
   const [filterOpen, setFilterOpen] = useState(false);
+  const searchRef = useRef<HTMLInputElement>(null);
   const [selection, setSelection] = useState<Selection>(NOTHING);
   const [previewIndex, setPreviewIndex] = useState<number | null>(null);
   const [transitionId, setTransitionId] = useState<string | null>(null);
@@ -272,6 +297,21 @@ function AppShell() {
   });
   const tagGroups = useMemo(() => groupsQuery.data ?? [], [groupsQuery.data]);
   const recentTags = useRecentTags(library?.path ?? null);
+
+  // Smart folders (their own tree) and the library's file types, for the Type filter.
+  const smartKey = useMemo(() => ["smartFolders", library?.path ?? null] as const, [library?.path]);
+  const smartQuery = useQuery({
+    queryKey: smartKey,
+    queryFn: ipc.smartFolders,
+    enabled: library !== null && inTauri(),
+  });
+  const smartTree = useMemo(() => smartQuery.data ?? [], [smartQuery.data]);
+  const extensionsQuery = useQuery({
+    queryKey: ["extensions", library?.path ?? null],
+    queryFn: ipc.extensions,
+    enabled: library !== null && inTauri(),
+  });
+  const extensions = useMemo(() => extensionsQuery.data ?? [], [extensionsQuery.data]);
   const [expanded, setExpanded] = useExpanded(library?.path ?? null);
   const openFolder = place.kind === "folder" ? findFolder(tree, place.id) : undefined;
 
@@ -289,11 +329,17 @@ function AppShell() {
       library
         ? {
             ...queryFor(scopeOf(place, browse.includeSubfolders), { ...browse, sort, ascending }),
-            tags: tagFilter.tags,
-            tagMode: tagFilter.mode,
+            tags: filters.tags,
+            tagMode: filters.tagMode,
+            extraFolderIds: filters.folders,
+            folderMode: filters.folderMode,
+            ext: filters.ext,
+            rating: filters.rating,
+            shape: filters.shape,
+            text: searchText.trim() === "" ? null : searchText,
           }
         : null,
-    [library, place, browse, sort, ascending, tagFilter],
+    [library, place, browse, sort, ascending, filters, searchText],
   );
   const opened = useView(query);
   const total = opened.view?.total ?? 0;
@@ -306,7 +352,7 @@ function AppShell() {
     ascending;
 
   // A new library or place starts with nothing selected; a new sort keeps the selected items.
-  const filterKey = JSON.stringify(tagFilter);
+  const filterKey = JSON.stringify([filters, searchText]);
   // biome-ignore lint/correctness/useExhaustiveDependencies: reset when the screen changes.
   useEffect(() => {
     setSelection(NOTHING);
@@ -315,7 +361,8 @@ function AppShell() {
   // Another library starts without filters.
   // biome-ignore lint/correctness/useExhaustiveDependencies: reset when the library changes.
   useEffect(() => {
-    setTagFilter(NO_TAG_FILTER);
+    setFilters(NO_FILTERS);
+    setSearchText("");
     setFilterOpen(false);
   }, [library?.path]);
   // biome-ignore lint/correctness/useExhaustiveDependencies: positions change with the order.
@@ -323,6 +370,11 @@ function AppShell() {
     setSelection((current) => ({ ...current, anchor: null, focus: null }));
   }, [sort, ascending]);
 
+  // The open smart folder is gone: back to All.
+  useEffect(() => {
+    if (place.kind !== "smart" || !smartQuery.data) return;
+    if (smartPath(smartQuery.data, place.id).length === 0) setPlace({ kind: "all" });
+  }, [place, smartQuery.data]);
   // The open folder is gone (deleted) or locked again: back to All.
   useEffect(() => {
     if (place.kind !== "folder" || !folders.data) return;
@@ -344,6 +396,7 @@ function AppShell() {
       void client.invalidateQueries({ queryKey: ["tags"] });
       void client.invalidateQueries({ queryKey: ["selectionTags"] });
       void client.invalidateQueries({ queryKey: ["item"] });
+      void client.invalidateQueries({ queryKey: ["extensions"] });
     })
       .then((stop) => {
         if (cancelled) stop();
@@ -675,7 +728,7 @@ function AppShell() {
         .then(() => {
           setTagDialog(null);
           recentTags.replace(from, to);
-          setTagFilter((current) =>
+          setFilters((current) =>
             current.tags.includes(from)
               ? { ...current, tags: replaced(current.tags, from, to) }
               : current,
@@ -718,8 +771,56 @@ function AppShell() {
   /** A tag of the left bar: All, filtered by that tag. */
   const filterByTag = useCallback((tag: string) => {
     setPlace({ kind: "all" });
-    setTagFilter({ tags: [tag], mode: "any" });
+    setFilters({ ...NO_FILTERS, tags: [tag] });
   }, []);
+
+  /** Runs a smart folder write; its answer is the new tree. A new smart folder opens. */
+  const writeSmart = useCallback(
+    (write: Promise<SmartFolder[]>) => {
+      const before = smartIds(smartTree);
+      write
+        .then((next) => {
+          client.setQueryData(smartKey, next);
+          setSmartDialog(null);
+          const created = [...smartIds(next)].find((id) => !before.has(id));
+          if (created) {
+            // The rules are now the place: the filters that made them go.
+            setFilters(NO_FILTERS);
+            setPlace({ kind: "smart", id: created });
+          }
+        })
+        .catch(failed);
+    },
+    [client, smartKey, smartTree, failed],
+  );
+
+  /** Why the screen cannot become a smart folder, or `true`. */
+  const canSaveSmart: Availability =
+    writable !== true
+      ? writable
+      : searchText.trim() !== ""
+        ? "Search text cannot go into a smart folder: clear the search first."
+        : place.kind === "trash"
+          ? "Smart folders leave out the trash."
+          : (place.kind === "all" || place.kind === "smart") && activeFilters(filters) === 0
+            ? "Add a filter first."
+            : true;
+
+  const saveAsSmart = useCallback(() => {
+    if (!query) return;
+    ipc
+      .smartRules(query)
+      .then((draft) =>
+        setSmartDialog({
+          kind: "edit",
+          id: null,
+          parent: draft.parent,
+          name: smartName(filters, tree),
+          conditions: draft.conditions,
+        }),
+      )
+      .catch(failed);
+  }, [query, filters, tree, failed]);
 
   const changeSort = useCallback(
     (next: SortKey, nextAscending: boolean) => {
@@ -899,6 +1000,10 @@ function AppShell() {
       newFolder: () => setFolderDialog({ kind: "create", parent: null }),
       toggleSubfolders: () =>
         changeBrowse({ ...browse, includeSubfolders: !browse.includeSubfolders }, true),
+      find: () => {
+        searchRef.current?.focus();
+        searchRef.current?.select();
+      },
       lockAll: () =>
         relock(
           lockedFolders(tree)
@@ -965,6 +1070,7 @@ function AppShell() {
     folderDialog !== null ||
     lockDialog !== null ||
     tagDialog !== null ||
+    smartDialog !== null ||
     importsOpen ||
     confirmation !== null ||
     imports.waiting !== undefined ||
@@ -1039,7 +1145,11 @@ function AppShell() {
     ? folderPath(tree, openFolder.id)
         .map((folder) => folder.name)
         .join(" / ")
-    : undefined;
+    : place.kind === "smart"
+      ? smartPath(smartTree, place.id)
+          .map((folder) => folder.name)
+          .join(" / ")
+      : undefined;
 
   return (
     <DragProvider canDrop={canDrop} onDrop={onDrop}>
@@ -1099,7 +1209,7 @@ function AppShell() {
                 groups={tagGroups}
                 recent={recentTags.tags}
                 vocabulary={vocabulary}
-                filtered={place.kind === "all" ? tagFilter.tags : []}
+                filtered={place.kind === "all" ? filters.tags : []}
                 writable={writable}
                 onPick={filterByTag}
                 onCreateGroup={() => setTagDialog({ kind: "group", id: null })}
@@ -1110,18 +1220,38 @@ function AppShell() {
             }
             filterBar={
               <FilterBar
-                filter={tagFilter}
-                onChange={setTagFilter}
+                filters={filters}
+                onChange={setFilters}
                 vocabulary={vocabulary}
                 groups={tagGroups}
                 recent={recentTags.tags}
+                folders={tree}
+                extensions={extensions}
                 actions={tagActions}
+                canSaveSmart={canSaveSmart}
+                onSaveSmart={saveAsSmart}
               />
             }
-            filterCount={activeFilters(tagFilter)}
+            search={<SearchField ref={searchRef} value={searchText} onChange={setSearchText} />}
+            narrowed={activeFilters(filters) > 0 || searchText.trim().length >= 2}
+            smartFolders={
+              <SmartFolders
+                folders={smartTree}
+                selectedId={place.kind === "smart" ? place.id : null}
+                writable={writable}
+                onSelect={(id) => setPlace({ kind: "smart", id })}
+                onCreate={(parent) => setSmartDialog({ kind: "edit", id: null, parent })}
+                onEdit={(id) => setSmartDialog({ kind: "edit", id, parent: null })}
+                onDelete={(id) => setSmartDialog({ kind: "delete", id })}
+              />
+            }
+            filterCount={activeFilters(filters)}
             filterOpen={filterOpen}
             onFilterOpenChange={setFilterOpen}
-            onClearFilters={() => setTagFilter(NO_TAG_FILTER)}
+            onClearFilters={() => {
+              setFilters(NO_FILTERS);
+              setSearchText("");
+            }}
             browse={browse}
             onBrowseChange={changeBrowse}
             itemCount={opened.view?.total}
@@ -1289,6 +1419,16 @@ function AppShell() {
               if (opened) setPlace({ kind: "folder", id: opened });
             });
           }}
+        />
+        <SmartFolderDialogs
+          dialog={smartDialog}
+          smartFolders={smartTree}
+          vocabulary={vocabulary}
+          folders={tree}
+          extensions={extensions}
+          onClose={() => setSmartDialog(null)}
+          onSave={(change: SmartFolderChange) => writeSmart(ipc.saveSmartFolder(change))}
+          onDelete={(id) => writeSmart(ipc.deleteSmartFolder(id))}
         />
         <TagDialogs
           dialog={tagDialog}

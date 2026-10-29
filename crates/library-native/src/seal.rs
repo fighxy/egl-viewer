@@ -428,8 +428,7 @@ impl Library {
             tx.execute("DELETE FROM item_fts WHERE rowid = ?1", params![row.seq])
                 .context("index the item")?;
             tx.execute(
-                "INSERT INTO item_fts (rowid, name, annotation, url, tags, folders)
-                 VALUES (?1, ?2, ?3, ?4, '', '')",
+                "INSERT INTO item_fts (rowid, name, annotation, url) VALUES (?1, ?2, ?3, ?4)",
                 params![row.seq, fields.name, fields.annotation, fields.url],
             )
             .context("index the item")?;

@@ -1,14 +1,13 @@
 //! The native library as a [`LibrarySource`] (docs/architecture.md §15.2): what the views, the
 //! detail panel and the `thumb` scheme read through.
 
-use std::collections::HashSet;
 use std::sync::Arc;
 
 use async_trait::async_trait;
 use library_core::{
-    Capabilities, Folder, FolderChange, Item, ItemEdit, ItemId, ItemLite, LibraryInfo,
-    LibrarySource, Progress, Scope, ScopeHints, SmartFolder, SourceError, Tag, TagGroup,
-    TagGroupChange, Thumbnail,
+    Capabilities, ExtensionCount, Folder, FolderChange, Item, ItemEdit, ItemId, ItemLite,
+    LibraryInfo, LibrarySource, Progress, Scope, ScopeHints, SearchMatch, SmartFolder,
+    SmartFolderChange, SourceError, Tag, TagGroup, TagGroupChange, Thumbnail,
 };
 
 use crate::library::Library;
@@ -54,9 +53,8 @@ impl LibrarySource for NativeSource {
         Ok(items)
     }
 
-    /// Search arrives in phase 6 (FTS5).
-    async fn search_ids(&self, _text: &str) -> Result<HashSet<ItemId>, SourceError> {
-        Err(SourceError::NotSupported("search".into()))
+    async fn search_ids(&self, text: &str) -> Result<SearchMatch, SourceError> {
+        self.library.search(text)
     }
 
     async fn item(&self, id: &ItemId) -> Result<Option<Item>, SourceError> {
@@ -71,9 +69,8 @@ impl LibrarySource for NativeSource {
         self.library.tag_groups()
     }
 
-    /// Smart folders arrive in phase 6.
     async fn smart_folders(&self) -> Result<Vec<SmartFolder>, SourceError> {
-        Ok(Vec::new())
+        self.library.smart_folders()
     }
 
     async fn thumbnail(&self, id: &ItemId) -> Result<Option<Thumbnail>, SourceError> {
@@ -131,5 +128,22 @@ impl LibrarySource for NativeSource {
     async fn delete_tag_group(&self, id: &str) -> Result<Vec<TagGroup>, SourceError> {
         self.library.delete_tag_group(id)?;
         self.library.tag_groups()
+    }
+
+    async fn extensions(&self) -> Result<Vec<ExtensionCount>, SourceError> {
+        self.library.extensions()
+    }
+
+    async fn save_smart_folder(
+        &self,
+        change: SmartFolderChange,
+    ) -> Result<Vec<SmartFolder>, SourceError> {
+        self.library.save_smart_folder(&change)?;
+        self.library.smart_folders()
+    }
+
+    async fn delete_smart_folder(&self, id: &str) -> Result<Vec<SmartFolder>, SourceError> {
+        self.library.delete_smart_folder(id)?;
+        self.library.smart_folders()
     }
 }

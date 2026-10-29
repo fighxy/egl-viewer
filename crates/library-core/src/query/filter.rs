@@ -3,7 +3,8 @@
 use std::collections::{HashMap, HashSet};
 use std::sync::Arc;
 
-use crate::model::{Folder, ItemId, ItemLite};
+use crate::model::{Folder, ItemLite};
+use crate::query::search::SearchMatch;
 use crate::query::{LibraryQuery, Scope, TagMode};
 
 /// The folder tree as parent → children, for subfolder unions and the lock filter.
@@ -88,8 +89,8 @@ impl FolderIndex {
 #[derive(Debug, Clone, Copy)]
 pub struct Context<'a> {
     pub folders: &'a FolderIndex,
-    /// Ids that match the search text; `None` when the query searches nothing.
-    pub text_ids: Option<&'a HashSet<ItemId>>,
+    /// What the search text keeps; `None` when the query searches nothing.
+    pub text: Option<&'a SearchMatch>,
 }
 
 /// The positions in `items` that the query keeps, in snapshot order: lock filter, scope union,
@@ -130,7 +131,7 @@ pub fn filter(items: &[ItemLite], query: &LibraryQuery, context: Context<'_>) ->
                 .shape
                 .as_deref()
                 .is_none_or(|shape| shape_of(item.width, item.height) == Some(shape))
-            && context.text_ids.is_none_or(|ids| ids.contains(&item.id))
+            && context.text.is_none_or(|text| text.contains(&item.id))
     };
     items
         .iter()

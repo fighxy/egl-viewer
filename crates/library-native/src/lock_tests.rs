@@ -154,16 +154,12 @@ fn a_lock_encrypts_the_folder_and_hides_it_until_unlocked() {
     assert!(files.iter().any(|file| file.ends_with("c.png")));
     let (name, encrypted, _, _) = row(&library, &c);
     assert_eq!((name.as_str(), encrypted), ("c", false));
+    // Format version 3 already keeps older apps out of a library with locks (D-047).
     let version: u32 = library
         .conn()
         .query_row("PRAGMA user_version", [], |row| row.get(0))
         .unwrap();
-    assert_eq!(version, 2, "the first lock raises the format version");
-    assert!(
-        files_under(&root.join("backups"))
-            .iter()
-            .any(|name| name.ends_with("-v1.db"))
-    );
+    assert_eq!(version, 3);
 
     // Unlocking: everything comes back, decrypted in memory only.
     assert!(matches!(

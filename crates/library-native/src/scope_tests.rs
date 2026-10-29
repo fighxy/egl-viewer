@@ -96,7 +96,11 @@ fn each_scope_is_one_query() {
         first.tags.iter().map(|tag| &**tag).collect::<Vec<_>>(),
         ["Poster"]
     );
-    assert_eq!(first.folders, None);
+    assert_eq!(
+        first.folders,
+        Some(Vec::new()),
+        "a native item always has the list"
+    );
     assert!(first.palette0.is_some());
     assert!(!first.no_thumbnail && first.thumb_version > 0);
     assert!(first.added_at.is_some());
@@ -195,7 +199,7 @@ fn a_file_path_outside_the_library_is_refused() {
 #[tokio::test]
 async fn the_native_source_answers_through_the_trait() {
     let dir = tempfile::tempdir().unwrap();
-    let (library, [a, ..]) = sample(dir.path());
+    let (library, [a, b, _]) = sample(dir.path());
     let root = library.root().to_path_buf();
     let source: Box<dyn LibrarySource> = Box::new(NativeSource::new(Arc::new(library)));
     assert!(source.capabilities().writable);
@@ -212,10 +216,10 @@ async fn the_native_source_answers_through_the_trait() {
     assert!(source.item(&id).await.unwrap().is_some());
     assert!(source.thumbnail(&id).await.unwrap().is_some());
     assert!(source.original(&id).await.unwrap().is_some());
-    assert!(matches!(
-        source.search_ids("poster").await,
-        Err(SourceError::NotSupported(_))
-    ));
+    // Case is ignored: "poster" is a tag of a, and b is in the folder "Posters".
+    let found = source.search_ids("poster").await.unwrap();
+    assert!(found.contains(&id) && found.contains(&ItemId(b)));
+    assert!(!source.search_ids("swiss").await.unwrap().contains(&id));
     assert_eq!(source.folder_tree().await.unwrap()[0].name, "Posters");
 
     let reader = Library::open(&root, &OpenOptions::new(APP)).unwrap();

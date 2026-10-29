@@ -4,6 +4,7 @@ use serde::{Deserialize, Serialize};
 use ts_rs::TS;
 
 pub mod filter;
+pub mod search;
 pub mod sort;
 pub mod view;
 

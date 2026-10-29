@@ -152,7 +152,7 @@ Trashed items disappear from every scope except Trash. Trash shows them with the
 
 ### Smart folders
 
-A smart folder is a saved rule set evaluated against the library. Rules use Eagle's rule language (`match` AND/OR, rules with `property`, `method`, `value`), stored as JSON, so smart folders survive import from and export into Eagle unchanged (arch §16). v1 evaluates a subset locally in `library-core` (section 5); a smart folder that uses a rule outside the subset is shown with a warning and its unsupported rules are listed.
+A smart folder is a saved rule set evaluated against the library. Rules use Eagle's rule language (`match` AND/OR, rules with `property`, `method`, `value`), stored as JSON, so smart folders survive import from and export into Eagle unchanged (arch §16). v1 evaluates a subset locally in `library-core` (section 5); a smart folder that uses a rule outside the subset is shown with a warning and its unsupported rules are listed. Such a rule matches nothing; the editor keeps it unless it is removed.
 
 Smart folders live in their own tree (nested, with their own order).
 
@@ -232,7 +232,7 @@ fn item_in_folder(item: &Item, folder_id: &str, include_descendants: bool, tree:
 
 ### Search
 
-The top search field searches names, notes, links, tags and folder names, from 2 characters, debounced 300 ms, within the current scope. Syntax as in Eagle: words are AND-ed, `OR` between words, parentheses, a leading `-` excludes a word. The native library translates it into FTS5 (arch §15.3).
+The top search field searches names, notes, links, tags and folder names, from 2 characters, debounced 300 ms, within the current scope. A word matches any part of those texts, without case (`post` finds `Poster`, `плак` finds `ПЛАКАТ`). Syntax as in Eagle: words are AND-ed, `OR` (in capitals) between words, parentheses, a leading `-` excludes a word or a group; `"…"` keeps spaces inside one word. The native library answers from an FTS5 trigram index (arch §15.3, D-047). `Ctrl+F` focuses the field, `Esc` clears it.
 
 ### Sort
 
@@ -261,7 +261,7 @@ Layout is presentation and does not affect the query: a grid whose column count 
 
 The local evaluator supports: `tags` and `folders` with `union`, `intersection`, `equal`, `identity`, `empty`, `not-empty`; `type`; `rating`; `shape`; `name`, `annotation`, `url` with `contain`, `uncontain`, `is`, `startWith`, `endWith`; `createTime`, `mtime`, `btime` with before, after, between and "within the last N days"; `width`, `height`, `fileSize` with comparisons. The exact semantics, including Eagle's quirks, are in arch §16; the native library matches Eagle where that is sensible and documents every difference in `decisions.md`.
 
-"Save as smart folder" turns the current scope and chips into rules. A query that uses something the rules cannot express (search text) is refused with an explanation.
+"Save as smart folder" turns the current scope and chips into rules: a folder becomes `folders union` (with its subfolders when Include subfolders is on), Uncategorized `folders empty`, Untagged `tags empty`, the tag and folder chips `union` / `intersection` / `equal` / `identity` for Any / All / Exact / None, type, rating and shape `equal`. Inside a smart folder the new one goes under it, so its rules apply too. A query that uses something the rules cannot express (search text, the trash) is refused with an explanation. Where the native library differs from the desktop is in D-048.
 
 ### How a screen is computed (arch §6)
 
@@ -918,6 +918,8 @@ Implemented 2026-10-28 (D-046).
 Done when: two tags in Any mode show the union, All shows only items that have both, Exact hides items with an extra tag, None hides items with either; `"Poster"` does not match `"poster"`; a rename changes the chip on every item; removing one tag does not touch the others.
 
 ### Phase 6 — Search, filters and smart folders
+
+Implemented 2026-10-29 (D-047, D-048).
 
 - FTS5 search with the Eagle-style syntax, within the scope.
 - The filter bar (section 7.3): type, rating, shape.

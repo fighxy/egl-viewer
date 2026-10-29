@@ -1,5 +1,5 @@
 import { ChevronDown, ChevronRight, Hash, Plus } from "lucide-react";
-import { type ReactNode, useCallback, useState } from "react";
+import type { ReactNode } from "react";
 import { Button } from "@/components/ui/button";
 import {
   ContextMenu,
@@ -8,70 +8,12 @@ import {
   ContextMenuTrigger,
 } from "@/components/ui/context-menu";
 import { FOLDER_COLORS } from "@/features/folders/tree";
+import { Section, useSectionOpen } from "@/features/library/Section";
 import type { Tag, TagGroup } from "@/ipc";
 import { countText } from "./match";
 import { type TagActions, TagMenu } from "./TagMenu";
 
-const KEY = "egl-viewer.collapsed:";
-
-/** A left bar section that stays collapsed once collapsed (docs/spec.md §7.3). */
-function useSectionOpen(name: string): [boolean, (open: boolean) => void] {
-  const [open, setOpenState] = useState(() => {
-    try {
-      return localStorage.getItem(KEY + name) !== "1";
-    } catch {
-      return true;
-    }
-  });
-  const setOpen = useCallback(
-    (next: boolean) => {
-      setOpenState(next);
-      try {
-        if (next) localStorage.removeItem(KEY + name);
-        else localStorage.setItem(KEY + name, "1");
-      } catch {
-        // Storage can be blocked; the section then opens again next time.
-      }
-    },
-    [name],
-  );
-  return [open, setOpen];
-}
-
-function Section({
-  label,
-  action,
-  children,
-}: {
-  label: string;
-  action?: ReactNode;
-  children: ReactNode;
-}) {
-  const [open, setOpen] = useSectionOpen(label);
-  return (
-    <section aria-label={label} className="grid gap-px">
-      <div className="flex items-center">
-        <button
-          type="button"
-          aria-expanded={open}
-          className="flex h-7 flex-1 items-center gap-1 rounded-md px-1 text-left text-xs font-medium text-muted-foreground outline-none hover:text-foreground focus-visible:ring-3 focus-visible:ring-ring/50"
-          onClick={() => setOpen(!open)}
-        >
-          {open ? (
-            <ChevronDown aria-hidden className="size-3.5" />
-          ) : (
-            <ChevronRight aria-hidden className="size-3.5" />
-          )}
-          {label}
-        </button>
-        {action}
-      </div>
-      {open && children}
-    </section>
-  );
-}
-
-const ROW =
+export const ROW =
   "flex h-7 w-full items-center gap-2 rounded-md px-2 text-left text-[13px] outline-none hover:bg-sidebar-accent focus-visible:ring-3 focus-visible:ring-ring/50 aria-[current=true]:bg-sidebar-accent aria-[current=true]:font-medium";
 
 type Props = {

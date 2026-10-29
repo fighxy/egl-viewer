@@ -5,6 +5,7 @@ use std::collections::HashSet;
 use std::sync::Arc;
 
 use super::filter::{Context, FolderIndex, filter, matches_tags, shape_of, type_matches};
+use super::search::SearchMatch;
 use super::sort::sort;
 use super::view::{MAX_WINDOW, ViewSource, Views};
 use super::{LibraryQuery, Scope, ScopeHints, SortKey, TagMode};
@@ -44,7 +45,7 @@ fn kept(items: &[ItemLite], query: &LibraryQuery, folders: &FolderIndex) -> Vec<
         query,
         Context {
             folders,
-            text_ids: None,
+            text: None,
         },
     )
     .into_iter()
@@ -281,16 +282,26 @@ fn type_rating_shape_and_text_combine() {
         ["landscape-jpg"]
     );
 
-    let found = HashSet::from([ItemId::from("document")]);
+    let found = SearchMatch::Only(HashSet::from([ItemId::from("document")]));
     let text = filter(
         &items,
         &LibraryQuery::default(),
         Context {
             folders: &index,
-            text_ids: Some(&found),
+            text: Some(&found),
         },
     );
     assert_eq!(text, [2]);
+    let excluded = SearchMatch::Except(HashSet::from([ItemId::from("document")]));
+    let text = filter(
+        &items,
+        &LibraryQuery::default(),
+        Context {
+            folders: &index,
+            text: Some(&excluded),
+        },
+    );
+    assert!(!text.contains(&2) && !text.is_empty());
 }
 
 #[test]
@@ -543,7 +554,7 @@ impl ViewSource for FakeSource {
         Ok(FolderIndex::default())
     }
 
-    fn search_ids(&self, _text: &str) -> Result<HashSet<ItemId>, SourceError> {
+    fn search_ids(&self, _text: &str) -> Result<SearchMatch, SourceError> {
         Err(SourceError::NotSupported("search".into()))
     }
 }

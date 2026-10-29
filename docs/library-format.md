@@ -43,7 +43,7 @@ My Library.eglib/
 | Where | Value | Meaning |
 |---|---|---|
 | `PRAGMA application_id` | `1162300482` (`0x45474C42`, ASCII `EGLB`) | This SQLite file is an egl-viewer library |
-| `PRAGMA user_version` | `1`, or `2` once the library has a locked folder | The format version. There is no other version number. Version 2 has the schema of version 1; it keeps apps that do not know locks from adding plaintext files to locked folders (D-019, D-045) |
+| `PRAGMA user_version` | `3` | The format version. There is no other version number. Version 2 had the schema of version 1 and marked a library with a locked folder (D-019, D-045). Version 3 rebuilt `item_fts` for substring search (D-047); every library is migrated to it when a writer opens it |
 | `meta.created_with`, `meta.last_written_with` | app version, for example `0.1.0` | Diagnostics only; never used to decide anything |
 
 Checks when a library is opened (the full order is in §7):
@@ -58,10 +58,11 @@ Checks when a library is opened (the full order is in §7):
 
 **When the version goes up.** With every schema change, and also when the meaning of stored data
 changes while the schema stays the same. Locked folders (phase 4) use columns and tables that
-exist from version 1, but the first locked folder in a library raises the version: an older app
-would otherwise add files to a locked folder as plaintext. A library that never had a locked
-folder keeps its version and still opens in older builds
-([`age-locked-folders.md`](age-locked-folders.md) §6).
+exist from version 1; the first locked folder raised a library to version 2, so that an older app
+would not add files to a locked folder as plaintext. Version 3 (phase 6) changes the search index,
+and since every library reaches it before anything is written, the lock step is no longer needed:
+an app older than version 3 refuses every library ([`age-locked-folders.md`](age-locked-folders.md)
+§6, D-047).
 
 ## 3. Connection settings
 
@@ -72,7 +73,7 @@ PRAGMA page_size = 4096;
 PRAGMA auto_vacuum = INCREMENTAL;     -- emptying the trash can give space back without a full VACUUM
 PRAGMA journal_mode = WAL;            -- stored in the file
 PRAGMA application_id = 1162300482;
-PRAGMA user_version = 1;
+PRAGMA user_version = 1;              -- then the migrations of §8 bring a new library to 3
 ```
 
 The text encoding is UTF-8 (the default). On every writer connection:
@@ -272,10 +273,12 @@ CREATE INDEX comment_item         ON comment(item_id);
 CREATE INDEX item_key_wrap_folder ON item_key_wrap(folder_id);
 
 CREATE VIRTUAL TABLE item_fts USING fts5(
-  name, annotation, url, tags, folders,
-  tokenize = 'unicode61 remove_diacritics 2'
+  name, annotation, url,
+  tokenize = 'trigram'
 );
 -- rowid = item.seq. Written by the app together with the item; encrypted items have no row.
+-- Format version 3 (D-047): any part of a word, without case. Tags and folder names are searched
+-- through their own tables.
 ```
 
 `item_folder.position` is NULL for an item that joined the folder after its last reorder: the
@@ -408,7 +411,13 @@ app emits `library-closed` and returns to Welcome with a message.
   `item_fts` aligned with `item`.
 - Migrations run forward only. Each version step is one transaction that also sets
   `user_version`. Every released format version gets a fixture library under
-  `fixtures/library/vN/`; a test migrates each older fixture to the newest version.
+  `fixtures/library/vN/`; a test migrates each older fixture to the newest version. Until the
+  first release, a test turns a new library back into version 1 instead.
+- A new library is created at version 1 and brought to the newest version by the same steps,
+  without a backup, so the schema has one source: `schema/v1.sql` and the migrations.
+- **Version 3** (D-047): `item_fts` becomes `fts5(name, annotation, url, tokenize = 'trigram')`
+  and is filled again from the items that are not encrypted. Tags and folder names leave the
+  index: search reads them from their tables.
 
 ## 9. Creating a library
 

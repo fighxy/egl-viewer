@@ -25,7 +25,7 @@ impl Library {
     /// The light items of one scope (docs/architecture.md §15.3). A folder scope also gives
     /// each direct member its manual position. Items under a lock that is not unlocked never
     /// leave this function; encrypted items come with their sealed name and palette opened.
-    /// Smart folders arrive with phase 6.
+    /// A smart folder evaluates its rules over All.
     pub fn load_scope(&self, scope: &Scope) -> Result<Vec<ItemLite>> {
         let mut folder: Option<&str> = None;
         let condition = match scope {
@@ -62,7 +62,7 @@ impl Library {
                  AND NOT EXISTS (SELECT 1 FROM item_tag WHERE item_id = item.id)"
             }
             Scope::Trash => "deleted_at IS NOT NULL",
-            Scope::Smart { .. } => return Err(SourceError::NotSupported("smart folders".into())),
+            Scope::Smart { id } => return self.load_smart(id),
         };
         let conn = self.conn();
         let visibility = self.visibility(&conn)?;
@@ -397,7 +397,8 @@ fn lite_from_row(row: &Row<'_>) -> rusqlite::Result<ItemLite> {
         size: size(row, 5)?,
         star: row.get(6)?,
         tags: Vec::new(),
-        folders: None,
+        // A native item always has a folder list, perhaps empty; only Eagle can lack the key.
+        folders: Some(Vec::new()),
         palette0,
         added_at: row.get(10)?,
         file_created_at: row.get(11)?,

@@ -6,6 +6,7 @@ import type { BrowsePreferences } from "./generated/BrowsePreferences";
 import type { ConnectionSettings } from "./generated/ConnectionSettings";
 import type { DuplicateAnswer } from "./generated/DuplicateAnswer";
 import type { DuplicateNotice } from "./generated/DuplicateNotice";
+import type { ExtensionCount } from "./generated/ExtensionCount";
 import type { Folder } from "./generated/Folder";
 import type { FolderChange } from "./generated/FolderChange";
 import type { ImportFailure } from "./generated/ImportFailure";
@@ -32,9 +33,13 @@ import type { RecoveryKey } from "./generated/RecoveryKey";
 import type { Scope } from "./generated/Scope";
 import type { ScopeProgress } from "./generated/ScopeProgress";
 import type { SelectionTags } from "./generated/SelectionTags";
+import type { SmartDraft } from "./generated/SmartDraft";
+import type { SmartFolder } from "./generated/SmartFolder";
+import type { SmartFolderChange } from "./generated/SmartFolderChange";
 import type { SortKey } from "./generated/SortKey";
 import type { SourceError } from "./generated/SourceError";
 import type { StartupResult } from "./generated/StartupResult";
+import type { JsonValue } from "./generated/serde_json/JsonValue";
 import type { Tag } from "./generated/Tag";
 import type { TagGroup } from "./generated/TagGroup";
 import type { TagGroupChange } from "./generated/TagGroupChange";
@@ -51,6 +56,7 @@ export type {
   ConnectionSettings,
   DuplicateAnswer,
   DuplicateNotice,
+  ExtensionCount,
   Folder,
   FolderChange,
   ImportFailure,
@@ -63,6 +69,7 @@ export type {
   ItemEdit,
   ItemId,
   ItemsTarget,
+  JsonValue,
   LibraryCounts,
   LibraryHolder,
   LibraryInfo,
@@ -77,6 +84,9 @@ export type {
   Scope,
   ScopeProgress,
   SelectionTags,
+  SmartDraft,
+  SmartFolder,
+  SmartFolderChange,
   SortKey,
   SourceError,
   StartupResult,
@@ -185,6 +195,13 @@ export const ipc = {
   renameTag: (from: string, to: string) => invoke<void>("rename_tag", { from, to }),
   mergeTags: (source: string, target: string) => invoke<void>("merge_tags", { source, target }),
   deleteTag: (name: string) => invoke<void>("delete_tag", { name }),
+  // Smart folders: Eagle's rules, stored unchanged (docs/architecture.md §16).
+  smartFolders: () => invoke<SmartFolder[]>("smart_folders"),
+  saveSmartFolder: (change: SmartFolderChange) =>
+    invoke<SmartFolder[]>("save_smart_folder", { change }),
+  deleteSmartFolder: (id: string) => invoke<SmartFolder[]>("delete_smart_folder", { id }),
+  smartRules: (query: LibraryQuery) => invoke<SmartDraft>("smart_rules", { query }),
+  extensions: () => invoke<ExtensionCount[]>("extensions"),
   // Locked folders (docs/age-locked-folders.md). Passwords go to Rust and are never stored.
   lockFolder: (
     id: string,

@@ -1,4 +1,4 @@
-//! Format version, the schema of version 1 and forward migrations (docs/library-format.md §2–§4).
+//! Format versions, the schema and forward migrations (docs/library-format.md §2–§4).
 
 use library_core::SourceError;
 use rusqlite::Connection;
@@ -9,16 +9,16 @@ use crate::error::{Context, Result};
 pub const APPLICATION_ID: i32 = 0x4547_4C42;
 
 /// The newest format version this build reads and writes.
-pub const FORMAT_VERSION: u32 = 2;
+pub const FORMAT_VERSION: u32 = 3;
 
 /// The newest schema: new libraries start here, and opening migrates older ones to it.
-pub(crate) const SCHEMA_VERSION: u32 = 1;
+pub(crate) const SCHEMA_VERSION: u32 = 3;
 
-/// Version 2 has the schema of version 1. It marks a library that holds locked folders, which
-/// an older app must not open: it would add plaintext files to them (D-019). A library takes it
-/// with its first lock, after a backup.
-pub(crate) const LOCKS_VERSION: u32 = 2;
+// Version 2 had the schema of version 1: the first locked folder raised a library to it, so that
+// an older app would not add plaintext files to a locked folder (D-019, D-045). Every library is
+// at version 3 now before anything is written, which keeps older apps out just as well (D-047).
 
+/// Version 1, the start of every library; the migrations bring it to the newest schema.
 const SCHEMA_V1: &str = include_str!("schema/v1.sql");
 
 /// One forward step, from `version - 1` to `version`.
@@ -27,8 +27,12 @@ pub(crate) struct Migration {
     pub sql: &'static str,
 }
 
-/// Steps after version 1, oldest first. Empty until format version 2 exists.
-pub(crate) const MIGRATIONS: &[Migration] = &[];
+/// Steps after version 1, oldest first. Version 2 changed no schema (it marks locks); version 3
+/// rebuilds the search index for substring search (D-047).
+pub(crate) const MIGRATIONS: &[Migration] = &[Migration {
+    version: 3,
+    sql: include_str!("schema/v3.sql"),
+}];
 
 /// What the SQLite header says about a file.
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
@@ -46,8 +50,9 @@ pub(crate) fn read_header(conn: &Connection) -> rusqlite::Result<Header> {
     })
 }
 
-/// Creates version 1 in an empty database: the settings fixed at creation, then the schema.
-pub(crate) fn create(conn: &Connection) -> Result<()> {
+/// Creates the newest version in an empty database: the settings fixed at creation, version 1,
+/// then every migration (no backup: there is nothing to keep yet).
+pub(crate) fn create(conn: &mut Connection) -> Result<()> {
     conn.execute_batch("PRAGMA page_size = 4096; PRAGMA auto_vacuum = INCREMENTAL;")
         .context("set the page size")?;
     let mode: String = conn
@@ -59,10 +64,11 @@ pub(crate) fn create(conn: &Connection) -> Result<()> {
         )));
     }
     conn.execute_batch(&format!(
-        "PRAGMA application_id = {APPLICATION_ID}; PRAGMA user_version = {SCHEMA_VERSION};"
+        "PRAGMA application_id = {APPLICATION_ID}; PRAGMA user_version = 1;"
     ))
     .context("write the format version")?;
-    conn.execute_batch(SCHEMA_V1).context("create the schema")
+    conn.execute_batch(SCHEMA_V1).context("create the schema")?;
+    migrate(conn, 1, MIGRATIONS)
 }
 
 /// The settings of every writer connection (docs/library-format.md §3).
@@ -109,14 +115,33 @@ pub(crate) fn meta_set(conn: &Connection, key: &str, value: &str) -> Result<()> 
 mod tests {
     use super::*;
 
-    fn normalized(sql: &str) -> String {
-        sql.lines()
-            .filter(|line| !line.trim_start().starts_with("--") || line.contains("CREATE"))
-            .map(str::trim_end)
-            .collect::<Vec<_>>()
-            .join("\n")
-            .trim()
-            .to_owned()
+    /// Every schema object's SQL, comments dropped and spaces collapsed, by name.
+    fn objects(conn: &Connection) -> Vec<(String, String)> {
+        let mut statement = conn
+            .prepare(
+                "SELECT name, sql FROM sqlite_master WHERE sql IS NOT NULL \
+                 AND name NOT LIKE 'item_fts_%' ORDER BY name",
+            )
+            .unwrap();
+        statement
+            .query_map([], |row| Ok((row.get(0)?, row.get::<_, String>(1)?)))
+            .unwrap()
+            .map(|row| {
+                let (name, sql) = row.unwrap();
+                let plain: Vec<&str> = sql
+                    .lines()
+                    .map(|line| line.split("--").next().unwrap_or_default())
+                    .collect();
+                (
+                    name,
+                    plain
+                        .join(" ")
+                        .split_whitespace()
+                        .collect::<Vec<_>>()
+                        .join(" "),
+                )
+            })
+            .collect()
     }
 
     #[test]
@@ -127,26 +152,26 @@ mod tests {
             .last()
             .and_then(|rest| rest.split("```").next())
             .expect("docs/library-format.md has a schema block");
-        let code = SCHEMA_V1
-            .lines()
-            .skip_while(|line| line.starts_with("--") || line.is_empty())
-            .collect::<Vec<_>>()
-            .join("\n");
+        let documented = Connection::open_in_memory().unwrap();
+        documented.execute_batch(block).unwrap();
+        let dir = tempfile::tempdir().unwrap();
+        let mut created = Connection::open(dir.path().join("library.db")).unwrap();
+        create(&mut created).unwrap();
         assert_eq!(
-            normalized(&code),
-            normalized(block),
-            "src/schema/v1.sql and docs/library-format.md §4 differ"
+            objects(&created),
+            objects(&documented),
+            "the schema of a new library and docs/library-format.md §4 differ"
         );
     }
 
     #[test]
-    fn creates_version_one_with_every_table() {
+    fn creates_the_newest_version_with_every_table() {
         let dir = tempfile::tempdir().unwrap();
-        let conn = Connection::open(dir.path().join("library.db")).unwrap();
-        create(&conn).unwrap();
+        let mut conn = Connection::open(dir.path().join("library.db")).unwrap();
+        create(&mut conn).unwrap();
         let header = read_header(&conn).unwrap();
         assert_eq!(header.application_id, APPLICATION_ID);
-        assert_eq!(header.version, 1);
+        assert_eq!(header.version, SCHEMA_VERSION);
         let tables: Vec<String> = conn
             .prepare("SELECT name FROM sqlite_master WHERE type = 'table' ORDER BY name")
             .unwrap()
