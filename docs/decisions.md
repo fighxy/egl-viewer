@@ -933,3 +933,11 @@ connection (D-051). Copy File uses `arboard`, already there for Paste.
   2027-04-17.
 - The three installers are unsigned. Signing, auto-update and the Windows done check stay in
   phase 12. Eagle import, the live connection and export are not in 0.1.1.
+
+## D-054 Scrollbars follow the app theme (2026-10-29)
+
+- The grid's scrollbar stayed the light system bar (a white track and thumb) in the dark theme,
+  because the page never set `color-scheme`. It is `light` on `:root` and `dark` on `.dark`.
+  The thumb is the `ring` token and the track is transparent, so the bar shows the surface under
+  it (the grid's `--grid`, the sidebar's own background) and the light theme stays a readable
+  grey, not a hardcoded colour.
