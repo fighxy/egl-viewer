@@ -919,3 +919,17 @@ connection (D-051). Copy File uses `arboard`, already there for Paste.
   started an OS drag with the thumbnail; Rebuild Thumbnails moved all 9 998 thumbnails to version
   2 and went on after a restart. The Windows checks (Explorer, the default app, dropping into other
   apps) are still open.
+
+## D-053 Release 0.1.1 installers (2026-10-29)
+
+- The app version is **0.1.1**, in the workspace package, `Cargo.lock`, `tauri.conf.json` and
+  `ui/package.json`. `tauri.conf.json` still bundles only the Windows NSIS target, so `pnpm build`
+  on Windows is unchanged.
+- A version tag (`v*`) also builds a macOS DMG (`pnpm tauri build --bundles dmg` on
+  `macos-latest`, Apple Silicon) and a Linux AppImage (`--bundles appimage` on `ubuntu-22.04`).
+  The config names no Linux bundle; the release attaches one AppImage. Ubuntu 22.04 is the oldest
+  hosted image that still has WebKitGTK 4.1, which keeps the AppImage's glibc baseline where
+  Tauri's AppImage guidance puts it. The image is deprecated and remains runnable until
+  2027-04-17.
+- The three installers are unsigned. Signing, auto-update and the Windows done check stay in
+  phase 12. Eagle import, the live connection and export are not in 0.1.1.
