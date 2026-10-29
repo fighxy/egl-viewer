@@ -463,7 +463,7 @@ fn an_older_backup_is_migrated_after_restoring() {
         .conn()
         .query_row("PRAGMA user_version", [], |row| row.get(0))
         .unwrap();
-    assert_eq!(version, 3);
+    assert_eq!(version, 4);
     assert!(library.search("ster").unwrap().contains(&ItemId(a)));
 }
 

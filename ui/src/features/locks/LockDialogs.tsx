@@ -1,5 +1,5 @@
 import { save } from "@tauri-apps/plugin-dialog";
-import { useId, useState } from "react";
+import { useEffect, useId, useState } from "react";
 import { Button } from "@/components/ui/button";
 import {
   Dialog,
@@ -14,7 +14,15 @@ import { Progress } from "@/components/ui/progress";
 import { ColourPicker } from "@/features/folders/ColourPicker";
 import { findFolder } from "@/features/folders/tree";
 import { plural } from "@/features/imports/importText";
-import { type Folder, ipc, type LockProgress, type RecoveryKey, type SourceError } from "@/ipc";
+import {
+  type Folder,
+  ipc,
+  type LockProgress,
+  type PivPolicy,
+  type PivWrap,
+  type RecoveryKey,
+  type SourceError,
+} from "@/ipc";
 import { describeError } from "@/lib/errors";
 
 /** Which lock dialog is open, for which folder. */
@@ -23,7 +31,9 @@ export type LockDialog =
   | { kind: "unlock"; id: string }
   | { kind: "change"; id: string }
   | { kind: "renew"; id: string }
-  | { kind: "remove"; id: string };
+  | { kind: "remove"; id: string }
+  | { kind: "yubikey"; id: string }
+  | { kind: "unyubikey"; id: string };
 
 type Props = {
   dialog: LockDialog | null;
@@ -78,6 +88,24 @@ export function LockDialogs({ dialog, folders, onClose, onChanged }: Props) {
       )}
       {dialog?.kind === "remove" && folder && (
         <RemoveLock key={dialog.id} folder={folder} onCancel={onClose} onDone={() => done()} />
+      )}
+      {dialog?.kind === "yubikey" && (
+        <AddYubiKey
+          key={dialog.id}
+          id={dialog.id}
+          name={name}
+          onCancel={onClose}
+          onDone={onClose}
+        />
+      )}
+      {dialog?.kind === "unyubikey" && (
+        <RemoveYubiKey
+          key={dialog.id}
+          id={dialog.id}
+          name={name}
+          onCancel={onClose}
+          onDone={onClose}
+        />
       )}
     </>
   );
@@ -345,19 +373,41 @@ function UnlockFolder({
   onCancel: () => void;
   onDone: (opened?: string) => void;
 }) {
-  const [mode, setMode] = useState<"password" | "recovery">("password");
+  const [mode, setMode] = useState<"password" | "recovery" | "yubikey">("password");
   const [password, setPassword] = useState("");
   const [recovery, setRecovery] = useState("");
   const [next, setNext] = useState("");
   const [confirm, setConfirm] = useState("");
+  const [wraps, setWraps] = useState<PivWrap[]>([]);
+  const [serial, setSerial] = useState("");
+  const [pin, setPin] = useState("");
   const [working, setWorking] = useState(false);
   const [error, setError] = useState<string>();
   const recoveryId = useId();
   const mismatch = confirm !== "" && confirm !== next;
+  const selected = wraps.find((wrap) => wrap.serial === serial) ?? wraps[0];
   const ready =
     mode === "password"
       ? password !== ""
-      : recovery.trim() !== "" && next !== "" && confirm !== "" && !mismatch;
+      : mode === "recovery"
+        ? recovery.trim() !== "" && next !== "" && confirm !== "" && !mismatch
+        : selected !== undefined && (selected.policy === "touch" || pin !== "");
+
+  useEffect(() => {
+    let cancelled = false;
+    ipc
+      .pivWraps(id)
+      .then((rows) => {
+        if (cancelled) return;
+        setWraps(rows);
+        const first = rows[0];
+        if (first) setSerial(first.serial);
+      })
+      .catch(() => {});
+    return () => {
+      cancelled = true;
+    };
+  }, [id]);
 
   const run = (call: Promise<void>, wrong: string) => {
     setWorking(true);
@@ -377,10 +427,21 @@ function UnlockFolder({
             if (!ready || working) return;
             if (mode === "password") {
               run(ipc.unlockFolder(id, password), "The password is not right.");
-            } else {
+            } else if (mode === "recovery") {
               run(
                 ipc.recoverFolder(id, recovery, next),
                 "This recovery key does not open the folder.",
+              );
+            } else if (selected) {
+              run(
+                ipc.unlockWithYubiKey(
+                  id,
+                  selected.serial,
+                  selected.policy === "pin" ? { kind: "pin", pin } : { kind: "touch" },
+                ),
+                selected.policy === "pin"
+                  ? "The YubiKey PIN is not right."
+                  : "The YubiKey did not open the folder.",
               );
             }
           }}
@@ -388,14 +449,22 @@ function UnlockFolder({
           <DialogHeader>
             <DialogTitle>Unlock “{name}”</DialogTitle>
             <DialogDescription>
-              {mode === "password"
-                ? "The folder opens until you lock it again or close the library. Other locked folders stay locked."
-                : "Enter the recovery key or its 12 words, then a new password. The old password stops working."}
+              {mode === "password" &&
+                "The folder opens until you lock it again or close the library. Other locked folders stay locked."}
+              {mode === "recovery" &&
+                "Enter the recovery key or its 12 words, then a new password. The old password stops working."}
+              {mode === "yubikey" &&
+                selected?.policy === "pin" &&
+                "Enter the YubiKey PIN. It replaces the touch, and it opens only this folder."}
+              {mode === "yubikey" &&
+                selected?.policy !== "pin" &&
+                "Touch the YubiKey. It opens only this folder. Without the key, the password and the recovery key still work."}
             </DialogDescription>
           </DialogHeader>
-          {mode === "password" ? (
+          {mode === "password" && (
             <PasswordField label="Password" value={password} onChange={setPassword} autoFocus />
-          ) : (
+          )}
+          {mode === "recovery" && (
             <>
               <div className="grid gap-1">
                 <label htmlFor={recoveryId} className="text-xs text-muted-foreground">
@@ -422,20 +491,76 @@ function UnlockFolder({
               {mismatch && <ErrorText>The passwords are not the same.</ErrorText>}
             </>
           )}
+          {mode === "yubikey" && selected && (
+            <>
+              {wraps.length > 1 && (
+                <label className="grid gap-1 text-xs text-muted-foreground">
+                  YubiKey
+                  <select
+                    aria-label="YubiKey"
+                    className="rounded-lg border bg-transparent px-2.5 py-1 text-sm text-foreground"
+                    value={selected.serial}
+                    onChange={(event) => setSerial(event.target.value)}
+                  >
+                    {wraps.map((wrap) => (
+                      <option key={wrap.serial} value={wrap.serial}>
+                        {wrap.serial}
+                      </option>
+                    ))}
+                  </select>
+                </label>
+              )}
+              {selected.policy === "pin" ? (
+                <PasswordField label="YubiKey PIN" value={pin} onChange={setPin} autoFocus />
+              ) : (
+                <p className="text-sm">Touch the key when asked.</p>
+              )}
+            </>
+          )}
           {error && <ErrorText>{error}</ErrorText>}
           {working && <p className="text-xs text-muted-foreground">Checking…</p>}
           <DialogFooter className="sm:justify-between">
-            <Button
-              type="button"
-              variant="link"
-              className="px-0"
-              onClick={() => {
-                setMode(mode === "password" ? "recovery" : "password");
-                setError(undefined);
-              }}
-            >
-              {mode === "password" ? "Forgot the password?" : "Use the password"}
-            </Button>
+            <div className="flex flex-wrap gap-2">
+              {mode !== "password" && (
+                <Button
+                  type="button"
+                  variant="link"
+                  className="px-0"
+                  onClick={() => {
+                    setMode("password");
+                    setError(undefined);
+                  }}
+                >
+                  Use the password
+                </Button>
+              )}
+              {mode !== "recovery" && (
+                <Button
+                  type="button"
+                  variant="link"
+                  className="px-0"
+                  onClick={() => {
+                    setMode("recovery");
+                    setError(undefined);
+                  }}
+                >
+                  Forgot the password?
+                </Button>
+              )}
+              {mode !== "yubikey" && wraps.length > 0 && (
+                <Button
+                  type="button"
+                  variant="link"
+                  className="px-0"
+                  onClick={() => {
+                    setMode("yubikey");
+                    setError(undefined);
+                  }}
+                >
+                  Use a YubiKey
+                </Button>
+              )}
+            </div>
             <div className="flex gap-2">
               <Button type="button" variant="outline" disabled={working} onClick={onCancel}>
                 Cancel
@@ -634,6 +759,188 @@ function RemoveLock({
             </Button>
             <Button type="submit" variant="destructive" disabled={!password || working}>
               Remove lock
+            </Button>
+          </DialogFooter>
+        </form>
+      </DialogContent>
+    </Dialog>
+  );
+}
+
+function AddYubiKey({
+  id,
+  name,
+  onCancel,
+  onDone,
+}: {
+  id: string;
+  name: string;
+  onCancel: () => void;
+  onDone: () => void;
+}) {
+  const [policy, setPolicy] = useState<PivPolicy>("touch");
+  const [password, setPassword] = useState("");
+  const [pin, setPin] = useState("");
+  const [working, setWorking] = useState(false);
+  const [error, setError] = useState<string>();
+  const ready = password !== "" && (policy === "touch" || pin !== "");
+  return (
+    <Dialog open onOpenChange={(open) => !open && !working && onCancel()}>
+      <DialogContent>
+        <form
+          className="grid gap-4"
+          onSubmit={(event) => {
+            event.preventDefault();
+            if (!ready || working) return;
+            setWorking(true);
+            setError(undefined);
+            ipc
+              .bindYubiKey(id, password, policy, policy === "pin" ? pin : null)
+              .then(onDone)
+              .catch((reason: unknown) => setError(describeError(reason)))
+              .finally(() => setWorking(false));
+          }}
+        >
+          <DialogHeader>
+            <DialogTitle>Add a YubiKey to “{name}”</DialogTitle>
+            <DialogDescription>
+              The key is a third way to open this folder. Touch or PIN, not both. Without the key,
+              the password and the recovery key still work. Other folders stay locked.
+            </DialogDescription>
+          </DialogHeader>
+          <fieldset className="grid gap-1">
+            <legend className="text-xs text-muted-foreground">Open this folder with</legend>
+            <label className="flex items-center gap-2 text-sm">
+              <input
+                type="radio"
+                name="piv-policy"
+                checked={policy === "touch"}
+                onChange={() => {
+                  setPolicy("touch");
+                  setPin("");
+                }}
+              />
+              Touch
+            </label>
+            <label className="flex items-center gap-2 text-sm">
+              <input
+                type="radio"
+                name="piv-policy"
+                checked={policy === "pin"}
+                onChange={() => setPolicy("pin")}
+              />
+              PIN
+            </label>
+          </fieldset>
+          {policy === "pin" && <PasswordField label="YubiKey PIN" value={pin} onChange={setPin} />}
+          <PasswordField
+            label="Folder password"
+            value={password}
+            onChange={setPassword}
+            autoFocus
+          />
+          {error && <ErrorText>{error}</ErrorText>}
+          <DialogFooter>
+            <Button type="button" variant="outline" disabled={working} onClick={onCancel}>
+              Cancel
+            </Button>
+            <Button type="submit" disabled={!ready || working}>
+              Add YubiKey
+            </Button>
+          </DialogFooter>
+        </form>
+      </DialogContent>
+    </Dialog>
+  );
+}
+
+function RemoveYubiKey({
+  id,
+  name,
+  onCancel,
+  onDone,
+}: {
+  id: string;
+  name: string;
+  onCancel: () => void;
+  onDone: () => void;
+}) {
+  const [wraps, setWraps] = useState<PivWrap[]>([]);
+  const [serial, setSerial] = useState("");
+  const [password, setPassword] = useState("");
+  const [working, setWorking] = useState(false);
+  const [error, setError] = useState<string>();
+  useEffect(() => {
+    let cancelled = false;
+    ipc
+      .pivWraps(id)
+      .then((rows) => {
+        if (cancelled) return;
+        setWraps(rows);
+        const first = rows[0];
+        if (first) setSerial(first.serial);
+      })
+      .catch((reason: unknown) => setError(describeError(reason)));
+    return () => {
+      cancelled = true;
+    };
+  }, [id]);
+  const chosen = wraps.find((wrap) => wrap.serial === serial) ?? wraps[0];
+  return (
+    <Dialog open onOpenChange={(open) => !open && !working && onCancel()}>
+      <DialogContent>
+        <form
+          className="grid gap-4"
+          onSubmit={(event) => {
+            event.preventDefault();
+            if (!chosen || password === "" || working) return;
+            setWorking(true);
+            setError(undefined);
+            ipc
+              .unbindYubiKey(id, password, chosen.serial)
+              .then(onDone)
+              .catch((reason: unknown) => setError(describeError(reason)))
+              .finally(() => setWorking(false));
+          }}
+        >
+          <DialogHeader>
+            <DialogTitle>Remove a YubiKey from “{name}”</DialogTitle>
+            <DialogDescription>
+              The password and the recovery key keep working. Other YubiKeys on this folder stay.
+            </DialogDescription>
+          </DialogHeader>
+          {wraps.length === 0 ? (
+            <p className="text-sm text-muted-foreground">No YubiKey is added to this folder.</p>
+          ) : (
+            <label className="grid gap-1 text-xs text-muted-foreground">
+              YubiKey
+              <select
+                aria-label="YubiKey"
+                className="rounded-lg border bg-transparent px-2.5 py-1 text-sm text-foreground"
+                value={chosen?.serial ?? ""}
+                onChange={(event) => setSerial(event.target.value)}
+              >
+                {wraps.map((wrap) => (
+                  <option key={wrap.serial} value={wrap.serial}>
+                    {wrap.serial}
+                  </option>
+                ))}
+              </select>
+            </label>
+          )}
+          <PasswordField
+            label="Folder password"
+            value={password}
+            onChange={setPassword}
+            autoFocus
+          />
+          {error && <ErrorText>{error}</ErrorText>}
+          <DialogFooter>
+            <Button type="button" variant="outline" disabled={working} onClick={onCancel}>
+              Cancel
+            </Button>
+            <Button type="submit" disabled={!chosen || password === "" || working}>
+              Remove YubiKey
             </Button>
           </DialogFooter>
         </form>

@@ -9,21 +9,23 @@ use std::thread::JoinHandle;
 use std::time::{Duration, SystemTime, UNIX_EPOCH};
 
 use app_store::{
-    AppStore, Preferences, RecentLibrary, SyncEnvironment, check_location, default_library_parent,
-    display_path,
+    AppStore, LoginProof, LoginStatus, Preferences, RecentLibrary, SyncEnvironment, check_location,
+    default_library_parent, display_path,
 };
 use library_core::{
     Backup, DuplicateNotice, ExtensionCount, Folder, FolderChange, FolderIndex, ImportKind,
     ImportProgress, ImportState, ImportTicket, Item, ItemCell, ItemEdit, ItemId, LibraryCheck,
     LibraryCounts, LibraryInfo, LibraryQuery, LibrarySource, LibraryStats, LocationProblem,
-    Progress, ReadOnlyReason, RecoveryKey, RepairOptions, SelectionTags, SmartFolder,
-    SmartFolderChange, SourceError, Tag, TagGroup, TagGroupChange, Thumbnail, UndoStack,
-    UndoStatus, Views, rules_from_query,
+    PivPolicy, PivPrompt, PivWrap, Progress, ReadOnlyReason, RecoveryKey, RepairOptions,
+    SelectionTags, SmartFolder, SmartFolderChange, SourceError, Tag, TagGroup, TagGroupChange,
+    Thumbnail, UndoStack, UndoStatus, Views, rules_from_query,
 };
 use library_native::{
     DuplicateChoice, DuplicatePolicy, ImportObserver, ImportTarget, Library, NativeSource,
-    OpenOptions, create_library, import_files, make_pending_previews, utc_file_stamp,
+    OpenOptions, check_enrollment, create_library, import_files, make_pending_previews,
+    utc_file_stamp,
 };
+use secrecy::SecretString;
 use serde::Serialize;
 use ts_rs::TS;
 
@@ -31,6 +33,8 @@ use crate::views::{
     Blocking, Emit, Event, ImageRequest, ItemsTarget, Refresher, ViewOpened, count, invalidated,
     ready,
 };
+use crate::webauthn::SystemWebAuthn;
+use crate::yubikey;
 
 /// "Save as smart folder": the rules that keep what a screen shows, and the smart folder the new
 /// one goes under (the open smart folder, so its rules apply too).
@@ -728,6 +732,80 @@ impl Session {
         library.unlock_folder(id, password)?;
         self.after_unlock(library);
         Ok(())
+    }
+
+    /// YubiKeys bound to one locked folder. Nothing secret is in the list.
+    pub fn piv_wraps(&self, id: &str) -> Result<Vec<PivWrap>, SourceError> {
+        self.current_library().ok_or_else(no_library)?.piv_wraps(id)
+    }
+
+    /// Adds a YubiKey as a third wrap. Touch and PIN are alternatives. With no card, the
+    /// password and the recovery key are unchanged.
+    pub fn bind_yubikey(
+        &self,
+        id: &str,
+        password: String,
+        policy: PivPolicy,
+        pin: Option<String>,
+    ) -> Result<(), SourceError> {
+        check_enrollment(policy, pin.as_deref())?;
+        let card = yubikey::enroll(policy, pin.as_deref())?;
+        self.writable_library()?.bind_piv(id, password, &card)
+    }
+
+    /// Drops one card's wrap. The password still opens the folder.
+    pub fn unbind_yubikey(
+        &self,
+        id: &str,
+        password: String,
+        serial: String,
+    ) -> Result<(), SourceError> {
+        self.writable_library()?.unbind_piv(id, password, &serial)
+    }
+
+    /// Opens one folder with its YubiKey. A missing card does not lock the others out.
+    pub fn unlock_with_yubikey(
+        &self,
+        id: &str,
+        serial: String,
+        prompt: PivPrompt,
+    ) -> Result<(), SourceError> {
+        let library = self.current_library().ok_or_else(no_library)?;
+        let prompt_for_card = prompt.clone();
+        library.unlock_with_piv(id, &serial, &prompt, |ephemeral| {
+            yubikey::agree(&serial, &prompt_for_card, ephemeral)
+        })?;
+        self.after_unlock(library);
+        Ok(())
+    }
+
+    pub fn login_status(&self) -> LoginStatus {
+        self.store.login_status()
+    }
+
+    pub fn clear_login(&self) -> Result<LoginStatus, SourceError> {
+        self.store.clear_login()
+    }
+
+    pub fn set_login_password(&self, password: String) -> Result<LoginStatus, SourceError> {
+        self.store.set_login_password(&SecretString::from(password))
+    }
+
+    pub fn set_login_pin(&self, pin: String) -> Result<LoginStatus, SourceError> {
+        self.store.set_login_pin(&SecretString::from(pin))
+    }
+
+    /// Replaces the login with a YubiKey 5C touch. The credential does not unwrap folders.
+    pub fn set_login_webauthn(&self) -> Result<LoginStatus, SourceError> {
+        self.store.enroll_webauthn(&mut SystemWebAuthn)
+    }
+
+    /// The app gate. WebAuthn is a touch; password and PIN are the other, separate choices.
+    pub fn unlock_app(&self, proof: LoginProof) -> Result<(), SourceError> {
+        match proof {
+            LoginProof::WebAuthn => self.store.login_webauthn(&mut SystemWebAuthn),
+            other => self.store.unlock_app(&other),
+        }
     }
 
     /// The recovery key or phrase opens the folder and sets a new password.

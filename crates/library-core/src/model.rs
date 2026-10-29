@@ -117,6 +117,46 @@ pub struct RecoveryKey {
     pub phrase: String,
 }
 
+/// How a YubiKey opens one locked folder. Touch and PIN are alternatives: the PIN replaces
+/// the touch, it is not a second step, and it is not the app login PIN (spec §13).
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize, TS)]
+#[serde(rename_all = "camelCase")]
+#[ts(export)]
+pub enum PivPolicy {
+    Touch,
+    Pin,
+}
+
+/// One YubiKey bound to a locked folder. The private key stays on the card; this is only
+/// what the UI needs to ask for a touch or a PIN.
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize, TS)]
+#[serde(rename_all = "camelCase")]
+#[ts(export)]
+pub struct PivWrap {
+    pub serial: String,
+    /// Retired PIV slot, 130–149 (hex 82–95).
+    pub slot: u8,
+    pub policy: PivPolicy,
+}
+
+/// What the user does to open a folder with a bound YubiKey. One variant, never both.
+#[derive(Clone, PartialEq, Eq, Serialize, Deserialize, TS)]
+#[serde(tag = "kind", rename_all = "camelCase")]
+#[ts(export)]
+pub enum PivPrompt {
+    Touch,
+    Pin { pin: String },
+}
+
+impl std::fmt::Debug for PivPrompt {
+    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        match self {
+            Self::Touch => f.write_str("Touch"),
+            Self::Pin { .. } => f.write_str("Pin"),
+        }
+    }
+}
+
 /// One colour of an item's palette, as Eagle stores it: `{ color: [r, g, b], ratio }`.
 #[derive(Debug, Clone, Copy, PartialEq, Serialize, Deserialize, TS)]
 #[ts(export)]

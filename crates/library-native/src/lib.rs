@@ -15,6 +15,7 @@ mod lock;
 mod locks;
 mod maintenance;
 mod name;
+mod piv;
 mod preview;
 mod recover;
 mod schema;
@@ -59,6 +60,7 @@ pub use import::{
 };
 pub use library::{Library, OpenOptions};
 pub use name::validate_library_name;
+pub use piv::{PivCard, check_enrollment};
 pub use preview::{NO_PREVIEW, PendingPreview};
 pub use schema::{APPLICATION_ID, FORMAT_VERSION};
 pub use source::NativeSource;

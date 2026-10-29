@@ -19,8 +19,11 @@ eagle-api = { path = "crates/eagle-api" }
 app-store = { path = "crates/app-store" }
 
 age = { version = "0.12.1", default-features = false }
+age-core = "0.12.0"
 arboard = "3.7.0"
 argon2 = "0.6.0"
+base64 = "0.22.1"
+bech32 = "0.11.1"
 async-trait = "0.1.92"
 bip39 = { version = "3.0.0", default-features = false, features = ["std"] }
 blake3 = "1.8.7"
@@ -31,12 +34,15 @@ getrandom = "0.4.3"
 icu_collator = "2.4.0"
 image = { version = "0.25.10", default-features = false, features = ["bmp", "gif", "jpeg", "png", "tiff", "webp"] }
 kamadak-exif = "0.6.1"
+p256 = { version = "0.13.2", features = ["ecdh", "ecdsa"] }
 psd = "0.3.5"
+rand = "0.8.8"
 rayon = "1.12.0"
 resvg = "0.49.0"
 rusqlite = { version = "0.41.0", features = ["backup", "bundled"] }
 secrecy = "0.10.3"
 serde = { version = "1.0.229", features = ["derive"] }
+sha2 = "0.10.9"
 serde_json = "1.0.154"
 tauri = { version = "2.12.5", features = [] }
 tauri-build = { version = "2.7.4", features = [] }

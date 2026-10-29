@@ -206,7 +206,7 @@ fn an_older_library_gets_the_new_index_after_a_backup() {
         .conn()
         .query_row("PRAGMA user_version", [], |row| row.get(0))
         .unwrap();
-    assert_eq!(version, 3);
+    assert_eq!(version, 4);
     assert!(
         files_under(&root.join("backups"))
             .iter()

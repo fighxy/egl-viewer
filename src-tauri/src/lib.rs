@@ -4,7 +4,9 @@ mod commands;
 mod drag_out;
 mod session;
 mod views;
+mod webauthn;
 mod window;
+mod yubikey;
 
 use std::sync::Arc;
 
@@ -133,6 +135,17 @@ pub fn run() {
             commands::extensions,
             commands::lock_folder,
             commands::unlock_folder,
+            commands::piv_wraps,
+            commands::bind_yubikey,
+            commands::unbind_yubikey,
+            commands::unlock_with_yubikey,
+            commands::yubikey_present,
+            commands::login_status,
+            commands::clear_login,
+            commands::set_login_password,
+            commands::set_login_pin,
+            commands::set_login_webauthn,
+            commands::unlock_app,
             commands::recover_folder,
             commands::relock_folder,
             commands::change_folder_password,

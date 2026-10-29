@@ -11,6 +11,11 @@ function renderSettings(save = vi.fn().mockResolvedValue(undefined)) {
     builtInLocation: "C:\\Users\\me\\egl-library",
     browse: vi.fn().mockResolvedValue("D:\\Libraries"),
     save,
+    login: "none" as const,
+    onSetPassword: vi.fn().mockResolvedValue(undefined),
+    onSetPin: vi.fn().mockResolvedValue(undefined),
+    onSetWebAuthn: vi.fn().mockResolvedValue(undefined),
+    onClearLogin: vi.fn().mockResolvedValue(undefined),
   };
   render(<SettingsDialog open {...props} />);
   return props;
@@ -55,5 +60,21 @@ describe("SettingsDialog", () => {
     await user.click(screen.getByRole("button", { name: "Save" }));
     expect(await screen.findByRole("alert")).toHaveTextContent("network drive");
     expect(props.onOpenChange).not.toHaveBeenCalledWith(false);
+  });
+
+  it("keeps app login to one method and does not ask a YubiKey for a PIN", async () => {
+    const user = userEvent.setup();
+    const props = renderSettings();
+    expect(screen.getByRole("radio", { name: "Off" })).toBeChecked();
+    await user.click(screen.getByRole("radio", { name: "YubiKey" }));
+    expect(screen.getByRole("radio", { name: "YubiKey" })).toBeChecked();
+    expect(screen.getByRole("radio", { name: "Password" })).not.toBeChecked();
+    expect(screen.getByRole("radio", { name: "PIN" })).not.toBeChecked();
+    expect(screen.queryByLabelText("Login PIN")).not.toBeInTheDocument();
+    expect(screen.queryByLabelText("Login password")).not.toBeInTheDocument();
+    await user.click(screen.getByRole("button", { name: "Set login" }));
+    expect(props.onSetWebAuthn).toHaveBeenCalledOnce();
+    expect(props.onSetPin).not.toHaveBeenCalled();
+    expect(props.onSetPassword).not.toHaveBeenCalled();
   });
 });

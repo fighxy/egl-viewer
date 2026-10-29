@@ -224,6 +224,43 @@ describe("Locked folders", () => {
     expect(called(calls, "relock_folder")[0]?.args).toEqual({ id: "F2" });
   });
 
+  it("offers a YubiKey touch or a PIN, and still accepts the password", async () => {
+    const calls = library(() => [PLAIN, LOCKED], {
+      piv_wraps: () => [{ serial: "111", slot: 130, policy: "touch" }],
+    });
+    const user = userEvent.setup();
+    render(<App />);
+    await user.click(within(await lockedSection()).getByRole("button", { name: /Taxes/ }));
+    const dialog = await screen.findByRole("dialog", { name: "Unlock “Taxes”" });
+    expect(within(dialog).getByLabelText("Password")).toBeInTheDocument();
+    await user.click(await within(dialog).findByRole("button", { name: "Use a YubiKey" }));
+    expect(within(dialog).queryByLabelText("YubiKey PIN")).not.toBeInTheDocument();
+    expect(within(dialog).getByText("Touch the key when asked.")).toBeInTheDocument();
+    await user.click(within(dialog).getByRole("button", { name: "Unlock" }));
+    expect(called(calls, "unlock_with_yubikey")[0]?.args).toEqual({
+      id: "F2",
+      serial: "111",
+      prompt: { kind: "touch" },
+    });
+
+    fireEvent.contextMenu(await screen.findByRole("treeitem", { name: "Taxes" }));
+    await user.click(await screen.findByRole("menuitem", { name: "Add YubiKey…" }));
+    const add = await screen.findByRole("dialog", { name: "Add a YubiKey to “Taxes”" });
+    expect(within(add).getByRole("radio", { name: "Touch" })).toBeChecked();
+    expect(within(add).queryByLabelText("YubiKey PIN")).not.toBeInTheDocument();
+    await user.click(within(add).getByRole("radio", { name: "PIN" }));
+    expect(within(add).getByRole("radio", { name: "Touch" })).not.toBeChecked();
+    await user.type(within(add).getByLabelText("YubiKey PIN"), "123456");
+    await user.type(within(add).getByLabelText("Folder password"), "taxes");
+    await user.click(within(add).getByRole("button", { name: "Add YubiKey" }));
+    expect(called(calls, "bind_yubikey")[0]?.args).toEqual({
+      id: "F2",
+      password: "taxes",
+      policy: "pin",
+      pin: "123456",
+    });
+  });
+
   it("a locked folder takes no items until it is unlocked", async () => {
     library(() => [PLAIN, LOCKED]);
     const user = userEvent.setup();

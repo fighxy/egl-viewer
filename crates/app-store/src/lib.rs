@@ -6,6 +6,7 @@
 
 mod json_file;
 pub mod location;
+pub mod login;
 pub mod preferences;
 pub mod recent;
 pub mod settings;
@@ -13,6 +14,10 @@ pub mod settings;
 use std::path::PathBuf;
 
 pub use location::{SyncEnvironment, check_location, default_library_parent, display_path};
+pub use login::{
+    Authenticator, LoginMethod, LoginProof, LoginStatus, SoftwareAuthenticator, WebAuthnAssertion,
+    WebAuthnCredential,
+};
 pub use preferences::{BrowsePreferences, Preferences, Theme, UiLayout, ViewMode, WindowState};
 pub use recent::RecentLibrary;
 pub use settings::ConnectionSettings;

@@ -7,8 +7,8 @@ use std::path::Path;
 use std::sync::atomic::AtomicBool;
 
 use library_core::{
-    DuplicateNotice, FolderChange, ImportProgress, ItemEdit, ItemId, RecoveryKey, Scope,
-    SourceError,
+    DuplicateNotice, FolderChange, ImportProgress, ItemEdit, ItemId, PivPolicy, PivPrompt,
+    RecoveryKey, Scope, SourceError,
 };
 use rusqlite::params;
 
@@ -17,6 +17,7 @@ use crate::import::{
     DuplicateChoice, DuplicatePolicy, ImportObserver, ImportTarget, import_files,
     make_pending_previews,
 };
+use crate::piv::SoftwarePiv;
 use crate::test_support::*;
 use crate::vault::AGE_MAGIC;
 use crate::{AddOutcome, Duplicates, Library};
@@ -154,12 +155,12 @@ fn a_lock_encrypts_the_folder_and_hides_it_until_unlocked() {
     assert!(files.iter().any(|file| file.ends_with("c.png")));
     let (name, encrypted, _, _) = row(&library, &c);
     assert_eq!((name.as_str(), encrypted), ("c", false));
-    // Format version 3 already keeps older apps out of a library with locks (D-047).
+    // Format version 4 already keeps older apps out of a library with locks (D-047, D-056).
     let version: u32 = library
         .conn()
         .query_row("PRAGMA user_version", [], |row| row.get(0))
         .unwrap();
-    assert_eq!(version, 3);
+    assert_eq!(version, 4);
 
     // Unlocking: everything comes back, decrypted in memory only.
     assert!(matches!(
@@ -645,4 +646,159 @@ fn the_lock_label_is_plaintext_and_changes_while_locked() {
         library.lock_folder(&plain, String::new(), None, None, &|_, _| {}),
         Err(SourceError::Invalid(_))
     ));
+}
+
+#[test]
+fn a_yubikey_opens_only_its_folder_and_the_password_still_works() {
+    let dir = tempfile::tempdir().unwrap();
+    let root = new_library(dir.path(), "Piv");
+    let library = open(&root);
+    let taxes = create(&library, "Taxes", None);
+    let photos = create(&library, "Photos", None);
+    lock(&library, &taxes, "taxes-pw");
+    let photos_recovery = lock(&library, &photos, "photos-pw");
+    let taxes_key = SoftwarePiv::generate("111", 0x82, PivPolicy::Touch, None);
+    let photos_key = SoftwarePiv::generate("222", 0x95, PivPolicy::Pin, Some("654321"));
+    library
+        .bind_piv(&taxes, "taxes-pw".into(), taxes_key.card())
+        .unwrap();
+    library
+        .bind_piv(&photos, "photos-pw".into(), photos_key.card())
+        .unwrap();
+    assert!(
+        library
+            .bind_piv(&taxes, "taxes-pw".into(), taxes_key.card())
+            .is_err()
+    );
+
+    let called = std::cell::Cell::new(false);
+    assert!(matches!(
+        library.unlock_with_piv(
+            &taxes,
+            "111",
+            &PivPrompt::Pin {
+                pin: "654321".into()
+            },
+            |_| {
+                called.set(true);
+                Ok([0; 32])
+            }
+        ),
+        Err(SourceError::Invalid(_))
+    ));
+    assert!(
+        !called.get(),
+        "a PIN prompt never starts ECDH on a touch wrap"
+    );
+    assert!(!library.is_unlocked(&taxes));
+
+    library
+        .unlock_with_piv(&taxes, "111", &PivPrompt::Touch, |epk| {
+            taxes_key
+                .agree(&PivPrompt::Touch, epk)
+                .map_err(|_| SourceError::WrongPassword)
+        })
+        .unwrap();
+    assert!(library.is_unlocked(&taxes));
+    assert!(!library.is_unlocked(&photos));
+
+    library.relock_folder(&taxes);
+    assert!(matches!(
+        library.unlock_with_piv(&photos, "222", &PivPrompt::Touch, |_| Ok([0; 32])),
+        Err(SourceError::Invalid(_))
+    ));
+    assert!(matches!(
+        library.unlock_with_piv(
+            &photos,
+            "222",
+            &PivPrompt::Pin {
+                pin: "000000".into()
+            },
+            |epk| photos_key
+                .agree(
+                    &PivPrompt::Pin {
+                        pin: "000000".into()
+                    },
+                    epk
+                )
+                .map_err(|_| SourceError::WrongPassword)
+        ),
+        Err(SourceError::WrongPassword)
+    ));
+    assert!(!library.is_unlocked(&photos));
+    library
+        .unlock_with_piv(
+            &photos,
+            "222",
+            &PivPrompt::Pin {
+                pin: "654321".into(),
+            },
+            |epk| {
+                photos_key
+                    .agree(
+                        &PivPrompt::Pin {
+                            pin: "654321".into(),
+                        },
+                        epk,
+                    )
+                    .map_err(|_| SourceError::WrongPassword)
+            },
+        )
+        .unwrap();
+    assert!(library.is_unlocked(&photos));
+    assert!(!library.is_unlocked(&taxes));
+
+    // The card is not required: the password and the recovery secret still open the folder.
+    library.relock_all();
+    library.unlock_folder(&taxes, "taxes-pw".into()).unwrap();
+    assert!(library.is_unlocked(&taxes));
+    assert!(!library.is_unlocked(&photos));
+    library.relock_all();
+    library
+        .recover_folder(&photos, &photos_recovery.key, "photos-new".into())
+        .unwrap();
+    assert!(library.is_unlocked(&photos));
+    assert_eq!(library.piv_wraps(&photos).unwrap().len(), 1);
+    library
+        .change_folder_password(&photos, "photos-new".into(), "photos-newer".into())
+        .unwrap();
+    assert_eq!(
+        library.piv_wraps(&photos).unwrap()[0].policy,
+        PivPolicy::Pin
+    );
+
+    library
+        .unbind_piv(&photos, "photos-newer".into(), "222")
+        .unwrap();
+    assert!(library.piv_wraps(&photos).unwrap().is_empty());
+    library.relock_all();
+    assert!(matches!(
+        library.unlock_with_piv(
+            &photos,
+            "222",
+            &PivPrompt::Pin {
+                pin: "654321".into()
+            },
+            |_| { Ok([0; 32]) }
+        ),
+        Err(SourceError::NotFound)
+    ));
+    library
+        .unlock_folder(&photos, "photos-newer".into())
+        .unwrap();
+
+    library.relock_all();
+    library
+        .remove_folder_lock(&taxes, "taxes-pw".into(), &|_, _| {})
+        .unwrap();
+    assert!(library.piv_wraps(&taxes).is_err());
+    let left: i64 = library
+        .conn()
+        .query_row(
+            "SELECT count(*) FROM folder_piv_wrap WHERE folder_id = ?1",
+            rusqlite::params![taxes],
+            |row| row.get(0),
+        )
+        .unwrap();
+    assert_eq!(left, 0);
 }

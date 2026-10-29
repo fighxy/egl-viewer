@@ -43,7 +43,7 @@ My Library.eglib/
 | Where | Value | Meaning |
 |---|---|---|
 | `PRAGMA application_id` | `1162300482` (`0x45474C42`, ASCII `EGLB`) | This SQLite file is an egl-viewer library |
-| `PRAGMA user_version` | `3` | The format version. There is no other version number. Version 2 had the schema of version 1 and marked a library with a locked folder (D-019, D-045). Version 3 rebuilt `item_fts` for substring search (D-047); every library is migrated to it when a writer opens it |
+| `PRAGMA user_version` | `4` | The format version. There is no other version number. Version 2 had the schema of version 1 and marked a library with a locked folder (D-019, D-045). Version 3 rebuilt `item_fts` for substring search (D-047). Version 4 records the retired PIV slot and the touch-or-PIN policy on `folder_piv_wrap` (D-056). Every library is migrated to 4 when a writer opens it |
 | `meta.created_with`, `meta.last_written_with` | app version, for example `0.1.0` | Diagnostics only; never used to decide anything |
 
 Checks when a library is opened (the full order is in §7):
@@ -73,7 +73,7 @@ PRAGMA page_size = 4096;
 PRAGMA auto_vacuum = INCREMENTAL;     -- emptying the trash can give space back without a full VACUUM
 PRAGMA journal_mode = WAL;            -- stored in the file
 PRAGMA application_id = 1162300482;
-PRAGMA user_version = 1;              -- then the migrations of §8 bring a new library to 3
+PRAGMA user_version = 1;              -- then the migrations of §8 bring a new library to 4
 ```
 
 The text encoding is UTF-8 (the default). On every writer connection:
@@ -252,12 +252,14 @@ CREATE TABLE item_key_wrap (
   PRIMARY KEY (item_id, folder_id)
 ) STRICT, WITHOUT ROWID;
 
--- reserved, phase 4: YubiKey PIV wraps of a folder identity, one row per card
+-- YubiKey PIV wraps of a folder identity, one row per card (D-056)
 CREATE TABLE folder_piv_wrap (
   folder_id        TEXT NOT NULL REFERENCES folder(id) ON DELETE CASCADE,
   card_serial      TEXT NOT NULL,
-  recipient        TEXT NOT NULL,                   -- age-plugin-yubikey recipient of slot 9d
-  wrapped_identity BLOB NOT NULL,                   -- the folder identity, age-encrypted to that recipient
+  slot             INTEGER NOT NULL CHECK (slot BETWEEN 130 AND 149),
+  policy           TEXT NOT NULL CHECK (policy IN ('touch', 'pin')),
+  recipient        TEXT NOT NULL,
+  wrapped_identity BLOB NOT NULL,
   created_at       INTEGER NOT NULL,
   PRIMARY KEY (folder_id, card_serial)
 ) STRICT, WITHOUT ROWID;
@@ -465,6 +467,10 @@ app emits `library-closed` and returns to Welcome with a message.
 - **Version 3** (D-047): `item_fts` becomes `fts5(name, annotation, url, tokenize = 'trigram')`
   and is filled again from the items that are not encrypted. Tags and folder names leave the
   index: search reads them from their tables.
+- **Version 4** (D-056): `folder_piv_wrap` is rebuilt with `slot` (130–149, retired PIV slots
+  82–95) and `policy` (`touch` or `pin`). The table was empty, so the rebuild drops it and
+  creates it again. A YubiKey wrap is optional and does not replace the password or the
+  recovery secret.
 
 ## 9. Creating a library
 

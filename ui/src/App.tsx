@@ -55,6 +55,7 @@ import { LibraryScreen, type Place, scopeOf } from "@/features/library/LibrarySc
 import { SearchField } from "@/features/library/SearchField";
 import { type LockDialog, LockDialogs } from "@/features/locks/LockDialogs";
 import { LockedFolders, lockedFolders } from "@/features/locks/LockedFolders";
+import { LoginScreen } from "@/features/login/LoginScreen";
 import { CheckLibraryDialog } from "@/features/maintenance/CheckLibraryDialog";
 import { LibrarySettingsDialog } from "@/features/maintenance/LibrarySettingsDialog";
 import { SettingsDialog } from "@/features/settings/SettingsDialog";
@@ -84,6 +85,7 @@ import {
   ipc,
   type LibraryCounts,
   type LibraryInfo,
+  type LoginMethod,
   type Preferences,
   queryFor,
   type RecentLibrary,
@@ -249,6 +251,9 @@ function AppShell() {
   const [view, setView] = useState<View>({ kind: "welcome" });
   const [status, setStatus] = useState<string>();
   const [preferences, setPreferences] = useState<Preferences>(DEFAULT_PREFERENCES);
+  const [loginMethod, setLoginMethod] = useState<LoginMethod>("none");
+  const [gate, setGate] = useState<"pending" | "open" | "locked">(inTauri() ? "pending" : "open");
+  const started = useRef(false);
   const [recent, setRecent] = useState<RecentLibrary[]>([]);
   const [dialog, setDialog] = useState<DialogKind | null>(null);
   const [fullscreen, setFullscreenState] = useState(false);
@@ -469,7 +474,7 @@ function AppShell() {
 
   useEffect(() => {
     let cancelled = false;
-    const start = async () => {
+    const boot = async () => {
       if (!inTauri()) return;
       ipc
         .appInfo()
@@ -482,6 +487,26 @@ function AppShell() {
       const stored = await ipc.preferences().catch(() => DEFAULT_PREFERENCES);
       if (cancelled) return;
       setPreferences(stored);
+      const status = await ipc.loginStatus().catch(() => null);
+      if (cancelled) return;
+      const method = status?.method ?? "none";
+      setLoginMethod(method);
+      setGate(method === "none" ? "open" : "locked");
+    };
+    void boot().finally(() => {
+      // Shown after the first paint, so a dark theme never flashes white (D-029).
+      requestAnimationFrame(() => void showWindow().catch(() => {}));
+    });
+    return () => {
+      cancelled = true;
+    };
+  }, []);
+
+  useEffect(() => {
+    if (gate !== "open" || started.current || !inTauri()) return;
+    started.current = true;
+    let cancelled = false;
+    const start = async () => {
       const result = await ipc
         .startup()
         .catch((error: unknown) => ({ library: null, notice: describeError(error) }));
@@ -490,14 +515,11 @@ function AppShell() {
       if (result.notice) setStatus(result.notice);
       await refreshRecent();
     };
-    void start().finally(() => {
-      // Shown after the first paint, so a dark theme never flashes white (D-029).
-      requestAnimationFrame(() => void showWindow().catch(() => {}));
-    });
+    void start();
     return () => {
       cancelled = true;
     };
-  }, [refreshRecent]);
+  }, [gate, refreshRecent]);
 
   const libraryOpened = useCallback(
     (next: LibraryInfo) => {
@@ -1362,6 +1384,23 @@ function AppShell() {
           .join(" / ")
       : undefined;
 
+  if (gate === "pending") {
+    return <div className="h-screen bg-background" />;
+  }
+  if (gate === "locked" && loginMethod !== "none") {
+    return (
+      <div className="flex h-screen items-center justify-center bg-background p-6 text-foreground">
+        <LoginScreen
+          method={loginMethod}
+          onSubmit={async (proof) => {
+            await ipc.unlockApp(proof);
+            setGate("open");
+          }}
+        />
+      </div>
+    );
+  }
+
   return (
     <DragProvider canDrop={canDrop} onDrop={onDrop}>
       <div className="flex h-screen flex-col bg-background text-foreground">
@@ -1640,6 +1679,19 @@ function AppShell() {
           builtInLocation={builtInLocation}
           browse={browseFolders}
           save={savePreferences}
+          login={loginMethod}
+          onSetPassword={async (password) => {
+            setLoginMethod((await ipc.setLoginPassword(password)).method);
+          }}
+          onSetPin={async (pin) => {
+            setLoginMethod((await ipc.setLoginPin(pin)).method);
+          }}
+          onSetWebAuthn={async () => {
+            setLoginMethod((await ipc.setLoginWebAuthn()).method);
+          }}
+          onClearLogin={async () => {
+            setLoginMethod((await ipc.clearLogin()).method);
+          }}
         />
         <AboutDialog open={dialog === "about"} onOpenChange={closeDialog} info={info} />
         <ShortcutsDialog open={dialog === "shortcuts"} onOpenChange={closeDialog} />

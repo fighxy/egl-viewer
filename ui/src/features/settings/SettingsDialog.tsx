@@ -12,7 +12,7 @@ import {
 import { Input } from "@/components/ui/input";
 import { Label } from "@/components/ui/label";
 import { Switch } from "@/components/ui/switch";
-import type { Preferences, Theme } from "@/ipc";
+import type { LoginMethod, Preferences, Theme } from "@/ipc";
 import { describeError } from "@/lib/errors";
 
 type Props = {
@@ -24,12 +24,25 @@ type Props = {
   browse: (current: string) => Promise<string | null>;
   /** Rejects with the reason when the default folder cannot hold libraries. */
   save: (preferences: Preferences) => Promise<void>;
+  /** The one login method. Changing it replaces the previous one (spec §13.2). */
+  login: LoginMethod;
+  onSetPassword: (password: string) => Promise<void>;
+  onSetPin: (pin: string) => Promise<void>;
+  onSetWebAuthn: () => Promise<void>;
+  onClearLogin: () => Promise<void>;
 };
 
 const THEMES: readonly { value: Theme; label: string }[] = [
   { value: "system", label: "System" },
   { value: "light", label: "Light" },
   { value: "dark", label: "Dark" },
+];
+
+const LOGIN_METHODS: readonly { value: LoginMethod; label: string }[] = [
+  { value: "none", label: "Off" },
+  { value: "password", label: "Password" },
+  { value: "pin", label: "PIN" },
+  { value: "webAuthn", label: "YubiKey" },
 ];
 
 /** Settings → General (docs/spec.md §7.4, D-027). */
@@ -40,17 +53,26 @@ export function SettingsDialog({
   builtInLocation,
   browse,
   save,
+  login,
+  onSetPassword,
+  onSetPin,
+  onSetWebAuthn,
+  onClearLogin,
 }: Props) {
   const [draft, setDraft] = useState(preferences);
+  const [method, setMethod] = useState<LoginMethod>(login);
+  const [secret, setSecret] = useState("");
   const [error, setError] = useState<string>();
   const [busy, setBusy] = useState(false);
 
   useEffect(() => {
     if (open) {
       setDraft(preferences);
+      setMethod(login);
+      setSecret("");
       setError(undefined);
     }
-  }, [open, preferences]);
+  }, [open, preferences, login]);
 
   const folder = draft.defaultLibraryParent ?? "";
 
@@ -134,6 +156,88 @@ export function SettingsDialog({
               Leave empty to use {builtInLocation}. Changing it does not move existing libraries.
             </p>
           </div>
+          <fieldset className="grid gap-2">
+            <legend className="text-sm font-medium">App login</legend>
+            <p className="text-xs text-muted-foreground">
+              One method. A password, a PIN, or a YubiKey touch. The touch does not unlock folders,
+              and choosing it means login does not ask for a PIN.
+            </p>
+            <div className="flex flex-wrap gap-1">
+              {LOGIN_METHODS.map(({ value, label }) => (
+                <label
+                  key={value}
+                  className={cn(
+                    "rounded-md border px-3 py-1 text-[13px] has-focus-visible:ring-3 has-focus-visible:ring-ring/50",
+                    method === value
+                      ? "border-primary bg-primary text-primary-foreground"
+                      : "hover:bg-muted",
+                  )}
+                >
+                  <input
+                    type="radio"
+                    name="login"
+                    value={value}
+                    className="sr-only"
+                    checked={method === value}
+                    onChange={() => {
+                      setMethod(value);
+                      setSecret("");
+                    }}
+                  />
+                  {label}
+                </label>
+              ))}
+            </div>
+            {method === "password" && (
+              <Input
+                aria-label="Login password"
+                type="password"
+                autoComplete="new-password"
+                value={secret}
+                onChange={(event) => setSecret(event.target.value)}
+              />
+            )}
+            {method === "pin" && (
+              <Input
+                aria-label="Login PIN"
+                type="password"
+                inputMode="numeric"
+                autoComplete="off"
+                value={secret}
+                onChange={(event) => setSecret(event.target.value)}
+              />
+            )}
+            {method === "webAuthn" && (
+              <p className="text-xs text-muted-foreground">Touch the YubiKey when asked.</p>
+            )}
+            <div>
+              <Button
+                type="button"
+                variant="outline"
+                disabled={
+                  busy || ((method === "password" || method === "pin") && secret.trim() === "")
+                }
+                onClick={() => {
+                  setBusy(true);
+                  setError(undefined);
+                  const apply =
+                    method === "none"
+                      ? onClearLogin()
+                      : method === "password"
+                        ? onSetPassword(secret)
+                        : method === "pin"
+                          ? onSetPin(secret)
+                          : onSetWebAuthn();
+                  apply
+                    .then(() => setSecret(""))
+                    .catch((failure: unknown) => setError(describeError(failure)))
+                    .finally(() => setBusy(false));
+                }}
+              >
+                Set login
+              </Button>
+            </div>
+          </fieldset>
           {error && (
             <p role="alert" className="text-sm text-destructive">
               {error}

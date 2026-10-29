@@ -8,11 +8,12 @@ use std::collections::{BTreeSet, HashMap, HashSet};
 use std::fmt;
 use std::sync::{Arc, MutexGuard, PoisonError};
 
-use library_core::{FOLDER_COLORS, RecoveryKey, SourceError};
+use library_core::{FOLDER_COLORS, PivPolicy, PivPrompt, PivWrap, RecoveryKey, SourceError};
 use rusqlite::{Connection, OptionalExtension, params};
 
 use crate::error::{Context, Result};
 use crate::library::Library;
+use crate::piv::{self, PivCard};
 use crate::time::now_ms;
 use crate::vault::{
     FolderKey, ItemKey, KdfParams, RecoverySecret, SealedFields, VaultError, WrapKey, WrapRole,
@@ -441,6 +442,11 @@ impl Library {
         )
         .context("remove the lock")?;
         tx.execute(
+            "DELETE FROM folder_piv_wrap WHERE folder_id = ?1",
+            params![id],
+        )
+        .context("remove the lock")?;
+        tx.execute(
             "UPDATE folder SET locked = 0, label = NULL, label_color = NULL, kdf_salt = NULL,
                  kdf_params = NULL, wrapped_identity = NULL, recovery_wrap = NULL, updated_at = ?2
              WHERE id = ?1",
@@ -478,6 +484,189 @@ impl Library {
         }
         log_folder(&tx, id, now)?;
         tx.commit().context("label the lock")
+    }
+
+    /// YubiKeys bound to this locked folder: serial, retired slot and touch-or-PIN policy.
+    /// No recipient and no wrapped identity cross this boundary.
+    pub fn piv_wraps(&self, id: &str) -> Result<Vec<PivWrap>> {
+        let _ = self.lock_row(id)?;
+        let conn = self.conn();
+        let mut statement = conn
+            .prepare_cached(
+                "SELECT card_serial, slot, policy FROM folder_piv_wrap
+                 WHERE folder_id = ?1 ORDER BY card_serial",
+            )
+            .context("read YubiKey wraps")?;
+        statement
+            .query_map(params![id], |row| {
+                Ok((
+                    row.get::<_, String>(0)?,
+                    row.get::<_, i64>(1)?,
+                    row.get::<_, String>(2)?,
+                ))
+            })
+            .context("read YubiKey wraps")?
+            .map(|row| {
+                let (serial, slot, policy) = row.context("read a YubiKey wrap")?;
+                let slot = u8::try_from(slot).map_err(|_| {
+                    SourceError::Storage("unreadable lock data: YubiKey slot".into())
+                })?;
+                let policy = match policy.as_str() {
+                    "touch" => PivPolicy::Touch,
+                    "pin" => PivPolicy::Pin,
+                    _ => {
+                        return Err(SourceError::Storage(
+                            "unreadable lock data: YubiKey policy".into(),
+                        ));
+                    }
+                };
+                Ok(PivWrap {
+                    serial,
+                    slot,
+                    policy,
+                })
+            })
+            .collect()
+    }
+
+    /// Adds one card as a third wrap of this folder's identity. The password opens the
+    /// identity; the card's public key wraps it again. Other folders are untouched, and
+    /// this folder stays locked.
+    pub fn bind_piv(&self, id: &str, given: String, card: &PivCard) -> Result<()> {
+        self.check_writable()?;
+        let key = self.open_with_password(id, &password(given))?;
+        let sealed = piv::seal_identity(&key, &card.recipient).map_err(vault_error)?;
+        let now = now_ms();
+        let policy = match card.policy {
+            PivPolicy::Touch => "touch",
+            PivPolicy::Pin => "pin",
+        };
+        let mut conn = self.conn();
+        let tx = conn.transaction().context("add a YubiKey")?;
+        let already = tx
+            .query_row(
+                "SELECT 1 FROM folder_piv_wrap WHERE folder_id = ?1 AND card_serial = ?2",
+                params![id, card.serial],
+                |_| Ok(()),
+            )
+            .optional()
+            .context("add a YubiKey")?
+            .is_some();
+        if already {
+            return Err(SourceError::Invalid(
+                "This YubiKey is already added to the folder.".into(),
+            ));
+        }
+        tx.execute(
+            "INSERT INTO folder_piv_wrap
+                 (folder_id, card_serial, slot, policy, recipient, wrapped_identity, created_at)
+             VALUES (?1, ?2, ?3, ?4, ?5, ?6, ?7)",
+            params![
+                id,
+                card.serial,
+                i64::from(card.slot),
+                policy,
+                card.recipient,
+                sealed,
+                now
+            ],
+        )
+        .context("add a YubiKey")?;
+        log_folder(&tx, id, now)?;
+        tx.commit().context("add a YubiKey")
+    }
+
+    /// Drops one card's wrap. The password still opens the folder; the recovery wrap stays.
+    pub fn unbind_piv(&self, id: &str, given: String, serial: &str) -> Result<()> {
+        self.check_writable()?;
+        let _key = self.open_with_password(id, &password(given))?;
+        let now = now_ms();
+        let mut conn = self.conn();
+        let tx = conn.transaction().context("remove a YubiKey")?;
+        let changed = tx
+            .execute(
+                "DELETE FROM folder_piv_wrap WHERE folder_id = ?1 AND card_serial = ?2",
+                params![id, serial],
+            )
+            .context("remove a YubiKey")?;
+        if changed == 0 {
+            return Err(SourceError::NotFound);
+        }
+        log_folder(&tx, id, now)?;
+        tx.commit().context("remove a YubiKey")
+    }
+
+    /// Opens this folder only, with the named card. The prompt must be the card's policy:
+    /// a touch, or the PIN instead of a touch. `agree` performs the P-256 ECDH.
+    pub fn unlock_with_piv(
+        &self,
+        id: &str,
+        serial: &str,
+        prompt: &PivPrompt,
+        agree: impl Fn(&[u8]) -> std::result::Result<[u8; 32], SourceError>,
+    ) -> Result<()> {
+        let row = self.piv_row(id, serial)?;
+        if !piv::prompt_matches(row.policy, prompt) {
+            return Err(SourceError::Invalid(
+                "Touch the YubiKey, or enter its PIN. Not both.".into(),
+            ));
+        }
+        if let PivPrompt::Pin { pin } = prompt {
+            piv::check_piv_pin(pin)?;
+        }
+        let captured = std::cell::RefCell::new(None);
+        let key = piv::open_identity(&row.wrapped, &row.recipient, |ephemeral| {
+            agree(ephemeral).map_err(|error| {
+                *captured.borrow_mut() = Some(error);
+                VaultError::WrongKey
+            })
+        });
+        let key = match key {
+            Ok(key) => key,
+            Err(error) => {
+                return Err(captured
+                    .borrow_mut()
+                    .take()
+                    .unwrap_or_else(|| vault_error(error)));
+            }
+        };
+        self.keys().insert(id, key);
+        self.repair(id);
+        Ok(())
+    }
+
+    fn piv_row(&self, id: &str, serial: &str) -> Result<PivRow> {
+        let _ = self.lock_row(id)?;
+        self.conn()
+            .query_row(
+                "SELECT slot, policy, recipient, wrapped_identity FROM folder_piv_wrap
+                 WHERE folder_id = ?1 AND card_serial = ?2",
+                params![id, serial],
+                |row| {
+                    Ok((
+                        row.get::<_, i64>(0)?,
+                        row.get::<_, String>(1)?,
+                        row.get::<_, String>(2)?,
+                        row.get::<_, Vec<u8>>(3)?,
+                    ))
+                },
+            )
+            .optional()
+            .context("read a YubiKey wrap")?
+            .and_then(|(slot, policy, recipient, wrapped)| {
+                let policy = match policy.as_str() {
+                    "touch" => PivPolicy::Touch,
+                    "pin" => PivPolicy::Pin,
+                    _ => return None,
+                };
+                let _slot = u8::try_from(slot).ok()?;
+                Some(PivRow {
+                    policy,
+                    recipient,
+                    wrapped,
+                })
+            })
+            .ok_or(SourceError::NotFound)
     }
 
     /// Argon2id of the password against the folder's own salt and parameters.
@@ -592,6 +781,12 @@ impl Library {
             .and_then(Iterator::collect)
             .context("find wrapped items")
     }
+}
+
+struct PivRow {
+    policy: PivPolicy,
+    recipient: String,
+    wrapped: Vec<u8>,
 }
 
 struct LockRow {
