@@ -5,4 +5,9 @@ export type SmartFolder = { id: string, name: string, children: Array<SmartFolde
 /**
  * Eagle's rule language, kept unchanged (docs/architecture.md §16).
  */
-conditions: JsonValue, orderBy: string | null, sortAscending: boolean | null, };
+conditions: JsonValue, orderBy: string | null, sortAscending: boolean | null, 
+/**
+ * Rules this source cannot evaluate, as `property method`: they never match, and the UI
+ * warns about them.
+ */
+unsupported: Array<string>, };

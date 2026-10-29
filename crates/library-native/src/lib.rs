@@ -18,6 +18,8 @@ mod recover;
 mod schema;
 mod scope;
 mod seal;
+mod search;
+mod smart;
 mod source;
 mod tags;
 mod time;
@@ -33,6 +35,10 @@ mod import_tests;
 mod lock_tests;
 #[cfg(test)]
 mod scope_tests;
+#[cfg(test)]
+mod search_tests;
+#[cfg(test)]
+mod smart_tests;
 #[cfg(test)]
 mod tag_tests;
 #[cfg(test)]

@@ -60,6 +60,10 @@ type Props = {
   folderTree?: ReactNode;
   /** The Locked folders section of the left bar. */
   lockedFolders?: ReactNode;
+  /** The Smart folders section of the left bar. */
+  smartFolders?: ReactNode;
+  /** The search field of the toolbar. */
+  search?: ReactNode;
   /** The sort of this screen: a folder's own sort, or the global one. */
   sort?: SortKey;
   ascending?: boolean;
@@ -84,6 +88,8 @@ type Props = {
   filterBar?: ReactNode;
   /** How many filters are on. */
   filterCount?: number;
+  /** A search or a filter narrows the place: an empty result says so. */
+  narrowed?: boolean;
   /** The Filter button shows the bar even with no filter on. */
   filterOpen?: boolean;
   onFilterOpenChange?: (open: boolean) => void;
@@ -103,14 +109,19 @@ const SCOPES: readonly Row[] = [
   { id: "trash", label: "Trash", icon: Trash2 },
 ];
 
-/** A fixed row of the left bar, or a folder. */
-export type Place = { kind: ScopeId } | { kind: "folder"; id: string };
+/** A fixed row of the left bar, a folder or a smart folder. */
+export type Place =
+  | { kind: ScopeId }
+  | { kind: "folder"; id: string }
+  | { kind: "smart"; id: string };
 
 /** The query scope of a place. */
 export function scopeOf(place: Place, includeSubfolders = false): Scope {
   switch (place.kind) {
     case "folder":
       return { kind: "folder", id: place.id, includeDescendants: includeSubfolders };
+    case "smart":
+      return { kind: "smart", id: place.id };
     case "all":
       return { kind: "all" };
     case "uncategorized":
@@ -151,6 +162,8 @@ export function LibraryScreen({
   title,
   folderTree,
   lockedFolders,
+  smartFolders,
+  search,
   sort,
   ascending,
   onSortChange,
@@ -165,11 +178,15 @@ export function LibraryScreen({
   tagSections,
   filterBar,
   filterCount = 0,
+  narrowed = filterCount > 0,
   filterOpen = false,
   onFilterOpenChange,
   onClearFilters,
 }: Props) {
-  const total = itemCount ?? (place.kind === "folder" ? undefined : counts?.[place.kind]) ?? 0;
+  const total =
+    itemCount ??
+    (place.kind === "folder" || place.kind === "smart" ? undefined : counts?.[place.kind]) ??
+    0;
   const libraryEmpty = (counts?.all ?? 0) === 0 && (itemCount ?? 0) === 0;
   const heading = title ?? SCOPES.find((row) => row.id === place.kind)?.label ?? "All";
   const shownSort = sort ?? browse.sort;
@@ -187,10 +204,12 @@ export function LibraryScreen({
     body = content;
   } else if (viewStatus) {
     body = <p className="m-auto text-[13px] text-muted-foreground">{viewStatus}</p>;
-  } else if (filterCount > 0 && itemCount === 0) {
+  } else if (narrowed && itemCount === 0) {
     body = (
       <div className="m-auto grid justify-items-center gap-2 text-center">
-        <p className="text-[13px] text-muted-foreground">No items match the filters.</p>
+        <p className="text-[13px] text-muted-foreground">
+          {filterCount > 0 ? "No items match the filters." : "No items match the search."}
+        </p>
         {onClearFilters && (
           <Button size="sm" variant="outline" onClick={onClearFilters}>
             Clear filters
@@ -222,7 +241,9 @@ export function LibraryScreen({
       <p className="m-auto max-w-xs text-center text-[13px] text-muted-foreground">
         {place.kind === "folder"
           ? `This folder is empty.${canAdd === true ? " Drop files here, add files, or drag items onto the folder." : ""}`
-          : EMPTY_SCOPE[place.kind]}
+          : place.kind === "smart"
+            ? "No items match the rules of this smart folder."
+            : EMPTY_SCOPE[place.kind]}
       </p>
     );
   } else {
@@ -286,6 +307,7 @@ export function LibraryScreen({
               </ul>
               {folderTree}
               {lockedFolders}
+              {smartFolders}
               {tagSections}
             </nav>
             <Splitter
@@ -300,14 +322,18 @@ export function LibraryScreen({
         )}
 
         <main aria-label="Library contents" className="flex min-w-0 flex-1 flex-col">
-          <div className="flex h-11 shrink-0 items-center gap-2 border-b px-3">
-            <h1 className="min-w-0 truncate text-sm font-medium" title={heading}>
+          {/* A container: a narrow toolbar drops the size slider (Ctrl+wheel and Ctrl+= stay). */}
+          <div className="@container flex h-11 shrink-0 items-center gap-2 border-b px-3">
+            <h1 className="min-w-10 truncate text-sm font-medium" title={heading}>
               {heading}
             </h1>
             {known && (
-              <span className="text-[13px] text-muted-foreground">{plural(total, "item")}</span>
+              <span className="shrink-0 text-[13px] whitespace-nowrap text-muted-foreground">
+                {plural(total, "item")}
+              </span>
             )}
             <div className="ml-auto flex items-center gap-1">
+              {search}
               {filterBar !== undefined && (
                 <Button
                   variant="ghost"
@@ -358,7 +384,7 @@ export function LibraryScreen({
                 <Slider
                   aria-label="Thumbnail size"
                   title="Thumbnail size (Ctrl+= / Ctrl+-)"
-                  className="mx-2 w-24"
+                  className="mx-1 w-20 @max-3xl:hidden"
                   min={THUMBNAIL_SIZES.min}
                   max={THUMBNAIL_SIZES.max}
                   step={10}
@@ -396,7 +422,7 @@ export function LibraryScreen({
             <div
               role="toolbar"
               aria-label="Filters"
-              className="flex h-10 shrink-0 items-center gap-2 border-b px-3"
+              className="flex min-h-10 shrink-0 flex-wrap items-center gap-2 border-b px-3 py-1.5"
             >
               {filterBar}
             </div>

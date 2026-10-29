@@ -1,7 +1,5 @@
 //! The one interface to every kind of library (docs/architecture.md §15.2).
 
-use std::collections::HashSet;
-
 use async_trait::async_trait;
 use serde::Serialize;
 use ts_rs::TS;
@@ -10,10 +8,12 @@ use crate::edit::ItemEdit;
 use crate::error::SourceError;
 use crate::folder::FolderChange;
 use crate::model::{
-    AddTarget, ChangeToken, Changes, Folder, ImportTicket, Item, ItemId, ItemLite, LibraryInfo,
-    NewFile, SmartFolder, Tag, TagGroup, Thumbnail,
+    AddTarget, ChangeToken, Changes, ExtensionCount, Folder, ImportTicket, Item, ItemId, ItemLite,
+    LibraryInfo, NewFile, SmartFolder, Tag, TagGroup, Thumbnail,
 };
+use crate::query::search::SearchMatch;
 use crate::query::{Scope, ScopeHints};
+use crate::smart::SmartFolderChange;
 use crate::tag::TagGroupChange;
 
 /// Called with `(loaded, total)` while a scope loads.
@@ -64,7 +64,8 @@ pub trait LibrarySource: Send + Sync {
         hints: &ScopeHints,
         progress: Progress<'_>,
     ) -> Result<Vec<ItemLite>, SourceError>;
-    async fn search_ids(&self, text: &str) -> Result<HashSet<ItemId>, SourceError>;
+    /// The items the search text keeps (docs/spec.md §5 "Search"), from 2 characters.
+    async fn search_ids(&self, text: &str) -> Result<SearchMatch, SourceError>;
     async fn item(&self, id: &ItemId) -> Result<Option<Item>, SourceError>;
     async fn tags(&self) -> Result<Vec<Tag>, SourceError>;
     async fn tag_groups(&self) -> Result<Vec<TagGroup>, SourceError>;
@@ -145,6 +146,25 @@ pub trait LibrarySource: Send + Sync {
 
     /// Deletes a tag group; the tags stay on their items. Returns every group.
     async fn delete_tag_group(&self, _id: &str) -> Result<Vec<TagGroup>, SourceError> {
+        Err(SourceError::ReadOnly)
+    }
+
+    /// The extensions of the library with their item counts, for the Type filter; empty when the
+    /// source cannot tell.
+    async fn extensions(&self) -> Result<Vec<ExtensionCount>, SourceError> {
+        Ok(Vec::new())
+    }
+
+    /// Creates or changes a smart folder; returns the smart folder tree.
+    async fn save_smart_folder(
+        &self,
+        _change: SmartFolderChange,
+    ) -> Result<Vec<SmartFolder>, SourceError> {
+        Err(SourceError::ReadOnly)
+    }
+
+    /// Deletes a smart folder and the smart folders under it; items do not change.
+    async fn delete_smart_folder(&self, _id: &str) -> Result<Vec<SmartFolder>, SourceError> {
         Err(SourceError::ReadOnly)
     }
 }

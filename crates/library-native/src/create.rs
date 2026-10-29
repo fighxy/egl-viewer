@@ -102,7 +102,7 @@ fn build(dir: &Path, name: &str, app_version: &str) -> Result<()> {
     fs::File::create(dir.join(LOCK_FILE)).context("create library.lock")?;
 
     let mut conn = Connection::open(dir.join(DB_FILE)).context("create library.db")?;
-    schema::create(&conn)?;
+    schema::create(&mut conn)?;
     let now = now_ms().to_string();
     let id = Ulid::generate().to_string();
     let tx = conn.transaction().context("write meta")?;

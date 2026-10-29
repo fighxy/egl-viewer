@@ -722,3 +722,78 @@ unoptimised, one Argon2id of 64 MiB and the X25519 of every item took seconds.
   renaming `Poster` onto `poster` (the merge notice, then one tag on every item), a coloured tag
   group, a group tag opening All filtered, removing the filtered tag (the empty result with
   Clear filters). The Windows checks are still open.
+
+## D-047 Phase 6 search and format version 3 (2026-10-29)
+
+- **A search word is a substring**, without case, of an item's name, note, link, tag names or
+  folder names, as in Eagle: `post` finds `Poster`, `плак` finds `ПЛАКАТ` (Unicode lowercase on
+  both sides; tags keep their case everywhere else). The token search of the old index
+  (`unicode61`) found whole words and prefixes only, so it could not behave like Eagle.
+- **Format version 3** replaces `item_fts` with `fts5(name, annotation, url, tokenize = 'trigram')`,
+  filled again from the items that are not encrypted, after the usual backup. Measured on 100 000
+  rows: 5 ms per term through the index against 60 ms for a scan of the rows (release build).
+  Every library a writer opens is migrated; a read-only open of an older library is refused as
+  before. A new library starts at version 1 and runs the same steps, so the schema has one
+  source.
+- **What the index cannot answer** is scanned: terms of one or two characters (trigrams start at
+  three), and encrypted items of unlocked folders, matched on their opened fields; hidden items
+  match nothing. Tag and folder names are matched on the `tag` and `folder` tables and joined
+  to items, so renaming a tag or a folder rewrites no index row.
+- **The syntax** is parsed in `library-core` (`parse_search`, `SearchExpr`): words AND-ed, `OR`
+  in capitals, parentheses, a leading `-` before a word, a phrase or a group, `"…"` for spaces.
+  Broken input is forgiven (a missing `)`, a stray `OR`). A search returns a `SearchMatch`: the
+  ids it keeps, or for a search that only excludes, the ids it drops, so no list of every item is
+  needed. `LibrarySource::search_ids` returns it.
+- **The lock step of version 2 is gone.** Version 3 keeps older apps out of every library, so
+  the first lock no longer changes the version (D-019, D-045 still explain version 2).
+- **A native item always has a folder list**, perhaps empty (`ItemLite.folders = Some`); only an
+  Eagle item can lack the key, which matters for Eagle's smart folder rules.
+- **The search field** sits in the toolbar: `Ctrl+F` focuses it, typing applies after 300 ms or
+  at once on `Enter`, `Esc` clears it. The search stays when the place changes and resets with
+  another library; an empty result says so and offers to clear.
+
+## D-048 Phase 6 filters and smart folders (2026-10-29)
+
+- **The filter bar** has Tags, Folders (the four modes over folder ids), Type (Images, then the
+  library's extensions with counts from the new `extensions` call), Rating (unrated or 1–5) and
+  Shape (Eagle's five shapes, panoramic ones included), Clear all and Save as smart folder.
+  Filters stay when the place changes; the Filter button counts them.
+- **Smart folders** have their own tree in the left bar, nested, a new one after its siblings
+  (moving and reordering wait for a later phase, and so do counts). A smart folder shows the
+  items outside the trash that its rules and the rules of every smart folder above it keep,
+  hidden items never. Editing or deleting one recomputes its open view; deleting takes the ones
+  under it.
+- **The evaluator** (`library_core::SmartRules`) covers the v1 subset of spec §5 with Eagle's
+  quirks from architecture §16: `before` and `between` count the last day, `within` counts days
+  back from now, a missing value never matches, an empty text value matches nothing, an empty
+  `intersection` never matches tags and matches every item with folders, `rating contain` with
+  `none` matches everything. Where it differs: `on` takes the day start the editor computed in
+  the user's time zone (Eagle compares `toDateString()` on the desktop); `startWith` and
+  `endWith` are literal, where Eagle builds an unescaped regular expression; `regex`, `color`,
+  `folderName`, `camera`, `comments`, EXIF numbers, `duration`, `bpm`, a custom shape and
+  `fontActivated` are not evaluated: they never match (Eagle's "an exception means no match"),
+  are listed on the smart folder, and the left bar shows a warning. Rules that cannot be read at
+  all match nothing. A limit of 30 conditions of 30 rules is checked before saving, as Eagle's
+  API does.
+- **Save as smart folder** (`rules_from_query`) maps the scope and the chips to one AND
+  condition (spec §5). Inside a smart folder the new one goes under it. Search text and the
+  trash are refused with the reason, and so is All without a filter. The new smart folder opens
+  with the filters cleared, since its rules are now the place. A test checks, for a range of
+  screens, that the saved rules keep exactly the items the chips showed.
+- **The editor** shows each condition as "Items that match all / any of these rules" with "Leave
+  these items out" (`boolean: FALSE`), and each rule as property, method and a value field that
+  fits it (tags with suggestions, folders from the tree, text, the type, rating and shape lists,
+  dates in the user's time zone or a number of days, numbers with KB or MB for file size). A rule
+  it cannot edit stays as it is, marked as not supported, unless it is removed. Unknown keys of a
+  rule are kept.
+- **A narrow toolbar** (the right bar open on a 1280 px window) drops the thumbnail size slider,
+  through a container query; `Ctrl` + wheel and `Ctrl+=` / `Ctrl+-` still change the size. The
+  title and the item count never shrink away, and the filter bar wraps instead of cutting
+  buttons off. A smart folder saved from filters is named after them (tags, folders, type,
+  rating, shape); the name can be changed before saving.
+- **Checks:** the 10 000-item demo library in the real app under Xvfb: opening it migrated it
+  from version 2 to 3 (a `-v2` backup, 10 000 index rows); `file-999` found 10 items,
+  `file-9999 OR file-9990` 2, `file-99 -file-999` 90; a search inside a folder kept to it; the
+  Type filter listed the library's extensions with counts; Type GIF (1 250 items) saved as a
+  smart folder opened with the same 1 250; adding "Name contains 99" in the editor recomputed it
+  to 21. The Windows checks are still open.

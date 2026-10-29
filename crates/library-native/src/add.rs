@@ -330,8 +330,7 @@ impl Library {
             }
             None => {
                 tx.execute(
-                    "INSERT INTO item_fts (rowid, name, annotation, url, tags, folders)
-                     VALUES (?1, ?2, '', '', '', '')",
+                    "INSERT INTO item_fts (rowid, name, annotation, url) VALUES (?1, ?2, '', '')",
                     params![seq, item.name],
                 )
                 .context("index the item")?;

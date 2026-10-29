@@ -11,10 +11,8 @@ use std::sync::{Arc, MutexGuard, PoisonError};
 use library_core::{FOLDER_COLORS, RecoveryKey, SourceError};
 use rusqlite::{Connection, OptionalExtension, params};
 
-use crate::backup;
 use crate::error::{Context, Result};
 use crate::library::Library;
-use crate::schema::LOCKS_VERSION;
 use crate::time::now_ms;
 use crate::vault::{
     FolderKey, ItemKey, KdfParams, RecoverySecret, SealedFields, VaultError, WrapKey, WrapRole,
@@ -297,7 +295,6 @@ impl Library {
         let secret = RecoverySecret::generate();
         let recovery_wrap = key.wrap(&WrapKey::from_recovery(&secret), WrapRole::Recovery, id);
 
-        self.raise_to_locks_version()?;
         let now = now_ms();
         {
             let mut conn = self.conn();
@@ -594,20 +591,6 @@ impl Library {
             .query_map(params![folder], |row| row.get(0))
             .and_then(Iterator::collect)
             .context("find wrapped items")
-    }
-
-    /// Format version 2 marks a library with locks; older apps then refuse it (D-019).
-    fn raise_to_locks_version(&self) -> Result<()> {
-        let conn = self.conn();
-        let version: u32 = conn
-            .query_row("PRAGMA user_version", [], |row| row.get(0))
-            .context("read the format version")?;
-        if version >= LOCKS_VERSION {
-            return Ok(());
-        }
-        backup::before_migration(&conn, self.root(), version, now_ms())?;
-        conn.pragma_update(None, "user_version", LOCKS_VERSION)
-            .context("raise the format version")
     }
 }
 

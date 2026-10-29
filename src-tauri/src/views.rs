@@ -2,7 +2,6 @@
 //! §11): the IPC types, reading the source on a blocking thread, and recomputing the views after
 //! imports wrote.
 
-use std::collections::HashSet;
 use std::future::Future;
 use std::sync::{Arc, Mutex};
 use std::task::{Context, Poll, Waker};
@@ -10,7 +9,7 @@ use std::time::{Duration, Instant};
 
 use library_core::{
     FolderIndex, ImportProgress, ItemId, ItemLite, LibrarySource, Progress, Scope, ScopeHints,
-    SourceError, Thumbnail, ViewSource, Views,
+    SearchMatch, SourceError, Thumbnail, ViewSource, Views,
 };
 use serde::{Deserialize, Serialize};
 use ts_rs::TS;
@@ -116,7 +115,7 @@ impl ViewSource for Blocking<'_> {
         Ok(FolderIndex::new(&ready(self.0.folder_tree())?))
     }
 
-    fn search_ids(&self, text: &str) -> Result<HashSet<ItemId>, SourceError> {
+    fn search_ids(&self, text: &str) -> Result<SearchMatch, SourceError> {
         ready(self.0.search_ids(text))
     }
 }

@@ -220,6 +220,21 @@ pub struct SmartFolder {
     pub conditions: serde_json::Value,
     pub order_by: Option<String>,
     pub sort_ascending: Option<bool>,
+    /// Rules this source cannot evaluate, as `property method`: they never match, and the UI
+    /// warns about them.
+    #[serde(default)]
+    pub unsupported: Vec<String>,
+}
+
+/// One file extension of the library and how many items outside the trash have it, for the
+/// Type filter.
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize, TS)]
+#[serde(rename_all = "camelCase")]
+#[ts(export)]
+pub struct ExtensionCount {
+    /// Lowercase, without the dot.
+    pub ext: String,
+    pub count: u32,
 }
 
 /// Image bytes served to the WebView through the `thumb` URI scheme (§11).

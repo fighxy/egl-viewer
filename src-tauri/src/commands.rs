@@ -4,9 +4,9 @@ use std::path::PathBuf;
 
 use app_store::{ConnectionSettings, Preferences, RecentLibrary};
 use library_core::{
-    Folder, FolderChange, ImportProgress, ImportTicket, Item, ItemCell, ItemEdit, ItemId,
-    LibraryCounts, LibraryInfo, LibraryQuery, RecoveryKey, SelectionTags, SourceError, Tag,
-    TagGroup, TagGroupChange,
+    ExtensionCount, Folder, FolderChange, ImportProgress, ImportTicket, Item, ItemCell, ItemEdit,
+    ItemId, LibraryCounts, LibraryInfo, LibraryQuery, RecoveryKey, SelectionTags, SmartFolder,
+    SmartFolderChange, SourceError, Tag, TagGroup, TagGroupChange,
 };
 use library_native::DuplicateChoice;
 use serde::{Deserialize, Serialize};
@@ -14,7 +14,7 @@ use tauri::ipc::Channel;
 use tauri::{AppHandle, Manager, State};
 use ts_rs::TS;
 
-use crate::session::{Clipboard, Session, StartupResult};
+use crate::session::{Clipboard, Session, SmartDraft, StartupResult};
 use crate::views::{ItemsTarget, ScopeProgress, ViewOpened, count};
 
 #[derive(Debug, Clone, PartialEq, Eq, Serialize, TS)]
@@ -378,6 +378,40 @@ pub async fn merge_tags(app: AppHandle, source: String, target: String) -> Resul
 #[tauri::command]
 pub async fn delete_tag(app: AppHandle, name: String) -> Result<(), SourceError> {
     blocking(app, move |session| session.delete_tag(&name)).await
+}
+
+#[tauri::command]
+pub async fn smart_folders(app: AppHandle) -> Result<Vec<SmartFolder>, SourceError> {
+    blocking(app, Session::smart_folders).await
+}
+
+/// Creates or edits a smart folder (Eagle's rules, stored unchanged); returns the tree.
+#[tauri::command]
+pub async fn save_smart_folder(
+    app: AppHandle,
+    change: SmartFolderChange,
+) -> Result<Vec<SmartFolder>, SourceError> {
+    blocking(app, move |session| session.save_smart_folder(change)).await
+}
+
+#[tauri::command]
+pub async fn delete_smart_folder(
+    app: AppHandle,
+    id: String,
+) -> Result<Vec<SmartFolder>, SourceError> {
+    blocking(app, move |session| session.delete_smart_folder(&id)).await
+}
+
+/// "Save as smart folder": the rules that keep what the screen of `query` shows.
+#[tauri::command]
+pub async fn smart_rules(app: AppHandle, query: LibraryQuery) -> Result<SmartDraft, SourceError> {
+    blocking(app, move |session| session.smart_rules(&query)).await
+}
+
+/// File types with their item counts, for the Type filter.
+#[tauri::command]
+pub async fn extensions(app: AppHandle) -> Result<Vec<ExtensionCount>, SourceError> {
+    blocking(app, Session::extensions).await
 }
 
 /// Manual order: `ids` go before `before` (or to the end) in `folder`.

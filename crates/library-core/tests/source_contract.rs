@@ -6,8 +6,8 @@ use std::sync::Mutex;
 use async_trait::async_trait;
 use library_core::{
     AddTarget, Capabilities, ChangeToken, Folder, FolderChange, Item, ItemEdit, ItemId, ItemLite,
-    LibraryInfo, LibraryKind, LibrarySource, NewFile, Progress, Scope, ScopeHints, SmartFolder,
-    SourceError, Tag, TagGroup,
+    LibraryInfo, LibraryKind, LibrarySource, NewFile, Progress, Scope, ScopeHints, SearchMatch,
+    SmartFolder, SourceError, Tag, TagGroup,
 };
 
 /// A read-only source with two items, implementing only the required methods.
@@ -56,8 +56,8 @@ impl LibrarySource for FakeSource {
         Ok(items)
     }
 
-    async fn search_ids(&self, _text: &str) -> Result<HashSet<ItemId>, SourceError> {
-        Ok(HashSet::new())
+    async fn search_ids(&self, _text: &str) -> Result<SearchMatch, SourceError> {
+        Ok(SearchMatch::Only(HashSet::new()))
     }
 
     async fn item(&self, _id: &ItemId) -> Result<Option<Item>, SourceError> {

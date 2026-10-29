@@ -10,6 +10,7 @@ use ts_rs::TS;
 use crate::error::SourceError;
 use crate::model::{ItemId, ItemLite, Tag};
 use crate::query::filter::{Context, FolderIndex, filter};
+use crate::query::search::SearchMatch;
 use crate::query::sort::sort;
 use crate::query::{LibraryQuery, Scope, ScopeHints};
 use crate::source::Progress;
@@ -71,7 +72,7 @@ pub trait ViewSource {
         progress: Progress<'_>,
     ) -> Result<Vec<ItemLite>, SourceError>;
     fn folder_index(&self) -> Result<FolderIndex, SourceError>;
-    fn search_ids(&self, text: &str) -> Result<HashSet<ItemId>, SourceError>;
+    fn search_ids(&self, text: &str) -> Result<SearchMatch, SourceError>;
 }
 
 /// The sorted result of one query: positions into a shared snapshot of its scope.
@@ -267,7 +268,7 @@ fn compute(
     source: &dyn ViewSource,
 ) -> Result<Vec<u32>, SourceError> {
     let folders = source.folder_index()?;
-    let text_ids = search_text(query)
+    let text = search_text(query)
         .map(|text| source.search_ids(text))
         .transpose()?;
     let mut order = filter(
@@ -275,7 +276,7 @@ fn compute(
         query,
         Context {
             folders: &folders,
-            text_ids: text_ids.as_ref(),
+            text: text.as_ref(),
         },
     );
     sort(snapshot, &mut order, query);

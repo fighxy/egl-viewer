@@ -68,6 +68,8 @@ export type CommandActions = {
   newFolder: () => void;
   toggleSubfolders: () => void;
   lockAll: () => void;
+  /** Focuses the search field. */
+  find: () => void;
 };
 
 /** `true`, or the reason the command is disabled (shown as a tooltip). */
@@ -252,6 +254,15 @@ export const COMMANDS: readonly Command[] = [
       return state.items > 0 ? true : "Nothing to select.";
     },
     run: (actions) => actions.selectAll(),
+  },
+  {
+    id: "edit.find",
+    label: "Find",
+    menu: "edit",
+    group: 2,
+    shortcut: "Ctrl+F",
+    available: needsLibrary,
+    run: (actions) => actions.find(),
   },
   {
     id: "view.theme",
