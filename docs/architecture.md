@@ -820,6 +820,7 @@ Every command that works on a library goes through the open `LibrarySource`; a s
 - Text in the chrome is not selectable (`user-select: none`); fields and notes are. Images are not draggable as web images; dragging files out of the window is native (phase 7).
 - Buttons show the arrow cursor, as desktop apps do. Focus rings appear only for keyboard focus (`:focus-visible`).
 - The window starts hidden and is shown after the first paint, so a dark theme never flashes white.
+- Scrollbars follow the app theme. `color-scheme` is light or dark with the theme class, and the thumb uses the `ring` token, so a dark grid does not keep the light system bar (D-054).
 - Window size, position and the maximized state are saved by `app-store` (D-022).
 
 Some of these are Tauri or WebView2 settings and some are handled in the UI; which is which is settled when phase 1 is built.

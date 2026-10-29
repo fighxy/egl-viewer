@@ -22,5 +22,7 @@ export default defineConfig({
   test: {
     environment: "jsdom",
     setupFiles: ["./src/test/setup.ts"],
+    // Vitest blanks CSS imports unless a file is included. The scrollbar test reads index.css.
+    css: { include: [/index\.css/] },
   },
 });

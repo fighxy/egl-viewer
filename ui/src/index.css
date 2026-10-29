@@ -50,6 +50,8 @@
 }
 
 :root {
+  /* Native controls, including the scrollbar, follow the app theme rather than the OS. */
+  color-scheme: light;
   --background: oklch(1 0 0);
   --foreground: oklch(0.145 0 0);
   --card: oklch(1 0 0);
@@ -87,6 +89,7 @@
 }
 
 .dark {
+  color-scheme: dark;
   --background: oklch(0.145 0 0);
   --foreground: oklch(0.985 0 0);
   --card: oklch(0.205 0 0);
@@ -142,6 +145,30 @@
   }
   html {
     @apply font-sans;
+    /* Thumb from the ring token; a transparent track shows the surface under the bar
+       (the grid, the sidebar, a dialog). Light and dark both stay readable. */
+    scrollbar-color: var(--ring) transparent;
+    scrollbar-width: thin;
+  }
+  /* Chromium and WebKit paint these instead of scrollbar-color. Same tokens. */
+  *::-webkit-scrollbar {
+    width: 10px;
+    height: 10px;
+  }
+  *::-webkit-scrollbar-track {
+    background-color: transparent;
+  }
+  *::-webkit-scrollbar-thumb {
+    background-color: var(--ring);
+    border: 2px solid transparent;
+    border-radius: 999px;
+    background-clip: padding-box;
+  }
+  *::-webkit-scrollbar-thumb:hover {
+    background-color: var(--muted-foreground);
+  }
+  *::-webkit-scrollbar-corner {
+    background-color: transparent;
   }
 }
 
