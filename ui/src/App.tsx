@@ -41,6 +41,12 @@ import { DuplicateDialog } from "@/features/imports/DuplicateDialog";
 import { ImportsPanel } from "@/features/imports/ImportsPanel";
 import { importSummary } from "@/features/imports/importText";
 import { useImports } from "@/features/imports/useImports";
+import {
+  activeFilters,
+  FilterBar,
+  NO_TAG_FILTER,
+  type TagFilter,
+} from "@/features/library/FilterBar";
 import { LibraryScreen, type Place, scopeOf } from "@/features/library/LibraryScreen";
 import { type LockDialog, LockDialogs } from "@/features/locks/LockDialogs";
 import { LockedFolders, lockedFolders } from "@/features/locks/LockedFolders";
@@ -48,6 +54,10 @@ import { SettingsDialog } from "@/features/settings/SettingsDialog";
 import { AppMenu } from "@/features/shell/AppMenu";
 import { type Confirmation, ConfirmDialog } from "@/features/shell/ConfirmDialog";
 import { ShortcutsDialog } from "@/features/shortcuts/ShortcutsDialog";
+import { replaced, useRecentTags } from "@/features/tags/recent";
+import { type TagDialog, TagDialogs } from "@/features/tags/TagDialogs";
+import type { TagActions } from "@/features/tags/TagMenu";
+import { TagSections } from "@/features/tags/TagSections";
 import { CreateLibraryDialog } from "@/features/welcome/CreateLibraryDialog";
 import { WelcomeScreen } from "@/features/welcome/WelcomeScreen";
 import {
@@ -58,6 +68,7 @@ import {
   EVENTS,
   type Folder,
   type FolderChange,
+  type Item,
   type ItemEdit,
   type ItemsTarget,
   inTauri,
@@ -67,7 +78,10 @@ import {
   type Preferences,
   queryFor,
   type RecentLibrary,
+  type SelectionTags,
   type SortKey,
+  type TagGroup,
+  type TagGroupChange,
   THUMBNAIL_SIZES,
   type UiLayout,
 } from "@/ipc";
@@ -207,6 +221,10 @@ function AppShell() {
   } | null>(null);
   const [folderDialog, setFolderDialog] = useState<FolderDialog | null>(null);
   const [lockDialog, setLockDialog] = useState<LockDialog | null>(null);
+  const [tagDialog, setTagDialog] = useState<TagDialog | null>(null);
+  /** Tags are filters on top of the place, not places (docs/spec.md §5). */
+  const [tagFilter, setTagFilter] = useState<TagFilter>(NO_TAG_FILTER);
+  const [filterOpen, setFilterOpen] = useState(false);
   const [selection, setSelection] = useState<Selection>(NOTHING);
   const [previewIndex, setPreviewIndex] = useState<number | null>(null);
   const [transitionId, setTransitionId] = useState<string | null>(null);
@@ -238,6 +256,22 @@ function AppShell() {
     enabled: library !== null && inTauri(),
   });
   const tree = useMemo(() => folders.data ?? [], [folders.data]);
+
+  // The tag vocabulary with counts, and the tag groups; group writes answer with every group.
+  const vocabularyQuery = useQuery({
+    queryKey: ["tags", library?.path ?? null],
+    queryFn: ipc.tagVocabulary,
+    enabled: library !== null && inTauri(),
+  });
+  const vocabulary = useMemo(() => vocabularyQuery.data ?? [], [vocabularyQuery.data]);
+  const groupsKey = useMemo(() => ["tagGroups", library?.path ?? null] as const, [library?.path]);
+  const groupsQuery = useQuery({
+    queryKey: groupsKey,
+    queryFn: ipc.tagGroups,
+    enabled: library !== null && inTauri(),
+  });
+  const tagGroups = useMemo(() => groupsQuery.data ?? [], [groupsQuery.data]);
+  const recentTags = useRecentTags(library?.path ?? null);
   const [expanded, setExpanded] = useExpanded(library?.path ?? null);
   const openFolder = place.kind === "folder" ? findFolder(tree, place.id) : undefined;
 
@@ -253,9 +287,13 @@ function AppShell() {
   const query = useMemo(
     () =>
       library
-        ? queryFor(scopeOf(place, browse.includeSubfolders), { ...browse, sort, ascending })
+        ? {
+            ...queryFor(scopeOf(place, browse.includeSubfolders), { ...browse, sort, ascending }),
+            tags: tagFilter.tags,
+            tagMode: tagFilter.mode,
+          }
         : null,
-    [library, place, browse, sort, ascending],
+    [library, place, browse, sort, ascending, tagFilter],
   );
   const opened = useView(query);
   const total = opened.view?.total ?? 0;
@@ -268,11 +306,18 @@ function AppShell() {
     ascending;
 
   // A new library or place starts with nothing selected; a new sort keeps the selected items.
+  const filterKey = JSON.stringify(tagFilter);
   // biome-ignore lint/correctness/useExhaustiveDependencies: reset when the screen changes.
   useEffect(() => {
     setSelection(NOTHING);
     setPreviewIndex(null);
-  }, [library?.path, key]);
+  }, [library?.path, key, filterKey]);
+  // Another library starts without filters.
+  // biome-ignore lint/correctness/useExhaustiveDependencies: reset when the library changes.
+  useEffect(() => {
+    setTagFilter(NO_TAG_FILTER);
+    setFilterOpen(false);
+  }, [library?.path]);
   // biome-ignore lint/correctness/useExhaustiveDependencies: positions change with the order.
   useEffect(() => {
     setSelection((current) => ({ ...current, anchor: null, focus: null }));
@@ -295,6 +340,10 @@ function AppShell() {
     listen(EVENTS.viewsInvalidated, () => {
       setRevision((count) => count + 1);
       void client.invalidateQueries({ queryKey: ["folders"] });
+      // Items changed: their tags, the counts of the vocabulary and of the selection.
+      void client.invalidateQueries({ queryKey: ["tags"] });
+      void client.invalidateQueries({ queryKey: ["selectionTags"] });
+      void client.invalidateQueries({ queryKey: ["item"] });
     })
       .then((stop) => {
         if (cancelled) stop();
@@ -552,6 +601,126 @@ function AppShell() {
     [failed],
   );
 
+  // The tags of a selection of several items, counted in Rust from the view.
+  const selected = selectedCount(selection, total);
+  const several = selected > 1 || (selected === 1 && singleId(selection) === null);
+  const selectionKey = useMemo(
+    () =>
+      [
+        "selectionTags",
+        opened.view?.viewId ?? null,
+        selection.all,
+        [...selection.ids].sort(),
+      ] as const,
+    [opened.view, selection],
+  );
+  const selectionTags = useQuery({
+    queryKey: selectionKey,
+    queryFn: () => ipc.selectionTags(selectedTarget()),
+    enabled: several && opened.view !== null && inTauri(),
+  });
+
+  /** After a tag write: counts in the vocabulary and in the selection change. */
+  const tagsChanged = useCallback(() => {
+    void client.invalidateQueries({ queryKey: ["tags"] });
+    void client.invalidateQueries({ queryKey: ["selectionTags"] });
+  }, [client]);
+
+  /**
+   * Puts a tag on the selected items (`add`), or takes it off. The right bar shows the change
+   * at once; a failed write brings back the stored state (docs/spec.md §6).
+   */
+  const changeTag = useCallback(
+    (name: string, add: boolean) => {
+      const edit: ItemEdit = { type: add ? "addTags" : "removeTags", value: [name] };
+      if (add) recentTags.use([name]);
+      const id = singleId(selection);
+      if (id) {
+        client.setQueryData<Item | null>(["item", id], (item) => {
+          if (!item) return item;
+          const tags = item.tags.filter((tag) => tag !== name);
+          return { ...item, tags: add ? [...tags, name] : tags };
+        });
+        ipc
+          .applyItemEdit(id, edit)
+          .then((item) => client.setQueryData(["item", id], item))
+          .catch((error: unknown) => {
+            failed(error);
+            void client.invalidateQueries({ queryKey: ["item", id] });
+          })
+          .finally(tagsChanged);
+        return;
+      }
+      client.setQueryData<SelectionTags>(selectionKey, (current) => {
+        if (!current) return current;
+        const others = current.tags.filter((tag) => tag.name !== name);
+        const tags = add
+          ? current.tags.some((tag) => tag.name === name)
+            ? current.tags.map((tag) =>
+                tag.name === name ? { ...tag, imageCount: current.items } : tag,
+              )
+            : [...others, { name, imageCount: current.items }]
+          : others;
+        return { ...current, tags };
+      });
+      ipc.applyBatchEdit(selectedTarget(), edit).catch(failed).finally(tagsChanged);
+    },
+    [selection, selectionKey, selectedTarget, client, failed, tagsChanged, recentTags],
+  );
+
+  /** A tag was renamed or merged into `to`, or deleted (`to` null), everywhere. */
+  const retag = useCallback(
+    (write: Promise<void>, from: string, to: string | null) => {
+      write
+        .then(() => {
+          setTagDialog(null);
+          recentTags.replace(from, to);
+          setTagFilter((current) =>
+            current.tags.includes(from)
+              ? { ...current, tags: replaced(current.tags, from, to) }
+              : current,
+          );
+          for (const queryKey of [["tags"], ["tagGroups"], ["selectionTags"], ["item"]]) {
+            void client.invalidateQueries({ queryKey });
+          }
+        })
+        .catch(failed);
+    },
+    [client, failed, recentTags],
+  );
+
+  const tagActions = useMemo<TagActions | undefined>(
+    () =>
+      writable === true
+        ? {
+            onRename: (name) => setTagDialog({ kind: "rename", name }),
+            onMerge: (name) => setTagDialog({ kind: "merge", name }),
+            onDelete: (name) => setTagDialog({ kind: "delete", name }),
+          }
+        : undefined,
+    [writable],
+  );
+
+  const writeGroups = useCallback(
+    (write: Promise<TagGroup[]>) => {
+      write
+        .then((next) => {
+          client.setQueryData(groupsKey, next);
+          setTagDialog(null);
+          // Tags kept in a group are part of the vocabulary.
+          void client.invalidateQueries({ queryKey: ["tags"] });
+        })
+        .catch(failed);
+    },
+    [client, groupsKey, failed],
+  );
+
+  /** A tag of the left bar: All, filtered by that tag. */
+  const filterByTag = useCallback((tag: string) => {
+    setPlace({ kind: "all" });
+    setTagFilter({ tags: [tag], mode: "any" });
+  }, []);
+
   const changeSort = useCallback(
     (next: SortKey, nextAscending: boolean) => {
       // A folder with its own sort keeps it; another pick holds for this screen only.
@@ -795,6 +964,7 @@ function AppShell() {
     dialog !== null ||
     folderDialog !== null ||
     lockDialog !== null ||
+    tagDialog !== null ||
     importsOpen ||
     confirmation !== null ||
     imports.waiting !== undefined ||
@@ -924,10 +1094,38 @@ function AppShell() {
                 onOpen={(id) => setPlace({ kind: "folder", id })}
               />
             }
+            tagSections={
+              <TagSections
+                groups={tagGroups}
+                recent={recentTags.tags}
+                vocabulary={vocabulary}
+                filtered={place.kind === "all" ? tagFilter.tags : []}
+                writable={writable}
+                onPick={filterByTag}
+                onCreateGroup={() => setTagDialog({ kind: "group", id: null })}
+                onEditGroup={(id) => setTagDialog({ kind: "group", id })}
+                onDeleteGroup={(id) => setTagDialog({ kind: "deleteGroup", id })}
+                actions={tagActions}
+              />
+            }
+            filterBar={
+              <FilterBar
+                filter={tagFilter}
+                onChange={setTagFilter}
+                vocabulary={vocabulary}
+                groups={tagGroups}
+                recent={recentTags.tags}
+                actions={tagActions}
+              />
+            }
+            filterCount={activeFilters(tagFilter)}
+            filterOpen={filterOpen}
+            onFilterOpenChange={setFilterOpen}
+            onClearFilters={() => setTagFilter(NO_TAG_FILTER)}
             browse={browse}
             onBrowseChange={changeBrowse}
             itemCount={opened.view?.total}
-            selectedCount={selectedCount(selection, total)}
+            selectedCount={selected}
             viewStatus={
               opened.error ??
               (opened.view === null && opened.progress
@@ -957,7 +1155,7 @@ function AppShell() {
             details={
               <DetailsPanel
                 ref={detailsRef}
-                count={selectedCount(selection, total)}
+                count={selected}
                 itemId={singleId(selection)}
                 onPreview={actions.preview}
                 folders={tree}
@@ -976,6 +1174,10 @@ function AppShell() {
                 onAddToFolder={(folder) =>
                   editItems(selectedTarget(), { type: "addToFolders", value: [folder] })
                 }
+                vocabulary={vocabulary}
+                selectionTags={several ? (selectionTags.data ?? null) : null}
+                onAddTag={(name) => changeTag(name, true)}
+                onRemoveTag={(name) => changeTag(name, false)}
                 empty={
                   openFolder && (
                     <FolderProperties
@@ -1087,6 +1289,17 @@ function AppShell() {
               if (opened) setPlace({ kind: "folder", id: opened });
             });
           }}
+        />
+        <TagDialogs
+          dialog={tagDialog}
+          vocabulary={vocabulary}
+          groups={tagGroups}
+          onClose={() => setTagDialog(null)}
+          onRename={(from, to) => retag(ipc.renameTag(from, to), from, to)}
+          onMerge={(source, target) => retag(ipc.mergeTags(source, target), source, target)}
+          onDelete={(name) => retag(ipc.deleteTag(name), name, null)}
+          onSaveGroup={(change: TagGroupChange) => writeGroups(ipc.saveTagGroup(change))}
+          onDeleteGroup={(id) => writeGroups(ipc.deleteTagGroup(id))}
         />
         <FolderDialogs
           dialog={folderDialog}

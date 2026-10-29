@@ -12,6 +12,7 @@ use ulid::Ulid;
 use crate::error::{Context, Result};
 use crate::library::Library;
 use crate::locks::{LockMap, VISIBLE};
+use crate::tags::{drop_unused, tag_id};
 use crate::time::now_ms;
 
 /// One folder row, before the tree is built.
@@ -380,20 +381,26 @@ impl Library {
         self.item(id)?.ok_or(SourceError::NotFound)
     }
 
-    /// Applies an edit to many items in one transaction; returns how many items exist and were
-    /// edited. Folder edits work now; the other intents arrive with phases 5 and 7. Items that
-    /// join or leave a locked folder are encrypted or decrypted after the write, which needs
-    /// that folder unlocked.
+    /// Applies an edit to many items in one transaction; returns how many items exist, are
+    /// visible and were edited. Folder and tag edits work now; the other intents arrive with
+    /// phase 7. Items that join or leave a locked folder are encrypted or decrypted after the
+    /// write, which needs that folder unlocked. Tags are not sealed, so tag edits need no lock
+    /// work.
     pub fn apply_batch_edit(&self, ids: &[ItemId], edit: &ItemEdit) -> Result<u32> {
         self.check_writable()?;
         edit.validate()?;
+        let moves = matches!(
+            edit,
+            ItemEdit::AddToFolders(_) | ItemEdit::RemoveFromFolders(_) | ItemEdit::SetFolders(_)
+        );
         let map = LockMap::load(&self.conn())?;
         let items: Vec<String> = ids.iter().map(|id| id.0.clone()).collect();
-        if map.has_locks() {
+        let reseal = moves && map.has_locks();
+        if reseal {
             self.check_reseal(&items, &map, &|_, links| edited_links(edit, links), None)?;
         }
         let edited = self.write_batch_edit(ids, edit)?;
-        if map.has_locks() {
+        if reseal {
             self.reseal(&items, &|_, _| {})?;
         }
         Ok(edited)
@@ -402,27 +409,56 @@ impl Library {
     fn write_batch_edit(&self, ids: &[ItemId], edit: &ItemEdit) -> Result<u32> {
         let now = now_ms();
         let mut conn = self.conn();
+        let visibility = self.visibility(&conn)?;
         let tx = conn.transaction().context("edit items")?;
-        let folders = match edit {
+        let mut tags: Vec<i64> = Vec::new();
+        match edit {
             ItemEdit::AddToFolders(folders)
             | ItemEdit::RemoveFromFolders(folders)
-            | ItemEdit::SetFolders(folders) => folders,
+            | ItemEdit::SetFolders(folders) => {
+                for folder in folders {
+                    require_folder(&tx, folder)?;
+                }
+            }
+            ItemEdit::AddTags(names) => {
+                for name in names {
+                    let tag = ensure_tag(&tx, name)?;
+                    if !tags.contains(&tag) {
+                        tags.push(tag);
+                    }
+                }
+            }
+            ItemEdit::RemoveTags(names) => {
+                for name in names {
+                    if let Some(tag) = tag_id(&tx, name)?
+                        && !tags.contains(&tag)
+                    {
+                        tags.push(tag);
+                    }
+                }
+            }
             _ => {
                 return Err(SourceError::NotSupported(
                     "This edit is not available yet.".into(),
                 ));
             }
-        };
-        for folder in folders {
-            require_folder(&tx, folder)?;
         }
+        let exists_sql = format!("SELECT seq FROM item WHERE id = :id AND {VISIBLE}");
         let mut edited = 0u32;
         for id in ids {
+            // A hidden item is left alone, like a missing one: a selection can outlive a lock.
             let exists: Option<i64> = tx
-                .prepare_cached("SELECT seq FROM item WHERE id = ?1")
+                .prepare_cached(&exists_sql)
                 .and_then(|mut statement| {
                     statement
-                        .query_row(params![id.0], |row| row.get(0))
+                        .query_row(
+                            named_params! {
+                                ":id": id.0,
+                                ":hidden": visibility.hidden,
+                                ":unlocked": visibility.unlocked,
+                            },
+                            |row| row.get(0),
+                        )
                         .optional()
                 })
                 .context("edit items")?;
@@ -463,6 +499,24 @@ impl Library {
                         add_link(&tx, &id.0, folder)?;
                     }
                 }
+                ItemEdit::AddTags(_) => {
+                    for tag in &tags {
+                        tx.prepare_cached(
+                            "INSERT OR IGNORE INTO item_tag (item_id, tag_id) VALUES (?1, ?2)",
+                        )
+                        .and_then(|mut statement| statement.execute(params![id.0, tag]))
+                        .context("tag items")?;
+                    }
+                }
+                ItemEdit::RemoveTags(_) => {
+                    for tag in &tags {
+                        tx.prepare_cached(
+                            "DELETE FROM item_tag WHERE item_id = ?1 AND tag_id = ?2",
+                        )
+                        .and_then(|mut statement| statement.execute(params![id.0, tag]))
+                        .context("untag items")?;
+                    }
+                }
                 _ => unreachable!("checked above"),
             }
             tx.prepare_cached("UPDATE item SET updated_at = ?2 WHERE id = ?1")
@@ -470,6 +524,9 @@ impl Library {
                 .context("edit items")?;
             log(&tx, "item", &id.0, "update", now)?;
             edited += 1;
+        }
+        if matches!(edit, ItemEdit::RemoveTags(_)) {
+            drop_unused(&tx, &tags)?;
         }
         tx.commit().context("edit items")?;
         Ok(edited)
@@ -610,7 +667,7 @@ fn sort_key(name: &str) -> Option<SortKey> {
     serde_json::from_value(serde_json::Value::String(name.to_owned())).ok()
 }
 
-fn log(tx: &Transaction<'_>, entity: &str, id: &str, op: &str, at: i64) -> Result<()> {
+pub(crate) fn log(tx: &Transaction<'_>, entity: &str, id: &str, op: &str, at: i64) -> Result<()> {
     tx.prepare_cached("INSERT INTO change_log (entity, entity_id, op, at) VALUES (?1, ?2, ?3, ?4)")
         .and_then(|mut statement| statement.execute(params![entity, id, op, at]))
         .context("log the change")?;

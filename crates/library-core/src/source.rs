@@ -14,6 +14,7 @@ use crate::model::{
     NewFile, SmartFolder, Tag, TagGroup, Thumbnail,
 };
 use crate::query::{Scope, ScopeHints};
+use crate::tag::TagGroupChange;
 
 /// Called with `(loaded, total)` while a scope loads.
 pub type Progress<'a> = &'a (dyn Fn(usize, usize) + Send + Sync);
@@ -129,6 +130,21 @@ pub trait LibrarySource: Send + Sync {
     }
 
     async fn merge_tags(&self, _source: &str, _target: &str) -> Result<(), SourceError> {
+        Err(SourceError::ReadOnly)
+    }
+
+    /// Removes a tag from every item (and from tag groups).
+    async fn delete_tag(&self, _name: &str) -> Result<(), SourceError> {
+        Err(SourceError::ReadOnly)
+    }
+
+    /// Creates or changes a tag group; returns every group.
+    async fn save_tag_group(&self, _change: TagGroupChange) -> Result<Vec<TagGroup>, SourceError> {
+        Err(SourceError::ReadOnly)
+    }
+
+    /// Deletes a tag group; the tags stay on their items. Returns every group.
+    async fn delete_tag_group(&self, _id: &str) -> Result<Vec<TagGroup>, SourceError> {
         Err(SourceError::ReadOnly)
     }
 }

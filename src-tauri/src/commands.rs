@@ -5,7 +5,8 @@ use std::path::PathBuf;
 use app_store::{ConnectionSettings, Preferences, RecentLibrary};
 use library_core::{
     Folder, FolderChange, ImportProgress, ImportTicket, Item, ItemCell, ItemEdit, ItemId,
-    LibraryCounts, LibraryInfo, LibraryQuery, RecoveryKey, SourceError,
+    LibraryCounts, LibraryInfo, LibraryQuery, RecoveryKey, SelectionTags, SourceError, Tag,
+    TagGroup, TagGroupChange,
 };
 use library_native::DuplicateChoice;
 use serde::{Deserialize, Serialize};
@@ -328,6 +329,55 @@ pub async fn apply_batch_edit(
     edit: ItemEdit,
 ) -> Result<u32, SourceError> {
     blocking(app, move |session| session.apply_batch_edit(target, edit)).await
+}
+
+/// The tags of a selection with how many selected items carry each.
+#[tauri::command]
+pub async fn selection_tags(
+    app: AppHandle,
+    target: ItemsTarget,
+) -> Result<SelectionTags, SourceError> {
+    blocking(app, move |session| session.selection_tags(target)).await
+}
+
+/// Every tag with its item count, for suggestions and the Tags filter.
+#[tauri::command]
+pub async fn tag_vocabulary(app: AppHandle) -> Result<Vec<Tag>, SourceError> {
+    blocking(app, Session::tag_vocabulary).await
+}
+
+#[tauri::command]
+pub async fn tag_groups(app: AppHandle) -> Result<Vec<TagGroup>, SourceError> {
+    blocking(app, Session::tag_groups).await
+}
+
+#[tauri::command]
+pub async fn save_tag_group(
+    app: AppHandle,
+    change: TagGroupChange,
+) -> Result<Vec<TagGroup>, SourceError> {
+    blocking(app, move |session| session.save_tag_group(change)).await
+}
+
+#[tauri::command]
+pub async fn delete_tag_group(app: AppHandle, id: String) -> Result<Vec<TagGroup>, SourceError> {
+    blocking(app, move |session| session.delete_tag_group(&id)).await
+}
+
+/// Renames a tag on every item; onto an existing tag, the two merge.
+#[tauri::command]
+pub async fn rename_tag(app: AppHandle, from: String, to: String) -> Result<(), SourceError> {
+    blocking(app, move |session| session.rename_tag(&from, &to)).await
+}
+
+#[tauri::command]
+pub async fn merge_tags(app: AppHandle, source: String, target: String) -> Result<(), SourceError> {
+    blocking(app, move |session| session.merge_tags(&source, &target)).await
+}
+
+#[tauri::command]
+pub async fn delete_tag(app: AppHandle, name: String) -> Result<(), SourceError> {
+    blocking(app, move |session| session.delete_tag(&name)).await
 }
 
 /// Manual order: `ids` go before `before` (or to the end) in `folder`.

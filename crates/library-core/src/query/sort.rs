@@ -28,6 +28,12 @@ pub fn compare_names(a: &str, b: &str) -> Ordering {
     collator().compare(a, b)
 }
 
+/// Tag order: like names, and a total order for tags that differ only in case (`"Poster"`
+/// before `"poster"`), so lists of tags never depend on where they came from.
+pub fn compare_tags(a: &str, b: &str) -> Ordering {
+    compare_names(a, b).then_with(|| a.cmp(b))
+}
+
 /// The collation sort key of `text`: comparing keys as bytes orders like [`compare_names`].
 fn sort_key(text: &str) -> Vec<u8> {
     let mut key = Vec::new();

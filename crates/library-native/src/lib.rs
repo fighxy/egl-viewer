@@ -19,6 +19,7 @@ mod schema;
 mod scope;
 mod seal;
 mod source;
+mod tags;
 mod time;
 mod vault;
 
@@ -32,6 +33,8 @@ mod import_tests;
 mod lock_tests;
 #[cfg(test)]
 mod scope_tests;
+#[cfg(test)]
+mod tag_tests;
 #[cfg(test)]
 mod test_support;
 #[cfg(test)]

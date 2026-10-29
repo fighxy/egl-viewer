@@ -8,11 +8,12 @@ use serde::Serialize;
 use ts_rs::TS;
 
 use crate::error::SourceError;
-use crate::model::{ItemId, ItemLite};
+use crate::model::{ItemId, ItemLite, Tag};
 use crate::query::filter::{Context, FolderIndex, filter};
 use crate::query::sort::sort;
 use crate::query::{LibraryQuery, Scope, ScopeHints};
 use crate::source::Progress;
+use crate::tag::SelectionTags;
 
 /// The most cells one `view_range` call returns.
 pub const MAX_WINDOW: usize = 200;
@@ -113,6 +114,30 @@ impl View {
     /// Ids `start..start + len`: what a selection needs, never whole items.
     pub fn ids(&self, start: usize, len: usize) -> Vec<ItemId> {
         self.items(start, len).map(|item| item.id.clone()).collect()
+    }
+
+    /// The tags of a selection of this view: `ids`, or with `all` every item except `ids`.
+    pub fn selection_tags(&self, all: bool, ids: &HashSet<ItemId>) -> SelectionTags {
+        let mut counts: HashMap<&str, u32> = HashMap::new();
+        let mut items = 0u32;
+        for item in self.items(0, self.order.len()) {
+            if all == ids.contains(&item.id) {
+                continue;
+            }
+            items += 1;
+            for tag in &item.tags {
+                *counts.entry(tag.as_ref()).or_default() += 1;
+            }
+        }
+        let mut tags: Vec<Tag> = counts
+            .into_iter()
+            .map(|(name, count)| Tag {
+                name: name.to_owned(),
+                image_count: Some(count),
+            })
+            .collect();
+        tags.sort_by(|a, b| crate::query::sort::compare_tags(&a.name, &b.name));
+        SelectionTags { items, tags }
     }
 }
 

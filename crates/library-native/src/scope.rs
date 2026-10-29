@@ -1,5 +1,5 @@
-//! Reads for the views and the detail panel: one SQL query per scope, the full item, the tag
-//! vocabulary, and the bytes the `thumb` scheme serves (docs/architecture.md §11, §15.3).
+//! Reads for the views and the detail panel: one SQL query per scope, the full item, and the
+//! bytes the `thumb` scheme serves (docs/architecture.md §11, §15.3).
 
 use std::collections::HashMap;
 use std::fs;
@@ -7,7 +7,7 @@ use std::io::ErrorKind;
 use std::path::{Path, PathBuf};
 use std::sync::Arc;
 
-use library_core::{Item, ItemId, ItemLite, Palette, Scope, SourceError, Tag, Thumbnail};
+use library_core::{Item, ItemId, ItemLite, Palette, Scope, SourceError, Thumbnail};
 use rusqlite::{OptionalExtension, Row, named_params, params};
 
 use crate::error::{Context, Result};
@@ -279,35 +279,6 @@ impl Library {
             .and_then(Iterator::collect)
             .context("read the item's folders")?;
         Ok(Some(item))
-    }
-
-    /// The tag vocabulary with the number of items outside the trash that carry each tag.
-    pub fn tags(&self) -> Result<Vec<Tag>> {
-        let conn = self.conn();
-        let mut statement = conn
-            .prepare(&format!(
-                "SELECT tag.name, count(item.id) FROM tag \
-                 LEFT JOIN item_tag ON item_tag.tag_id = tag.id \
-                 LEFT JOIN item ON item.id = item_tag.item_id AND item.deleted_at IS NULL \
-                 AND {VISIBLE} GROUP BY tag.id ORDER BY tag.name"
-            ))
-            .context("read tags")?;
-        let visibility = self.visibility(&conn)?;
-        statement
-            .query_map(
-                named_params! {
-                    ":hidden": visibility.hidden,
-                    ":unlocked": visibility.unlocked,
-                },
-                |row| {
-                    Ok(Tag {
-                        name: row.get(0)?,
-                        image_count: Some(row.get(1)?),
-                    })
-                },
-            )
-            .and_then(Iterator::collect)
-            .context("read tags")
     }
 
     /// The item's thumbnail, once the media pipeline made one; decrypted in memory for an item

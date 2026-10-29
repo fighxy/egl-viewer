@@ -760,7 +760,7 @@ Later, for phones: the WebView prepares the image (`createImageBitmap`, long edg
 | `close_view` | viewId | — |
 | `view_ids` | viewId, start, len | `ItemId[]` (selections) |
 | `item_detail` | id | `Item` or none (the details panel; also items in the trash) |
-| `apply_item_edit`, `apply_batch_edit` | id or `ItemsTarget` (ids, or a view's Select All minus ids), `ItemEdit` | `Item` / count; phase 4 has the folder intents |
+| `apply_item_edit`, `apply_batch_edit` | id or `ItemsTarget` (ids, or a view's Select All minus ids), `ItemEdit` | `Item` / count; phase 4 has the folder intents, phase 5 the tag intents; hidden items are left alone |
 | `reorder_items` | folder, ids, the id they go before (none: the end) | — (manual order) |
 | `undo` | — | — |
 | `save_folder`, `delete_folder` | `FolderChange` (create, update with every property, move to a parent and index); id and "trash the items only in it" | `Folder` tree |
@@ -771,8 +771,10 @@ Later, for phones: the WebView prepares the image (`createImageBitmap`, long edg
 | `remove_folder_lock` | id, password, `onProgress: Channel<LockProgress>` | — (the folder is decrypted) |
 | `set_lock_label` | id, label, label colour | — |
 | `save_recovery_file` | path from the Save dialog, folder name, `RecoveryKey` | — (refused inside the library folder) |
-| `tag_vocabulary`, `tag_groups`, `save_tag_group`, `delete_tag_group` | … | lists |
-| `rename_tag`, `merge_tags`, `delete_tag` | names | — |
+| `tag_vocabulary` | — | `Tag[]`: tags of visible items (the trash included) and of tag groups, with counts outside the trash, by name |
+| `selection_tags` | `ItemsTarget` | `SelectionTags`: the number of selected items and, per tag, on how many of them it is (read from the view) |
+| `tag_groups`, `save_tag_group`, `delete_tag_group` | —, `TagGroupChange` (create, update with every property), id | `TagGroup[]` in their order |
+| `rename_tag`, `merge_tags`, `delete_tag` | from and to, source and target, name | — (views recomputed); a rename onto an existing tag merges (D-046) |
 | `save_smart_folder`, `delete_smart_folder` | … | smart folder tree |
 | `restore_items`, `delete_permanently`, `empty_trash` | ids / — | counts |
 | `add_files` | paths, the open folder or none | `ImportTicket`; dropped folders are mirrored (phase 4); tags and rating for the batch come with phases 5 and 7 |
@@ -1058,7 +1060,7 @@ The full plan with done checks is in §9 of the spec. Key technical points per p
 - **Phase 2.** `media` (hash, probe, thumbnails, palettes, §15.4); `add_files` with the temp-copy protocol (§7.4); import tasks and progress events.
 - **Phase 3.** `load_scope` in SQL; the pipeline, sorter and views (§6.4, §6.5); the `thumb` scheme (§11); the virtualized grid.
 - **Phase 4.** Folders: `save_folder`, `delete_folder`, locks (age at rest, one Argon2id identity per folder, plaintext name and tag, the Locked folders sidebar), cycle guard (§7.3), `sort_key` reordering, manual order.
-- **Phase 5.** Tags: vocabulary with counts, rename, merge, delete, tag groups; batch edits.
+- **Phase 5.** Tags: vocabulary with counts, rename, merge, delete, tag groups; batch edits. Built 2026-10-28 (D-046).
 - **Phase 6.** FTS5 search with the Eagle syntax; filter chips; the smart folder evaluator for the v1 subset (§16).
 - **Phase 7.** The remaining item edits, undo, trash, file actions, library maintenance.
 - **Phase 8.** `eagle-folder` reader with retries (correction 37) and the import into `library-native` (§15.6).
@@ -1107,6 +1109,9 @@ pub trait LibrarySource: Send + Sync {
     async fn save_folder(&self, change: FolderChange) -> Result<Vec<Folder>, SourceError>;
     async fn rename_tag(&self, from: &str, to: &str) -> Result<(), SourceError>;
     async fn merge_tags(&self, source: &str, target: &str) -> Result<(), SourceError>;
+    async fn delete_tag(&self, name: &str) -> Result<(), SourceError>;
+    async fn save_tag_group(&self, change: TagGroupChange) -> Result<Vec<TagGroup>, SourceError>;
+    async fn delete_tag_group(&self, id: &str) -> Result<Vec<TagGroup>, SourceError>;
 }
 
 pub struct Capabilities {

@@ -724,3 +724,34 @@ fn sorting_100k_items() {
         assert_eq!(order.len(), 100_000);
     }
 }
+
+#[test]
+fn selection_tags_count_each_tag_over_the_selected_items() {
+    let source = FakeSource::new(4);
+    {
+        let mut items = source.items.borrow_mut();
+        items[0].tags = tags(&["Poster", "Swiss"]);
+        items[1].tags = tags(&["Poster"]);
+        items[2].tags = tags(&["poster"]);
+    }
+    let mut views = Views::default();
+    let (id, _) = open(&mut views, &source, LibraryQuery::default());
+    let view = views.get(id).unwrap();
+
+    let picked: HashSet<ItemId> = ["0000", "0001"].map(ItemId::from).into_iter().collect();
+    let counted = view.selection_tags(false, &picked);
+    assert_eq!(counted.items, 2);
+    let pairs: Vec<(&str, u32)> = counted
+        .tags
+        .iter()
+        .map(|tag| (tag.name.as_str(), tag.image_count.unwrap()))
+        .collect();
+    assert_eq!(pairs, [("Poster", 2), ("Swiss", 1)]);
+
+    // Select All except one: "poster" and "Poster" stay apart.
+    let except: HashSet<ItemId> = ["0001"].map(ItemId::from).into_iter().collect();
+    let counted = view.selection_tags(true, &except);
+    assert_eq!(counted.items, 3);
+    let names: Vec<&str> = counted.tags.iter().map(|tag| tag.name.as_str()).collect();
+    assert_eq!(names, ["Poster", "poster", "Swiss"]);
+}

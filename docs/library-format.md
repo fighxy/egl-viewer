@@ -96,7 +96,11 @@ Rules:
 - `CHECK` constraints only for invariants that never change (the star range, booleans, the hash
   length). Lists that can grow (folder colours, sort keys) are validated in Rust: relaxing a
   `CHECK` later means rebuilding the table.
-- Tags use the default `BINARY` collation: `"Poster"` and `"poster"` are two tags.
+- Tags use the default `BINARY` collation: `"Poster"` and `"poster"` are two tags. A `tag` row
+  that no item, folder or tag group refers to any more is deleted by the write that left it alone
+  (removing a tag from items, editing or deleting a group). Renaming a tag updates its row; a
+  rename onto an existing name, and a merge, move the links to the other row and delete the old
+  one. Item tags are not sealed: a locked item keeps its `item_tag` rows in plaintext (D-046).
 - **Reserved for locked folders (phase 4):** `item.encrypted`, `item.sealed`, the lock columns of
   `folder`, and the tables `item_key_wrap` and `folder_piv_wrap`. They exist from version 1 and
   stay empty until phase 4; code before phase 4 never writes them, and a test checks that they

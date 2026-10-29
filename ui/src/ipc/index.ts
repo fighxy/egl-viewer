@@ -31,9 +31,14 @@ import type { RecentLibrary } from "./generated/RecentLibrary";
 import type { RecoveryKey } from "./generated/RecoveryKey";
 import type { Scope } from "./generated/Scope";
 import type { ScopeProgress } from "./generated/ScopeProgress";
+import type { SelectionTags } from "./generated/SelectionTags";
 import type { SortKey } from "./generated/SortKey";
 import type { SourceError } from "./generated/SourceError";
 import type { StartupResult } from "./generated/StartupResult";
+import type { Tag } from "./generated/Tag";
+import type { TagGroup } from "./generated/TagGroup";
+import type { TagGroupChange } from "./generated/TagGroupChange";
+import type { TagMode } from "./generated/TagMode";
 import type { Theme } from "./generated/Theme";
 import type { UiLayout } from "./generated/UiLayout";
 import type { ViewMode } from "./generated/ViewMode";
@@ -71,9 +76,14 @@ export type {
   RecoveryKey,
   Scope,
   ScopeProgress,
+  SelectionTags,
   SortKey,
   SourceError,
   StartupResult,
+  Tag,
+  TagGroup,
+  TagGroupChange,
+  TagMode,
   Theme,
   UiLayout,
   ViewMode,
@@ -166,6 +176,15 @@ export const ipc = {
     invoke<number>("apply_batch_edit", { target, edit }),
   reorderItems: (folder: string, ids: string[], before: string | null) =>
     invoke<void>("reorder_items", { folder, ids, before }),
+  // Tags (docs/spec.md §3 Tags). Names are exact, case-sensitive strings.
+  selectionTags: (target: ItemsTarget) => invoke<SelectionTags>("selection_tags", { target }),
+  tagVocabulary: () => invoke<Tag[]>("tag_vocabulary"),
+  tagGroups: () => invoke<TagGroup[]>("tag_groups"),
+  saveTagGroup: (change: TagGroupChange) => invoke<TagGroup[]>("save_tag_group", { change }),
+  deleteTagGroup: (id: string) => invoke<TagGroup[]>("delete_tag_group", { id }),
+  renameTag: (from: string, to: string) => invoke<void>("rename_tag", { from, to }),
+  mergeTags: (source: string, target: string) => invoke<void>("merge_tags", { source, target }),
+  deleteTag: (name: string) => invoke<void>("delete_tag", { name }),
   // Locked folders (docs/age-locked-folders.md). Passwords go to Rust and are never stored.
   lockFolder: (
     id: string,

@@ -11,7 +11,8 @@ import {
 } from "@/components/ui/dialog";
 import { Input } from "@/components/ui/input";
 import { Progress } from "@/components/ui/progress";
-import { FOLDER_COLORS, findFolder } from "@/features/folders/tree";
+import { ColourPicker } from "@/features/folders/ColourPicker";
+import { findFolder } from "@/features/folders/tree";
 import { plural } from "@/features/imports/importText";
 import { type Folder, ipc, type LockProgress, type RecoveryKey, type SourceError } from "@/ipc";
 import { describeError } from "@/lib/errors";
@@ -219,7 +220,7 @@ function LockFolder({
                   onChange={(event) => setLabel(event.target.value)}
                 />
               </div>
-              <ColourPicker value={color} onChange={setColor} />
+              <ColourPicker legend="Label colour" value={color} onChange={setColor} />
             </>
           )}
           {error && <ErrorText>{error}</ErrorText>}
@@ -234,40 +235,6 @@ function LockFolder({
         </form>
       </DialogContent>
     </Dialog>
-  );
-}
-
-function ColourPicker({
-  value,
-  onChange,
-}: {
-  value: string | null;
-  onChange: (color: string | null) => void;
-}) {
-  return (
-    <fieldset className="grid gap-1">
-      <legend className="mb-1 text-xs text-muted-foreground">Label colour</legend>
-      <div className="flex flex-wrap gap-1.5">
-        <button
-          type="button"
-          aria-label="No colour"
-          aria-pressed={value === null}
-          className="size-5 rounded-full border aria-pressed:ring-2 aria-pressed:ring-ring"
-          onClick={() => onChange(null)}
-        />
-        {Object.entries(FOLDER_COLORS).map(([name, css]) => (
-          <button
-            key={name}
-            type="button"
-            aria-label={name}
-            aria-pressed={value === name}
-            className="size-5 rounded-full aria-pressed:ring-2 aria-pressed:ring-ring aria-pressed:ring-offset-1"
-            style={{ background: css }}
-            onClick={() => onChange(name)}
-          />
-        ))}
-      </div>
-    </fieldset>
   );
 }
 
