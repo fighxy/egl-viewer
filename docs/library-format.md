@@ -376,7 +376,40 @@ When a lock starts or stops covering an item (docs/age-locked-folders.md, D-045)
 A crash before step 5 leaves the new copy named only by the journal; after it, the old copies.
 Either way recovery on open deletes what no row points at; the journal may name `thumbs/` paths
 too. An item a lock covers but that is still plaintext after a crash stays hidden, and the next
-unlock of that lock encrypts it.
+unlock of that lock encrypts it. Decrypting names the file after the item name, made safe for
+Windows as below.
+
+### Renaming an item
+
+The stored file follows the item name (phase 7, D-050): characters Windows refuses become `_`,
+the part before the extension is cut to 100 UTF-16 units without trailing dots or spaces, a device
+name (`CON`, `LPT1`, …) gets a leading `_`, and the item's extension follows.
+
+```
+1. journal  INSERT pending_file(new path)                     -- committed
+2. link     hard link new path → the original (no hard links: a flushed copy through files/.tmp)
+3. commit   UPDATE item (name, file_path), item_fts; DELETE pending_file(new path);
+            INSERT pending_file(old path)                     -- one transaction
+4. delete   the old name; DELETE pending_file(old path)
+```
+
+Before step 3 the journal names only the new name, after it only the old one, so recovery keeps
+the name the row points at. A new name that differs only in case on a file system that ignores
+case is renamed in place without the journal. An encrypted item keeps `<id>.age`; only its sealed
+fields change.
+
+### Removing items for good
+
+Delete Permanently and Empty Trash (phase 7, D-051):
+
+```
+1. commit   for each item: INSERT pending_file(file_path, thumbs/<shard>/<id>.webp,
+            thumbs/<shard>/<id>.age); DELETE item_fts row; DELETE item (links, tags, comments and
+            key wraps cascade); change_log; tags no longer used go   -- one transaction
+2. delete   each file, and the item's folder once empty; DELETE its pending_file row
+```
+
+A file that cannot be deleted in step 2 stays in the journal and goes on the next open.
 
 ## 7. Opening and closing
 
@@ -405,8 +438,22 @@ app emits `library-closed` and returns to Welcome with a message.
 
 ## 8. Backups and migrations
 
-- Backups are `VACUUM INTO 'backups/library-YYYY-MM-DD.db'`, at most one a day on open, and
-  `backups/library-YYYY-MM-DD-vN.db` before a migration from version N. The last 10 are kept.
+- Backups are `VACUUM INTO 'backups/library-YYYY-MM-DD.db'`, at most one a day on open,
+  `backups/library-YYYY-MM-DD-vN.db` before a migration from version N,
+  `library-YYYY-MM-DD-HHMMSS.db` on Back Up Now and `library-YYYY-MM-DD-HHMMSS-restore.db` before
+  a restore (UTC). The last 10 of all kinds are kept, by name order.
+- **Restoring a backup** (Library Settings, D-051) happens in the open library, with the lock
+  held: the backup must carry egl-viewer's application id, a format version this build knows,
+  the library's own `library_id`, and pass `quick_check`. The current state is backed up first;
+  then SQLite's backup API copies the backup's pages into the writer connection; the connection
+  settings and `meta.open_by` are written again; an older version is migrated after its own
+  backup; `pending_file` is emptied without deleting files; old backups are pruned last. Files are
+  not part of a backup: Check Library lists files no row points at and rows whose file is gone, and
+  removes them only when asked.
+- **Rebuild Thumbnails** sets `thumb_version` to `-1 - thumb_version` for previews that exist (and
+  0 for files that had none): values below -1 mean "make again" while the old file is still
+  served, and the new preview gets the old number plus one, so a thumbnail URL never repeats
+  (D-051).
 - `VACUUM INTO` keeps `item.seq`, an explicit `INTEGER PRIMARY KEY`, so a restored backup keeps
   `item_fts` aligned with `item`.
 - Migrations run forward only. Each version step is one transaction that also sets

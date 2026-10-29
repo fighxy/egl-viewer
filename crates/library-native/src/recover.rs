@@ -56,7 +56,7 @@ pub(crate) fn empty_tmp(root: &Path) -> Result<()> {
 
 /// A journal path: an original under `files/`, or a preview under `thumbs/` that encrypting
 /// or decrypting an item replaced.
-fn journal_file(root: &Path, stored: &str) -> Option<PathBuf> {
+pub(crate) fn journal_file(root: &Path, stored: &str) -> Option<PathBuf> {
     match stored.split_once('/') {
         Some(("thumbs", rest)) => plain_parts(root.join("thumbs"), rest),
         _ => library_file(root, stored),

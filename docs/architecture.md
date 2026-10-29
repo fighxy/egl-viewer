@@ -667,7 +667,7 @@ impl ItemMutator {
 
 Optimistic UI, for every source: the UI shows the intended state at once (TanStack Query optimistic update). On an error, Rust returns the stored state, the view is recomputed, and the UI rolls back. For Eagle, `item/update` recomputes bindings on the desktop, which takes noticeable time in a large library, so writes are strictly sequential.
 
-**Undo** (native library): the app keeps the inverse of the last edits of this session in memory (the item's previous tags, folders and fields), and `Ctrl+Z` applies the inverse as a new edit. Permanent deletes are never undoable.
+**Undo** (native library): the app keeps the inverse of the last edits of this session in memory (the item's previous tags, folders and fields), and `Ctrl+Z` applies the inverse as a new edit. Permanent deletes are never undoable. The session reads `item_states` before each edit; `UndoStack` in `library-core` turns them into batches, one per distinct inverse edit, and keeps 50 (D-050).
 
 ### 7.2 Eagle folders: always the full set of desired values
 
@@ -762,7 +762,7 @@ Later, for phones: the WebView prepares the image (`createImageBitmap`, long edg
 | `item_detail` | id | `Item` or none (the details panel; also items in the trash) |
 | `apply_item_edit`, `apply_batch_edit` | id or `ItemsTarget` (ids, or a view's Select All minus ids), `ItemEdit` | `Item` / count; phase 4 has the folder intents, phase 5 the tag intents; hidden items are left alone |
 | `reorder_items` | folder, ids, the id they go before (none: the end) | — (manual order) |
-| `undo` | — | — |
+| `undo`, `undo_status` | — | `UndoStatus` (the kind of edit and how many items) or none; the Edit menu names it |
 | `save_folder`, `delete_folder` | `FolderChange` (create, update with every property, move to a parent and index); id and "trash the items only in it" | `Folder` tree |
 | `lock_folder` | id, password, label, label colour, `onProgress: Channel<LockProgress>` | `RecoveryKey` (shown once; never stored) |
 | `unlock_folder`, `relock_folder` | id (and the password) | — (views recomputed) |
@@ -779,7 +779,7 @@ Later, for phones: the WebView prepares the image (`createImageBitmap`, long edg
 | `smart_rules` | `LibraryQuery` | `SmartDraft { parent, conditions }` for Save as smart folder; refused for search text, the trash, or nothing to keep (D-048) |
 | `extensions` | — | `ExtensionCount[]` for the Type filter |
 | `save_smart_folder`, `delete_smart_folder` | `SmartFolderChange` (create under a parent, update name and rules), id | smart folder tree; open views of it are recomputed |
-| `restore_items`, `delete_permanently`, `empty_trash` | ids / — | counts |
+| `delete_permanently`, `empty_trash` | `ItemsTarget` / — | counts; only items of the trash, files removed after the rows (restoring is the `restore` intent of `apply_batch_edit`) |
 | `add_files` | paths, the open folder or none | `ImportTicket`; dropped folders are mirrored (phase 4); tags and rating for the batch come with phases 5 and 7 |
 | `paste_files` | the open folder or none | `ImportTicket` or none: copied files, or a pasted image as a PNG |
 | `answer_import` | import id, `skip` / `addAnyway` / `addToFolder` / `cancel` | — (the batch's duplicate question) |
@@ -787,8 +787,11 @@ Later, for phones: the WebView prepares the image (`createImageBitmap`, long edg
 | `imports` | — | `ImportProgress[]`: running, then finished, newest first |
 | `library_counts` | — | `LibraryCounts` for the left bar |
 | `quit` | — | — (after the user agreed to stop running imports) |
-| `open_original`, `reveal_original`, `copy_original` | id | — |
-| `backup_library`, `rebuild_thumbnails`, `check_library` | — | reports |
+| `open_original`, `reveal_originals`, `copy_originals`, `start_drag` | id / ids | — / count; Rust finds the files and refuses items of locked folders (D-052) |
+| `open_link` | url | — (`http` and `https` only) |
+| `backups`, `back_up_now`, `restore_backup` | —, —, file name | `Backup[]`, `Backup`, `LibraryInfo` (D-051) |
+| `rename_library`, `library_stats`, `reveal_library` | name, —, — | `LibraryInfo`, `LibraryStats`, — |
+| `rebuild_thumbnails`, `check_library`, `repair_library` | —, —, `RepairOptions` | items waiting, `LibraryCheck`, `LibraryCheck` |
 | `import_eagle_library` | `.library` path, target, options | import id (spec §8.2) |
 | `connect_eagle` | host, port, token | `{ app: AppInfo, library: LibraryInfo }`; stores the endpoint and the token (spec §8.3) |
 | `eagle_session` | — | `{ host, port, hasToken, connected }` — never the token |
@@ -881,7 +884,7 @@ tauri::Builder::default()
 
 - **URL.** `http://thumb.localhost/<id>?v=<thumbVersion>` on Windows (and later Android); `thumb://localhost/<id>?v=…` on macOS, iOS and Linux. The UI builds it with one helper (`thumbUrl(cell)`, on top of `convertFileSrc("", "thumb")`). `/<id>/original` serves the original for the full-size preview. The scheme serves the library that is open in this window, through `LibrarySource::thumbnail` and `LibrarySource::original`; ids other than short ASCII letters and digits get a 404 before any lookup.
 - **Headers.** `Content-Security-Policy: default-src 'none'` and `X-Content-Type-Options: nosniff` on every response, so an SVG original is only ever an image.
-- **The URL is versioned**, so responses carry `Cache-Control: max-age=31536000, immutable`.
+- **The URL is versioned**, so responses carry `Cache-Control: max-age=31536000, immutable`. A version is never used twice for an item: Rebuild Thumbnails continues the numbers of the thumbnails it replaces (D-051).
 - **Source, native library.** `thumbs/<shard>/<id>.webp` inside the library, written by the media pipeline (§15.4). A missing file means "not generated yet": the scheme answers 404, the cell keeps the palette placeholder, and `views-invalidated` with a new `thumb_version` makes it retry. No extra cache: the files are already local.
 - **Disk cache, Eagle only.** `app_cache_dir()/eagle-thumbs/<libraryKey>/<id>-<version>`, with a size limit (for example 500 MB, oldest first).
 - **Source, same PC as Eagle.** v1 `GET /api/item/thumbnail?id=` returns the thumbnail's file path on this PC. Rust reads that file after checking that it lies inside the library folder. When `noThumbnail` is true there is no `_thumbnail.png` (correction 29): Rust takes the original from `images/<id>.info/` (matched by extension) and downscales it to 320 px. So on the same PC thumbnails work without any helper.
@@ -1065,7 +1068,7 @@ The full plan with done checks is in §9 of the spec. Key technical points per p
 - **Phase 4.** Folders: `save_folder`, `delete_folder`, locks (age at rest, one Argon2id identity per folder, plaintext name and tag, the Locked folders sidebar), cycle guard (§7.3), `sort_key` reordering, manual order.
 - **Phase 5.** Tags: vocabulary with counts, rename, merge, delete, tag groups; batch edits. Built 2026-10-28 (D-046).
 - **Phase 6.** FTS5 search with the Eagle syntax; filter chips; the smart folder evaluator for the v1 subset (§16). Built 2026-10-29 (D-047, D-048).
-- **Phase 7.** The remaining item edits, undo, trash, file actions, library maintenance.
+- **Phase 7.** The remaining item edits, undo, trash, file actions, library maintenance. Built 2026-10-29 (D-049 to D-052).
 - **Phase 8.** `eagle-folder` reader with retries (correction 37) and the import into `library-native` (§15.6).
 - **Phase 9.** `EagleHttp`, `escape_non_ascii`, `EagleError`, `page_all` with `wiremock` tests; `SecretStore` on Credential Manager; `connect_eagle` and the Connect screen (404 → "update Eagle to 4.0", `{}` → "open a library on the PC"); `FolderDto` with the password dropped; `plan` + snapshot cache (§6.2, §6.3); search via `item/query`; smart folders via `smartFolder/getItems`.
 - **Phase 10.** `ItemMutator` with a re-read before writing; `FolderUpdateBody` with the full set of fields; adding files with `path` on the same PC and data URLs from another PC; Eagle thumbnails (same PC, then the helper plugin).
@@ -1156,7 +1159,7 @@ My Library.eglib/               the folder suffix is a convention (D-016); the a
   files/7Q/01JB…7Q/IMG_1042.jpg originals: shard by the last two characters of the id, one folder per item, the original file name
   files/.tmp/                   files being copied in; emptied when the library opens (§7.4)
   thumbs/7Q/01JB…7Q.webp        thumbnails: regenerable, may be deleted at any time
-  backups/library-2026-10-28.db automatic copies (VACUUM INTO), the last 10 kept
+  backups/library-2026-10-28.db copies (VACUUM INTO): daily, before a migration, by hand, before a restore; the last 10 kept
   library.lock                  held with an OS file lock while a writer has the library open; the holder is in meta.open_by
 ```
 
@@ -1167,7 +1170,8 @@ Decisions:
 - **Ids** are ULIDs: time-ordered and unique without coordination. Items that came from Eagle keep the Eagle id in `eagle_id`. Ids are stored as `TEXT`; `item` also has an explicit `seq INTEGER PRIMARY KEY` that keys `item_fts`, because implicit rowids change on `VACUUM` and in backups.
 - **Tags are case-sensitive strings**, as in Eagle (`"Poster"` and `"poster"` are different), stored once in `tag` and linked through `item_tag`.
 - **Folder order** among siblings is a `sort_key` string (fractional indexing): moving a folder changes one row.
-- **Trash** is `deleted_at`. Emptying the trash deletes the rows and the files. Unlike Eagle's API, the native library can delete items, folders and tags.
+- **Trash** is `deleted_at`. Emptying the trash deletes the rows and the files, the files after the rows under the `pending_file` journal. Unlike Eagle's API, the native library can delete items, folders and tags.
+- **Renaming an item renames its original** under the journal: the new name is hard-linked (or copied) beside the old one before the row changes, and the old one goes after (D-050). The stored name follows the item name, made safe for Windows.
 - **Locked folders** encrypt their content at rest (D-018, `docs/age-locked-folders.md`). Each locked folder has its own password, Argon2id salt, age X25519 identity, and recovery secret. Nothing is shared, and unlocking one folder loads only that identity into memory (`secrecy`) for the session. Argon2id wraps the identity; the password is not stored. A second wrap uses the recovery secret, which is shown once at creation (128-bit key, the same bits as a word phrase, or an optional file outside the library) and is not stored in the library. Originals under `files/`, thumbnails under `thumbs/`, and the item columns name, annotation, url, exif, and palette are age ciphertext. The age header, including nonces, stays inside the ciphertext. Each locked folder has its own user-editable name (`folder.name`) and tag — a label and a colour (`label`, `label_color`) — stored in plaintext on the folder row. They are not encrypted fields, and the tag is not an item tag. The left sidebar has an expandable Locked folders section that lists each locked folder with that name and tag. Choosing a row prompts for that folder only and does not unlock any other folder. Also plaintext on the row: id, lock metadata, salt, KDF parameters, and the wrapped identities. An item in two locked folders has its own item key, wrapped separately by each folder identity (`item_key_wrap`). A folder imported locked from Eagle has the locked flag and no identity until the user sets a password; its files stay plaintext until then (§15.5). An optional YubiKey PIV slot 9d adds a third wrap of the same identity (`age-plugin-yubikey`): the card stores a P-256 key, and the age X25519 identity stays wrapped in `folder_piv_wrap`, one row per card. Several cards can wrap one folder. Absent the key, the password and the recovery secret still unwrap it. This is not encryption of the whole database, of settings, or of the Eagle token. The columns and tables of locked folders (`item.encrypted`, `item.sealed`, the lock columns of `folder`, `item_key_wrap`, `folder_piv_wrap`) exist from format version 1 and stay empty until phase 4. While an item is encrypted, its five sensitive fields are one age message in `item.sealed`, and the plaintext columns are empty (D-019).
 - **Smart folders** keep Eagle's rule language (`conditions` with `property`, `method`, `value`) as JSON, so they survive import and export unchanged. The evaluator in `library-core` grows from the v1 subset (§5 of the spec).
 - **Search** finds any part of a word without case, as Eagle does. An FTS5 table with the `trigram` tokenizer covers the item's own texts (name, annotation, url) for terms of three or more characters; a shorter term reads the rows, an encrypted item of an unlocked folder is matched on its opened fields, and tags and folder names are matched on their own tables, so renaming a tag or a folder rewrites no index. `library-core` parses the Eagle syntax (`OR`, parentheses, a leading `-`) and combines the terms (format version 3, D-047).

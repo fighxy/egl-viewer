@@ -9,6 +9,7 @@ use library_core::{
 use rusqlite::{OptionalExtension, Transaction, named_params, params};
 use ulid::Ulid;
 
+use crate::edits::is_field_edit;
 use crate::error::{Context, Result};
 use crate::library::Library;
 use crate::locks::{LockMap, VISIBLE};
@@ -382,13 +383,15 @@ impl Library {
     }
 
     /// Applies an edit to many items in one transaction; returns how many items exist, are
-    /// visible and were edited. Folder and tag edits work now; the other intents arrive with
-    /// phase 7. Items that join or leave a locked folder are encrypted or decrypted after the
-    /// write, which needs that folder unlocked. Tags are not sealed, so tag edits need no lock
-    /// work.
+    /// visible and were edited. Items that join or leave a locked folder are encrypted or
+    /// decrypted after the write, which needs that folder unlocked. Tags are not sealed, so tag
+    /// edits need no lock work; name, note, link, rating and the trash are in `edits.rs`.
     pub fn apply_batch_edit(&self, ids: &[ItemId], edit: &ItemEdit) -> Result<u32> {
         self.check_writable()?;
         edit.validate()?;
+        if is_field_edit(edit) {
+            return self.write_field_edit(ids, edit);
+        }
         let moves = matches!(
             edit,
             ItemEdit::AddToFolders(_) | ItemEdit::RemoveFromFolders(_) | ItemEdit::SetFolders(_)
@@ -437,11 +440,7 @@ impl Library {
                     }
                 }
             }
-            _ => {
-                return Err(SourceError::NotSupported(
-                    "This edit is not available yet.".into(),
-                ));
-            }
+            _ => unreachable!("field edits are written in edits.rs"),
         }
         let exists_sql = format!("SELECT seq FROM item WHERE id = :id AND {VISIBLE}");
         let mut edited = 0u32;

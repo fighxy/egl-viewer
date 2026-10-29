@@ -5,12 +5,14 @@ import {
   type CSSProperties,
   memo,
   type MouseEvent as ReactMouseEvent,
+  type ReactNode,
   useCallback,
   useEffect,
   useLayoutEffect,
   useRef,
   useState,
 } from "react";
+import { ContextMenu, ContextMenuContent, ContextMenuTrigger } from "@/components/ui/context-menu";
 import { type DragPayload, dropHint, useDrag } from "@/features/dnd/drag";
 import { type ItemCell, ipc, type ViewMode } from "@/ipc";
 import { thumbUrl } from "@/lib/thumb";
@@ -59,6 +61,10 @@ type Props = {
   draggable?: boolean;
   /** Items can be dropped between cells: a folder in manual order. */
   reorderable?: boolean;
+  /** The Trash: the list shows when each item went there. */
+  inTrash?: boolean;
+  /** The items of the right-click menu; a right click selects the item under it first. */
+  menu?: ReactNode;
 };
 
 export const PREVIEW_TRANSITION = "preview-image";
@@ -111,6 +117,8 @@ export function ItemsView({
   transitionId,
   draggable = false,
   reorderable = false,
+  inTrash = false,
+  menu,
 }: Props) {
   const client = useQueryClient();
   const { begin, active } = useDrag();
@@ -362,6 +370,7 @@ export function ItemsView({
               transition: cell !== undefined && cell.id === transitionId,
               reorderable,
               dropSide: dropCell?.index === index ? dropCell.side : null,
+              inTrash,
               onMouseDown: onCellMouseDown,
               onOpen: open,
             };
@@ -406,11 +415,37 @@ export function ItemsView({
       </div>
     </div>
   );
-  if (mode === "grid") return grid;
+  const withMenu = menu ? (
+    <ContextMenu>
+      <ContextMenuTrigger
+        asChild
+        onContextMenu={(event) => {
+          const target = (event.target as HTMLElement).closest<HTMLElement>("[data-index]");
+          // Empty space has no menu.
+          if (!target) {
+            event.preventDefault();
+            return;
+          }
+          const index = Number(target.dataset.index);
+          const cell = cellAt(index);
+          if (!cell || !isSelected(latest.current, cell.id)) {
+            void select(index, { ctrl: false, shift: false });
+          }
+        }}
+      >
+        {grid}
+      </ContextMenuTrigger>
+      <ContextMenuContent>{menu}</ContextMenuContent>
+    </ContextMenu>
+  ) : (
+    grid
+  );
+  // One place in the tree for both modes: a remounted scroll container would leave the width
+  // observer on the old, detached element, which measures 0.
   return (
     <div className="flex min-h-0 flex-1 flex-col">
-      <ListHeader />
-      {grid}
+      {mode === "list" && <ListHeader inTrash={inTrash} />}
+      {withMenu}
     </div>
   );
 }
@@ -434,6 +469,8 @@ type CellProps = {
   reorderable: boolean;
   /** Where dragged items would land next to this cell. */
   dropSide: "before" | "after" | null;
+  /** The cell is in the Trash: it says since when. */
+  inTrash: boolean;
   onMouseDown: (event: ReactMouseEvent, index: number) => void;
   onOpen: (index: number) => void;
 };
@@ -446,6 +483,7 @@ const GridCell = memo(function GridCell({
   transition,
   reorderable,
   dropSide,
+  inTrash,
   onMouseDown,
   onOpen,
   size,
@@ -462,6 +500,9 @@ const GridCell = memo(function GridCell({
       data-id={cell?.id}
       aria-selected={selected}
       aria-label={cell?.name ?? "Loading"}
+      title={
+        inTrash && cell?.deletedAt ? `In the trash since ${formatDate(cell.deletedAt)}` : undefined
+      }
       className="relative flex shrink-0 flex-col"
       style={{ width: size, height }}
       onMouseDown={(event) => onMouseDown(event, index)}
@@ -510,6 +551,7 @@ const ListRow = memo(function ListRow({
   transition,
   reorderable,
   dropSide,
+  inTrash,
   onMouseDown,
   onOpen,
 }: CellProps) {
@@ -559,7 +601,9 @@ const ListRow = memo(function ListRow({
       <span className="text-muted-foreground tabular-nums">
         {cell ? formatDimensions(cell.width, cell.height) : ""}
       </span>
-      <span className="text-muted-foreground">{cell ? formatDate(cell.addedAt) : ""}</span>
+      <span className="text-muted-foreground">
+        {cell ? formatDate(inTrash ? cell.deletedAt : cell.addedAt) : ""}
+      </span>
       <span className="text-amber-500">{cell && cell.star > 0 ? "★".repeat(cell.star) : ""}</span>
       <span className="truncate text-muted-foreground">{cell?.tags.join(", ")}</span>
     </div>
@@ -567,7 +611,7 @@ const ListRow = memo(function ListRow({
 });
 
 /** Column titles over the list; the rows' cells carry the names for assistive technology. */
-function ListHeader() {
+function ListHeader({ inTrash }: { inTrash: boolean }) {
   return (
     <div
       aria-hidden
@@ -578,7 +622,7 @@ function ListHeader() {
       <span>Type</span>
       <span>Size</span>
       <span>Dimensions</span>
-      <span>Date added</span>
+      <span>{inTrash ? "Date deleted" : "Date added"}</span>
       <span>Rating</span>
       <span>Tags</span>
     </div>

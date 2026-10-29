@@ -12,4 +12,8 @@ hasThumbnail: boolean,
 /**
  * Part of the thumbnail URL, so a new thumbnail is never served from the cache.
  */
-thumbVersion: number, addedAt: number | null, tags: Array<string>, };
+thumbVersion: number, addedAt: number | null, 
+/**
+ * In the trash since, ms (the Trash list shows it).
+ */
+deletedAt: number | null, tags: Array<string>, };

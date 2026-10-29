@@ -5,6 +5,7 @@ mod add;
 mod backup;
 mod create;
 mod detect;
+mod edits;
 mod error;
 mod folders;
 mod fsutil;
@@ -12,6 +13,7 @@ mod import;
 mod library;
 mod lock;
 mod locks;
+mod maintenance;
 mod name;
 mod preview;
 mod recover;
@@ -27,6 +29,8 @@ mod vault;
 
 pub use time::utc_file_stamp;
 
+#[cfg(test)]
+mod edit_tests;
 #[cfg(test)]
 mod folder_tests;
 #[cfg(test)]

@@ -9,8 +9,8 @@ import {
   commandForShortcut,
 } from "./registry";
 
-/** Text fields keep their own cut, copy, paste, select all and undo. */
-const TEXT_KEYS = new Set(["Ctrl+A", "Ctrl+C", "Ctrl+V", "Ctrl+X", "Ctrl+Z", "Ctrl+Y"]);
+/** Text fields keep their own cut, copy, paste, select all, undo and Delete. */
+const TEXT_KEYS = new Set(["Ctrl+A", "Ctrl+C", "Ctrl+V", "Ctrl+X", "Ctrl+Z", "Ctrl+Y", "Delete"]);
 /** Buttons, links and fields keep their own Space and Enter. */
 const ACTIVATION_KEYS = new Set(["Space", "Enter"]);
 
@@ -34,6 +34,9 @@ export function useShortcuts(
     const onKeyDown = (event: KeyboardEvent) => {
       const { state, actions, commands } = latest.current;
       const name = keyName(event);
+      // The folder tree's Delete deletes its folder, not the selected items. (Other keys arrive
+      // prevented on purpose: the browser's Ctrl+F is blocked so the app's can run.)
+      if (name === "Delete" && event.defaultPrevented) return;
       if (TEXT_KEYS.has(name) && isEditable(event.target)) return;
       if (ACTIVATION_KEYS.has(name) && isInteractive(event.target)) return;
       const command = commandForShortcut(name, commands);

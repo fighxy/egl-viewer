@@ -60,7 +60,9 @@ describe("Browsing a library", () => {
     render(<App />);
     fireEvent.mouseDown(await cellNamed("image-2"));
     const details = screen.getByRole("complementary", { name: "Details" });
-    await waitFor(() => expect(details).toHaveTextContent("image-2"));
+    await waitFor(() =>
+      expect(within(details).getByRole("textbox", { name: "Name" })).toHaveValue("image-2"),
+    );
     expect(called(calls, "item_detail")[0]?.args).toEqual({ id: "ID0002" });
     expect(screen.getByRole("contentinfo")).toHaveTextContent("1 selected");
 
@@ -222,7 +224,9 @@ describe("Browsing a library", () => {
     render(<App />);
     fireEvent.mouseDown(await cellNamed("image-1"));
     const details = screen.getByRole("complementary", { name: "Details" });
-    await waitFor(() => expect(details).toHaveTextContent("image-1"));
+    await waitFor(() =>
+      expect(within(details).getByRole("textbox", { name: "Name" })).toHaveValue("image-1"),
+    );
     fireEvent.keyDown(grid(), { key: "Enter" });
     await waitFor(() => expect(details).toContainElement(document.activeElement as HTMLElement));
   });

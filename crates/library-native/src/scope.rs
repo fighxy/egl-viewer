@@ -13,13 +13,14 @@ use rusqlite::{OptionalExtension, Row, named_params, params};
 use crate::error::{Context, Result};
 use crate::library::Library;
 use crate::locks::VISIBLE;
+use crate::preview::shows_thumbnail;
 use crate::recover::library_file;
 
 /// The columns of [`ItemLite`], in the order `lite_from_row` reads them.
 const LITE_COLUMNS: &str = "id, name, ext, width, height, size, star, \
      json_extract(palette, '$[0].color[0]'), json_extract(palette, '$[0].color[1]'), \
      json_extract(palette, '$[0].color[2]'), \
-     added_at, file_created_at, file_modified_at, duration, thumb_version";
+     added_at, file_created_at, file_modified_at, duration, thumb_version, deleted_at";
 
 impl Library {
     /// The light items of one scope (docs/architecture.md §15.3). A folder scope also gives
@@ -103,8 +104,8 @@ impl Library {
         .context("load a scope")?;
         while let Some(row) = rows.next().context("load a scope")? {
             let item = lite_from_row(row).context("read an item")?;
-            if row.get::<_, bool>(15).context("read an item")? {
-                let blob: Option<Vec<u8>> = row.get(16).context("read an item")?;
+            if row.get::<_, bool>(16).context("read an item")? {
+                let blob: Option<Vec<u8>> = row.get(17).context("read an item")?;
                 sealed.push((items.len(), blob.unwrap_or_default()));
             }
             positions.insert(item.id.0.clone(), items.len());
@@ -198,7 +199,7 @@ impl Library {
                 &format!(
                     "SELECT id, name, ext, width, height, size, star, annotation, url, palette, \
                      added_at, file_created_at, file_modified_at, duration, bpm, exif, \
-                     thumb_version, deleted_at IS NOT NULL, encrypted, sealed \
+                     thumb_version, deleted_at IS NOT NULL, encrypted, sealed, deleted_at \
                      FROM item WHERE id = :id AND {VISIBLE}"
                 ),
                 named_params! {
@@ -233,9 +234,10 @@ impl Library {
                         duration: row.get(13)?,
                         bpm: row.get(14)?,
                         exif: exif.and_then(|json| serde_json::from_str(&json).ok()),
-                        no_thumbnail: row.get::<_, i64>(16)? <= 0,
+                        no_thumbnail: !shows_thumbnail(row.get::<_, i64>(16)?),
                         thumb_version: row.get(16)?,
                         is_deleted: row.get(17)?,
+                        deleted_at: row.get(20)?,
                         ..Item::default()
                     };
                     Ok((item, sealed))
@@ -287,7 +289,7 @@ impl Library {
         let Some((version, encrypted, _, _)) = self.visible_file(id)? else {
             return Ok(None);
         };
-        if version <= 0 {
+        if !shows_thumbnail(version) {
             return Ok(None);
         }
         let bytes = if encrypted {
@@ -319,6 +321,30 @@ impl Library {
             content_type: content_type(&ext).into(),
             private: encrypted,
         }))
+    }
+
+    /// Where the original of a visible item lies, for Open, Show in Explorer, Copy File and
+    /// dragging out. An encrypted original never leaves the library: other apps would get
+    /// ciphertext, and a decrypted copy would put the file on disk in plaintext.
+    pub fn original_path(&self, id: &str) -> Result<PathBuf> {
+        let Some((_, encrypted, file_path, _)) = self.visible_file(id)? else {
+            return Err(SourceError::NotFound);
+        };
+        if encrypted {
+            return Err(SourceError::Invalid(
+                "This file is encrypted in a locked folder. Remove the lock to use it in other \
+                 apps."
+                    .into(),
+            ));
+        }
+        let path = library_file(self.root(), &file_path)
+            .ok_or_else(|| SourceError::Storage("bad stored path".into()))?;
+        if !path.is_file() {
+            return Err(SourceError::Storage(
+                "The original file is missing. Check Library lists such items.".into(),
+            ));
+        }
+        Ok(path)
     }
 
     /// `thumb_version`, `encrypted`, `file_path` and `ext` of an item that may be shown.
@@ -403,8 +429,9 @@ fn lite_from_row(row: &Row<'_>) -> rusqlite::Result<ItemLite> {
         added_at: row.get(10)?,
         file_created_at: row.get(11)?,
         file_modified_at: row.get(12)?,
+        deleted_at: row.get(15)?,
         duration: row.get(13)?,
-        no_thumbnail: thumb_version <= 0,
+        no_thumbnail: !shows_thumbnail(thumb_version),
         thumb_version,
         position: None,
     })

@@ -1,15 +1,54 @@
 import { useQuery } from "@tanstack/react-query";
 import { cn } from "cn";
-import { FolderPlus, Plus, X } from "lucide-react";
-import { forwardRef, type ReactNode, useState } from "react";
+import {
+  Copy,
+  ExternalLink,
+  FolderOpen,
+  FolderPlus,
+  Plus,
+  RotateCcw,
+  SquareArrowOutUpRight,
+  Trash2,
+  X,
+} from "lucide-react";
+import { forwardRef, type ReactNode, useRef, useState } from "react";
 import { Button } from "@/components/ui/button";
 import { Popover, PopoverContent, PopoverTrigger } from "@/components/ui/popover";
 import { FolderPicker } from "@/features/folders/FolderPicker";
 import { findFolder, folderPath } from "@/features/folders/tree";
 import { type TagChip, TagEditor } from "@/features/tags/TagEditor";
-import { type Folder, type Item, inTauri, ipc, type SelectionTags, type Tag } from "@/ipc";
+import {
+  type Folder,
+  type Item,
+  type ItemEdit,
+  inTauri,
+  ipc,
+  type SelectionTags,
+  type Tag,
+} from "@/ipc";
 import { thumbUrl } from "@/lib/thumb";
 import { formatBytes, formatDate, formatDimensions } from "./format";
+import { EditableText, isWebLink, Stars } from "./ItemFields";
+
+/** What the right bar can do with the selected items (docs/spec.md §6, §7.3). */
+export type ItemActions = {
+  /** Name, note, link or rating of the one selected item. */
+  onEdit: (edit: ItemEdit) => void;
+  /** The rating of every selected item. */
+  onSetStar: (star: number) => void;
+  onTrash: () => void;
+  onRestore: () => void;
+  onDeletePermanently: () => void;
+  onOpenOriginal: () => void;
+  onReveal: () => void;
+  onCopy: () => void;
+  onOpenLink: (url: string) => void;
+  /** Starts dragging the selected originals out of the window. */
+  onDragOut: () => void;
+};
+
+/** How far the pointer moves before a press on the preview becomes a drag out. */
+const DRAG_DISTANCE = 4;
 
 type Props = {
   /** How many items are selected. */
@@ -34,12 +73,16 @@ type Props = {
   /** A tag goes on the selected items, or comes off them. */
   onAddTag?: (name: string) => void;
   onRemoveTag?: (name: string) => void;
+  /** Editing, the trash and file actions; without them the fields are read-only. */
+  actions?: ItemActions;
+  /** The Trash is open: a selection there can be restored or removed for good. */
+  inTrash?: boolean;
 };
 
 /**
  * The right bar (docs/spec.md §7.3): the selected item's preview, palette, name, rating, tags,
- * folders, note, link, file info and EXIF. Tags and folders can change, for one item or a
- * selection; the other fields arrive with phase 7.
+ * folders, note, link, file info and EXIF, edited in place; for a selection, a stack of
+ * thumbnails, the total size, the rating, tags, folders and the trash.
  */
 export const DetailsPanel = forwardRef<HTMLDivElement, Props>(function DetailsPanel(
   {
@@ -55,6 +98,8 @@ export const DetailsPanel = forwardRef<HTMLDivElement, Props>(function DetailsPa
     selectionTags = null,
     onAddTag,
     onRemoveTag,
+    actions,
+    inTrash = false,
   },
   ref,
 ) {
@@ -79,10 +124,28 @@ export const DetailsPanel = forwardRef<HTMLDivElement, Props>(function DetailsPa
     body = empty ?? <p className="m-auto text-muted-foreground">Select an item</p>;
   } else if (count > 1 || itemId === null) {
     body = (
-      <div className="grid content-start gap-4">
+      <div className="grid min-h-0 content-start gap-4 overflow-y-auto">
+        <Stack
+          cells={selectionTags?.stack ?? []}
+          count={count}
+          onDragOut={inTrash ? undefined : actions?.onDragOut}
+        />
         <p className="text-center text-muted-foreground">
           {count.toLocaleString("en")} items selected
+          {selectionTags && ` · ${formatBytes(selectionTags.size)}`}
         </p>
+        {actions && !inTrash && (
+          <dl className="grid gap-2">
+            <Field label="Rating">
+              <Stars
+                value={null}
+                onChange={actions.onSetStar}
+                disabled={writable !== true}
+                title={writable === true ? undefined : writable}
+              />
+            </Field>
+          </dl>
+        )}
         {onAddTag && (
           <dl className="grid gap-2">
             <Field label="Tags">
@@ -100,7 +163,7 @@ export const DetailsPanel = forwardRef<HTMLDivElement, Props>(function DetailsPa
             </Field>
           </dl>
         )}
-        {onAddToFolder && (
+        {onAddToFolder && !inTrash && (
           <FolderButton
             label="Add to folder…"
             folders={folders}
@@ -108,17 +171,22 @@ export const DetailsPanel = forwardRef<HTMLDivElement, Props>(function DetailsPa
             onPick={onAddToFolder}
           />
         )}
+        {actions && (
+          <SelectionButtons actions={actions} writable={writable} inTrash={inTrash} several />
+        )}
       </div>
     );
   } else if (detail.data) {
     body = (
       <ItemDetails
+        key={detail.data.id}
         item={detail.data}
         onPreview={onPreview}
         folders={folders}
         writable={writable}
         onFolderChange={onFolderChange}
         tags={tagEditor(detail.data.tags.map((name) => ({ name })))}
+        actions={actions}
       />
     );
   } else if (detail.isError) {
@@ -140,18 +208,6 @@ function Field({ label, children }: { label: string; children: React.ReactNode }
       <dt className="text-muted-foreground">{label}</dt>
       <dd className="min-w-0 break-words select-text">{children}</dd>
     </div>
-  );
-}
-
-function Stars({ value }: { value: number }) {
-  return (
-    <span role="img" aria-label={value === 0 ? "Not rated" : `${value} of 5 stars`}>
-      {[1, 2, 3, 4, 5].map((star) => (
-        <span key={star} className={star <= value ? "text-amber-500" : "text-muted-foreground/40"}>
-          ★
-        </span>
-      ))}
-    </span>
   );
 }
 
@@ -221,6 +277,161 @@ function FolderButton({
   );
 }
 
+/** Buttons for the selection: the trash, and the originals in other apps. */
+function SelectionButtons({
+  actions,
+  writable,
+  inTrash,
+  several = false,
+}: {
+  actions: ItemActions;
+  writable: true | string;
+  inTrash: boolean;
+  several?: boolean;
+}) {
+  const blocked = writable === true ? undefined : writable;
+  return (
+    <div className="flex flex-wrap gap-1.5">
+      {inTrash ? (
+        <>
+          <Button
+            variant="outline"
+            size="sm"
+            disabled={blocked !== undefined}
+            title={blocked}
+            onClick={actions.onRestore}
+          >
+            <RotateCcw aria-hidden />
+            Restore
+          </Button>
+          <Button
+            variant="outline"
+            size="sm"
+            disabled={blocked !== undefined}
+            title={blocked}
+            onClick={actions.onDeletePermanently}
+          >
+            <Trash2 aria-hidden />
+            Delete permanently…
+          </Button>
+        </>
+      ) : (
+        <>
+          <Button variant="outline" size="sm" title="Show in Explorer" onClick={actions.onReveal}>
+            <FolderOpen aria-hidden />
+            Show in Explorer
+          </Button>
+          {!several && (
+            <Button variant="outline" size="sm" onClick={actions.onOpenOriginal}>
+              <SquareArrowOutUpRight aria-hidden />
+              Open with default app
+            </Button>
+          )}
+          <Button
+            variant="outline"
+            size="sm"
+            title={several ? "Copy the files (Ctrl+C)" : "Copy the file (Ctrl+C)"}
+            onClick={actions.onCopy}
+          >
+            <Copy aria-hidden />
+            {several ? "Copy files" : "Copy file"}
+          </Button>
+          <Button
+            variant="outline"
+            size="sm"
+            disabled={blocked !== undefined}
+            title={blocked ?? "Move to Trash (Delete)"}
+            onClick={actions.onTrash}
+          >
+            <Trash2 aria-hidden />
+            Move to Trash
+          </Button>
+        </>
+      )}
+    </div>
+  );
+}
+
+/**
+ * Reports a press on `element` that moves a few pixels as a drag out, once, and swallows the
+ * click that would follow it.
+ */
+function useDragOut(onDragOut: (() => void) | undefined) {
+  const start = useRef<{ x: number; y: number } | null>(null);
+  const dragged = useRef(false);
+  return {
+    onPointerDown: (event: React.PointerEvent) => {
+      if (event.button !== 0 || !onDragOut) return;
+      start.current = { x: event.clientX, y: event.clientY };
+      dragged.current = false;
+    },
+    onPointerMove: (event: React.PointerEvent) => {
+      const from = start.current;
+      if (!from || !onDragOut || (event.buttons & 1) === 0) return;
+      if (Math.hypot(event.clientX - from.x, event.clientY - from.y) < DRAG_DISTANCE) return;
+      start.current = null;
+      dragged.current = true;
+      onDragOut();
+    },
+    onPointerUp: () => {
+      start.current = null;
+    },
+    /** True once per drag: the click that ends it opens nothing. */
+    consumeDrag: () => {
+      const was = dragged.current;
+      dragged.current = false;
+      return was;
+    },
+  };
+}
+
+/** Up to three thumbnails of a selection, fanned out; dragging them drags the files out. */
+function Stack({
+  cells,
+  count,
+  onDragOut,
+}: {
+  cells: SelectionTags["stack"];
+  count: number;
+  onDragOut?: () => void;
+}) {
+  const drag = useDragOut(onDragOut);
+  if (cells.length === 0) return null;
+  return (
+    <div
+      role="img"
+      aria-label={`${count.toLocaleString("en")} items`}
+      title={onDragOut ? "Drag into another app to copy the files" : undefined}
+      className="relative mx-auto mt-2 aspect-square w-32 touch-none"
+      onPointerDown={drag.onPointerDown}
+      onPointerMove={drag.onPointerMove}
+      onPointerUp={drag.onPointerUp}
+    >
+      {cells.map((cell, index) => (
+        <div
+          key={cell.id}
+          className="absolute inset-0 grid place-items-center overflow-hidden rounded-md border bg-grid shadow-sm"
+          style={{
+            transform: `rotate(${(index - (cells.length - 1) / 2) * 6}deg)`,
+            zIndex: cells.length - index,
+          }}
+        >
+          {cell.hasThumbnail ? (
+            <img
+              src={thumbUrl(cell)}
+              alt=""
+              draggable={false}
+              className="max-h-full max-w-full object-contain"
+            />
+          ) : (
+            <span className="text-xs font-medium text-muted-foreground uppercase">{cell.ext}</span>
+          )}
+        </div>
+      ))}
+    </div>
+  );
+}
+
 function ItemDetails({
   item,
   onPreview,
@@ -228,6 +439,7 @@ function ItemDetails({
   writable,
   onFolderChange,
   tags,
+  actions,
 }: {
   item: Item;
   onPreview: () => void;
@@ -236,9 +448,13 @@ function ItemDetails({
   onFolderChange?: (folder: string, member: boolean) => void;
   /** The tag editor; without one, the tags are shown read-only. */
   tags?: ReactNode;
+  actions?: ItemActions;
 }) {
   const member = new Set(item.folders);
   const [failed, setFailed] = useState(false);
+  const drag = useDragOut(item.isDeleted ? undefined : actions?.onDragOut);
+  const editable = actions !== undefined && writable === true;
+  const blocked = writable === true ? undefined : writable;
   const exif = exifRows(item);
   const info = [
     item.ext.toUpperCase(),
@@ -249,9 +465,18 @@ function ItemDetails({
     <div className="grid min-h-0 content-start gap-4 overflow-y-auto">
       <button
         type="button"
-        title="Show full size (Space)"
-        className="grid aspect-[4/3] place-items-center overflow-hidden rounded-md bg-grid outline-none focus-visible:ring-3 focus-visible:ring-ring/50"
-        onClick={onPreview}
+        title={
+          actions && !item.isDeleted
+            ? "Show full size (Space). Drag into another app to copy the file."
+            : "Show full size (Space)"
+        }
+        className="grid aspect-[4/3] touch-none place-items-center overflow-hidden rounded-md bg-grid outline-none focus-visible:ring-3 focus-visible:ring-ring/50"
+        onClick={() => {
+          if (!drag.consumeDrag()) onPreview();
+        }}
+        onPointerDown={drag.onPointerDown}
+        onPointerMove={drag.onPointerMove}
+        onPointerUp={drag.onPointerUp}
       >
         {!item.noThumbnail && !failed ? (
           <img
@@ -279,12 +504,34 @@ function ItemDetails({
         </div>
       )}
       {item.isDeleted && (
-        <p className="rounded-md bg-muted px-2 py-1 text-xs text-muted-foreground">In the trash</p>
+        <p className="rounded-md bg-muted px-2 py-1 text-xs text-muted-foreground">
+          {item.deletedAt ? `In the trash since ${formatDate(item.deletedAt)}` : "In the trash"}
+        </p>
       )}
       <dl className="grid gap-2">
-        <Field label="Name">{item.name}</Field>
+        <Field label="Name">
+          {actions ? (
+            <EditableText
+              label="Name"
+              value={item.name}
+              disabled={!editable}
+              title={blocked}
+              check={(text) => (text === "" ? "Enter a name." : null)}
+              onSave={(name) => actions.onEdit({ type: "rename", value: name })}
+            />
+          ) : (
+            item.name
+          )}
+        </Field>
         <Field label="Rating">
-          <Stars value={item.star} />
+          <Stars
+            value={item.star}
+            disabled={!editable}
+            title={blocked}
+            onChange={
+              actions ? (star) => actions.onEdit({ type: "setStar", value: star }) : undefined
+            }
+          />
         </Field>
         <Field label="Tags">
           {tags ??
@@ -342,9 +589,58 @@ function ItemDetails({
             )}
           </span>
         </Field>
-        {item.annotation && <Field label="Note">{item.annotation}</Field>}
-        {item.url && <Field label="Link">{item.url}</Field>}
+        {actions ? (
+          <>
+            <Field label="Note">
+              <EditableText
+                label="Note"
+                multiline
+                value={item.annotation}
+                disabled={!editable}
+                title={blocked ?? "Ctrl+Enter saves, Esc reverts"}
+                placeholder={editable ? "Add a note" : undefined}
+                onSave={(text) => actions.onEdit({ type: "setAnnotation", value: text })}
+              />
+            </Field>
+            <Field label="Link">
+              <span className="flex items-start gap-1">
+                <EditableText
+                  label="Link"
+                  value={item.url}
+                  disabled={!editable}
+                  title={blocked}
+                  placeholder={editable ? "https://…" : undefined}
+                  check={(text) =>
+                    text === "" || isWebLink(text)
+                      ? null
+                      : "A link starts with http:// or https://."
+                  }
+                  onSave={(url) => actions.onEdit({ type: "setUrl", value: url })}
+                />
+                {isWebLink(item.url) && (
+                  <Button
+                    variant="ghost"
+                    size="icon-xs"
+                    aria-label="Open the link in the browser"
+                    title="Open the link in the browser"
+                    onClick={() => actions.onOpenLink(item.url)}
+                  >
+                    <ExternalLink aria-hidden />
+                  </Button>
+                )}
+              </span>
+            </Field>
+          </>
+        ) : (
+          <>
+            {item.annotation && <Field label="Note">{item.annotation}</Field>}
+            {item.url && <Field label="Link">{item.url}</Field>}
+          </>
+        )}
       </dl>
+      {actions && (
+        <SelectionButtons actions={actions} writable={writable} inTrash={item.isDeleted} />
+      )}
       <section className="grid gap-2">
         <h3 className="text-xs font-medium text-muted-foreground">Info</h3>
         <p className="select-text">{info.join(" · ")}</p>

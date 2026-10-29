@@ -13,7 +13,7 @@ use library_core::SourceError;
 use rusqlite::{Connection, OptionalExtension, params};
 use ulid::Ulid;
 
-use crate::add::stored_file_name;
+use crate::add::file_name_for;
 use crate::error::{Context, Result};
 use crate::fsutil::rename_with_retry;
 use crate::library::Library;
@@ -373,13 +373,11 @@ impl Library {
             .as_deref()
             .ok_or_else(|| SourceError::Storage("an encrypted item has no sealed fields".into()))?;
         let fields = SealedFields::open(sealed, key).map_err(vault_error)?;
-        let file_name = if row.ext.is_empty() {
-            fields.name.clone()
-        } else {
-            format!("{}.{}", fields.name, row.ext)
-        };
         let shard = &item[item.len().saturating_sub(2)..];
-        let stored = format!("files/{shard}/{item}/{}", stored_file_name(&file_name));
+        let stored = format!(
+            "files/{shard}/{item}/{}",
+            file_name_for(&fields.name, &row.ext)
+        );
         let target = library_file(self.root(), &stored)
             .ok_or_else(|| SourceError::Storage("bad stored path".into()))?;
         let source = library_file(self.root(), &row.file_path);

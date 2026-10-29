@@ -2,10 +2,13 @@
 // talks to Eagle itself (docs/architecture.md §3, §8).
 import { Channel, invoke } from "@tauri-apps/api/core";
 import type { AppInfo } from "./generated/AppInfo";
+import type { Backup } from "./generated/Backup";
+import type { BackupKind } from "./generated/BackupKind";
 import type { BrowsePreferences } from "./generated/BrowsePreferences";
 import type { ConnectionSettings } from "./generated/ConnectionSettings";
 import type { DuplicateAnswer } from "./generated/DuplicateAnswer";
 import type { DuplicateNotice } from "./generated/DuplicateNotice";
+import type { EditKind } from "./generated/EditKind";
 import type { ExtensionCount } from "./generated/ExtensionCount";
 import type { Folder } from "./generated/Folder";
 import type { FolderChange } from "./generated/FolderChange";
@@ -19,17 +22,21 @@ import type { ItemCell } from "./generated/ItemCell";
 import type { ItemEdit } from "./generated/ItemEdit";
 import type { ItemId } from "./generated/ItemId";
 import type { ItemsTarget } from "./generated/ItemsTarget";
+import type { LibraryCheck } from "./generated/LibraryCheck";
 import type { LibraryCounts } from "./generated/LibraryCounts";
 import type { LibraryHolder } from "./generated/LibraryHolder";
 import type { LibraryInfo } from "./generated/LibraryInfo";
 import type { LibraryQuery } from "./generated/LibraryQuery";
+import type { LibraryStats } from "./generated/LibraryStats";
 import type { LocationProblem } from "./generated/LocationProblem";
 import type { LockProgress } from "./generated/LockProgress";
+import type { MissingOriginal } from "./generated/MissingOriginal";
 import type { Palette } from "./generated/Palette";
 import type { Preferences } from "./generated/Preferences";
 import type { ReadOnlyReason } from "./generated/ReadOnlyReason";
 import type { RecentLibrary } from "./generated/RecentLibrary";
 import type { RecoveryKey } from "./generated/RecoveryKey";
+import type { RepairOptions } from "./generated/RepairOptions";
 import type { Scope } from "./generated/Scope";
 import type { ScopeProgress } from "./generated/ScopeProgress";
 import type { SelectionTags } from "./generated/SelectionTags";
@@ -46,16 +53,20 @@ import type { TagGroupChange } from "./generated/TagGroupChange";
 import type { TagMode } from "./generated/TagMode";
 import type { Theme } from "./generated/Theme";
 import type { UiLayout } from "./generated/UiLayout";
+import type { UndoStatus } from "./generated/UndoStatus";
 import type { ViewMode } from "./generated/ViewMode";
 import type { ViewOpened } from "./generated/ViewOpened";
 import type { ViewsInvalidated } from "./generated/ViewsInvalidated";
 
 export type {
   AppInfo,
+  Backup,
+  BackupKind,
   BrowsePreferences,
   ConnectionSettings,
   DuplicateAnswer,
   DuplicateNotice,
+  EditKind,
   ExtensionCount,
   Folder,
   FolderChange,
@@ -70,17 +81,21 @@ export type {
   ItemId,
   ItemsTarget,
   JsonValue,
+  LibraryCheck,
   LibraryCounts,
   LibraryHolder,
   LibraryInfo,
   LibraryQuery,
+  LibraryStats,
   LocationProblem,
   LockProgress,
+  MissingOriginal,
   Palette,
   Preferences,
   ReadOnlyReason,
   RecentLibrary,
   RecoveryKey,
+  RepairOptions,
   Scope,
   ScopeProgress,
   SelectionTags,
@@ -96,6 +111,7 @@ export type {
   TagMode,
   Theme,
   UiLayout,
+  UndoStatus,
   ViewMode,
   ViewOpened,
   ViewsInvalidated,
@@ -184,6 +200,27 @@ export const ipc = {
   applyItemEdit: (id: string, edit: ItemEdit) => invoke<Item>("apply_item_edit", { id, edit }),
   applyBatchEdit: (target: ItemsTarget, edit: ItemEdit) =>
     invoke<number>("apply_batch_edit", { target, edit }),
+  // Undo, the trash and file actions (docs/spec.md §6). File bytes stay in Rust: these commands
+  // name items, and Rust finds their files.
+  undo: () => invoke<UndoStatus | null>("undo"),
+  undoStatus: () => invoke<UndoStatus | null>("undo_status"),
+  deletePermanently: (target: ItemsTarget) => invoke<number>("delete_permanently", { target }),
+  emptyTrash: () => invoke<number>("empty_trash"),
+  openOriginal: (id: string) => invoke<void>("open_original", { id }),
+  revealOriginals: (ids: string[]) => invoke<void>("reveal_originals", { ids }),
+  copyOriginals: (ids: string[]) => invoke<number>("copy_originals", { ids }),
+  openLink: (url: string) => invoke<void>("open_link", { url }),
+  startDrag: (ids: string[]) => invoke<void>("start_drag", { ids }),
+  // Library Settings (docs/spec.md §7.4, item 6).
+  revealLibrary: () => invoke<void>("reveal_library"),
+  backups: () => invoke<Backup[]>("backups"),
+  backUpNow: () => invoke<Backup>("back_up_now"),
+  restoreBackup: (name: string) => invoke<LibraryInfo>("restore_backup", { name }),
+  renameLibrary: (name: string) => invoke<LibraryInfo>("rename_library", { name }),
+  checkLibrary: () => invoke<LibraryCheck>("check_library"),
+  repairLibrary: (options: RepairOptions) => invoke<LibraryCheck>("repair_library", { options }),
+  libraryStats: () => invoke<LibraryStats>("library_stats"),
+  rebuildThumbnails: () => invoke<number>("rebuild_thumbnails"),
   reorderItems: (folder: string, ids: string[], before: string | null) =>
     invoke<void>("reorder_items", { folder, ids, before }),
   // Tags (docs/spec.md §3 Tags). Names are exact, case-sensitive strings.

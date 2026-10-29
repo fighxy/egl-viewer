@@ -17,8 +17,23 @@ use crate::time::now_ms;
 use crate::vault::SealedFields;
 
 /// `thumb_version` of an item whose preview cannot be made: keeps the placeholder and is not
-/// tried again on the next open. 0 means "not made yet", above 0 a thumbnail exists.
+/// tried again on the next open. 0 means "not made yet", above 0 a thumbnail exists, and below
+/// -1 a rebuild was asked for the thumbnail that had version `-1 - thumb_version`.
 pub const NO_PREVIEW: i64 = -1;
+
+/// A thumbnail file exists for this `thumb_version`: made (above 0), or made and asked again by
+/// Rebuild Thumbnails (below -1), which keeps showing the old one until the new one is written.
+pub(crate) fn shows_thumbnail(version: i64) -> bool {
+    !(NO_PREVIEW..=0).contains(&version)
+}
+
+/// Items that need a preview: never made, or asked again by Rebuild Thumbnails.
+const WANTS_PREVIEW: &str = "(thumb_version = 0 OR thumb_version < -1)";
+
+/// The next thumbnail's version. A rebuilt thumbnail continues after the one it replaces, so
+/// its URL is new and the WebView's cache cannot serve the old image (docs/architecture.md §11).
+const NEXT_VERSION: &str =
+    "CASE WHEN thumb_version < -1 THEN -thumb_version ELSE MAX(thumb_version, 0) + 1 END";
 
 /// An item that still needs its thumbnail.
 #[derive(Debug, Clone, PartialEq, Eq)]
@@ -37,7 +52,7 @@ impl Library {
             .collect();
         let sql = format!(
             "SELECT id, file_path, ext FROM item
-             WHERE thumb_version = 0 AND ext IN ({}) AND {VISIBLE}
+             WHERE {WANTS_PREVIEW} AND ext IN ({}) AND {VISIBLE}
              ORDER BY seq LIMIT :limit",
             exts.join(", ")
         );
@@ -133,10 +148,12 @@ impl Library {
         let tx = conn.transaction().context("store the preview")?;
         let updated = tx
             .execute(
-                "UPDATE item SET width = ?2, height = ?3, palette = ?4,
-                     exif = COALESCE(?5, exif), thumb_version = MAX(thumb_version, 0) + 1,
+                &format!(
+                    "UPDATE item SET width = ?2, height = ?3, palette = ?4,
+                     exif = COALESCE(?5, exif), thumb_version = {NEXT_VERSION},
                      updated_at = ?6
-                 WHERE id = ?1",
+                 WHERE id = ?1"
+                ),
                 params![id, rendered.width, rendered.height, palette, exif, now],
             )
             .context("store the preview")?;
@@ -178,9 +195,11 @@ impl Library {
             fields.exif = exif;
         }
         tx.execute(
-            "UPDATE item SET width = ?2, height = ?3, sealed = ?4,
-                 thumb_version = MAX(thumb_version, 0) + 1, updated_at = ?5
-             WHERE id = ?1",
+            &format!(
+                "UPDATE item SET width = ?2, height = ?3, sealed = ?4,
+                     thumb_version = {NEXT_VERSION}, updated_at = ?5
+                 WHERE id = ?1"
+            ),
             params![id, rendered.width, rendered.height, fields.seal(&key), now],
         )
         .context("store the preview")?;
@@ -200,11 +219,48 @@ impl Library {
         self.check_writable()?;
         self.conn()
             .execute(
-                "UPDATE item SET thumb_version = ?2 WHERE id = ?1 AND thumb_version = 0",
+                &format!("UPDATE item SET thumb_version = ?2 WHERE id = ?1 AND {WANTS_PREVIEW}"),
                 params![id, NO_PREVIEW],
             )
             .context("mark the item without a preview")?;
         Ok(())
+    }
+
+    /// Library → Rebuild Thumbnails: every visible item of a previewable type asks for its
+    /// preview again, files that could not be read included. The old thumbnails stay until the
+    /// new ones replace them. Returns how many items wait.
+    pub fn rebuild_previews(&self) -> Result<u32> {
+        self.check_writable()?;
+        let exts: Vec<String> = media::preview_extensions()
+            .map(|ext| format!("'{ext}'"))
+            .collect();
+        let conn = self.conn();
+        let visibility = self.visibility(&conn)?;
+        conn.execute(
+            &format!(
+                "UPDATE item SET thumb_version = CASE WHEN thumb_version > 0
+                     THEN -1 - thumb_version ELSE 0 END
+                 WHERE thumb_version >= -1 AND ext IN ({}) AND {VISIBLE}",
+                exts.join(", ")
+            ),
+            named_params! {
+                ":hidden": visibility.hidden,
+                ":unlocked": visibility.unlocked,
+            },
+        )
+        .context("ask for previews again")?;
+        conn.query_row(
+            &format!(
+                "SELECT count(*) FROM item WHERE {WANTS_PREVIEW} AND ext IN ({}) AND {VISIBLE}",
+                exts.join(", ")
+            ),
+            named_params! {
+                ":hidden": visibility.hidden,
+                ":unlocked": visibility.unlocked,
+            },
+            |row| row.get(0),
+        )
+        .context("count items without previews")
     }
 
     pub fn thumbnail_path(&self, id: &str) -> Result<PathBuf> {

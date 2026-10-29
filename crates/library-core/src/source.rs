@@ -115,6 +115,17 @@ pub trait LibrarySource: Send + Sync {
         Err(SourceError::ReadOnly)
     }
 
+    /// Removes items of the trash for good, with their files; items outside the trash are left
+    /// alone. Returns how many went. Native library only.
+    async fn delete_items(&self, _ids: &[ItemId]) -> Result<u32, SourceError> {
+        Err(SourceError::ReadOnly)
+    }
+
+    /// Removes every item of the trash for good, with their files.
+    async fn empty_trash(&self) -> Result<u32, SourceError> {
+        Err(SourceError::ReadOnly)
+    }
+
     /// Manual order: puts `ids` before `before` in `folder`, or at the end; the moved items
     /// keep their order among themselves.
     async fn reorder_items(

@@ -98,10 +98,6 @@ fn an_item_added_to_a_second_folder_stays_in_the_first() {
         library.apply_item_edit(&item, &ItemEdit::AddToFolders(vec!["F404".into()])),
         Err(SourceError::Invalid(_))
     ));
-    assert!(matches!(
-        library.apply_item_edit(&item, &ItemEdit::SetStar(3)),
-        Err(SourceError::NotSupported(_))
-    ));
     let edited = library
         .apply_batch_edit(
             &[ItemId(item.clone()), ItemId("01MISSING".into())],

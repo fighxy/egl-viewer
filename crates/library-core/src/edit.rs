@@ -13,7 +13,7 @@ use crate::tag::validate_tag_names;
 /// so the limit is checked in the same unit.
 pub const MAX_TEXT_UTF16: usize = 10_000;
 
-#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize, TS)]
+#[derive(Debug, Clone, PartialEq, Eq, Hash, Serialize, Deserialize, TS)]
 #[serde(tag = "type", content = "value", rename_all = "camelCase")]
 #[ts(export)]
 pub enum ItemEdit {
@@ -67,8 +67,13 @@ fn invalid(message: &str) -> Result<(), SourceError> {
 
 /// Links are opened in the system browser, so only web links are stored.
 fn is_web_link_or_empty(url: &str) -> bool {
+    url.trim().is_empty() || is_web_link(url)
+}
+
+/// An `http` or `https` link: the only kind the app opens in the browser.
+pub fn is_web_link(url: &str) -> bool {
     let lower = url.trim().to_ascii_lowercase();
-    lower.is_empty() || lower.starts_with("http://") || lower.starts_with("https://")
+    lower.starts_with("http://") || lower.starts_with("https://")
 }
 
 #[cfg(test)]

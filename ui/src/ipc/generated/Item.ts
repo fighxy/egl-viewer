@@ -14,4 +14,8 @@ exif: JsonValue | null, noThumbnail: boolean,
 /**
  * Part of the thumbnail URL, as in [`ItemLite::thumb_version`].
  */
-thumbVersion: number, isDeleted: boolean, };
+thumbVersion: number, isDeleted: boolean, 
+/**
+ * When the item went to the trash, ms, when the source knows it.
+ */
+deletedAt: number | null, };

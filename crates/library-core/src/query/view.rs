@@ -4,7 +4,7 @@
 use std::collections::{HashMap, HashSet};
 use std::sync::Arc;
 
-use serde::Serialize;
+use serde::{Deserialize, Serialize};
 use ts_rs::TS;
 
 use crate::error::SourceError;
@@ -18,13 +18,15 @@ use crate::tag::SelectionTags;
 
 /// The most cells one `view_range` call returns.
 pub const MAX_WINDOW: usize = 200;
+/// Thumbnails in the right bar's stack for a selection.
+const STACK: usize = 3;
 /// Views kept open; the least recently used goes first.
 const VIEWS_KEPT: usize = 4;
 /// Loaded scopes kept, so a new sort or chip on the same scope does not load it again.
 const SNAPSHOTS_KEPT: usize = 6;
 
 /// What one grid cell or list row needs.
-#[derive(Debug, Clone, PartialEq, Serialize, TS)]
+#[derive(Debug, Clone, PartialEq, Eq, Default, Serialize, Deserialize, TS)]
 #[serde(rename_all = "camelCase")]
 #[ts(export)]
 pub struct ItemCell {
@@ -41,6 +43,8 @@ pub struct ItemCell {
     /// Part of the thumbnail URL, so a new thumbnail is never served from the cache.
     pub thumb_version: i64,
     pub added_at: Option<i64>,
+    /// In the trash since, ms (the Trash list shows it).
+    pub deleted_at: Option<i64>,
     pub tags: Vec<String>,
 }
 
@@ -58,6 +62,7 @@ impl From<&ItemLite> for ItemCell {
             has_thumbnail: !item.no_thumbnail,
             thumb_version: item.thumb_version,
             added_at: item.added_at,
+            deleted_at: item.deleted_at,
             tags: item.tags.iter().map(|tag| tag.to_string()).collect(),
         }
     }
@@ -121,11 +126,17 @@ impl View {
     pub fn selection_tags(&self, all: bool, ids: &HashSet<ItemId>) -> SelectionTags {
         let mut counts: HashMap<&str, u32> = HashMap::new();
         let mut items = 0u32;
+        let mut size = 0u64;
+        let mut stack = Vec::new();
         for item in self.items(0, self.order.len()) {
             if all == ids.contains(&item.id) {
                 continue;
             }
             items += 1;
+            size += item.size.unwrap_or(0);
+            if stack.len() < STACK {
+                stack.push(ItemCell::from(item));
+            }
             for tag in &item.tags {
                 *counts.entry(tag.as_ref()).or_default() += 1;
             }
@@ -138,7 +149,12 @@ impl View {
             })
             .collect();
         tags.sort_by(|a, b| crate::query::sort::compare_tags(&a.name, &b.name));
-        SelectionTags { items, tags }
+        SelectionTags {
+            items,
+            tags,
+            size,
+            stack,
+        }
     }
 }
 

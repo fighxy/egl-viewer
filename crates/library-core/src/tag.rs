@@ -7,6 +7,7 @@ use crate::edit::MAX_TEXT_UTF16;
 use crate::error::SourceError;
 use crate::folder::FOLDER_COLORS;
 use crate::model::Tag;
+use crate::query::view::ItemCell;
 
 /// A tag group edit: a named, coloured set of tag names. Editing a group never changes the
 /// tags of items.
@@ -78,6 +79,10 @@ pub struct SelectionTags {
     pub items: u32,
     /// By name; `image_count` is the number of selected items with the tag.
     pub tags: Vec<Tag>,
+    /// Bytes of the selected items, for the right bar.
+    pub size: u64,
+    /// The first selected items in view order, for the right bar's stack of thumbnails.
+    pub stack: Vec<ItemCell>,
 }
 
 #[cfg(test)]

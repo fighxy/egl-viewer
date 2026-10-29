@@ -46,7 +46,10 @@ pub struct Library {
     conn: Mutex<Connection>,
     lock: Option<LibraryLock>,
     id: String,
-    name: String,
+    /// `meta.name`; Library Settings can change it.
+    name: Mutex<String>,
+    /// Written to `meta.open_by` again after a backup is restored.
+    app_version: String,
     read_only: Option<ReadOnlyReason>,
     holder: Option<LibraryHolder>,
     unclean_close: bool,
@@ -127,7 +130,8 @@ impl Library {
             conn: Mutex::new(conn),
             lock: None,
             id,
-            name,
+            name: Mutex::new(name),
+            app_version: String::new(),
             read_only: Some(reason),
             holder,
             unclean_close: false,
@@ -157,19 +161,8 @@ impl Library {
             quick_check(&conn)?;
         }
         let now = now_ms();
-        let open_by = serde_json::json!({
-            "computer": computer_name(),
-            "pid": std::process::id(),
-            "since": now,
-            "app": options.app_version,
-        });
-        meta_set(&conn, "open_by", &open_by.to_string())?;
-        meta_set(&conn, "last_written_with", &options.app_version)?;
-
-        if version < schema_target(migrations) {
-            backup::before_migration(&conn, &root, version, now)?;
-            schema::migrate(&mut conn, version, migrations)?;
-        }
+        mark_open(&conn, &options.app_version, now)?;
+        migrate_after_backup(&mut conn, &root, version, migrations, now)?;
         let recovered = recover::pending_files(&conn, &root)?;
         if recovered > 0 {
             tracing::warn!("resolved {recovered} unfinished file additions");
@@ -182,7 +175,8 @@ impl Library {
             conn: Mutex::new(conn),
             lock: Some(lock),
             id,
-            name,
+            name: Mutex::new(name),
+            app_version: options.app_version.clone(),
             read_only: None,
             holder: None,
             unclean_close,
@@ -195,7 +189,7 @@ impl Library {
         LibraryInfo {
             kind: LibraryKind::Native,
             id: Some(self.id.clone()),
-            name: self.name.clone(),
+            name: self.name().clone(),
             path: Some(self.root.to_string_lossy().into_owned()),
             modification_time: None,
             read_only: self.read_only.is_some(),
@@ -206,6 +200,18 @@ impl Library {
 
     pub fn root(&self) -> &Path {
         &self.root
+    }
+
+    pub(crate) fn id(&self) -> &str {
+        &self.id
+    }
+
+    pub(crate) fn name(&self) -> MutexGuard<'_, String> {
+        self.name.lock().unwrap_or_else(PoisonError::into_inner)
+    }
+
+    pub(crate) fn app_version(&self) -> &str {
+        &self.app_version
     }
 
     pub fn read_only_reason(&self) -> Option<ReadOnlyReason> {
@@ -272,6 +278,33 @@ impl Drop for Library {
     }
 }
 
+/// Names this instance in `meta.open_by` (docs/library-format.md §5).
+pub(crate) fn mark_open(conn: &Connection, app_version: &str, now: i64) -> Result<()> {
+    let open_by = serde_json::json!({
+        "computer": computer_name(),
+        "pid": std::process::id(),
+        "since": now,
+        "app": app_version,
+    });
+    meta_set(conn, "open_by", &open_by.to_string())?;
+    meta_set(conn, "last_written_with", app_version)
+}
+
+/// Brings an older `version` forward, after a backup of the state before.
+pub(crate) fn migrate_after_backup(
+    conn: &mut Connection,
+    root: &Path,
+    version: u32,
+    migrations: &[Migration],
+    now: i64,
+) -> Result<()> {
+    if version < schema_target(migrations) {
+        backup::before_migration(conn, root, version, now)?;
+        schema::migrate(conn, version, migrations)?;
+    }
+    Ok(())
+}
+
 /// The schema version opening must reach: the last migration, or version 1.
 fn schema_target(migrations: &[Migration]) -> u32 {
     migrations
@@ -280,7 +313,7 @@ fn schema_target(migrations: &[Migration]) -> u32 {
 }
 
 /// A read-only connection for the header check, and for read-only instances.
-fn open_reader(db: &Path, immutable: bool) -> Result<Connection> {
+pub(crate) fn open_reader(db: &Path, immutable: bool) -> Result<Connection> {
     let query = if immutable {
         "mode=ro&immutable=1"
     } else {
@@ -317,7 +350,7 @@ fn sqlite_uri(path: &Path, query: &str) -> String {
     uri
 }
 
-fn check_header(header: Option<Header>, newest: u32) -> Result<Header> {
+pub(crate) fn check_header(header: Option<Header>, newest: u32) -> Result<Header> {
     match header {
         Some(header) if header.application_id == APPLICATION_ID && header.version > 0 => {
             if header.version > newest {
@@ -339,7 +372,7 @@ fn not_a_library_or_storage(error: rusqlite::Error) -> SourceError {
     }
 }
 
-fn identity(conn: &Connection) -> Result<(String, String)> {
+pub(crate) fn identity(conn: &Connection) -> Result<(String, String)> {
     let id = meta_get(conn, "library_id")?;
     let name = meta_get(conn, "name")?;
     match (id, name) {
@@ -350,7 +383,7 @@ fn identity(conn: &Connection) -> Result<(String, String)> {
     }
 }
 
-fn quick_check(conn: &Connection) -> Result<()> {
+pub(crate) fn quick_check(conn: &Connection) -> Result<()> {
     let result: String = conn
         .query_row("PRAGMA quick_check", [], |row| row.get(0))
         .context("check library.db")?;

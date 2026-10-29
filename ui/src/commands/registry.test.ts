@@ -24,6 +24,8 @@ const state = (change: Partial<CommandState> = {}): CommandState => ({
   unlockedFolders: 0,
   items: 0,
   selected: 0,
+  inTrash: false,
+  undo: null,
   ...change,
 });
 

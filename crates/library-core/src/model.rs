@@ -148,6 +148,9 @@ pub struct ItemLite {
     pub file_created_at: Option<i64>,
     /// Eagle `mtime`, ms.
     pub file_modified_at: Option<i64>,
+    /// When the item went to the trash, ms; `None` outside the trash. Eagle has only a flag
+    /// and gives `Some(0)`.
+    pub deleted_at: Option<i64>,
     pub duration: Option<f64>,
     /// No thumbnail to show: the native library has not made one (yet), Eagle stored none.
     pub no_thumbnail: bool,
@@ -187,6 +190,8 @@ pub struct Item {
     /// Part of the thumbnail URL, as in [`ItemLite::thumb_version`].
     pub thumb_version: i64,
     pub is_deleted: bool,
+    /// When the item went to the trash, ms, when the source knows it.
+    pub deleted_at: Option<i64>,
 }
 
 #[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize, TS)]

@@ -19,6 +19,8 @@ const STATE: CommandState = {
   unlockedFolders: 0,
   items: 3,
   selected: 1,
+  inTrash: false,
+  undo: null,
 };
 
 function Harness({ actions, enabled = true }: { actions: CommandActions; enabled?: boolean }) {
