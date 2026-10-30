@@ -94,12 +94,14 @@ describe("Locked folders", () => {
     expect(within(await lockedSection()).getByLabelText("Unlocked")).toBeInTheDocument();
   });
 
-  it("a locked folder in the tree asks for its password instead of opening", async () => {
+  it("keeps locked folders out of the Folders tree and unlocks from Locked folders", async () => {
     const calls = library(() => [PLAIN, LOCKED]);
     const user = userEvent.setup();
     render(<App />);
     const tree = await screen.findByRole("tree", { name: "Folder tree" });
-    await user.click(within(tree).getByRole("treeitem", { name: "Taxes" }));
+    expect(within(tree).queryByRole("treeitem", { name: "Taxes" })).not.toBeInTheDocument();
+    expect(within(tree).getByRole("treeitem", { name: "Posters" })).toBeInTheDocument();
+    await user.click(within(await lockedSection()).getByRole("button", { name: /Taxes/ }));
     expect(await screen.findByRole("dialog", { name: "Unlock “Taxes”" })).toBeInTheDocument();
     expect(
       called(calls, "open_view").every(
@@ -181,11 +183,16 @@ describe("Locked folders", () => {
     });
   });
 
-  it("locks again, changes the password and removes the lock from the folder menu", async () => {
+  it("locks again, changes the password and removes the lock from Locked folders", async () => {
     const calls = library(() => [PLAIN, UNLOCKED]);
     const user = userEvent.setup();
     render(<App />);
-    const row = await screen.findByRole("treeitem", { name: "Taxes" });
+    const row = within(await lockedSection()).getByRole("button", { name: /Taxes/ });
+    expect(
+      within(await screen.findByRole("tree", { name: "Folder tree" })).queryByRole("treeitem", {
+        name: "Taxes",
+      }),
+    ).not.toBeInTheDocument();
 
     fireEvent.contextMenu(row);
     await user.click(await screen.findByRole("menuitem", { name: "Lock Now" }));
@@ -218,7 +225,7 @@ describe("Locked folders", () => {
   it("Ctrl+L locks every open folder again", async () => {
     const calls = library(() => [PLAIN, UNLOCKED, folder("F3", "Old", { isLocked: true })]);
     render(<App />);
-    await screen.findByRole("treeitem", { name: "Taxes" });
+    await within(await lockedSection()).findByRole("button", { name: /Taxes/ });
     fireEvent.keyDown(window, { key: "l", ctrlKey: true });
     await waitFor(() => expect(called(calls, "relock_folder")).toHaveLength(1));
     expect(called(calls, "relock_folder")[0]?.args).toEqual({ id: "F2" });
@@ -243,7 +250,7 @@ describe("Locked folders", () => {
       prompt: { kind: "touch" },
     });
 
-    fireEvent.contextMenu(await screen.findByRole("treeitem", { name: "Taxes" }));
+    fireEvent.contextMenu(within(await lockedSection()).getByRole("button", { name: /Taxes/ }));
     await user.click(await screen.findByRole("menuitem", { name: "Add YubiKey…" }));
     const add = await screen.findByRole("dialog", { name: "Add a YubiKey to “Taxes”" });
     expect(within(add).getByRole("radio", { name: "Touch" })).toBeChecked();
