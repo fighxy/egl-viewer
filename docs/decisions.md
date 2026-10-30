@@ -999,3 +999,14 @@ Two locks, and they do not share keys (spec §13).
   tag still gain it. A tag becomes recent only when the edit reports that items changed.
 - **The highlight** is the folder inside-zone highlight, on the row under the pointer. A tag
   that also sits in Recent tags does not light both rows.
+
+## D-058 Preview rotate is session-only (2026-10-30)
+
+- The full-size preview has a clockwise rotate control next to zoom, and `R` while the preview
+  is open (not when focus is in a text field). Each press turns 90°. Arrow keys, zoom and
+  `Esc` stay as they were.
+- **Not written to the library.** `item` has no orientation column, and `ItemEdit` has no
+  rotate. EXIF orientation is applied once when the thumbnail is made (media decode), not as a
+  per-item display override. Persist later only with a format change: a stored angle, rewriting
+  the original or regenerating the thumbnail.
+- Rotation resets when the preview moves to another item, the same way zoom does.

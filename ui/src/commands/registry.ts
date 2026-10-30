@@ -559,6 +559,7 @@ export const WIDGET_KEYS: readonly { area: string; keys: string; label: string }
   { area: "Folders", keys: "F2 / Delete", label: "Rename / delete the folder" },
   { area: "Preview", keys: "← / →", label: "Previous / next item" },
   { area: "Preview", keys: "+ / − / 0", label: "Zoom in / out / fit" },
+  { area: "Preview", keys: "R", label: "Rotate clockwise" },
   { area: "Preview", keys: "Esc", label: "Close" },
 ];
 
