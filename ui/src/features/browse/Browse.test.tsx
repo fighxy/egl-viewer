@@ -194,6 +194,28 @@ describe("Browsing a library", () => {
     expect(await screen.findByRole("dialog", { name: "image-2" })).toHaveTextContent("3 of 3");
   });
 
+  it("rotates the preview with the toolbar button and R, without breaking arrows", async () => {
+    browse(3);
+    render(<App />);
+    fireEvent.doubleClick(await cellNamed("image-0"));
+    const preview = await screen.findByRole("dialog", { name: "image-0" });
+    const image = within(preview).getByRole("img", { name: "image-0" });
+    expect(image.style.transform).toContain("rotate(0deg)");
+
+    fireEvent.click(within(preview).getByRole("button", { name: "Rotate clockwise" }));
+    expect(image.style.transform).toContain("rotate(90deg)");
+
+    fireEvent.keyDown(preview, { key: "r" });
+    expect(image.style.transform).toContain("rotate(180deg)");
+
+    fireEvent.keyDown(preview, { key: "ArrowRight" });
+    const next = await screen.findByRole("dialog", { name: "image-1" });
+    expect(next).toHaveTextContent("2 of 3");
+    expect(within(next).getByRole("img", { name: "image-1" }).style.transform).toContain(
+      "rotate(0deg)",
+    );
+  });
+
   it("changes the thumbnail size with Ctrl+= and Ctrl+-", async () => {
     const calls = browse(3);
     render(<App />);

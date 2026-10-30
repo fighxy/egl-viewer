@@ -1,7 +1,8 @@
-import { ChevronLeft, ChevronRight, Minus, Plus, X } from "lucide-react";
+import { ChevronLeft, ChevronRight, Minus, Plus, RotateCw, X } from "lucide-react";
 import { Dialog as DialogPrimitive } from "radix-ui";
 import { useEffect, useRef, useState } from "react";
 import { Button } from "@/components/ui/button";
+import { isEditable } from "@/lib/desktop";
 import { originalUrl, showsOriginal, thumbUrl } from "@/lib/thumb";
 import { PREVIEW_TRANSITION } from "./ItemsView";
 import { useCells } from "./useView";
@@ -21,23 +22,38 @@ const MAX_ZOOM = 8;
 
 /**
  * The full-size preview (docs/spec.md §7.4): a layer over the window with the original at
- * window size, zoom and pan, and the previous and next items of the view. Originals the WebView
- * cannot show (TIFF, PSD) show their thumbnail.
+ * window size, zoom and pan, rotate, and the previous and next items of the view. Originals the
+ * WebView cannot show (TIFF, PSD) show their thumbnail. Rotation is session-only (D-058).
  */
 export function Preview({ viewId, total, index, onIndexChange, onClose, onLost }: Props) {
   const at = index ?? 0;
   const cell = useCells(index === null ? null : viewId, at, at, onLost)(at);
   const [zoom, setZoom] = useState(1);
   const [offset, setOffset] = useState({ x: 0, y: 0 });
+  /** Clockwise degrees: 0, 90, 180 or 270. Not written to the library (D-058). */
+  const [rotation, setRotation] = useState(0);
   const [failed, setFailed] = useState(false);
+  const [stageSize, setStageSize] = useState({ w: 0, h: 0 });
   const drag = useRef<{ x: number; y: number } | null>(null);
   const layer = useRef<HTMLDivElement>(null);
+  const stage = useRef<HTMLDivElement>(null);
 
-  // biome-ignore lint/correctness/useExhaustiveDependencies: every item starts fitted.
+  // biome-ignore lint/correctness/useExhaustiveDependencies: every item starts fitted and upright.
   useEffect(() => {
     setZoom(1);
     setOffset({ x: 0, y: 0 });
+    setRotation(0);
     setFailed(false);
+  }, [index]);
+
+  useEffect(() => {
+    const el = stage.current;
+    if (!el || index === null) return;
+    const sync = () => setStageSize({ w: el.clientWidth, h: el.clientHeight });
+    sync();
+    const observer = new ResizeObserver(sync);
+    observer.observe(el);
+    return () => observer.disconnect();
   }, [index]);
 
   const zoomTo = (next: number) => {
@@ -45,6 +61,7 @@ export function Preview({ viewId, total, index, onIndexChange, onClose, onLost }
     setZoom(clamped);
     if (clamped === 1) setOffset({ x: 0, y: 0 });
   };
+  const rotateCw = () => setRotation((deg) => (deg + 90) % 360);
   const go = (step: -1 | 1) => {
     if (index === null) return;
     const next = index + step;
@@ -56,6 +73,11 @@ export function Preview({ viewId, total, index, onIndexChange, onClose, onLost }
     if (showsOriginal(cell.ext)) source = originalUrl(cell.id);
     else if (cell.hasThumbnail) source = thumbUrl(cell);
   }
+
+  // After a 90°/270° rotate the layout box is still upright, so swap the fit limits.
+  const sideways = rotation % 180 !== 0;
+  const fitW = sideways ? stageSize.h : stageSize.w;
+  const fitH = sideways ? stageSize.w : stageSize.h;
 
   return (
     <DialogPrimitive.Root
@@ -81,7 +103,15 @@ export function Preview({ viewId, total, index, onIndexChange, onClose, onLost }
             else if (event.key === "+" || event.key === "=") zoomTo(zoom * 1.25);
             else if (event.key === "-") zoomTo(zoom / 1.25);
             else if (event.key === "0") zoomTo(1);
-            else return;
+            else if (
+              event.key.toLowerCase() === "r" &&
+              !event.ctrlKey &&
+              !event.metaKey &&
+              !event.altKey &&
+              !isEditable(event.target)
+            ) {
+              rotateCw();
+            } else return;
             event.preventDefault();
           }}
         >
@@ -121,6 +151,16 @@ export function Preview({ viewId, total, index, onIndexChange, onClose, onLost }
               >
                 <Plus aria-hidden />
               </Button>
+              <Button
+                variant="ghost"
+                size="icon-sm"
+                aria-label="Rotate clockwise"
+                title="Rotate clockwise (R)"
+                className="text-white hover:bg-white/10 hover:text-white"
+                onClick={rotateCw}
+              >
+                <RotateCw aria-hidden />
+              </Button>
               <DialogPrimitive.Close asChild>
                 <Button
                   variant="ghost"
@@ -135,6 +175,7 @@ export function Preview({ viewId, total, index, onIndexChange, onClose, onLost }
           </div>
           {/* biome-ignore lint/a11y/noStaticElementInteractions: mouse zoom and pan; the keyboard has + − 0 on the dialog. */}
           <div
+            ref={stage}
             className="relative flex min-h-0 flex-1 items-center justify-center overflow-hidden"
             onWheel={(event) => zoomTo(zoom * (event.deltaY < 0 ? 1.1 : 1 / 1.1))}
             onMouseDown={(event) => {
@@ -165,9 +206,11 @@ export function Preview({ viewId, total, index, onIndexChange, onClose, onLost }
                 alt={cell?.name ?? ""}
                 draggable={false}
                 onError={() => setFailed(true)}
-                className="max-h-full max-w-full object-contain select-none"
+                className="object-contain select-none"
                 style={{
-                  transform: `translate(${offset.x}px, ${offset.y}px) scale(${zoom})`,
+                  maxWidth: fitW > 0 ? fitW : "100%",
+                  maxHeight: fitH > 0 ? fitH : "100%",
+                  transform: `translate(${offset.x}px, ${offset.y}px) rotate(${rotation}deg) scale(${zoom})`,
                   cursor: zoom > 1 ? "grab" : "default",
                   viewTransitionName: PREVIEW_TRANSITION,
                 }}
