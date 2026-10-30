@@ -3,12 +3,12 @@
 use std::path::PathBuf;
 use std::sync::{Mutex, PoisonError};
 
-use app_store::{ConnectionSettings, Preferences, RecentLibrary};
+use app_store::{ConnectionSettings, LoginProof, LoginStatus, Preferences, RecentLibrary};
 use library_core::{
     Backup, ExtensionCount, Folder, FolderChange, ImportProgress, ImportTicket, Item, ItemCell,
     ItemEdit, ItemId, LibraryCheck, LibraryCounts, LibraryInfo, LibraryQuery, LibraryStats,
-    RecoveryKey, RepairOptions, SelectionTags, SmartFolder, SmartFolderChange, SourceError, Tag,
-    TagGroup, TagGroupChange, UndoStatus, is_web_link,
+    PivPolicy, PivPrompt, PivWrap, RecoveryKey, RepairOptions, SelectionTags, SmartFolder,
+    SmartFolderChange, SourceError, Tag, TagGroup, TagGroupChange, UndoStatus, is_web_link,
 };
 use library_native::DuplicateChoice;
 use serde::{Deserialize, Serialize};
@@ -221,6 +221,91 @@ pub async fn unlock_folder(
     password: String,
 ) -> Result<(), SourceError> {
     blocking(app, move |session| session.unlock_folder(&id, password)).await
+}
+
+#[tauri::command]
+pub async fn piv_wraps(app: AppHandle, id: String) -> Result<Vec<PivWrap>, SourceError> {
+    blocking(app, move |session| session.piv_wraps(&id)).await
+}
+
+/// Binds a YubiKey to one locked folder. `pin` is set only when `policy` is the PIN;
+/// a touch does not take a PIN as well.
+#[tauri::command]
+pub async fn bind_yubikey(
+    app: AppHandle,
+    id: String,
+    password: String,
+    policy: PivPolicy,
+    pin: Option<String>,
+) -> Result<(), SourceError> {
+    blocking(app, move |session| {
+        session.bind_yubikey(&id, password, policy, pin)
+    })
+    .await
+}
+
+#[tauri::command]
+pub async fn unbind_yubikey(
+    app: AppHandle,
+    id: String,
+    password: String,
+    serial: String,
+) -> Result<(), SourceError> {
+    blocking(app, move |session| {
+        session.unbind_yubikey(&id, password, serial)
+    })
+    .await
+}
+
+#[tauri::command]
+pub async fn unlock_with_yubikey(
+    app: AppHandle,
+    id: String,
+    serial: String,
+    prompt: PivPrompt,
+) -> Result<(), SourceError> {
+    blocking(app, move |session| {
+        session.unlock_with_yubikey(&id, serial, prompt)
+    })
+    .await
+}
+
+#[tauri::command]
+pub fn yubikey_present() -> bool {
+    crate::yubikey::present()
+}
+
+#[tauri::command]
+pub fn login_status(session: State<'_, Session>) -> LoginStatus {
+    session.login_status()
+}
+
+#[tauri::command]
+pub fn clear_login(session: State<'_, Session>) -> Result<LoginStatus, SourceError> {
+    session.clear_login()
+}
+
+#[tauri::command]
+pub fn set_login_password(
+    session: State<'_, Session>,
+    password: String,
+) -> Result<LoginStatus, SourceError> {
+    session.set_login_password(password)
+}
+
+#[tauri::command]
+pub fn set_login_pin(session: State<'_, Session>, pin: String) -> Result<LoginStatus, SourceError> {
+    session.set_login_pin(pin)
+}
+
+#[tauri::command]
+pub fn set_login_webauthn(session: State<'_, Session>) -> Result<LoginStatus, SourceError> {
+    session.set_login_webauthn()
+}
+
+#[tauri::command]
+pub fn unlock_app(session: State<'_, Session>, proof: LoginProof) -> Result<(), SourceError> {
+    session.unlock_app(proof)
 }
 
 #[tauri::command]

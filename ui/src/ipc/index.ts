@@ -30,8 +30,14 @@ import type { LibraryQuery } from "./generated/LibraryQuery";
 import type { LibraryStats } from "./generated/LibraryStats";
 import type { LocationProblem } from "./generated/LocationProblem";
 import type { LockProgress } from "./generated/LockProgress";
+import type { LoginMethod } from "./generated/LoginMethod";
+import type { LoginProof } from "./generated/LoginProof";
+import type { LoginStatus } from "./generated/LoginStatus";
 import type { MissingOriginal } from "./generated/MissingOriginal";
 import type { Palette } from "./generated/Palette";
+import type { PivPolicy } from "./generated/PivPolicy";
+import type { PivPrompt } from "./generated/PivPrompt";
+import type { PivWrap } from "./generated/PivWrap";
 import type { Preferences } from "./generated/Preferences";
 import type { ReadOnlyReason } from "./generated/ReadOnlyReason";
 import type { RecentLibrary } from "./generated/RecentLibrary";
@@ -89,8 +95,14 @@ export type {
   LibraryStats,
   LocationProblem,
   LockProgress,
+  LoginMethod,
+  LoginProof,
+  LoginStatus,
   MissingOriginal,
   Palette,
+  PivPolicy,
+  PivPrompt,
+  PivWrap,
   Preferences,
   ReadOnlyReason,
   RecentLibrary,
@@ -258,6 +270,20 @@ export const ipc = {
     });
   },
   unlockFolder: (id: string, password: string) => invoke<void>("unlock_folder", { id, password }),
+  pivWraps: (id: string) => invoke<PivWrap[]>("piv_wraps", { id }),
+  bindYubiKey: (id: string, password: string, policy: PivPolicy, pin: string | null) =>
+    invoke<void>("bind_yubikey", { id, password, policy, pin }),
+  unbindYubiKey: (id: string, password: string, serial: string) =>
+    invoke<void>("unbind_yubikey", { id, password, serial }),
+  unlockWithYubiKey: (id: string, serial: string, prompt: PivPrompt) =>
+    invoke<void>("unlock_with_yubikey", { id, serial, prompt }),
+  yubiKeyPresent: () => invoke<boolean>("yubikey_present"),
+  loginStatus: () => invoke<LoginStatus>("login_status"),
+  clearLogin: () => invoke<LoginStatus>("clear_login"),
+  setLoginPassword: (password: string) => invoke<LoginStatus>("set_login_password", { password }),
+  setLoginPin: (pin: string) => invoke<LoginStatus>("set_login_pin", { pin }),
+  setLoginWebAuthn: () => invoke<LoginStatus>("set_login_webauthn"),
+  unlockApp: (proof: LoginProof) => invoke<void>("unlock_app", { proof }),
   recoverFolder: (id: string, recovery: string, newPassword: string) =>
     invoke<void>("recover_folder", { id, recovery, newPassword }),
   relockFolder: (id: string) => invoke<void>("relock_folder", { id }),

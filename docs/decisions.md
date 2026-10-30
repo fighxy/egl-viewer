@@ -164,10 +164,11 @@ folder identity, so folder A's password does not unlock folder B. Each locked fo
 stored in plaintext on the folder row. The left sidebar has an expandable "Locked folders"
 section that lists them with that name and tag. Choosing a row prompts for that folder only.
 The whole database, settings, and the Eagle token are not encrypted. The token stays in
-Windows Credential Manager. An optional YubiKey PIV slot 9d (via `age-plugin-yubikey`)
-is a third wrap of the same identity: the card holds a P-256 PIV key, not the X25519
-identity itself. Touch unlocks that folder when the key is present; the password and
-the recovery secret still work when it is absent. Several keys can wrap one folder.
+Windows Credential Manager. An optional YubiKey (via `age-plugin-yubikey`) is a third
+wrap of the same identity: the card holds an ECDSA P-256 key in a retired PIV slot
+(82–95), not the X25519 identity itself. Touch and the slot PIN are alternatives, not
+two steps (D-056). Either one unlocks that folder when the key is present; the password
+and the recovery secret still work when it is absent. Several keys can wrap one folder.
 Detail: `docs/age-locked-folders.md`. Phase 4. Revisit if a
 full-database cipher is ever required; it is out of scope here.
 
@@ -658,9 +659,8 @@ unoptimised, one Argon2id of 64 MiB and the X25519 of every item took seconds.
 - **The lock's tag** (a caption of up to 60 characters and a colour) is plaintext on the folder
   row and editable while the folder is locked; the Locked folders section of the left bar lists
   every locked folder with it.
-- **Not in 4b:** the YubiKey PIV wrap (D-018, age-locked-folders.md §9) needs
-  `age-plugin-yubikey` and a card to test against; it waits for the hardening phase.
-  `folder_piv_wrap` stays empty. A folder imported locked from Eagle (no identity) comes with
+- **Not in 4b:** the YubiKey PIV wrap waited for a card. D-056 adds it. The table
+  `folder_piv_wrap` was empty until then. A folder imported locked from Eagle (no identity) comes with
   phase 8.
 - **Checks:** the demo library in the real app under Xvfb: lock a folder of 12 items (also in
   another folder), the recovery key dialog, the counts and the Locked folders section, a wrong
@@ -948,3 +948,38 @@ connection (D-051). Copy File uses `arboard`, already there for Paste.
   It is now 24rem (`w-96`), centered in the free space between the place title and the Filter
   button, and it shrinks to that space (`max-w-full`) so Filter, sort and Add files stay where
   they are. It does not grow across the whole row.
+
+## D-056 YubiKey folder unlock and WebAuthn app login (2026-10-29)
+
+Two locks, and they do not share keys (spec §13).
+
+- **A locked folder** keeps its password wrap and its recovery wrap. A YubiKey 5C is an
+  optional third wrap of that same age X25519 identity. The ciphertext is an age file whose
+  recipient stanza is `piv-p256`, the stanza `age-plugin-yubikey` 0.5 writes for an ECDSA
+  P-256 key in a retired PIV slot (0x82–0x95). The card holds the P-256 key. The age identity
+  stays in `folder_piv_wrap`. Unlocking one folder loads only that identity. Without the card,
+  the password and the recovery secret still open the folder, and a missing card does not
+  block the others.
+- **Touch and PIN are alternatives.** A wrap is stored as `touch` or `pin`. A prompt of the
+  other kind is refused before any ECDH. The YubiKey PIN is 6 to 8 digits. It is not the app
+  login PIN.
+- **Format version 4** rebuilds the empty `folder_piv_wrap` table with `slot` and `policy`,
+  after a backup, the same way version 3 rebuilt the search index. Changing the password or
+  the recovery secret does not drop the YubiKey rows. Removing the lock does.
+- **Tests have no card.** A software P-256 key performs the same ECDH the card would, so the
+  wrap, the slot range, and the touch-or-PIN rule are checked in `cargo test`. The desktop
+  bridge reports that no YubiKey is connected and leaves the password path in place.
+- **App login** is exactly one of password, PIN, or WebAuthn, stored in `login.json` in the
+  app data folder, not in `library.db`. Password and PIN are Argon2id hashes, not age keys.
+  WebAuthn stores the credential id and the P-256 public key. Login checks the assertion
+  (authenticator data, the challenge, a user-present flag, the signature) and returns no key
+  material. A YubiKey 5C touch is the authenticator. It does not use the PIV slot and does not
+  unwrap folder identities. With no method set, the app opens on Welcome. Switching methods
+  replaces the previous login and does not re-encrypt libraries.
+- **No physical key in tests.** A software authenticator signs the WebAuthn assertion. The
+  system bridge, the stand-in for `tauri-plugin-webauthn`, refuses when no authenticator is
+  connected and does not ask for a PIN.
+- **New direct dependencies**, pinned to versions already in the tree (D-002, D-003):
+  `age-core` 0.12.0, `base64` 0.22.1, `bech32` 0.11.1, `p256` 0.13.2, `rand` 0.8.8,
+  `sha2` 0.10.9. `argon2` 0.6.0 and `secrecy` 0.10.3 were already direct dependencies of
+  the locked-folder crates; login uses them too.

@@ -9,14 +9,14 @@ use crate::error::{Context, Result};
 pub const APPLICATION_ID: i32 = 0x4547_4C42;
 
 /// The newest format version this build reads and writes.
-pub const FORMAT_VERSION: u32 = 3;
+pub const FORMAT_VERSION: u32 = 4;
 
 /// The newest schema: new libraries start here, and opening migrates older ones to it.
-pub(crate) const SCHEMA_VERSION: u32 = 3;
+pub(crate) const SCHEMA_VERSION: u32 = 4;
 
 // Version 2 had the schema of version 1: the first locked folder raised a library to it, so that
 // an older app would not add plaintext files to a locked folder (D-019, D-045). Every library is
-// at version 3 now before anything is written, which keeps older apps out just as well (D-047).
+// at version 4 now before anything is written, which keeps older apps out just as well (D-047, D-056).
 
 /// Version 1, the start of every library; the migrations bring it to the newest schema.
 const SCHEMA_V1: &str = include_str!("schema/v1.sql");
@@ -28,11 +28,18 @@ pub(crate) struct Migration {
 }
 
 /// Steps after version 1, oldest first. Version 2 changed no schema (it marks locks); version 3
-/// rebuilds the search index for substring search (D-047).
-pub(crate) const MIGRATIONS: &[Migration] = &[Migration {
-    version: 3,
-    sql: include_str!("schema/v3.sql"),
-}];
+/// rebuilds the search index for substring search (D-047). Version 4 records the retired PIV
+/// slot and the touch-or-PIN policy on `folder_piv_wrap` (D-056).
+pub(crate) const MIGRATIONS: &[Migration] = &[
+    Migration {
+        version: 3,
+        sql: include_str!("schema/v3.sql"),
+    },
+    Migration {
+        version: 4,
+        sql: include_str!("schema/v4.sql"),
+    },
+];
 
 /// What the SQLite header says about a file.
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]

@@ -22,6 +22,7 @@ drag.workspace = true
 library-core.workspace = true
 library-native.workspace = true
 media.workspace = true
+secrecy.workspace = true
 serde.workspace = true
 serde_json.workspace = true
 tauri.workspace = true

@@ -189,6 +189,18 @@ impl FolderKey {
         self.0.to_public()
     }
 
+    /// The age identity text, wiped when dropped. A YubiKey wrap encrypts this string; the
+    /// card never stores it.
+    pub(crate) fn identity_text(&self) -> Zeroizing<String> {
+        Zeroizing::new(self.0.to_string().expose_secret().to_owned())
+    }
+
+    pub(crate) fn from_identity_text(text: &str) -> Result<Self> {
+        age::x25519::Identity::from_str(text)
+            .map(Self)
+            .map_err(|_| VaultError::Corrupt("identity"))
+    }
+
     /// The identity encrypted under `key` for `folder_id`: version, nonce, ciphertext.
     pub(crate) fn wrap(&self, key: &WrapKey, role: WrapRole, folder_id: &str) -> Vec<u8> {
         let nonce: [u8; NONCE_LEN] = random();

@@ -46,7 +46,15 @@ type Props = {
 };
 
 /** What the folder menu can do with a lock. */
-export type LockAction = "lock" | "unlock" | "relock" | "change" | "renew" | "remove";
+export type LockAction =
+  | "lock"
+  | "unlock"
+  | "relock"
+  | "change"
+  | "renew"
+  | "remove"
+  | "yubikey"
+  | "unyubikey";
 
 /**
  * The Folders section of the left bar (docs/spec.md §7.3): the tree with colour dots and
@@ -335,6 +343,18 @@ export function FolderTree({
                         onSelect={() => onLock(folder.id, "renew")}
                       >
                         New Recovery Key…
+                      </ContextMenuItem>
+                      <ContextMenuItem
+                        disabled={!canWrite}
+                        onSelect={() => onLock(folder.id, "yubikey")}
+                      >
+                        Add YubiKey…
+                      </ContextMenuItem>
+                      <ContextMenuItem
+                        disabled={!canWrite}
+                        onSelect={() => onLock(folder.id, "unyubikey")}
+                      >
+                        Remove YubiKey…
                       </ContextMenuItem>
                       <ContextMenuItem
                         disabled={!canWrite}

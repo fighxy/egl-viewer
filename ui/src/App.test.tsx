@@ -306,6 +306,7 @@ describe("App without a library on start", () => {
       if (cmd === "app_info")
         return { name: "egl-viewer", version: "1", commit: null, webview: null };
       if (cmd === "connection_defaults") return { host: "127.0.0.1", port: 41595 };
+      if (cmd === "login_status") return { method: "none" };
       return null;
     });
     render(<App />);
