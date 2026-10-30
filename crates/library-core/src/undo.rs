@@ -245,6 +245,15 @@ mod tests {
     }
 
     #[test]
+    fn adding_a_tag_everyone_already_has_is_not_remembered() {
+        let mut a = state("a");
+        a.tags = names(&["Poster", "Swiss"]);
+        let mut stack = UndoStack::default();
+        stack.push(&ItemEdit::AddTags(names(&["Poster"])), &[a]);
+        assert_eq!(stack.status(), None);
+    }
+
+    #[test]
     fn removing_tags_and_folders_is_undone_by_adding_back_what_was_there() {
         let mut a = state("a");
         a.tags = names(&["poster", "Poster"]);

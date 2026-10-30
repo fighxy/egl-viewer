@@ -145,6 +145,44 @@ fn tag_edits_validate_and_skip_missing_items() {
     ));
 }
 
+fn change_rows(library: &Library, item: &str) -> i64 {
+    library
+        .conn()
+        .query_row(
+            "SELECT COUNT(*) FROM change_log WHERE entity = 'item' AND entity_id = ?1",
+            params![item],
+            |row| row.get(0),
+        )
+        .unwrap()
+}
+
+#[test]
+fn adding_a_tag_keeps_the_others_and_does_nothing_when_every_item_has_it() {
+    let dir = tempfile::tempdir().unwrap();
+    let library = open(&new_library(dir.path(), "Tags"));
+    let a = add_png(&library, dir.path(), "a.png", 1);
+    let b = add_png(&library, dir.path(), "b.png", 2);
+    assert_eq!(tag(&library, &[&a], &["Poster", "Swiss"]), 1);
+    assert_eq!(tag(&library, &[&b], &["Logo"]), 1);
+    let a_rows = change_rows(&library, &a);
+    let a_at = updated_at(&library, &a);
+
+    // Already on every dropped item: no write, and "Poster" is not "poster".
+    assert_eq!(tag(&library, &[&a], &["Poster"]), 0);
+    assert_eq!(tags_of(&library, &a), ["Poster", "Swiss"]);
+    assert_eq!(change_rows(&library, &a), a_rows);
+    assert_eq!(updated_at(&library, &a), a_at);
+    assert_eq!(tag(&library, &[&a], &["poster"]), 1);
+    assert_eq!(tags_of(&library, &a), ["Poster", "Swiss", "poster"]);
+
+    // One item already has it; the other gains it and keeps the tags it had.
+    let a_rows = change_rows(&library, &a);
+    assert_eq!(tag(&library, &[&a, &b], &["poster"]), 1);
+    assert_eq!(tags_of(&library, &a), ["Poster", "Swiss", "poster"]);
+    assert_eq!(change_rows(&library, &a), a_rows);
+    assert_eq!(tags_of(&library, &b), ["Logo", "poster"]);
+}
+
 #[test]
 fn a_rename_changes_the_tag_on_every_item_folder_and_group() {
     let dir = tempfile::tempdir().unwrap();

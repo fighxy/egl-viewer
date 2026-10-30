@@ -983,3 +983,19 @@ Two locks, and they do not share keys (spec §13).
   `age-core` 0.12.0, `base64` 0.22.1, `bech32` 0.11.1, `p256` 0.13.2, `rand` 0.8.8,
   `sha2` 0.10.9. `argon2` 0.6.0 and `secrecy` 0.10.3 were already direct dependencies of
   the locked-folder crates; login uses them too.
+
+## D-057 Dropping items on a tag (2026-10-30)
+
+- **A tag row is a drop target** in the same mouse-event drag as folders (D-042). Each tag in
+  Tag groups and in Recent tags carries `data-drop="tag"` and the exact tag name. The payload
+  is the items payload already used for a folder (`ItemsTarget`). A folder dragged onto a tag
+  is refused. A read-only library refuses every drop, as it refuses a drop on a folder.
+- **The edit is `addTags` with that one name.** The full tag list is not sent, so the other
+  tags stay. The name is kept exactly: `Poster` and `poster` are different targets.
+- **Nothing to add is a no-op.** The UI skips the edit when the open item, or the selection's
+  tag counts, already show that tag on every dropped item. Rust does the same when it writes:
+  an item that already has every requested tag is left alone (no new modification time, no
+  change log row), and a batch that changes no item is not an undo step. Items that lack the
+  tag still gain it. A tag becomes recent only when the edit reports that items changed.
+- **The highlight** is the folder inside-zone highlight, on the row under the pointer. A tag
+  that also sits in Recent tags does not light both rows.

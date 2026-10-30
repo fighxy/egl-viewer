@@ -21,7 +21,7 @@ import {
   ContextMenuSubTrigger,
   ContextMenuTrigger,
 } from "@/components/ui/context-menu";
-import { dropHint, useDrag } from "@/features/dnd/drag";
+import { DROP_INSIDE_CLASS, dropHint, useDrag } from "@/features/dnd/drag";
 import type { Folder } from "@/ipc";
 import { FOLDER_COLORS, folderCount, visibleRows } from "./tree";
 
@@ -203,7 +203,7 @@ export function FolderTree({
                     data-id={folder.id}
                     className={cn(
                       "relative flex h-7 cursor-default items-center gap-1.5 rounded-md pr-2 text-[13px] outline-none select-none hover:bg-sidebar-accent focus-visible:ring-3 focus-visible:ring-ring/50 aria-selected:bg-sidebar-accent aria-selected:font-medium",
-                      zone === "inside" && "bg-primary/15 ring-1 ring-primary",
+                      zone === "inside" && DROP_INSIDE_CLASS,
                       zone === "before" && "shadow-[inset_0_2px_0_var(--color-primary)]",
                       zone === "after" && "shadow-[inset_0_-2px_0_var(--color-primary)]",
                     )}
