@@ -772,8 +772,8 @@ impl Session {
     ) -> Result<(), SourceError> {
         let library = self.current_library().ok_or_else(no_library)?;
         let prompt_for_card = prompt.clone();
-        library.unlock_with_piv(id, &serial, &prompt, |ephemeral| {
-            yubikey::agree(&serial, &prompt_for_card, ephemeral)
+        library.unlock_with_piv(id, &serial, &prompt, |slot, ephemeral| {
+            yubikey::agree(&serial, slot, &prompt_for_card, ephemeral)
         })?;
         self.after_unlock(library);
         Ok(())

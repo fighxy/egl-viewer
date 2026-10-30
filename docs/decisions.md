@@ -967,8 +967,15 @@ Two locks, and they do not share keys (spec §13).
   after a backup, the same way version 3 rebuilt the search index. Changing the password or
   the recovery secret does not drop the YubiKey rows. Removing the lock does.
 - **Tests have no card.** A software P-256 key performs the same ECDH the card would, so the
-  wrap, the slot range, and the touch-or-PIN rule are checked in `cargo test`. The desktop
-  bridge reports that no YubiKey is connected and leaves the password path in place.
+  wrap, the slot range, and the touch-or-PIN rule are checked in `cargo test`.
+- **Desktop PIV bridge** (`src-tauri/src/yubikey.rs`) talks to a real YubiKey 5C over PC/SC
+  through the `yubikey` 0.8.0 crate (`untested` for ECDH). `present` opens the card;
+  `enroll` picks the first empty retired slot 0x82–0x95, generates an ECC P-256 key with
+  touch-or-PIN as alternatives (`PinPolicy::Never`+`TouchPolicy::Always`, or the reverse),
+  and stores the `age1yubikey` recipient. `agree` verifies the PIN when the wrap is PIN, then
+  does P-256 ECDH with `decrypt_data`. Without a card, the bridge still reports that no
+  YubiKey is connected and leaves the password path in place. Factory management key
+  (or PIN-protected mgm after the factory PIN) is required to enroll.
 - **App login** is exactly one of password, PIN, or WebAuthn, stored in `login.json` in the
   app data folder, not in `library.db`. Password and PIN are Argon2id hashes, not age keys.
   WebAuthn stores the credential id and the P-256 public key. Login checks the assertion
@@ -976,10 +983,14 @@ Two locks, and they do not share keys (spec §13).
   material. A YubiKey 5C touch is the authenticator. It does not use the PIV slot and does not
   unwrap folder identities. With no method set, the app opens on Welcome. Switching methods
   replaces the previous login and does not re-encrypt libraries.
-- **No physical key in tests.** A software authenticator signs the WebAuthn assertion. The
-  system bridge, the stand-in for `tauri-plugin-webauthn`, refuses when no authenticator is
-  connected and does not ask for a PIN.
-- **New direct dependencies**, pinned to versions already in the tree (D-002, D-003):
-  `age-core` 0.12.0, `base64` 0.22.1, `bech32` 0.11.1, `p256` 0.13.2, `rand` 0.8.8,
-  `sha2` 0.10.9. `argon2` 0.6.0 and `secrecy` 0.10.3 were already direct dependencies of
-  the locked-folder crates; login uses them too.
+- **Desktop WebAuthn bridge** (`src-tauri/src/webauthn.rs`) calls Windows `webauthn.dll`
+  (`WebAuthNAuthenticatorMakeCredential` / `GetAssertion`) with RP id `egl-viewer.local`.
+  It refuses when no YubiKey answers PC/SC, and does not ask for a PIN. Assertions may carry
+  a DER ECDSA signature; login accepts raw or DER.
+- **No physical key in tests.** A software authenticator signs the WebAuthn assertion.
+- **New direct dependencies**, pinned to versions already in the tree (D-002, D-003), plus
+  the hardware bridges: `age-core` 0.12.0, `base64` 0.22.1, `bech32` 0.11.1, `p256` 0.13.2,
+  `rand` 0.8.8, `sha2` 0.10.9, `yubikey` 0.8.0 (`untested`), `windows` 0.62.2 (WebAuthn /
+  HWND only). `argon2` 0.6.0 and `secrecy` 0.10.3 were already direct dependencies of the
+  locked-folder crates; login uses them too. Workspace `unsafe_code` is `deny` (not
+  `forbid`) so the WebAuthn bridge can call `webauthn.dll`.

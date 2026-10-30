@@ -57,10 +57,13 @@ ts-rs = { version = "12.0.1", features = ["serde-json-impl"] }
 ulid = "3.0.0"
 webp = { version = "0.3.1", default-features = false }
 winreg = "0.56.0"
+yubikey = { version = "0.8.0", features = ["untested"] }
 zeroize = "1.9.1"
 
 [workspace.lints.rust]
-unsafe_code = "forbid"
+# Deny (not forbid) so a Windows WebAuthn bridge can call webauthn.dll behind a
+# crate that contains unsafe; application crates still avoid writing unsafe.
+unsafe_code = "deny"
 
 [workspace.lints.clippy]
 all = { level = "warn", priority = -1 }
