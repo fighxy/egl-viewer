@@ -617,10 +617,10 @@ unoptimised, one Argon2id of 64 MiB and the X25519 of every item took seconds.
 ## D-045 Phase 4b as built: locked folders (2026-10-28)
 
 - **A lock covers its folder and every folder under it.** An item in any covered folder is
-  encrypted; an item covered by no lock is plaintext. A locked folder that is not unlocked shows
-  in the tree without subfolders or counts; its items, and every item in one of its folders,
-  are hidden in every scope, in the counts, the tag counts and the duplicate check (which would
-  otherwise tell that a locked folder holds a file).
+  encrypted; an item covered by no lock is plaintext. A locked folder that is not unlocked hides
+  its items, and every item in one of its folders, in every scope, in the counts, the tag counts
+  and the duplicate check (which would otherwise tell that a locked folder holds a file). In the
+  left bar it appears only under Locked folders (D-059), not in the Folders tree.
 - **Keys.** Each lock: a random age X25519 identity, wrapped twice with XChaCha20-Poly1305 (a
   version byte, a 24-byte nonce, the ciphertext). The password wrap's key is Argon2id of the
   password (64 MiB, 3 passes, 1 lane, a 16-byte salt, both stored per folder); the recovery
@@ -999,3 +999,17 @@ Two locks, and they do not share keys (spec §13).
   tag still gain it. A tag becomes recent only when the edit reports that items changed.
 - **The highlight** is the folder inside-zone highlight, on the row under the pointer. A tag
   that also sits in Recent tags does not light both rows.
+
+## D-059 Locked folders only in the Locked folders section (2026-10-30)
+
+- **Folders tree omits every locked folder.** A folder with `is_locked` (locked or unlocked for
+  the session) is filtered out of the Folders section, so it is not listed twice next to normal
+  folders. Lock… stays on an unlocked folder's menu in Folders; Unlock…, Lock Now, Change
+  Password…, New Recovery Key…, Add/Remove YubiKey… and Remove Lock… live on the Locked
+  folders section's context menu.
+- **Nested children of a locked ancestor stay out of Folders too.** Hiding the locked ancestor
+  also hides its descendants in that tree (even unlocked children of an unlocked locked
+  folder). Opening the locked folder from Locked folders still shows its items; Include
+  subfolders covers nested items. Locked folders continues to list only the locked ancestors
+  themselves, in tree order. Revisit if nested folder navigation under an unlocked lock needs
+  its own tree.

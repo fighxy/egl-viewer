@@ -9,6 +9,7 @@ import {
   parentOf,
   siblingsOf,
   visibleRows,
+  withoutLockedFolders,
 } from "./tree";
 
 const TREE = [
@@ -56,5 +57,23 @@ describe("folder tree helpers", () => {
     if (!alpha) throw new Error("no folder");
     expect(folderCount(alpha, false)).toBe(1);
     expect(folderCount(alpha, true)).toBe(4);
+  });
+
+  it("drops locked folders and their children from the Folders tree", () => {
+    const mixed = [
+      folder("A", "Alpha", {
+        children: [
+          folder("L", "Secret", {
+            isLocked: true,
+            children: [folder("L1", "Inside")],
+          }),
+          folder("A2", "Open"),
+        ],
+      }),
+      folder("B", "Locked root", { isLocked: true, isUnlocked: true }),
+      folder("C", "Plain"),
+    ];
+    expect(withoutLockedFolders(mixed).map((folder) => folder.id)).toEqual(["A", "C"]);
+    expect(withoutLockedFolders(mixed)[0]?.children.map((child) => child.id)).toEqual(["A2"]);
   });
 });
