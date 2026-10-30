@@ -60,7 +60,7 @@ pub use import::{
 };
 pub use library::{Library, OpenOptions};
 pub use name::validate_library_name;
-pub use piv::{PivCard, check_enrollment};
+pub use piv::{PivCard, check_enrollment, recipient_from_public_key};
 pub use preview::{NO_PREVIEW, PendingPreview};
 pub use schema::{APPLICATION_ID, FORMAT_VERSION};
 pub use source::NativeSource;

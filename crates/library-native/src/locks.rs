@@ -597,13 +597,14 @@ impl Library {
     }
 
     /// Opens this folder only, with the named card. The prompt must be the card's policy:
-    /// a touch, or the PIN instead of a touch. `agree` performs the P-256 ECDH.
+    /// a touch, or the PIN instead of a touch. `agree` performs the P-256 ECDH
+    /// for the wrap's retired slot.
     pub fn unlock_with_piv(
         &self,
         id: &str,
         serial: &str,
         prompt: &PivPrompt,
-        agree: impl Fn(&[u8]) -> std::result::Result<[u8; 32], SourceError>,
+        agree: impl Fn(u8, &[u8]) -> std::result::Result<[u8; 32], SourceError>,
     ) -> Result<()> {
         let row = self.piv_row(id, serial)?;
         if !piv::prompt_matches(row.policy, prompt) {
@@ -615,8 +616,9 @@ impl Library {
             piv::check_piv_pin(pin)?;
         }
         let captured = std::cell::RefCell::new(None);
+        let slot = row.slot;
         let key = piv::open_identity(&row.wrapped, &row.recipient, |ephemeral| {
-            agree(ephemeral).map_err(|error| {
+            agree(slot, ephemeral).map_err(|error| {
                 *captured.borrow_mut() = Some(error);
                 VaultError::WrongKey
             })
@@ -659,8 +661,9 @@ impl Library {
                     "pin" => PivPolicy::Pin,
                     _ => return None,
                 };
-                let _slot = u8::try_from(slot).ok()?;
+                let slot = u8::try_from(slot).ok()?;
                 Some(PivRow {
+                    slot,
                     policy,
                     recipient,
                     wrapped,
@@ -784,6 +787,7 @@ impl Library {
 }
 
 struct PivRow {
+    slot: u8,
     policy: PivPolicy,
     recipient: String,
     wrapped: Vec<u8>,

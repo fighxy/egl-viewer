@@ -452,10 +452,15 @@ fn verify_assertion(
         return Err(SourceError::WrongPassword);
     }
     let key = VerifyingKey::from_sec1_bytes(public_key).map_err(|_| SourceError::WrongPassword)?;
-    let signature =
-        Signature::from_slice(&assertion.signature).map_err(|_| SourceError::WrongPassword)?;
+    let signature = parse_signature(&assertion.signature)?;
     let message = signed_message(&assertion.authenticator_data, &assertion.client_data_json);
     key.verify(&message, &signature)
+        .map_err(|_| SourceError::WrongPassword)
+}
+
+fn parse_signature(bytes: &[u8]) -> Result<Signature, SourceError> {
+    Signature::from_slice(bytes)
+        .or_else(|_| Signature::from_der(bytes))
         .map_err(|_| SourceError::WrongPassword)
 }
 

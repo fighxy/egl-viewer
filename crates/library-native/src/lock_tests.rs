@@ -679,7 +679,7 @@ fn a_yubikey_opens_only_its_folder_and_the_password_still_works() {
             &PivPrompt::Pin {
                 pin: "654321".into()
             },
-            |_| {
+            |_, _| {
                 called.set(true);
                 Ok([0; 32])
             }
@@ -693,7 +693,7 @@ fn a_yubikey_opens_only_its_folder_and_the_password_still_works() {
     assert!(!library.is_unlocked(&taxes));
 
     library
-        .unlock_with_piv(&taxes, "111", &PivPrompt::Touch, |epk| {
+        .unlock_with_piv(&taxes, "111", &PivPrompt::Touch, |_, epk| {
             taxes_key
                 .agree(&PivPrompt::Touch, epk)
                 .map_err(|_| SourceError::WrongPassword)
@@ -704,7 +704,7 @@ fn a_yubikey_opens_only_its_folder_and_the_password_still_works() {
 
     library.relock_folder(&taxes);
     assert!(matches!(
-        library.unlock_with_piv(&photos, "222", &PivPrompt::Touch, |_| Ok([0; 32])),
+        library.unlock_with_piv(&photos, "222", &PivPrompt::Touch, |_, _| Ok([0; 32])),
         Err(SourceError::Invalid(_))
     ));
     assert!(matches!(
@@ -714,7 +714,7 @@ fn a_yubikey_opens_only_its_folder_and_the_password_still_works() {
             &PivPrompt::Pin {
                 pin: "000000".into()
             },
-            |epk| photos_key
+            |_, epk| photos_key
                 .agree(
                     &PivPrompt::Pin {
                         pin: "000000".into()
@@ -733,7 +733,7 @@ fn a_yubikey_opens_only_its_folder_and_the_password_still_works() {
             &PivPrompt::Pin {
                 pin: "654321".into(),
             },
-            |epk| {
+            |_, epk| {
                 photos_key
                     .agree(
                         &PivPrompt::Pin {
@@ -779,7 +779,7 @@ fn a_yubikey_opens_only_its_folder_and_the_password_still_works() {
             &PivPrompt::Pin {
                 pin: "654321".into()
             },
-            |_| { Ok([0; 32]) }
+            |_, _| { Ok([0; 32]) }
         ),
         Err(SourceError::NotFound)
     ));
