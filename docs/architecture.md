@@ -644,7 +644,7 @@ pub enum ItemEdit {
 }
 ```
 
-**Native library.** `apply_item_edit` validates the intent, then reads the item, applies the intent and writes the result in one SQLite transaction, with a `change_log` row. A batch edit of a selection is one transaction for the whole batch. The write returns the stored item; snapshots and views are updated from it (§6.3).
+**Native library.** `apply_item_edit` validates the intent, then reads the item, applies the intent and writes the result in one SQLite transaction, with a `change_log` row. A batch edit of a selection is one transaction for the whole batch. The write returns the stored item; snapshots and views are updated from it (§6.3). `addTags` inserts the missing links only. An item that already has every requested tag is left as it is (no new modification time, no change log row), and a batch that changes no item writes nothing (D-057).
 
 **Running Eagle.** Eagle replaces `tags` and `folders` wholesale and other clients (the desktop itself) can change the item at any time, so the intent is applied to a fresh copy:
 
@@ -806,6 +806,8 @@ Every command that works on a library goes through the open `LibrarySource`; a s
 **UI structure.** Routes: `/welcome`, `/library` with the scope and the filters in typed search parameters, `/item/$id` as a side panel or a dialog, `/eagle/connect`, `/eagle/import`, `/eagle/export`. The tag, filter and sort sheets are components of the library screen, not routes. Server state lives in TanStack Query (keys per view window, per item, for the tree and the vocabulary); local UI state stays in components. The last `LibraryQuery` per library is saved by `app-store` so that the app reopens where it was.
 
 **Layout.** Desktop-first, as in spec §7.3: the menu bar, the left bar, the toolbar and the filter bar over the grid, the right bar with the metadata, the status bar. The panels use shadcn `resizable`; their widths and open state are saved by `app-store`. The layout is responsive, so a narrow phone layout can be added later without restructuring. UI text is English only in v1 and goes through one place per screen (D-007).
+
+**In-window drops** (D-042, D-057). Mouse events, not HTML5 drag and drop. A `data-drop` attribute marks the target under the pointer: `folder` (before, inside or after), `root` (the folder heading), `cell` (manual order) and `tag` (a tag row in Tag groups or Recent tags). The items payload is an `ItemsTarget`, the same one a folder drop uses. A tag drop sends `addTags` with that one name. A target `canDrop` refuses is not highlighted. A tag row that would take the items uses the same highlight as a folder's inside zone.
 
 **Window and menu** (D-025). The window keeps the native frame in phase 1 (`decorations` on), so Snap Layouts, the system shadow and a dark title bar (`set_theme` on the window) come from Windows. The menu bar is a React component (shadcn `Menubar`), not the native Tauri menu, whose classic Win32 look does not match the app. A custom title bar can merge the title and menu rows in phase 12: `decorations: false`, `data-tauri-drag-region`, the window permissions in the capabilities, and `Alt` to reach the menu from the keyboard. HTML caption buttons lose the Snap Layouts of Windows 11 unless a plugin such as `tauri-plugin-decorum` restores them; that would be a new dependency.
 
@@ -1067,7 +1069,7 @@ The full plan with done checks is in §9 of the spec. Key technical points per p
 - **Phase 2.** `media` (hash, probe, thumbnails, palettes, §15.4); `add_files` with the temp-copy protocol (§7.4); import tasks and progress events.
 - **Phase 3.** `load_scope` in SQL; the pipeline, sorter and views (§6.4, §6.5); the `thumb` scheme (§11); the virtualized grid.
 - **Phase 4.** Folders: `save_folder`, `delete_folder`, locks (age at rest, one Argon2id identity per folder, plaintext name and tag, the Locked folders sidebar), cycle guard (§7.3), `sort_key` reordering, manual order.
-- **Phase 5.** Tags: vocabulary with counts, rename, merge, delete, tag groups; batch edits. Built 2026-10-28 (D-046).
+- **Phase 5.** Tags: vocabulary with counts, rename, merge, delete, tag groups; batch edits. Built 2026-10-28 (D-046). Dropping items on a tag row adds that tag (D-057).
 - **Phase 6.** FTS5 search with the Eagle syntax; filter chips; the smart folder evaluator for the v1 subset (§16). Built 2026-10-29 (D-047, D-048).
 - **Phase 7.** The remaining item edits, undo, trash, file actions, library maintenance. Built 2026-10-29 (D-049 to D-052).
 - **Phase 8.** `eagle-folder` reader with retries (correction 37) and the import into `library-native` (§15.6).

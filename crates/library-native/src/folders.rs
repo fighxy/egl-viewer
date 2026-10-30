@@ -464,11 +464,14 @@ impl Library {
             if exists.is_none() {
                 continue;
             }
-            match edit {
+            // Adding a tag an item already has changes nothing: no new time, no change log.
+            // The other tags stay. A batch where every item already has them writes nothing.
+            let changed = match edit {
                 ItemEdit::AddToFolders(folders) => {
                     for folder in folders {
                         add_link(&tx, &id.0, folder)?;
                     }
+                    true
                 }
                 ItemEdit::RemoveFromFolders(folders) => {
                     for folder in folders {
@@ -478,6 +481,7 @@ impl Library {
                         .and_then(|mut statement| statement.execute(params![id.0, folder]))
                         .context("edit items")?;
                     }
+                    true
                 }
                 ItemEdit::SetFolders(folders) => {
                     let mut statement = tx
@@ -497,15 +501,22 @@ impl Library {
                     for folder in folders.iter().filter(|new| !current.contains(new)) {
                         add_link(&tx, &id.0, folder)?;
                     }
+                    true
                 }
                 ItemEdit::AddTags(_) => {
+                    let mut added = false;
                     for tag in &tags {
-                        tx.prepare_cached(
-                            "INSERT OR IGNORE INTO item_tag (item_id, tag_id) VALUES (?1, ?2)",
-                        )
-                        .and_then(|mut statement| statement.execute(params![id.0, tag]))
-                        .context("tag items")?;
+                        let inserted = tx
+                            .prepare_cached(
+                                "INSERT OR IGNORE INTO item_tag (item_id, tag_id) VALUES (?1, ?2)",
+                            )
+                            .and_then(|mut statement| statement.execute(params![id.0, tag]))
+                            .context("tag items")?;
+                        if inserted > 0 {
+                            added = true;
+                        }
                     }
+                    added
                 }
                 ItemEdit::RemoveTags(_) => {
                     for tag in &tags {
@@ -515,8 +526,12 @@ impl Library {
                         .and_then(|mut statement| statement.execute(params![id.0, tag]))
                         .context("untag items")?;
                     }
+                    true
                 }
                 _ => unreachable!("checked above"),
+            };
+            if !changed {
+                continue;
             }
             tx.prepare_cached("UPDATE item SET updated_at = ?2 WHERE id = ?1")
                 .and_then(|mut statement| statement.execute(params![id.0, now]))

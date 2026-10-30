@@ -64,6 +64,7 @@ import { type Confirmation, ConfirmDialog } from "@/features/shell/ConfirmDialog
 import { ShortcutsDialog } from "@/features/shortcuts/ShortcutsDialog";
 import { type SmartDialog, SmartFolderDialogs } from "@/features/smart/SmartFolderDialog";
 import { SmartFolders, smartIds, smartPath } from "@/features/smart/SmartFolders";
+import { dropAddsNothing } from "@/features/tags/drop";
 import { replaced, useRecentTags } from "@/features/tags/recent";
 import { type TagDialog, TagDialogs } from "@/features/tags/TagDialogs";
 import type { TagActions } from "@/features/tags/TagMenu";
@@ -1066,6 +1067,7 @@ function AppShell() {
         const folder = findFolder(tree, target.id);
         return !folder?.isLocked || folder.isUnlocked;
       }
+      if (target.kind === "tag") return payload.kind === "items";
       if (target.kind === "cell") {
         return reorderable && !payload.target.all && !payload.target.ids.includes(target.id);
       }
@@ -1090,6 +1092,22 @@ function AppShell() {
       }
       if (target.kind === "folder") {
         editItems(payload.target, { type: "addToFolders", value: [target.id] });
+      } else if (target.kind === "tag") {
+        const known = new Map<string, readonly string[]>();
+        const only =
+          payload.target.all || payload.target.ids.length !== 1 ? undefined : payload.target.ids[0];
+        if (only) {
+          const stored = client.getQueryData<Item | null>(["item", only]);
+          if (stored) known.set(only, stored.tags);
+        }
+        const described = selectionTags.data
+          ? { target: selectedTarget(), tags: selectionTags.data }
+          : null;
+        if (dropAddsNothing(target.name, payload.target, known, described)) return;
+        const name = target.name;
+        void editItems(payload.target, { type: "addTags", value: [name] }).then((edited) => {
+          if (typeof edited === "number" && edited > 0) recentTags.use([name]);
+        });
       } else if (target.kind === "cell" && openFolder && opened.view) {
         const viewId = opened.view.viewId;
         const folder = openFolder.id;
@@ -1102,7 +1120,19 @@ function AppShell() {
         void before.then((id) => ipc.reorderItems(folder, payload.target.ids, id)).catch(failed);
       }
     },
-    [tree, moveFolder, editItems, openFolder, opened.view, total, client, failed],
+    [
+      tree,
+      moveFolder,
+      editItems,
+      openFolder,
+      opened.view,
+      total,
+      client,
+      failed,
+      recentTags,
+      selectionTags.data,
+      selectedTarget,
+    ],
   );
 
   const actions = useMemo<CommandActions>(

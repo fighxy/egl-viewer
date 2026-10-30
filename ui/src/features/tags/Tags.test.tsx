@@ -3,7 +3,7 @@ import userEvent from "@testing-library/user-event";
 import { afterEach, beforeEach, describe, expect, it } from "vitest";
 import { App } from "@/App";
 import type { Item, LibraryQuery, Tag, TagGroup, TagGroupChange } from "@/ipc";
-import { called, fakeLayout, item, LIBRARY, mockBackend, viewOf } from "@/test/backend";
+import { called, fakeLayout, folder, item, LIBRARY, mockBackend, viewOf } from "@/test/backend";
 
 let restoreLayout: () => void;
 beforeEach(() => {
@@ -11,8 +11,26 @@ beforeEach(() => {
 });
 afterEach(() => {
   restoreLayout();
+  Reflect.deleteProperty(document, "elementFromPoint");
   localStorage.clear();
 });
+
+/** Makes `element` the one under the pointer while a drag moves. */
+function pointAt(element: Element) {
+  Object.defineProperty(document, "elementFromPoint", {
+    configurable: true,
+    value: () => element,
+  });
+}
+
+/** Presses on `from`, moves past the drag threshold over `to`, and releases. */
+function drag(from: Element, to: Element) {
+  pointAt(to);
+  fireEvent.mouseDown(from, { button: 0, clientX: 10, clientY: 10 });
+  fireEvent.mouseMove(window, { clientX: 30, clientY: 30 });
+  fireEvent.mouseMove(window, { clientX: 40, clientY: 40 });
+  fireEvent.mouseUp(window);
+}
 
 const VOCABULARY: Tag[] = [
   { name: "Logo", imageCount: 4 },
@@ -452,5 +470,141 @@ describe("Left bar", () => {
     dialog = await screen.findByRole("dialog", { name: "Delete the group “Kinds”?" });
     await user.click(within(dialog).getByRole("button", { name: "Delete group" }));
     expect(called(calls, "delete_tag_group")[0]?.args).toEqual({ id: "G1" });
+  });
+});
+
+describe("Dropping items on a tag", () => {
+  async function tagButton(name: string) {
+    const groups = await screen.findByRole("region", { name: "Tag groups" });
+    return within(groups).findByRole("button", { name });
+  }
+
+  it("adds that one tag to the dragged items and keeps their other tags", async () => {
+    const calls = library({ apply_batch_edit: () => 1 });
+    render(<App />);
+    const logo = await tagButton("Logo in Kinds");
+    expect(logo).toHaveAttribute("data-drop", "tag");
+    expect(logo).toHaveAttribute("data-name", "Logo");
+
+    const cell = await screen.findByRole("gridcell", { name: "image-1" });
+    pointAt(logo);
+    fireEvent.mouseDown(cell, { button: 0, clientX: 10, clientY: 10 });
+    fireEvent.mouseMove(window, { clientX: 30, clientY: 30 });
+    expect(logo).toHaveClass("bg-primary/15", "ring-primary");
+    fireEvent.mouseUp(window);
+
+    await waitFor(() =>
+      expect(called(calls, "apply_batch_edit")[0]?.args).toEqual({
+        target: { viewId: 1, all: false, ids: ["ID0001"] },
+        edit: { type: "addTags", value: ["Logo"] },
+      }),
+    );
+    const recent = screen.getByRole("region", { name: "Recent tags" });
+    const recentLogo = await within(recent).findByRole("button", { name: "Logo" });
+    // The same tag in Recent tags lights up on its own, not together with the group row.
+    pointAt(recentLogo);
+    fireEvent.mouseDown(cell, { button: 0, clientX: 10, clientY: 10 });
+    fireEvent.mouseMove(window, { clientX: 40, clientY: 40 });
+    expect(recentLogo).toHaveClass("ring-primary");
+    expect(await tagButton("Logo in Kinds")).not.toHaveClass("ring-primary");
+    fireEvent.keyDown(window, { key: "Escape" });
+    fireEvent.mouseUp(window);
+    expect(called(calls, "apply_batch_edit")).toHaveLength(1);
+  });
+
+  it("drops a selection on a recent tag, keeping the tag's case", async () => {
+    localStorage.setItem(`egl-viewer.recentTags:${LIBRARY.path}`, JSON.stringify(["poster"]));
+    const calls = library({ apply_batch_edit: () => 2 });
+    render(<App />);
+    const cell = await screen.findByRole("gridcell", { name: "image-0" });
+    fireEvent.mouseDown(cell);
+    const panel = screen.getByRole("complementary", { name: "Details" });
+    await waitFor(() =>
+      expect(within(panel).getByRole("textbox", { name: "Name" })).toHaveValue("image-0"),
+    );
+    fireEvent.mouseDown(screen.getByRole("gridcell", { name: "image-1" }), { ctrlKey: true });
+    await waitFor(() => expect(screen.getByRole("contentinfo")).toHaveTextContent("2 selected"));
+    const poster = await screen.findByRole("button", { name: "poster" });
+    drag(cell, poster);
+    await waitFor(() =>
+      expect(called(calls, "apply_batch_edit")[0]?.args).toEqual({
+        target: { viewId: 1, all: false, ids: ["ID0000", "ID0001"] },
+        edit: { type: "addTags", value: ["poster"] },
+      }),
+    );
+  });
+
+  it("does nothing when every dropped item already has the tag", async () => {
+    const calls = library();
+    render(<App />);
+    fireEvent.mouseDown(await screen.findByRole("gridcell", { name: "image-0" }));
+    const panel = screen.getByRole("complementary", { name: "Details" });
+    expect(await within(panel).findByText("Poster")).toBeInTheDocument();
+
+    drag(screen.getByRole("gridcell", { name: "image-0" }), await tagButton("Poster in Kinds"));
+    await waitFor(() => expect(called(calls, "item_detail").length).toBeGreaterThan(0));
+    expect(called(calls, "apply_batch_edit")).toHaveLength(0);
+    expect(called(calls, "apply_item_edit")).toHaveLength(0);
+    expect(screen.getByRole("region", { name: "Recent tags" })).toHaveTextContent(
+      "Tags you add show here.",
+    );
+  });
+
+  it("still adds the tag when only some of the selection have it", async () => {
+    const calls = library({
+      selection_tags: () => ({
+        items: 2,
+        tags: [
+          { name: "Poster", imageCount: 2 },
+          { name: "Logo", imageCount: 1 },
+        ],
+        size: 0,
+        stack: [],
+      }),
+      apply_batch_edit: () => 1,
+    });
+    render(<App />);
+    fireEvent.mouseDown(await screen.findByRole("gridcell", { name: "image-0" }));
+    const panel = screen.getByRole("complementary", { name: "Details" });
+    await waitFor(() =>
+      expect(within(panel).getByRole("textbox", { name: "Name" })).toHaveValue("image-0"),
+    );
+    fireEvent.mouseDown(screen.getByRole("gridcell", { name: "image-1" }), { ctrlKey: true });
+    expect(await within(panel).findByText("2 items selected")).toBeInTheDocument();
+    expect(await within(panel).findByText("Poster")).toBeInTheDocument();
+
+    const poster = await tagButton("Poster in Kinds");
+    drag(screen.getByRole("gridcell", { name: "image-0" }), poster);
+    expect(called(calls, "apply_batch_edit")).toHaveLength(0);
+
+    const logo = await tagButton("Logo in Kinds");
+    drag(screen.getByRole("gridcell", { name: "image-0" }), logo);
+    await waitFor(() =>
+      expect(called(calls, "apply_batch_edit")[0]?.args.edit).toEqual({
+        type: "addTags",
+        value: ["Logo"],
+      }),
+    );
+  });
+
+  it("a read-only library refuses the drop", async () => {
+    const calls = library({
+      startup: () => ({ library: { ...LIBRARY, readOnly: true }, notice: null }),
+    });
+    render(<App />);
+    const logo = await tagButton("Logo in Kinds");
+    drag(await screen.findByRole("gridcell", { name: "image-0" }), logo);
+    expect(logo).not.toHaveClass("ring-primary");
+    expect(called(calls, "apply_batch_edit")).toHaveLength(0);
+  });
+
+  it("a folder dragged onto a tag is not a tag edit", async () => {
+    const calls = library({ folder_tree: () => [folder("F1", "Posters")] });
+    render(<App />);
+    const logo = await tagButton("Logo in Kinds");
+    drag(await screen.findByRole("treeitem", { name: "Posters" }), logo);
+    expect(logo).not.toHaveClass("ring-primary");
+    expect(called(calls, "save_folder")).toHaveLength(0);
+    expect(called(calls, "apply_batch_edit")).toHaveLength(0);
   });
 });

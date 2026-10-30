@@ -297,7 +297,7 @@ Changing chips or sort on the same scope does not reload the scope.
 ## 6. Editing
 
 - **One item:** name (renames the stored file too), note, link, rating, tags, folders. A change is an intent (`ItemEdit`: add or remove tags, add to or remove from folders, set the folders, set the rating, …), applied to the current state of the item in Rust (arch §7.1).
-- **Several items:** with a multi-selection in the grid, add or remove tags, add to or remove from folders, set the rating, move to the trash. One transaction per batch; progress for large batches.
+- **Several items:** with a multi-selection in the grid, add or remove tags, add to or remove from folders, set the rating, move to the trash. Dropping items on a folder adds them to it. Dropping them on a tag row in the left bar (a tag in Tag groups or Recent tags) adds that one tag and leaves their other tags. If every dropped item already has the tag, the drop writes nothing. A read-only library refuses either drop. One transaction per batch; progress for large batches.
 - **Optimistic UI:** the UI shows the intended state at once. On an error, Rust returns the stored state, the view is recomputed and the UI rolls back.
 - **Validation before writing:** rating 0–5, name not empty, name and note at most 10 000 UTF-16 units, no empty tags or folder ids.
 - **Undo:** the last item edits (not a permanent delete) can be undone with `Ctrl+Z`, one at a time, while the library is open: up to 50, kept in memory (D-050). Folder and tag-vocabulary changes are not undone. Later: a longer history from `change_log`.
@@ -375,7 +375,7 @@ Trash                  27
 - **Folders:** the tree with colour dots and counts (direct items with subfolders off, items including subfolders with it on). ⊕ creates a folder. ⇲ is the **Include subfolders** switch, also in the View menu; it changes the counts, so it sits next to the tree. Items dropped on a folder are added to it. Folders are dragged to move them (onto a folder: inside it; near its top or bottom edge: before or after it). The context menu has New Subfolder, Rename (`F2`), Colour, Move To… and Delete… (`Del`).
 - **Locked folders:** each locked folder with its name, its tag (label and colour) and a lock. Choosing a row prompts for that folder only; choosing an unlocked one opens it. The folder menu has Lock…, Unlock…, Lock Now, Change Password…, New Recovery Key… and Remove Lock…; Library → Lock All Folders (`Ctrl+L`) locks every open folder again. A locked folder shows in the tree with a lock, without subfolders or counts.
 - **Smart folders:** their own tree.
-- **Tag groups** and **Recent tags.** The full tag vocabulary is not in the left bar, because it grows to thousands of tags; it is in the Tags filter (7.4). Choosing a tag here opens All with that tag as a filter: tags are filters, not scopes (section 5).
+- **Tag groups** and **Recent tags.** The full tag vocabulary is not in the left bar, because it grows to thousands of tags; it is in the Tags filter (7.4). Choosing a tag here opens All with that tag as a filter: tags are filters, not scopes (section 5). Items dropped on a tag row are given that tag; their other tags stay. The row highlights while the items are over it, the same way a folder does when items would be added to it. If every dropped item already has the tag, nothing is written. A read-only library refuses the drop. The name is kept exactly: `"Poster"` and `"poster"` are different rows (D-057).
 - Sections collapse and stay collapsed. Arrow keys and `Enter` move through the rows.
 
 **Toolbar**, one row over the grid:
@@ -913,6 +913,7 @@ Done when: folder A does not show items that exist only in a child of A, and doe
 Implemented 2026-10-28 (D-046).
 
 - Tag editor in the right bar (vocabulary suggestions, new names), batch tagging of a selection.
+- Dragging items from the grid onto a tag row in Tag groups or Recent tags adds that tag. The edit is the same add-tags intent as the editor, so other tags stay. If every dropped item already has the tag, nothing is written. A read-only library refuses the drop (D-057).
 - The Tags filter (the tag sheet): vocabulary with counts, modes Any / All / Exact / None, recent tags, groups; tag groups and recent tags in the left bar.
 - Rename, merge, delete everywhere (with confirmations); tag groups.
 

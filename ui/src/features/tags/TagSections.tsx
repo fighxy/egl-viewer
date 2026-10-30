@@ -1,3 +1,4 @@
+import { cn } from "cn";
 import { ChevronDown, ChevronRight, Hash, Plus } from "lucide-react";
 import type { ReactNode } from "react";
 import { Button } from "@/components/ui/button";
@@ -7,6 +8,7 @@ import {
   ContextMenuItem,
   ContextMenuTrigger,
 } from "@/components/ui/context-menu";
+import { DROP_INSIDE_CLASS, dropHint, useDrag } from "@/features/dnd/drag";
 import { FOLDER_COLORS } from "@/features/folders/tree";
 import { Section, useSectionOpen } from "@/features/library/Section";
 import type { Tag, TagGroup } from "@/ipc";
@@ -34,6 +36,7 @@ type Props = {
 /**
  * Tag groups and Recent tags in the left bar. The full vocabulary is in the Tags filter;
  * choosing a tag here opens All with it as a filter, since tags are filters, not scopes.
+ * Items dropped on a tag row are given that tag (D-057).
  */
 export function TagSections({
   groups,
@@ -47,28 +50,35 @@ export function TagSections({
   onDeleteGroup,
   actions,
 }: Props) {
+  const { active } = useDrag();
   const counts = new Map(vocabulary.map((tag) => [tag.name, tag.imageCount]));
   const current = filtered.length === 1 ? filtered[0] : undefined;
   const canWrite = writable === true;
-  const tagRow = (name: string, label = name) => (
-    <li key={name}>
-      <TagMenu name={name} actions={actions}>
-        <button
-          type="button"
-          aria-current={name === current ? "true" : undefined}
-          aria-label={label}
-          className={ROW}
-          onClick={() => onPick(name)}
-        >
-          <Hash aria-hidden className="size-3.5 shrink-0 text-muted-foreground" />
-          <span className="min-w-0 flex-1 truncate">{name}</span>
-          <span className="text-xs text-muted-foreground tabular-nums">
-            {countText(counts.get(name))}
-          </span>
-        </button>
-      </TagMenu>
-    </li>
-  );
+  const tagRow = (name: string, row: string, label = name) => {
+    const hint = dropHint(active, (target) => target.kind === "tag" && target.row === row);
+    return (
+      <li key={row}>
+        <TagMenu name={name} actions={actions}>
+          <button
+            type="button"
+            aria-current={name === current ? "true" : undefined}
+            aria-label={label}
+            data-drop="tag"
+            data-name={name}
+            data-row={row}
+            className={cn(ROW, hint && DROP_INSIDE_CLASS)}
+            onClick={() => onPick(name)}
+          >
+            <Hash aria-hidden className="size-3.5 shrink-0 text-muted-foreground" />
+            <span className="min-w-0 flex-1 truncate">{name}</span>
+            <span className="text-xs text-muted-foreground tabular-nums">
+              {countText(counts.get(name))}
+            </span>
+          </button>
+        </TagMenu>
+      </li>
+    );
+  };
   const recentTags = recent.filter((name) => counts.has(name));
   return (
     <>
@@ -99,7 +109,9 @@ export function TagSections({
                 onEdit={() => onEditGroup(group.id)}
                 onDelete={() => onDeleteGroup(group.id)}
               >
-                {group.tags.map((name) => tagRow(name, `${name} in ${group.name}`))}
+                {group.tags.map((name, index) =>
+                  tagRow(name, `group:${group.id}:${index}`, `${name} in ${group.name}`),
+                )}
               </TagGroupRow>
             ))}
           </ul>
@@ -109,7 +121,9 @@ export function TagSections({
         {recentTags.length === 0 ? (
           <p className="px-2 py-1 text-xs text-muted-foreground">Tags you add show here.</p>
         ) : (
-          <ul className="grid gap-px">{recentTags.map((name) => tagRow(name))}</ul>
+          <ul className="grid gap-px">
+            {recentTags.map((name, index) => tagRow(name, `recent:${index}`))}
+          </ul>
         )}
       </Section>
     </>
