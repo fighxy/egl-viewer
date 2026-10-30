@@ -51,6 +51,16 @@ export function canMove(tree: readonly Folder[], id: string, parent: string | nu
 
 export type FolderRow = { folder: Folder; depth: number; hasChildren: boolean };
 
+/**
+ * The Folders tree without locked folders. Locked folders (and everything under them) appear
+ * only in the Locked folders section (D-059).
+ */
+export function withoutLockedFolders(tree: readonly Folder[]): Folder[] {
+  return tree.flatMap((folder) =>
+    folder.isLocked ? [] : [{ ...folder, children: withoutLockedFolders(folder.children) }],
+  );
+}
+
 /** The rows of the tree as shown: children only under expanded folders. */
 export function visibleRows(tree: readonly Folder[], expanded: ReadonlySet<string>, depth = 0) {
   const rows: FolderRow[] = [];

@@ -1480,8 +1480,10 @@ function AppShell() {
               <LockedFolders
                 folders={tree}
                 selectedId={openFolder?.id ?? null}
+                writable={writable}
                 onUnlock={(id) => setLockDialog({ kind: "unlock", id })}
                 onOpen={(id) => setPlace({ kind: "folder", id })}
+                onLock={lockAction}
               />
             }
             tagSections={

@@ -617,10 +617,10 @@ unoptimised, one Argon2id of 64 MiB and the X25519 of every item took seconds.
 ## D-045 Phase 4b as built: locked folders (2026-10-28)
 
 - **A lock covers its folder and every folder under it.** An item in any covered folder is
-  encrypted; an item covered by no lock is plaintext. A locked folder that is not unlocked shows
-  in the tree without subfolders or counts; its items, and every item in one of its folders,
-  are hidden in every scope, in the counts, the tag counts and the duplicate check (which would
-  otherwise tell that a locked folder holds a file).
+  encrypted; an item covered by no lock is plaintext. A locked folder that is not unlocked hides
+  its items, and every item in one of its folders, in every scope, in the counts, the tag counts
+  and the duplicate check (which would otherwise tell that a locked folder holds a file). In the
+  left bar it appears only under Locked folders (D-059), not in the Folders tree.
 - **Keys.** Each lock: a random age X25519 identity, wrapped twice with XChaCha20-Poly1305 (a
   version byte, a 24-byte nonce, the ciphertext). The password wrap's key is Argon2id of the
   password (64 MiB, 3 passes, 1 lane, a 16-byte salt, both stored per folder); the recovery
@@ -967,8 +967,15 @@ Two locks, and they do not share keys (spec §13).
   after a backup, the same way version 3 rebuilt the search index. Changing the password or
   the recovery secret does not drop the YubiKey rows. Removing the lock does.
 - **Tests have no card.** A software P-256 key performs the same ECDH the card would, so the
-  wrap, the slot range, and the touch-or-PIN rule are checked in `cargo test`. The desktop
-  bridge reports that no YubiKey is connected and leaves the password path in place.
+  wrap, the slot range, and the touch-or-PIN rule are checked in `cargo test`.
+- **Desktop PIV bridge** (`src-tauri/src/yubikey.rs`) talks to a real YubiKey 5C over PC/SC
+  through the `yubikey` 0.8.0 crate (`untested` for ECDH). `present` opens the card;
+  `enroll` picks the first empty retired slot 0x82–0x95, generates an ECC P-256 key with
+  touch-or-PIN as alternatives (`PinPolicy::Never`+`TouchPolicy::Always`, or the reverse),
+  and stores the `age1yubikey` recipient. `agree` verifies the PIN when the wrap is PIN, then
+  does P-256 ECDH with `decrypt_data`. Without a card, the bridge still reports that no
+  YubiKey is connected and leaves the password path in place. Factory management key
+  (or PIN-protected mgm after the factory PIN) is required to enroll.
 - **App login** is exactly one of password, PIN, or WebAuthn, stored in `login.json` in the
   app data folder, not in `library.db`. Password and PIN are Argon2id hashes, not age keys.
   WebAuthn stores the credential id and the P-256 public key. Login checks the assertion
@@ -1000,13 +1007,16 @@ Two locks, and they do not share keys (spec §13).
 - **The highlight** is the folder inside-zone highlight, on the row under the pointer. A tag
   that also sits in Recent tags does not light both rows.
 
-## D-058 Preview rotate is session-only (2026-10-30)
+## D-059 Locked folders only in the Locked folders section (2026-10-30)
 
-- The full-size preview has a clockwise rotate control next to zoom, and `R` while the preview
-  is open (not when focus is in a text field). Each press turns 90°. Arrow keys, zoom and
-  `Esc` stay as they were.
-- **Not written to the library.** `item` has no orientation column, and `ItemEdit` has no
-  rotate. EXIF orientation is applied once when the thumbnail is made (media decode), not as a
-  per-item display override. Persist later only with a format change: a stored angle, rewriting
-  the original or regenerating the thumbnail.
-- Rotation resets when the preview moves to another item, the same way zoom does.
+- **Folders tree omits every locked folder.** A folder with `is_locked` (locked or unlocked for
+  the session) is filtered out of the Folders section, so it is not listed twice next to normal
+  folders. Lock… stays on an unlocked folder's menu in Folders; Unlock…, Lock Now, Change
+  Password…, New Recovery Key…, Add/Remove YubiKey… and Remove Lock… live on the Locked
+  folders section's context menu.
+- **Nested children of a locked ancestor stay out of Folders too.** Hiding the locked ancestor
+  also hides its descendants in that tree (even unlocked children of an unlocked locked
+  folder). Opening the locked folder from Locked folders still shows its items; Include
+  subfolders covers nested items. Locked folders continues to list only the locked ancestors
+  themselves, in tree order. Revisit if nested folder navigation under an unlocked lock needs
+  its own tree.

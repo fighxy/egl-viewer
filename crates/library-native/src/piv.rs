@@ -14,7 +14,6 @@ use age_core::format::{FILE_KEY_BYTES, FileKey, Stanza};
 use age_core::primitives::{aead_decrypt, aead_encrypt, hkdf};
 use base64::Engine;
 use base64::engine::general_purpose::STANDARD_NO_PAD;
-#[cfg(test)]
 use bech32::{Bech32, Hrp};
 use library_core::{PivPolicy, PivPrompt, SourceError};
 #[cfg(test)]
@@ -199,11 +198,16 @@ fn public_key(recipient: &str) -> Result<PublicKey, VaultError> {
     PublicKey::from_sec1_bytes(&data).map_err(|_| VaultError::Corrupt("recipient"))
 }
 
-#[cfg(test)]
-fn recipient_of(public: &PublicKey) -> String {
+/// Bech32 `age1yubikey1…` recipient for a P-256 public key (compressed SEC1).
+pub fn recipient_from_public_key(public: &PublicKey) -> String {
     let compressed = public.to_encoded_point(true);
     let hrp = Hrp::parse(RECIPIENT_HRP).expect("age1yubikey is a valid bech32 HRP");
     bech32::encode::<Bech32>(hrp, compressed.as_bytes()).expect("33 bytes encode")
+}
+
+#[cfg(test)]
+fn recipient_of(public: &PublicKey) -> String {
+    recipient_from_public_key(public)
 }
 
 fn tag_of(compressed: &[u8]) -> [u8; 4] {
