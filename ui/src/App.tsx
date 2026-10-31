@@ -150,6 +150,8 @@ const IMAGE_EXTENSIONS = [
   "tiff",
   "bmp",
   "psd",
+  "heic",
+  "heif",
 ];
 
 async function pickFiles(): Promise<string[]> {

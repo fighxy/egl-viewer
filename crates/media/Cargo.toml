@@ -8,9 +8,11 @@ license.workspace = true
 publish.workspace = true
 
 [dependencies]
+base64.workspace = true
 fast_image_resize.workspace = true
 image.workspace = true
 kamadak-exif.workspace = true
+libheif-rs.workspace = true
 library-core.workspace = true
 psd.workspace = true
 resvg.workspace = true

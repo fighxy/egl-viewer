@@ -3,6 +3,7 @@
 
 use std::io::Cursor;
 
+use base64::Engine;
 use image::{DynamicImage, ImageFormat, Rgba, RgbaImage};
 
 /// An opaque gradient shifted by the seed: different seeds below 65 536 give different pixels.
@@ -86,7 +87,7 @@ pub fn jpeg_with_exif(width: u32, height: u32, orientation: u16) -> Vec<u8> {
 }
 
 /// `Exif\0\0` and a big-endian TIFF structure with IFD0 and an EXIF IFD.
-fn exif_block(orientation: u16) -> Vec<u8> {
+pub(crate) fn exif_block(orientation: u16) -> Vec<u8> {
     const ASCII: u16 = 2;
     const SHORT: u16 = 3;
     const LONG: u16 = 4;
@@ -160,6 +161,20 @@ fn exif_block(orientation: u16) -> Vec<u8> {
     tiff.extend_from_slice(&0_u32.to_be_bytes());
     tiff.extend(data);
     [&b"Exif\0\0"[..], &tiff].concat()
+}
+
+/// A 96x64 HEIC with an EXIF block (camera Canon EOS R5), base64-encoded because pure Rust
+/// has no HEIC encoder to make one in code (D-034, exception D-063); the pixels do not vary
+/// with the seed, so this file stays out of [`every_format`] and the duplicate tests.
+pub fn heic() -> Vec<u8> {
+    // The base64 file is wrapped at 76 columns; the decoder rejects line breaks.
+    let encoded: String = include_str!("../fixtures/sample.heic.b64")
+        .chars()
+        .filter(|character| !character.is_whitespace())
+        .collect();
+    base64::engine::general_purpose::STANDARD
+        .decode(encoded)
+        .expect("decode the HEIC fixture")
 }
 
 /// One file of every v1 format, as `(extension, bytes)`.
