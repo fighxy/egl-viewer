@@ -292,6 +292,13 @@ impl Session {
         Ok(view.ids(start as usize, len as usize))
     }
 
+    /// Width and height of every position in the view, for justified packing (D-067).
+    pub fn view_dimensions(&self, view_id: u64) -> Result<Vec<[u32; 2]>, SourceError> {
+        let mut views = lock(&self.views);
+        let view = views.get(view_id).ok_or(SourceError::NotFound)?;
+        Ok(view.dimensions())
+    }
+
     pub fn close_view(&self, view_id: u64) {
         lock(&self.views).close(view_id);
     }

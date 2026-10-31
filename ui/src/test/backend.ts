@@ -72,6 +72,7 @@ export function mockBackend(overrides: Record<string, Handler> = {}): Call[] {
     open_view: () => ({ viewId: 1, total: 0 }),
     view_range: () => [],
     view_ids: () => [],
+    view_dimensions: () => [],
     close_view: () => null,
     item_detail: () => null,
     folder_tree: () => [],
@@ -256,6 +257,11 @@ export function viewOf(total: number, viewId = 1) {
     open_view: () => ({ viewId, total }),
     view_range: (args: Record<string, unknown>) => slice(args),
     view_ids: (args: Record<string, unknown>) => slice(args).map((item) => item.id),
+    view_dimensions: () =>
+      Array.from({ length: total }, (_, n) => {
+        const item = cell(n);
+        return [item.width ?? 0, item.height ?? 0] as [number, number];
+      }),
   };
 }
 

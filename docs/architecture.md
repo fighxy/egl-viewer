@@ -615,10 +615,11 @@ pub struct ItemCell {                        // what one grid cell needs
 - `open_view(query, on_progress) → { viewId, total }` builds or reuses the snapshot, runs the pipeline and stores the view. Every call gets its own view, so closing one never closes another with the same query (React runs effects twice in development, D-039). At most 4 views are kept (LRU); the UI closes the previous view once the new one is open.
 - `view_range(viewId, start, len) → Vec<ItemCell>`, with `len ≤ 200`.
 - `view_ids(viewId, start, len) → Vec<ItemId>`: ids only, for Shift ranges and the rubber band. Select All is a flag in the UI, never a list of ids (D-039).
+- `view_dimensions(viewId) → Vec<[u32; 2]>`: stored width/height of every position for justified packing (zeros = unknown → square). Compact numbers only — not a list of `ItemCell`s (D-067).
 - After a write, affected views are recomputed **under the same id**, and Rust emits `views-invalidated { viewIds }`. The UI invalidates the TanStack Query keys of those views and refetches only the visible windows, so the scroll position survives.
-- UI side: a TanStack Virtual row virtualizer; `columns = floor(width / cellWidth)`, `rows = ceil(total / columns)`. The visible rows are turned into windows of 120 cells, each fetched with TanStack Query under the key `['view', viewId, windowIndex]`.
+- UI side: a TanStack Virtual **row** virtualizer. The grid packs justified rows from `view_dimensions` and the size slider (target row height); each virtual row has a variable height and a variable cell count. The list stays one column of fixed row height. Visible item indices become windows of 120 cells under `['view', viewId, windowIndex]`.
 
-Whole item lists never cross IPC: JSON serialization of tens of thousands of objects through the WebView bridge is slow and blocks the UI.
+Whole item lists never cross IPC: JSON serialization of tens of thousands of objects through the WebView bridge is slow and blocks the UI. A dimensions array is numbers only and is fetched once per view.
 
 ---
 

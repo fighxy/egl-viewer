@@ -122,6 +122,19 @@ impl View {
         self.items(start, len).map(|item| item.id.clone()).collect()
     }
 
+    /// Stored width and height of every position, for justified grid packing.
+    /// Missing dimensions are `(0, 0)`; the UI treats that as a square. Compact on purpose:
+    /// whole `ItemCell` lists still never cross IPC.
+    pub fn dimensions(&self) -> Vec<[u32; 2]> {
+        self.order
+            .iter()
+            .map(|&index| {
+                let item = &self.snapshot[index as usize];
+                [item.width.unwrap_or(0), item.height.unwrap_or(0)]
+            })
+            .collect()
+    }
+
     /// The tags of a selection of this view: `ids`, or with `all` every item except `ids`.
     pub fn selection_tags(&self, all: bool, ids: &HashSet<ItemId>) -> SelectionTags {
         let mut counts: HashMap<&str, u32> = HashMap::new();

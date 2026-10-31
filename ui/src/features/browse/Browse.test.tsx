@@ -89,23 +89,24 @@ describe("Browsing a library", () => {
     fireEvent.keyDown(grid(), { key: "ArrowRight" });
     await waitFor(() => expect(screen.getByRole("contentinfo")).toHaveTextContent("1 selected"));
     expect(await cellNamed("image-0")).toHaveAttribute("aria-selected", "true");
-    // 800 px wide at 160 px: four columns.
+    // Fake cells are 40×20 (2:1); at 800×160 that packs two per justified row.
     fireEvent.keyDown(grid(), { key: "ArrowDown" });
     await waitFor(async () =>
-      expect(await cellNamed("image-4")).toHaveAttribute("aria-selected", "true"),
+      expect(await cellNamed("image-2")).toHaveAttribute("aria-selected", "true"),
     );
-    expect(grid()).toHaveAttribute("aria-activedescendant", "item-cell-4");
+    expect(grid()).toHaveAttribute("aria-activedescendant", "item-cell-2");
     fireEvent.keyDown(grid(), { key: "ArrowRight", shiftKey: true });
     await waitFor(() => expect(screen.getByRole("contentinfo")).toHaveTextContent("2 selected"));
-    expect(called(calls, "view_ids").at(-1)?.args).toEqual({ viewId: 1, start: 4, len: 2 });
+    expect(called(calls, "view_ids").at(-1)?.args).toEqual({ viewId: 1, start: 2, len: 2 });
   });
 
   it("selects the cells a rubber band touches", async () => {
     const calls = browse();
     render(<App />);
     await cellNamed("image-0");
+    // Justified 2:1 cells are ~half the width; drag past the mid gutter into image-1.
     fireEvent.mouseDown(grid(), { button: 0, clientX: 2, clientY: 2 });
-    fireEvent.mouseMove(window, { clientX: 400, clientY: 100 });
+    fireEvent.mouseMove(window, { clientX: 500, clientY: 100 });
     fireEvent.mouseUp(window);
     await waitFor(() => expect(screen.getByRole("contentinfo")).toHaveTextContent("selected"));
     expect(called(calls, "view_ids").at(-1)?.args).toMatchObject({ viewId: 1, start: 0 });

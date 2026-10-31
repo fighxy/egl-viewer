@@ -1,5 +1,5 @@
-// Where cells sit in the grid and the list: uniform rows, so positions are arithmetic and the
-// rubber band needs no DOM (docs/spec.md §7.3).
+// List geometry and the legacy uniform-square helpers (still used by list mode and tests).
+// The grid packs justified rows in `justified.ts` (D-067, docs/spec.md §7.3).
 
 export const PADDING = 12;
 export const GAP = 8;

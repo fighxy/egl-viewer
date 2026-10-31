@@ -9,6 +9,7 @@ import {
   useCallback,
   useEffect,
   useLayoutEffect,
+  useMemo,
   useRef,
   useState,
 } from "react";
@@ -17,15 +18,14 @@ import { type DragPayload, dropHint, useDrag } from "@/features/dnd/drag";
 import { type ItemCell, ipc, type ViewMode } from "@/ipc";
 import { thumbUrl } from "@/lib/thumb";
 import { formatBytes, formatDate, formatDimensions } from "./format";
+import { indicesInRect, type Layout, listLayout, moveFocus, PADDING, type Rect } from "./geometry";
 import {
-  gridLayout,
-  indicesInRect,
-  type Layout,
-  listLayout,
-  moveFocus,
-  PADDING,
-  type Rect,
-} from "./geometry";
+  itemAtScrollTop,
+  type JustifiedLayout,
+  justifiedIndicesInRect,
+  moveFocusJustified,
+  packJustified,
+} from "./justified";
 import {
   isSelected,
   NOTHING,
@@ -36,7 +36,7 @@ import {
   toggle,
   withRange,
 } from "./selection";
-import { fetchCell, useCells } from "./useView";
+import { fetchCell, useCells, useViewDimensions } from "./useView";
 
 type Props = {
   viewId: number;
@@ -124,39 +124,64 @@ export function ItemsView({
   const { begin, active } = useDrag();
   const scrollRef = useRef<HTMLDivElement>(null);
   const width = useWidth(scrollRef);
-  const layout: Layout =
-    mode === "grid" ? gridLayout(width, cellSize, showNames) : listLayout(width);
-  const rows = Math.ceil(total / layout.columns);
+  const dimensions = useViewDimensions(mode === "grid" ? viewId : null);
+  const justified: JustifiedLayout | null = useMemo(() => {
+    if (mode !== "grid" || width <= 0 || total <= 0) return null;
+    return packJustified(total, width, cellSize, showNames, (index) => {
+      const pair = dimensions?.[index];
+      return { width: pair?.[0] ?? 0, height: pair?.[1] ?? 0 };
+    });
+  }, [mode, width, total, cellSize, showNames, dimensions]);
+  const list: Layout | null = mode === "list" ? listLayout(width) : null;
+  const rowCount = justified?.rows.length ?? (list ? Math.ceil(total / list.columns) : 0);
   const virtualizer = useVirtualizer({
-    count: rows,
+    count: rowCount,
     getScrollElement: () => scrollRef.current,
-    estimateSize: () => layout.rowHeight,
+    estimateSize: (index) => justified?.rows[index]?.stride ?? list?.rowHeight ?? cellSize,
     overscan: 3,
     paddingStart: PADDING,
     paddingEnd: PADDING,
   });
 
-  // Keep the item at the top in place when the cell size or the column count changes: find it
-  // with the previous layout, then scroll to its row in the new one.
-  const previous = useRef(layout);
+  // Keep the item at the top in place when the row geometry changes.
+  const previousJustified = useRef(justified);
+  const previousList = useRef(list);
   // biome-ignore lint/correctness/useExhaustiveDependencies: runs when the layout changes.
   useLayoutEffect(() => {
-    const before = previous.current;
-    previous.current = layout;
+    const beforeJustified = previousJustified.current;
+    const beforeList = previousList.current;
+    previousJustified.current = justified;
+    previousList.current = list;
     virtualizer.measure();
     const element = scrollRef.current;
     if (!element || element.scrollTop <= PADDING) return;
-    const row = Math.floor((element.scrollTop - PADDING) / before.rowHeight);
-    const top = row * before.columns;
-    element.scrollTop = PADDING + Math.floor(top / layout.columns) * layout.rowHeight;
-  }, [layout.columns, layout.rowHeight]);
+    if (justified && beforeJustified) {
+      const item = itemAtScrollTop(beforeJustified, element.scrollTop);
+      const row = justified.rowOf[item] ?? 0;
+      element.scrollTop = PADDING + (justified.rows[row]?.top ?? 0);
+      return;
+    }
+    if (list && beforeList) {
+      const row = Math.floor((element.scrollTop - PADDING) / beforeList.rowHeight);
+      const top = row * beforeList.columns;
+      element.scrollTop = PADDING + Math.floor(top / list.columns) * list.rowHeight;
+    }
+  }, [justified, list?.columns, list?.rowHeight, cellSize, showNames]);
 
   const shownRows = virtualizer.getVirtualItems();
-  const firstIndex = (shownRows[0]?.index ?? 0) * layout.columns;
-  const lastIndex = Math.min(
-    total - 1,
-    ((shownRows[shownRows.length - 1]?.index ?? -1) + 1) * layout.columns - 1,
-  );
+  const firstIndex = justified
+    ? ((shownRows[0] ? justified.rows[shownRows[0].index]?.startIndex : 0) ?? 0)
+    : (shownRows[0]?.index ?? 0) * (list?.columns ?? 1);
+  const lastShown = shownRows[shownRows.length - 1];
+  const lastIndex = justified
+    ? lastShown
+      ? (() => {
+          const row = justified.rows[lastShown.index];
+          const last = row?.cells[row.cells.length - 1];
+          return last ? last.index : -1;
+        })()
+      : -1
+    : Math.min(total - 1, ((lastShown?.index ?? -1) + 1) * (list?.columns ?? 1) - 1);
   const cellAt = useCells(viewId, firstIndex, lastIndex, onLost);
 
   // The selection as of the latest render, for answers that arrive later.
@@ -186,7 +211,15 @@ export function ItemsView({
 
   // The rubber band, in content coordinates; its cells show as selected while it is drawn.
   const [band, setBand] = useState<Band | null>(null);
-  const bandIndices = band ? new Set(indicesInRect(layout, total, bandRect(band))) : null;
+  const bandIndices = band
+    ? new Set(
+        justified
+          ? justifiedIndicesInRect(justified, total, bandRect(band))
+          : list
+            ? indicesInRect(list, total, bandRect(band))
+            : [],
+      )
+    : null;
 
   const contentPoint = (event: { clientX: number; clientY: number }) => {
     const element = scrollRef.current;
@@ -222,7 +255,11 @@ export function ItemsView({
       window.removeEventListener("mousemove", onMove);
       window.removeEventListener("mouseup", onUp);
       setBand(null);
-      const picked = indicesInRect(layout, total, bandRect(current));
+      const picked = justified
+        ? justifiedIndicesInRect(justified, total, bandRect(current))
+        : list
+          ? indicesInRect(list, total, bandRect(current))
+          : [];
       const moved =
         Math.abs(current.end.x - current.start.x) + Math.abs(current.end.y - current.start.y) > 3;
       if (!moved || picked.length === 0) {
@@ -301,14 +338,24 @@ export function ItemsView({
       onEnter();
       return;
     }
-    const pageRows = Math.max(
-      1,
-      Math.floor((scrollRef.current?.clientHeight ?? 0) / layout.rowHeight),
-    );
-    const target = moveFocus(event.key, selection.focus, total, layout.columns, pageRows);
+    const viewport = scrollRef.current?.clientHeight ?? 0;
+    let target: number | null;
+    let scrollRow: number;
+    if (justified) {
+      const avg = justified.rows[0]?.stride ?? cellSize;
+      const pageRows = Math.max(1, Math.floor(viewport / avg));
+      target = moveFocusJustified(event.key, selection.focus, justified, pageRows);
+      scrollRow = target === null ? 0 : (justified.rowOf[target] ?? 0);
+    } else if (list) {
+      const pageRows = Math.max(1, Math.floor(viewport / list.rowHeight));
+      target = moveFocus(event.key, selection.focus, total, list.columns, pageRows);
+      scrollRow = target === null ? 0 : Math.floor(target / list.columns);
+    } else {
+      return;
+    }
     if (target === null) return;
     event.preventDefault();
-    virtualizer.scrollToIndex(Math.floor(target / layout.columns));
+    virtualizer.scrollToIndex(scrollRow);
     void select(target, { ctrl: false, shift: event.shiftKey });
   };
 
@@ -337,6 +384,7 @@ export function ItemsView({
     else if (pointerY > box.bottom - 32) element.scrollTop += 24;
   }, [pointerY, reorderable]);
 
+  const colCount = justified?.maxColumns ?? list?.columns ?? 1;
   const grid = (
     // biome-ignore lint/a11y/useSemanticElements: a virtualized grid of positioned rows is no table.
     <div
@@ -344,8 +392,8 @@ export function ItemsView({
       role="grid"
       aria-label="Items"
       aria-multiselectable
-      aria-rowcount={rows}
-      aria-colcount={layout.columns}
+      aria-rowcount={rowCount}
+      aria-colcount={colCount}
       aria-activedescendant={focusShown ? cellDomId(focus) : undefined}
       tabIndex={0}
       className="relative min-h-0 flex-1 overflow-auto bg-grid outline-none select-none focus-visible:ring-2 focus-visible:ring-ring/50 focus-visible:ring-inset"
@@ -358,35 +406,52 @@ export function ItemsView({
       <div className="relative w-full" style={{ height: virtualizer.getTotalSize() }}>
         {shownRows.map((row) => {
           const cells: React.ReactNode[] = [];
-          for (let column = 0; column < layout.columns; column += 1) {
-            const index = row.index * layout.columns + column;
-            if (index >= total) break;
-            const cell = cellAt(index);
-            const props = {
-              index,
-              cell,
-              selected: shown(cell, index),
-              focused: focus === index,
-              transition: cell !== undefined && cell.id === transitionId,
-              reorderable,
-              dropSide: dropCell?.index === index ? dropCell.side : null,
-              inTrash,
-              onMouseDown: onCellMouseDown,
-              onOpen: open,
-            };
-            cells.push(
-              mode === "grid" ? (
+          if (justified) {
+            const justifiedRow = justified.rows[row.index];
+            if (!justifiedRow) return null;
+            for (const entry of justifiedRow.cells) {
+              const cell = cellAt(entry.index);
+              cells.push(
                 <GridCell
-                  key={index}
-                  {...props}
-                  size={layout.cell}
-                  height={layout.cellHeight}
+                  key={entry.index}
+                  index={entry.index}
+                  cell={cell}
+                  selected={shown(cell, entry.index)}
+                  focused={focus === entry.index}
+                  transition={cell !== undefined && cell.id === transitionId}
+                  reorderable={reorderable}
+                  dropSide={dropCell?.index === entry.index ? dropCell.side : null}
+                  inTrash={inTrash}
+                  onMouseDown={onCellMouseDown}
+                  onOpen={open}
+                  thumbWidth={entry.width}
+                  thumbHeight={entry.height}
+                  height={justifiedRow.contentHeight}
                   showNames={showNames}
-                />
-              ) : (
-                <ListRow key={index} {...props} />
-              ),
-            );
+                />,
+              );
+            }
+          } else if (list) {
+            for (let column = 0; column < list.columns; column += 1) {
+              const index = row.index * list.columns + column;
+              if (index >= total) break;
+              const cell = cellAt(index);
+              cells.push(
+                <ListRow
+                  key={index}
+                  index={index}
+                  cell={cell}
+                  selected={shown(cell, index)}
+                  focused={focus === index}
+                  transition={cell !== undefined && cell.id === transitionId}
+                  reorderable={reorderable}
+                  dropSide={dropCell?.index === index ? dropCell.side : null}
+                  inTrash={inTrash}
+                  onMouseDown={onCellMouseDown}
+                  onOpen={open}
+                />,
+              );
+            }
           }
           return (
             // biome-ignore lint/a11y: a row of a virtualized grid; the grid holds focus.
@@ -399,6 +464,7 @@ export function ItemsView({
                 transform: `translateY(${row.start}px)`,
                 gap: mode === "grid" ? "8px" : undefined,
                 paddingInline: PADDING,
+                height: justified?.rows[row.index]?.contentHeight,
               }}
             >
               {cells}
@@ -486,10 +552,16 @@ const GridCell = memo(function GridCell({
   inTrash,
   onMouseDown,
   onOpen,
-  size,
+  thumbWidth,
+  thumbHeight,
   height,
   showNames,
-}: CellProps & { size: number; height: number; showNames: boolean }) {
+}: CellProps & {
+  thumbWidth: number;
+  thumbHeight: number;
+  height: number;
+  showNames: boolean;
+}) {
   return (
     // biome-ignore lint/a11y: a cell of a virtualized grid that holds focus (aria-activedescendant).
     <div
@@ -504,7 +576,7 @@ const GridCell = memo(function GridCell({
         inTrash && cell?.deletedAt ? `In the trash since ${formatDate(cell.deletedAt)}` : undefined
       }
       className="relative flex shrink-0 flex-col"
-      style={{ width: size, height }}
+      style={{ width: thumbWidth, height }}
       onMouseDown={(event) => onMouseDown(event, index)}
       onDoubleClick={() => onOpen(index)}
     >
@@ -523,7 +595,7 @@ const GridCell = memo(function GridCell({
           selected && "outline-2 outline-offset-2 outline-primary",
           focused && !selected && "outline-1 outline-offset-2 outline-ring",
         )}
-        style={{ width: size, height: size }}
+        style={{ width: thumbWidth, height: thumbHeight }}
       >
         {cell && (
           <Thumb key={`${cell.id}:${cell.thumbVersion}`} cell={cell} transition={transition} />
@@ -679,7 +751,8 @@ function Thumb({
           onLoad={() => setState("loaded")}
           onError={() => setState("failed")}
           className={cn(
-            "relative max-h-full max-w-full object-contain motion-safe:transition-opacity motion-safe:duration-150",
+            "relative motion-safe:transition-opacity motion-safe:duration-150",
+            small ? "max-h-full max-w-full object-contain" : "h-full w-full object-cover",
             state === "loaded" ? "opacity-100" : "opacity-0",
           )}
           style={transition ? { viewTransitionName: PREVIEW_TRANSITION } : undefined}
