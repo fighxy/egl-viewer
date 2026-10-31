@@ -465,7 +465,8 @@ export const zhCN: MessageCatalog = {
       dupeAlreadyInTrash: "“{{name}}”已在图库中，位于废纸篓。",
       dupeApplies: "你的选择适用于此批次中的每个重复项。",
       dupeFolderHint: "“添加到 {{name}}”会将已有项目放入该文件夹。",
-      skip: "跳过",
+      skip: "跳过重复项",
+      cancelImport: "取消导入",
       addAnyway: "仍然添加",
       addToFolder: "添加到 {{name}}"
     },

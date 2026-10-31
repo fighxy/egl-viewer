@@ -1,3 +1,4 @@
+import { useTranslation } from "react-i18next";
 import { Button } from "@/components/ui/button";
 import {
   Dialog,
@@ -25,30 +26,34 @@ type Props = {
 
 /** Check for Updates… and the optional launch prompt (docs/decisions.md D-062). */
 export function UpdateDialog({ state, onClose, onInstall }: Props) {
+  const { t } = useTranslation();
   if (!state) return null;
 
   const title =
     state.kind === "checking"
-      ? "Checking for updates"
+      ? t("updates.checking")
       : state.kind === "upToDate"
-        ? "You're up to date"
+        ? t("updates.upToDate")
         : state.kind === "error"
-          ? "Update check failed"
+          ? t("updates.failed")
           : state.kind === "downloading"
-            ? "Downloading update"
-            : "Update available";
+            ? t("updates.downloading")
+            : t("updates.available");
 
   const description =
     state.kind === "checking"
-      ? "Looking for a newer release…"
+      ? t("updates.looking")
       : state.kind === "upToDate"
-        ? `egl-viewer ${state.version} is the latest version.`
+        ? t("updates.latest", { version: state.version })
         : state.kind === "error"
           ? state.message
           : state.kind === "downloading"
             ? progressLabel(state.progress)
             : [
-                `Version ${state.update.version} is available (you have ${state.update.currentVersion}).`,
+                t("updates.versionAvailable", {
+                  version: state.update.version,
+                  current: state.update.currentVersion,
+                }),
                 state.update.body?.trim() || null,
               ]
                 .filter(Boolean)
@@ -73,13 +78,13 @@ export function UpdateDialog({ state, onClose, onInstall }: Props) {
           {canInstall ? (
             <>
               <Button variant="outline" onClick={onClose}>
-                Later
+                {t("updates.later")}
               </Button>
-              <Button onClick={onInstall}>Install and Restart</Button>
+              <Button onClick={onInstall}>{t("updates.installRestart")}</Button>
             </>
           ) : (
             <Button variant="outline" disabled={busy} autoFocus onClick={onClose}>
-              {busy ? "Please wait…" : "OK"}
+              {busy ? t("updates.pleaseWait") : t("updates.ok")}
             </Button>
           )}
         </DialogFooter>

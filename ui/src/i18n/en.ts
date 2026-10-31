@@ -463,7 +463,8 @@ export const en = {
       dupeAlreadyInTrash: "“{{name}}” is already in the library, in the trash.",
       dupeApplies: "Your choice applies to every duplicate in this batch.",
       dupeFolderHint: "“Add to {{name}}” puts the existing items into that folder.",
-      skip: "Skip",
+      skip: "Skip duplicates",
+      cancelImport: "Cancel import",
       addAnyway: "Add anyway",
       addToFolder: "Add to {{name}}"
     },

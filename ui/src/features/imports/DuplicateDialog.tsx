@@ -55,7 +55,7 @@ export function DuplicateDialog({ waiting, folders = [], onAnswer }: Props) {
         </DialogHeader>
         <DialogFooter>
           <Button variant="outline" onClick={() => answer("cancel")}>
-            {t("imports.cancel")}
+            {t("imports.cancelImport")}
           </Button>
           <Button variant="outline" onClick={() => answer("addAnyway")}>
             {t("imports.addAnyway")}

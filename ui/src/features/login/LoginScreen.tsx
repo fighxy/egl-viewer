@@ -1,4 +1,5 @@
 import { useId, useState } from "react";
+import { useTranslation } from "react-i18next";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
 import type { LoginMethod, LoginProof } from "@/ipc";
@@ -16,6 +17,7 @@ type Props = {
  * YubiKey touch. WebAuthn does not ask for a PIN and does not unlock folders.
  */
 export function LoginScreen({ method, onSubmit }: Props) {
+  const { t } = useTranslation();
   const [secret, setSecret] = useState("");
   const [busy, setBusy] = useState(false);
   const [error, setError] = useState<string>();
@@ -31,7 +33,7 @@ export function LoginScreen({ method, onSubmit }: Props) {
   return (
     <form
       className="grid w-full max-w-sm gap-4"
-      aria-label="Log in"
+      aria-label={t("login.form")}
       onSubmit={(event) => {
         event.preventDefault();
         if (busy) return;
@@ -42,16 +44,15 @@ export function LoginScreen({ method, onSubmit }: Props) {
       <div className="grid gap-1">
         <h1 className="text-xl font-semibold">egl-viewer</h1>
         <p className="text-sm text-muted-foreground">
-          {method === "password" && "Enter the login password. It does not unlock folders."}
-          {method === "pin" && "Enter the login PIN. It does not unlock folders."}
-          {method === "webAuthn" &&
-            "Touch the YubiKey. This only opens the app; it does not unlock folders, and it does not ask for a PIN."}
+          {method === "password" && t("login.passwordHint")}
+          {method === "pin" && t("login.pinHint")}
+          {method === "webAuthn" && t("login.webAuthnHint")}
         </p>
       </div>
       {method === "password" && (
         <div className="grid gap-1">
           <label htmlFor={fieldId} className="text-xs text-muted-foreground">
-            Password
+            {t("login.password")}
           </label>
           <Input
             id={fieldId}
@@ -66,7 +67,7 @@ export function LoginScreen({ method, onSubmit }: Props) {
       {method === "pin" && (
         <div className="grid gap-1">
           <label htmlFor={fieldId} className="text-xs text-muted-foreground">
-            PIN
+            {t("login.pin")}
           </label>
           <Input
             id={fieldId}
@@ -85,7 +86,7 @@ export function LoginScreen({ method, onSubmit }: Props) {
         </p>
       )}
       <Button type="submit" disabled={busy || (method !== "webAuthn" && secret === "")}>
-        {method === "webAuthn" ? "Touch your YubiKey" : "Log in"}
+        {method === "webAuthn" ? t("login.touchYubiKey") : t("login.submit")}
       </Button>
     </form>
   );

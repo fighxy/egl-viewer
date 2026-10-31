@@ -466,7 +466,8 @@ export const ru: MessageCatalog = {
       dupeAlreadyInTrash: "«{{name}}» уже есть в библиотеке, в корзине.",
       dupeApplies: "Ваш выбор применяется ко всем дубликатам в этой партии.",
       dupeFolderHint: "«Добавить в {{name}}» помещает существующие объекты в эту папку.",
-      skip: "Пропустить",
+      skip: "Пропустить дубликаты",
+      cancelImport: "Отменить импорт",
       addAnyway: "Добавить всё равно",
       addToFolder: "Добавить в {{name}}"
     },

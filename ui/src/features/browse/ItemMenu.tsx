@@ -1,3 +1,4 @@
+import { useTranslation } from "react-i18next";
 import {
   ContextMenuItem,
   ContextMenuSeparator,
@@ -17,15 +18,16 @@ type Props = {
 
 /** The right-click menu of the grid and the list: the same actions as the right bar. */
 export function ItemMenu({ actions, count, writable, inTrash, onPreview }: Props) {
+  const { t } = useTranslation();
   const canWrite = writable === true;
   if (inTrash) {
     return (
       <>
         <ContextMenuItem disabled={!canWrite} onSelect={actions.onRestore}>
-          Restore
+          {t("itemMenu.restore")}
         </ContextMenuItem>
         <ContextMenuItem disabled={!canWrite} onSelect={actions.onDeletePermanently}>
-          Delete Permanently…
+          {t("itemMenu.deletePermanent")}
           <ContextMenuShortcut>Delete</ContextMenuShortcut>
         </ContextMenuItem>
       </>
@@ -34,20 +36,20 @@ export function ItemMenu({ actions, count, writable, inTrash, onPreview }: Props
   return (
     <>
       <ContextMenuItem onSelect={onPreview}>
-        Preview
+        {t("itemMenu.preview")}
         <ContextMenuShortcut>Space</ContextMenuShortcut>
       </ContextMenuItem>
       <ContextMenuItem disabled={count !== 1} onSelect={actions.onOpenOriginal}>
-        Open with Default App
+        {t("itemMenu.openDefault")}
       </ContextMenuItem>
-      <ContextMenuItem onSelect={actions.onReveal}>Show in Explorer</ContextMenuItem>
+      <ContextMenuItem onSelect={actions.onReveal}>{t("itemMenu.showExplorer")}</ContextMenuItem>
       <ContextMenuItem onSelect={actions.onCopy}>
-        {count === 1 ? "Copy File" : "Copy Files"}
+        {count === 1 ? t("itemMenu.copyFile") : t("itemMenu.copyFiles")}
         <ContextMenuShortcut>Ctrl+C</ContextMenuShortcut>
       </ContextMenuItem>
       <ContextMenuSeparator />
       <ContextMenuItem disabled={!canWrite} onSelect={actions.onTrash}>
-        Move to Trash
+        {t("itemMenu.moveTrash")}
         <ContextMenuShortcut>Delete</ContextMenuShortcut>
       </ContextMenuItem>
     </>

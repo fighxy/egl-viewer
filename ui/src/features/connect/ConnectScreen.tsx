@@ -1,5 +1,6 @@
 import { ArrowLeft } from "lucide-react";
 import { type FormEvent, useState } from "react";
+import { useTranslation } from "react-i18next";
 import { Button } from "@/components/ui/button";
 import {
   Card,
@@ -25,6 +26,7 @@ type Props = {
 
 /** Connecting to a running Eagle, a secondary feature (docs/spec.md §8.3). */
 export function ConnectScreen({ defaults, onConnect, onBack, status }: Props) {
+  const { t } = useTranslation();
   const [form, setForm] = useState<ConnectForm>({
     host: defaults.host,
     port: String(defaults.port),
@@ -47,13 +49,11 @@ export function ConnectScreen({ defaults, onConnect, onBack, status }: Props) {
     <Card className="w-full max-w-md">
       <form onSubmit={submit} noValidate>
         <CardHeader>
-          <CardTitle>Connect to Eagle</CardTitle>
-          <CardDescription>
-            Eagle must be running. Use 127.0.0.1 when it runs on this PC.
-          </CardDescription>
+          <CardTitle>{t("connect.title")}</CardTitle>
+          <CardDescription>{t("connect.description")}</CardDescription>
         </CardHeader>
         <CardContent className="grid gap-4 py-4">
-          <Field id="host" label="Host" error={errors.host}>
+          <Field id="host" label={t("connect.host")} error={errors.host}>
             <Input
               id="host"
               value={form.host}
@@ -64,7 +64,7 @@ export function ConnectScreen({ defaults, onConnect, onBack, status }: Props) {
               spellCheck={false}
             />
           </Field>
-          <Field id="port" label="Port" error={errors.port}>
+          <Field id="port" label={t("connect.port")} error={errors.port}>
             <Input
               id="port"
               inputMode="numeric"
@@ -74,11 +74,7 @@ export function ConnectScreen({ defaults, onConnect, onBack, status }: Props) {
               aria-describedby={errors.port ? "port-error" : undefined}
             />
           </Field>
-          <Field
-            id="token"
-            label="API token"
-            hint="Eagle → Preferences → Developer. Not needed when Eagle runs on this PC."
-          >
+          <Field id="token" label={t("connect.token")} hint={t("connect.tokenHint")}>
             <Input
               id="token"
               type="password"
@@ -90,12 +86,12 @@ export function ConnectScreen({ defaults, onConnect, onBack, status }: Props) {
         </CardContent>
         <CardFooter className="flex flex-col items-stretch gap-2">
           <Button type="submit" disabled={!valid}>
-            Connect
+            {t("connect.connect")}
           </Button>
           {onBack && (
             <Button type="button" variant="ghost" onClick={onBack}>
               <ArrowLeft aria-hidden />
-              Back
+              {t("connect.back")}
             </Button>
           )}
           {status && (
