@@ -11,7 +11,7 @@ use rusqlite::params;
 
 use crate::Library;
 use crate::import::{
-    DuplicateChoice, DuplicatePolicy, ImportObserver, ImportTarget, import_files,
+    DuplicateChoice, DuplicatePolicy, ImportFilter, ImportObserver, ImportTarget, import_files,
     make_pending_previews,
 };
 use crate::preview::NO_PREVIEW;
@@ -73,6 +73,7 @@ fn import(library: &Library, sources: &[PathBuf], observer: &Script) -> ImportPr
         1,
         sources,
         &ImportTarget::default(),
+        &ImportFilter::default(),
         DuplicatePolicy::Ask,
         observer,
         &AtomicBool::new(false),
@@ -286,6 +287,7 @@ fn a_crash_during_an_import_leaves_a_consistent_library_and_previews_resume() {
         3,
         &files,
         &ImportTarget::default(),
+        &ImportFilter::default(),
         DuplicatePolicy::Skip,
         &Script::answering(DuplicateChoice::Skip),
         &AtomicBool::new(false),

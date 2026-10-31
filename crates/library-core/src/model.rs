@@ -417,6 +417,47 @@ pub struct LibraryCounts {
     pub trash: u32,
 }
 
+/// Items and bytes of the trash, for the context menu of its row (docs/spec.md §3 Trash).
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Default, Serialize, Deserialize, TS)]
+#[serde(rename_all = "camelCase")]
+#[ts(export)]
+pub struct TrashInfo {
+    pub items: u32,
+    pub bytes: u64,
+}
+
+/// What a reviewed import found under the picked folder (docs/spec.md §4). Nothing is copied
+/// until the user confirms.
+#[derive(Debug, Clone, PartialEq, Eq, Default, Serialize, Deserialize, TS)]
+#[serde(rename_all = "camelCase")]
+#[ts(export)]
+pub struct ImportPreview {
+    /// Every file under the picked folder.
+    pub files: u32,
+    /// Their bytes.
+    pub bytes: u64,
+    /// Files not listed in `tree` because of the listing cap; totals above count them.
+    pub unlisted: u32,
+    /// The top folders and loose files of the picked folder.
+    pub tree: Vec<PreviewEntry>,
+}
+
+/// One node of the import preview tree.
+#[derive(Debug, Clone, PartialEq, Eq, Default, Serialize, Deserialize, TS)]
+#[serde(rename_all = "camelCase")]
+#[ts(export)]
+pub struct PreviewEntry {
+    pub name: String,
+    /// `true` for a folder, `false` for a file.
+    pub folder: bool,
+    /// Bytes: the file's size, or the recursive sum below the folder.
+    pub bytes: u64,
+    /// A v1 image format: preselected in the reviewed import (files only).
+    pub image: bool,
+    /// Folder children; empty for files.
+    pub children: Vec<PreviewEntry>,
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;

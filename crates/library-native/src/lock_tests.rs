@@ -14,7 +14,7 @@ use rusqlite::params;
 
 use crate::add::Placement;
 use crate::import::{
-    DuplicateChoice, DuplicatePolicy, ImportObserver, ImportTarget, import_files,
+    DuplicateChoice, DuplicatePolicy, ImportFilter, ImportObserver, ImportTarget, import_files,
     make_pending_previews,
 };
 use crate::piv::SoftwarePiv;
@@ -375,6 +375,7 @@ fn files_added_to_a_locked_folder_are_encrypted_as_they_are_copied() {
         &ImportTarget {
             folder: Some(folder.clone()),
         },
+        &ImportFilter::default(),
         DuplicatePolicy::Ask,
         &Quiet,
         &AtomicBool::new(false),

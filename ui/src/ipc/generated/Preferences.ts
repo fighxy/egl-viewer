@@ -7,4 +7,9 @@ export type Preferences = { theme: Theme, reopenLastLibrary: boolean,
 /**
  * Where Create library starts; `None` means `%USERPROFILE%\egl-library` (D-021).
  */
-defaultLibraryParent: string | null, layout: UiLayout, browse: BrowsePreferences, };
+defaultLibraryParent: string | null, 
+/**
+ * `Delete` asks before moving items to the trash; off means the trash takes them at once.
+ * The trash confirmation can turn this off for good, Settings turns it back on.
+ */
+confirmBeforeTrash: boolean, layout: UiLayout, browse: BrowsePreferences, };

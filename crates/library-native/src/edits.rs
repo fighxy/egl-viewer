@@ -6,7 +6,7 @@ use std::fs;
 use std::io::ErrorKind;
 use std::path::{Path, PathBuf};
 
-use library_core::{ItemEdit, ItemId, ItemState, SourceError};
+use library_core::{ItemEdit, ItemId, ItemState, SourceError, TrashInfo};
 use rusqlite::{Connection, OptionalExtension, Transaction, named_params, params};
 use ulid::Ulid;
 
@@ -391,6 +391,54 @@ impl Library {
                 .context("read the trash")?
         };
         self.remove_items(&ids, Removable::Trashed)
+    }
+
+    /// Items and bytes of the trash, for the context menu of its row. Items of locked folders
+    /// wait there until the folder is unlocked, so they stay out of the count.
+    pub fn trash_info(&self) -> Result<TrashInfo> {
+        let conn = self.conn();
+        let visibility = self.visibility(&conn)?;
+        let (items, bytes): (i64, i64) = conn
+            .prepare(&format!(
+                "SELECT COUNT(*), COALESCE(SUM(size), 0) FROM item \
+                 WHERE deleted_at IS NOT NULL AND {VISIBLE}"
+            ))
+            .and_then(|mut statement| {
+                statement.query_row(
+                    named_params! {
+                        ":hidden": visibility.hidden,
+                        ":unlocked": visibility.unlocked,
+                    },
+                    |row| Ok((row.get(0)?, row.get(1)?)),
+                )
+            })
+            .context("read the trash")?;
+        Ok(TrashInfo {
+            items: u32::try_from(items).unwrap_or(u32::MAX),
+            bytes: u64::try_from(bytes).unwrap_or(0),
+        })
+    }
+
+    /// The visible items of the trash, for Restore All of its context menu.
+    pub fn trash_ids(&self) -> Result<Vec<ItemId>> {
+        let conn = self.conn();
+        let visibility = self.visibility(&conn)?;
+        let mut statement = conn
+            .prepare(&format!(
+                "SELECT id FROM item WHERE deleted_at IS NOT NULL AND {VISIBLE}"
+            ))
+            .context("read the trash")?;
+        let ids: Vec<String> = statement
+            .query_map(
+                named_params! {
+                    ":hidden": visibility.hidden,
+                    ":unlocked": visibility.unlocked,
+                },
+                |row| row.get(0),
+            )
+            .and_then(Iterator::collect)
+            .context("read the trash")?;
+        Ok(ids.into_iter().map(ItemId).collect())
     }
 
     /// Removes visible items for good. Their rows go in one transaction that also journals the

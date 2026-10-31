@@ -8,8 +8,8 @@ use crate::edit::ItemEdit;
 use crate::error::SourceError;
 use crate::folder::FolderChange;
 use crate::model::{
-    AddTarget, ChangeToken, Changes, ExtensionCount, Folder, ImportTicket, Item, ItemId, ItemLite,
-    LibraryInfo, NewFile, SmartFolder, Tag, TagGroup, Thumbnail,
+    AddTarget, ChangeToken, Changes, ExtensionCount, Folder, ImportPreview, ImportTicket, Item,
+    ItemId, ItemLite, LibraryInfo, NewFile, SmartFolder, Tag, TagGroup, Thumbnail, TrashInfo,
 };
 use crate::query::search::SearchMatch;
 use crate::query::{Scope, ScopeHints};
@@ -124,6 +124,25 @@ pub trait LibrarySource: Send + Sync {
     /// Removes every item of the trash for good, with their files.
     async fn empty_trash(&self) -> Result<u32, SourceError> {
         Err(SourceError::ReadOnly)
+    }
+
+    /// Items and bytes of the trash, for the context menu of the Trash row (docs/spec.md §3).
+    async fn trash_info(&self) -> Result<TrashInfo, SourceError> {
+        Err(SourceError::NotSupported("trash info".into()))
+    }
+
+    /// The visible items of the trash, for Restore All of its context menu.
+    async fn trash_ids(&self) -> Result<Vec<ItemId>, SourceError> {
+        Err(SourceError::NotSupported("trash ids".into()))
+    }
+
+    /// What a reviewed import would add from `source`: the folder walked, with counts and
+    /// bytes; nothing is copied (docs/spec.md §4). Native library only.
+    async fn preview_import(
+        &self,
+        _source: &std::path::Path,
+    ) -> Result<ImportPreview, SourceError> {
+        Err(SourceError::NotSupported("import preview".into()))
     }
 
     /// Manual order: puts `ids` before `before` in `folder`, or at the end; the moved items

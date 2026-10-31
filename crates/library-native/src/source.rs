@@ -1,13 +1,14 @@
 //! The native library as a [`LibrarySource`] (docs/architecture.md §15.2): what the views, the
 //! detail panel and the `thumb` scheme read through.
 
+use std::path::Path;
 use std::sync::Arc;
 
 use async_trait::async_trait;
 use library_core::{
-    Capabilities, ExtensionCount, Folder, FolderChange, Item, ItemEdit, ItemId, ItemLite,
-    LibraryInfo, LibrarySource, Progress, Scope, ScopeHints, SearchMatch, SmartFolder,
-    SmartFolderChange, SourceError, Tag, TagGroup, TagGroupChange, Thumbnail,
+    Capabilities, ExtensionCount, Folder, FolderChange, ImportPreview, Item, ItemEdit, ItemId,
+    ItemLite, LibraryInfo, LibrarySource, Progress, Scope, ScopeHints, SearchMatch, SmartFolder,
+    SmartFolderChange, SourceError, Tag, TagGroup, TagGroupChange, Thumbnail, TrashInfo,
 };
 
 use crate::library::Library;
@@ -106,6 +107,18 @@ impl LibrarySource for NativeSource {
 
     async fn empty_trash(&self) -> Result<u32, SourceError> {
         self.library.empty_trash()
+    }
+
+    async fn trash_info(&self) -> Result<TrashInfo, SourceError> {
+        Ok(self.library.trash_info()?)
+    }
+
+    async fn trash_ids(&self) -> Result<Vec<ItemId>, SourceError> {
+        Ok(self.library.trash_ids()?)
+    }
+
+    async fn preview_import(&self, source: &Path) -> Result<ImportPreview, SourceError> {
+        self.library.preview_import(source)
     }
 
     async fn reorder_items(

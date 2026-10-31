@@ -47,7 +47,7 @@ describe("command registry", () => {
   });
 
   it("adds and pastes only into a library that can be written", () => {
-    for (const id of ["file.addFiles", "edit.paste"]) {
+    for (const id of ["file.addFiles", "file.addFolder", "edit.paste"]) {
       expect(availability(command(id), state())).toBe("Open a library first.");
       expect(availability(command(id), state({ library: { ...LIBRARY, readOnly: true } }))).toBe(
         "This library is read-only.",

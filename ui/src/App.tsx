@@ -41,6 +41,7 @@ import {
 } from "@/features/folders/tree";
 import { useExpanded } from "@/features/folders/useExpanded";
 import { DuplicateDialog } from "@/features/imports/DuplicateDialog";
+import { ImportReviewDialog } from "@/features/imports/ImportReviewDialog";
 import { ImportsPanel } from "@/features/imports/ImportsPanel";
 import { importSummary } from "@/features/imports/importText";
 import { useImports } from "@/features/imports/useImports";
@@ -79,6 +80,7 @@ import {
   EVENTS,
   type Folder,
   type FolderChange,
+  type ImportPreview,
   type Item,
   type ItemEdit,
   type ItemsTarget,
@@ -97,6 +99,7 @@ import {
   type TagGroup,
   type TagGroupChange,
   THUMBNAIL_SIZES,
+  type TrashInfo,
   type UiLayout,
 } from "@/ipc";
 import {
@@ -260,6 +263,12 @@ function AppShell() {
   const [fullscreen, setFullscreenState] = useState(false);
   const [builtInLocation, setBuiltInLocation] = useState("");
   const [counts, setCounts] = useState<LibraryCounts | null>(null);
+  const [trashInfo, setTrashInfo] = useState<TrashInfo | null>(null);
+  /** The reviewed import: a picked folder and its walk, until the user decides. */
+  const [importReview, setImportReview] = useState<{
+    path: string;
+    preview: ImportPreview;
+  } | null>(null);
   const [importsOpen, setImportsOpen] = useState(false);
   const [confirmation, setConfirmation] = useState<Confirmation | null>(null);
   const [dropping, setDropping] = useState(false);
@@ -457,6 +466,22 @@ function AppShell() {
         .libraryCounts()
         .then(setCounts)
         .catch(() => setCounts(null));
+    }, 300);
+    return () => window.clearTimeout(timer);
+  }, [library, imports.added, revision]);
+
+  // The trash context menu: items and bytes, following the same writes as the counts.
+  // biome-ignore lint/correctness/useExhaustiveDependencies: refetched whenever files were added.
+  useEffect(() => {
+    if (!library || !inTauri()) {
+      setTrashInfo(null);
+      return;
+    }
+    const timer = window.setTimeout(() => {
+      ipc
+        .trashInfo()
+        .then(setTrashInfo)
+        .catch(() => setTrashInfo(null));
     }, 300);
     return () => window.clearTimeout(timer);
   }, [library, imports.added, revision]);
@@ -822,17 +847,31 @@ function AppShell() {
   /** Delete in the grid: to the trash after a confirmation (docs/spec.md §7.3). */
   const trashSelection = useCallback(() => {
     const target = selectedTarget();
+    const move = () => {
+      setSelection(NOTHING);
+      void editItems(target, { type: "trash" });
+    };
+    if (!preferences.confirmBeforeTrash) {
+      move();
+      return;
+    }
     setConfirmation({
       title: "Move to the trash?",
       description: `${many(selected)} go to the trash. You can restore them from there.`,
       confirm: "Move to Trash",
       cancel: "Cancel",
-      onConfirm: () => {
-        setSelection(NOTHING);
-        void editItems(target, { type: "trash" });
+      dontAskAgain: {
+        label: "Don't ask again",
+        hint: "You can turn this back on in Settings.",
+      },
+      onConfirm: (dontAskAgain) => {
+        if (dontAskAgain) {
+          void savePreferences({ ...preferences, confirmBeforeTrash: false });
+        }
+        move();
       },
     });
-  }, [selectedTarget, selected, editItems]);
+  }, [selectedTarget, selected, editItems, preferences, savePreferences]);
 
   /** Delete Permanently: rows and files go; there is no undo (docs/spec.md §3 Trash). */
   const deleteSelection = useCallback(() => {
@@ -862,6 +901,15 @@ function AppShell() {
       },
     });
   }, [counts, failed]);
+
+  /** Restore All of the trash context menu; one undoable edit. */
+  const restoreTrashAll = useCallback(() => {
+    setSelection(NOTHING);
+    ipc
+      .restoreTrash()
+      .catch(failed)
+      .finally(() => void client.invalidateQueries({ queryKey: ["undo"] }));
+  }, [failed, client]);
 
   const itemActions = useMemo<ItemActions>(
     () => ({
@@ -1159,6 +1207,19 @@ function AppShell() {
       addFiles: () => {
         pickFiles()
           .then(addPaths)
+          .catch((error: unknown) => setStatus(describeError(error)));
+      },
+      addFolder: () => {
+        pickFolder("Import folder")
+          .then(async (picked) => {
+            if (!picked) return;
+            try {
+              const preview = await ipc.previewImport(picked);
+              setImportReview({ path: picked, preview });
+            } catch (error: unknown) {
+              setStatus(describeError(error));
+            }
+          })
           .catch((error: unknown) => setStatus(describeError(error)));
       },
       paste: () => {
@@ -1557,6 +1618,9 @@ function AppShell() {
                 </Button>
               ) : undefined
             }
+            trashInfo={trashInfo}
+            onRestoreTrash={restoreTrashAll}
+            onEmptyTrash={emptyTrash}
             itemCount={opened.view?.total}
             selectedCount={selected}
             viewStatus={
@@ -1766,6 +1830,19 @@ function AppShell() {
           onOpenChange={setImportsOpen}
           imports={imports.imports}
           onCancel={(id) => void ipc.cancelImport(id).catch(() => {})}
+        />
+        <ImportReviewDialog
+          key={importReview?.path ?? "closed"}
+          review={importReview}
+          target={openFolder?.name ?? null}
+          onConfirm={(choice) => {
+            const path = importReview?.path;
+            setImportReview(null);
+            if (!choice || !path) return;
+            ipc
+              .addFiles([path], intoFolder, choice.exclude, choice.include, true)
+              .catch((error: unknown) => setStatus(describeError(error)));
+          }}
         />
         <LockDialogs
           dialog={lockDialog}

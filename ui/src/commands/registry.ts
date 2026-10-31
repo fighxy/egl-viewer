@@ -54,6 +54,8 @@ export type CommandActions = {
   openRecent: (path: string) => void;
   closeLibrary: () => void;
   addFiles: () => void;
+  /** A reviewed import: the picked folder shows what is inside before anything is copied. */
+  addFolder: () => void;
   paste: () => void;
   settings: () => void;
   exit: () => void;
@@ -261,6 +263,14 @@ export const COMMANDS: readonly Command[] = [
     group: 1,
     available: needsWritableLibrary,
     run: (actions) => actions.addFiles(),
+  },
+  {
+    id: "file.addFolder",
+    label: "Import Folder…",
+    menu: "file",
+    group: 1,
+    available: needsWritableLibrary,
+    run: (actions) => actions.addFolder(),
   },
   {
     id: "file.settings",

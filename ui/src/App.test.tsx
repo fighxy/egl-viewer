@@ -1,6 +1,6 @@
 import { emit } from "@tauri-apps/api/event";
 import { mockIPC } from "@tauri-apps/api/mocks";
-import { act, fireEvent, render, screen, waitFor } from "@testing-library/react";
+import { act, fireEvent, render, screen, waitFor, within } from "@testing-library/react";
 import userEvent from "@testing-library/user-event";
 import { describe, expect, it } from "vitest";
 import { DEFAULT_PREFERENCES } from "@/ipc";
@@ -166,6 +166,23 @@ describe("App inside Tauri", () => {
     });
   });
 
+  it("saves the trash confirmation toggle from Settings", async () => {
+    const calls = mockBackend();
+    const user = userEvent.setup();
+    render(<App />);
+    await screen.findByText("egl-viewer 9.9.9");
+    fireEvent.keyDown(window, { key: ",", ctrlKey: true });
+    await user.click(
+      await screen.findByRole("switch", {
+        name: "Confirm before moving items to the trash",
+      }),
+    );
+    await user.click(screen.getByRole("button", { name: "Save" }));
+    expect(called(calls, "set_preferences").at(-1)?.args).toEqual({
+      preferences: { ...DEFAULT_PREFERENCES, confirmBeforeTrash: false },
+    });
+  });
+
   it("shows the keyboard shortcuts with F1 and the version in About", async () => {
     mockBackend();
     const user = userEvent.setup();
@@ -208,8 +225,99 @@ describe("Adding files", () => {
       expect(called(calls, "add_files")[0]?.args).toEqual({
         paths: ["C:\\in\\a.jpg", "C:\\in\\b.png"],
         folder: null,
+        exclude: [],
+        include: [],
+        reviewed: false,
       }),
     );
+  });
+
+  it("reviews a picked folder and imports only what was confirmed", async () => {
+    const calls = mockBackend({
+      ...opened(),
+      "plugin:dialog|open": () => "C:\\incoming",
+      preview_import: () => ({
+        files: 3,
+        bytes: 3 * 1024,
+        unlisted: 0,
+        tree: [
+          {
+            name: "incoming",
+            folder: true,
+            bytes: 3 * 1024,
+            image: false,
+            children: [
+              { name: "a.png", folder: false, bytes: 1024, image: true, children: [] },
+              { name: "b.txt", folder: false, bytes: 1024, image: false, children: [] },
+              {
+                name: "sub",
+                folder: true,
+                bytes: 1024,
+                image: false,
+                children: [
+                  { name: "c.png", folder: false, bytes: 1024, image: true, children: [] },
+                ],
+              },
+            ],
+          },
+        ],
+      }),
+    });
+    const user = userEvent.setup();
+    render(<App />);
+    await screen.findByRole("navigation", { name: "Library" });
+    await user.click(screen.getByRole("menuitem", { name: "File" }));
+    await user.click(await screen.findByRole("menuitem", { name: "Import Folder…" }));
+    const dialog = await screen.findByRole("dialog", { name: "Import “incoming”" });
+    expect(dialog).toHaveTextContent("3 files");
+    // Images are preselected: a.png and c.png, not the text file.
+    expect(dialog).toHaveTextContent("2 files · 2.0 KB selected");
+
+    await user.click(within(dialog).getByRole("checkbox", { name: "b.txt" }));
+    expect(dialog).toHaveTextContent("3 files · 3.0 KB selected");
+    await user.click(within(dialog).getByRole("checkbox", { name: "sub" }));
+    expect(dialog).toHaveTextContent("2 files · 2.0 KB selected");
+
+    await user.click(within(dialog).getByRole("button", { name: "Import" }));
+    await waitFor(() =>
+      expect(called(calls, "add_files")[0]?.args).toEqual({
+        paths: ["C:\\incoming"],
+        folder: null,
+        exclude: ["sub"],
+        include: ["b.txt"],
+        reviewed: true,
+      }),
+    );
+  });
+
+  it("cancelling the folder review copies nothing", async () => {
+    const calls = mockBackend({
+      ...opened(),
+      "plugin:dialog|open": () => "C:\\incoming",
+      preview_import: () => ({
+        files: 1,
+        bytes: 1024,
+        unlisted: 0,
+        tree: [
+          {
+            name: "incoming",
+            folder: true,
+            bytes: 1024,
+            image: false,
+            children: [{ name: "a.png", folder: false, bytes: 1024, image: true, children: [] }],
+          },
+        ],
+      }),
+    });
+    const user = userEvent.setup();
+    render(<App />);
+    await screen.findByRole("navigation", { name: "Library" });
+    await user.click(screen.getByRole("menuitem", { name: "File" }));
+    await user.click(await screen.findByRole("menuitem", { name: "Import Folder…" }));
+    const dialog = await screen.findByRole("dialog", { name: "Import “incoming”" });
+    await user.keyboard("{Escape}");
+    await waitFor(() => expect(dialog).not.toBeInTheDocument());
+    expect(called(calls, "add_files")).toHaveLength(0);
   });
 
   it("shows progress, refreshes the counts and asks about duplicates once", async () => {
@@ -255,6 +363,9 @@ describe("Adding files", () => {
       expect(called(calls, "add_files")[0]?.args).toEqual({
         paths: ["C:\\in\\c.gif"],
         folder: null,
+        exclude: [],
+        include: [],
+        reviewed: false,
       }),
     );
     expect(screen.queryByRole("status", { name: "Drop files" })).not.toBeInTheDocument();

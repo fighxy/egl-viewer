@@ -1020,3 +1020,34 @@ Two locks, and they do not share keys (spec §13).
   subfolders covers nested items. Locked folders continues to list only the locked ancestors
   themselves, in tree order. Revisit if nested folder navigation under an unlocked lock needs
   its own tree.
+
+## D-060 Opt out of the trash confirmation (2026-10-31)
+
+- **"Don't ask again" on the trash confirmation.** `Delete` asks before moving items to the
+  trash (spec §7.3). The confirmation dialog has a "Don't ask again" checkbox with a hint that
+  the choice lives in Settings; ticking it and confirming saves `confirmBeforeTrash: false`
+  (`Preferences.confirm_before_trash` in `app-store`, default `true`), and from then on
+  `Delete` moves the selection to the trash directly. Settings → General has a
+  "Confirm before moving items to the trash" switch to turn the confirmation back on.
+- **Only the trash.** Delete Permanently and Empty Trash always ask: they remove files with no
+  undo, so they never get an opt-out. The shared `ConfirmDialog` carries the checkbox as an
+  optional part of the confirmation; other callers are unchanged.
+
+## D-061 Reviewed Import Folder… (2026-10-31)
+
+- **One folder, not a drive.** File → Import Folder… picks a single folder (EGL-31: no
+  full-disk scan in v1). Dropped folders stay unreviewed and take every non-junk file; only
+  this command shows the review dialog.
+- **Preview before copy.** `preview_import` walks the folder and returns counts, bytes and a
+  tree (cap 10 000 listed entries; `unlisted` covers the rest). Nothing is copied. Images of
+  the v1 preview formats are preselected; other files are listed off. Unchecking a folder
+  excludes its children (`exclude`); checking a non-image adds it (`include`). Confirm calls
+  `add_files` with `reviewed: true` and those sets; cancel leaves the library unchanged.
+- **Same pipeline.** After confirm, the usual add-file path runs (tmp → hash → rename → row,
+  arch §15.4). Source files stay on disk. Duplicates, a locked target folder, cancel during
+  copy and a read-only library behave as for Add Files…. Relative paths in `exclude` /
+  `include` are from the picked folder's children (`/` separated), matching the walk.
+
+Note: D-058 (preview rotate, session-only) lives on `feat/viewer-rotate` / was merged in code
+without its decision entry on `main`; this number skips ahead so a later cherry-pick of that
+entry does not collide.

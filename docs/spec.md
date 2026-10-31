@@ -148,7 +148,7 @@ The exact layout, the schema and the protocols are in [`library-format.md`](libr
 
 ### Trash
 
-Trashed items disappear from every scope except Trash. Trash shows them with the date of deletion. Restore puts an item back with its folders and tags. Delete permanently and Empty trash remove the rows and the files after a confirmation; there is no undo. Items of a locked folder stay in the trash until the folder is unlocked (D-051).
+Trashed items disappear from every scope except Trash. Trash shows them with the date of deletion. Restore puts an item back with its folders and tags. Delete permanently and Empty trash remove the rows and the files after a confirmation; there is no undo. Items of a locked folder stay in the trash until the folder is unlocked (D-051). The right-click menu of the Trash row shows how many items the trash holds and their size on disk, and offers Restore All and Empty Trash.
 
 ### Smart folders
 
@@ -162,8 +162,9 @@ Smart folders live in their own tree (nested, with their own order).
 
 ### Adding
 
-- From a toolbar button (the system file dialog, multi-select, default filter "Images" plus "All files"), by dropping files or folders on the window, and by pasting an image or files copied in Explorer from the clipboard (Edit → Paste, `Ctrl+V`). A reviewed import from a chosen disk comes later (below).
-- Dropped folders are walked recursively; hidden and system files (`Thumbs.db`, `desktop.ini`) are skipped. A dropped folder becomes a library folder of the same name inside the target (an existing folder of that name there is reused), with its subfolders below it; each file goes into the folder it came from (D-043).
+- From a toolbar button (the system file dialog, multi-select, default filter "Images" plus "All files"), by dropping files or folders on the window, and by pasting an image or files copied in Explorer from the clipboard (Edit → Paste, `Ctrl+V`).
+- **Import Folder…** (File menu): the user picks one folder. Rust walks it and returns a preview (counts, bytes, a folder tree). Images of the v1 formats are preselected; other files are listed and unselected. A folder can be unchecked, which excludes its children. Nothing is copied until Import. Cancel before confirm leaves the library unchanged. The same add-file pipeline runs after confirm (tmp → hash → rename → row); source files stay where they were. A read-only library refuses the command. A locked target folder encrypts each copied file as it is added. Duplicates follow the same skip / add / attach choice as a normal import (D-061).
+- Dropped folders are walked recursively; hidden and system files (`Thumbs.db`, `desktop.ini`) are skipped. A dropped folder becomes a library folder of the same name inside the target (an existing folder of that name there is reused), with its subfolders below it; each file goes into the folder it came from (D-043). Dropped folders are not reviewed: every non-junk file is taken.
 - Target: the open folder when a folder is open, otherwise Uncategorized. Optional tags and rating for every file of the batch come with phases 5 and 7.
 - Rust receives the paths and reads the files; file bytes never pass through the WebView.
 
@@ -318,7 +319,7 @@ One window with client-side routing and one library per window (D-024). The layo
 
 | Menu | Items (phase) |
 |---|---|
-| **File** | New Library… (1), Open Library… `Ctrl+O` (1), Open Recent ▸ (1), Close Library `Ctrl+W` (1) · Add Files… (2) · Import Eagle Library… (8), Connect to Eagle… (9), Export to Eagle… (11) · Settings… `Ctrl+,` (1) · Exit `Alt+F4` (1) |
+| **File** | New Library… (1), Open Library… `Ctrl+O` (1), Open Recent ▸ (1), Close Library `Ctrl+W` (1) · Add Files… (2), Import Folder… (2) · Import Eagle Library… (8), Connect to Eagle… (9), Export to Eagle… (11) · Settings… `Ctrl+,` (1) · Exit `Alt+F4` (1) |
 | **Edit** | Paste `Ctrl+V` (2) · Undo `Ctrl+Z` (7), Select All `Ctrl+A` (3), Copy File `Ctrl+C` (7), Move to Trash `Delete` (7), Find `Ctrl+F` (6) |
 | **View** | Theme ▸ System / Light / Dark (1), Full Screen `F11` (1) · Sidebar `Ctrl+B` (1), Details Panel `Ctrl+I` (1), Filter Bar (6) · Grid / List (3), Larger / Smaller Thumbnails `Ctrl+=` / `Ctrl+-` (3), Show Names (3), Sort By ▸ (3) · Preview `Space` (3) · Include Subfolders (4) |
 | **Library** | New Folder `Ctrl+Shift+N` (4) · Lock All Folders `Ctrl+L` (4) · Library Settings… (7), Back Up Now (7), Check Library (7), Rebuild Thumbnails (7), Show in Explorer (7) |
@@ -399,7 +400,7 @@ Each filter is a button with a dropdown panel. Later filters (size, dates, colou
 
 - v1 has uniform square cells with the image fitted on a neutral background; the column count follows the width and the size slider. Masonry and justified rows can come later as View modes, since width and height are stored. **List** shows a small thumbnail, name, type, size, dimensions, date added, rating and tags.
 - A cell shows the thumbnail, or the first palette colour and the extension until the thumbnail exists; stars when rated; the name under the image when View → Show Names is on. Selection is an outline.
-- Click, `Ctrl`, `Shift`, a rubber band and `Ctrl+A` select. Double-click or `Space` opens the full-size preview. `Enter` moves focus to the right bar and opens it if hidden. `Delete` moves the selection to the trash after a confirmation.
+- Click, `Ctrl`, `Shift`, a rubber band and `Ctrl+A` select. Double-click or `Space` opens the full-size preview. `Enter` moves focus to the right bar and opens it if hidden. `Delete` moves the selection to the trash after a confirmation; the confirmation has a "Don't ask again" checkbox that turns the confirmation off for good, and Settings → General turns it back on.
 - Files dragged onto the window show an overlay "Add to <scope>".
 - Empty states: a new library ("Drop images here", a big drop target and Add files), a folder without items, no results (with Clear filters), an empty trash.
 
@@ -432,7 +433,7 @@ Link     https://…  ↗
 | Phase | Adds |
 |---|---|
 | 1 | The whole frame: menu bar, both bars with resizable widths, toolbar, status bar. The left bar with All, Uncategorized, Untagged and Trash; the grid area with the new-library empty state; the right bar with "Select an item" |
-| 2 | Add Files, Edit → Paste, files dropped on the window, counts in the left bar and the toolbar, import progress in the status bar, the duplicate question, the Imports panel |
+| 2 | Add Files, Import Folder… (review before copy), Edit → Paste, files dropped on the window, counts in the left bar and the toolbar, import progress in the status bar, the duplicate question, the Imports panel |
 | 3 | The grid and the list, selection, sort, thumbnail size, the read-only right bar, the full-size preview |
 | 4 | The folder tree, Locked folders, Include subfolders, folder properties in the right bar |
 | 5 | The Filter button and the filter bar with the Tags filter, tag groups and recent tags, editing tags (one item and a selection) |
@@ -447,7 +448,7 @@ Link     https://…  ↗
 4. **Folder dialogs.** Create, rename, move, delete (with the item count and the trash option), lock and unlock. Lock and unlock, password change, and recovery are for the chosen folder. The lock dialog edits that folder's name and tag.
 5. **Imports panel.** Opened from the status bar: running and finished imports, progress, failures, duplicates.
 6. **Library settings** (dialog, Library menu). Name, location (reveal in Explorer), size on disk, backups (make one now, restore), rebuild thumbnails, check library.
-7. **Settings** (`Ctrl+,`; a dialog with its sections on the left). Phase 1 has **General**: theme (System, Light, Dark), reopen the last library on start, and the default folder for new libraries (`%USERPROFILE%\egl-library`, checked like any library location, D-021). Later sections arrive with their features, for example the Eagle connection and the language.
+7. **Settings** (`Ctrl+,`; a dialog with its sections on the left). Phase 1 has **General**: theme (System, Light, Dark), reopen the last library on start, whether `Delete` asks before moving items to the trash (the trash confirmation's "Don't ask again" turns this off; the switch turns it back on), and the default folder for new libraries (`%USERPROFILE%\egl-library`, checked like any library location, D-021). Later sections arrive with their features, for example the Eagle connection and the language.
 8. **About egl-viewer** (dialog). Icon, name, version, build date and commit, WebView2 version, links, and **Third-party licenses**: a file generated by the release build (phase 12), because the MIT and Apache licences of the dependencies require showing their texts.
 9. **Keyboard Shortcuts** (`F1`): every command with its shortcut, read from the command registry.
 10. **Eagle screens:** the import wizard (section 8.2), Connect (section 8.3), export (section 8.4).
@@ -882,9 +883,10 @@ Done when: a library created in a chosen folder reopens from Recent after a rest
 
 - `media`: BLAKE3 while copying, probing (dimensions, EXIF), thumbnails (512 px WebP) for the v1 formats including PSD composites, palettes.
 - `add_files`: file dialog, drop of files and folders, paste from the clipboard; batches on top of the phase 1 `add_file` (temp copy, journal, one transaction per item); duplicates handled per batch; background thumbnails; `import-progress` events; cancel.
+- `preview_import` and Import Folder…: review one picked folder (images preselected, exclude / include) before the same `add_files` path runs (D-061).
 - The Imports panel; counts in the left bar and the toolbar; asking before quitting or closing the library while files are being added.
 
-Done when: 1 000 mixed files (all v1 formats plus a few others) are added with thumbnails and palettes; killing the app during an import leaves a consistent library and adding the same files again reports them as duplicates; an undecodable file is added with a placeholder and a report line.
+Done when: 1 000 mixed files (all v1 formats plus a few others) are added with thumbnails and palettes; killing the app during an import leaves a consistent library and adding the same files again reports them as duplicates; an undecodable file is added with a placeholder and a report line; Import Folder… previews then adds only the confirmed selection.
 
 ### Phase 3 — Grid and detail
 
@@ -985,13 +987,7 @@ Done when the installer from CI installs and runs on a clean Windows 10 and Wind
 ### Later, outside the current scope
 
 - More formats: video (frames through a bundled LGPL `ffmpeg` process), audio, PDF (`pdfium`), fonts, RAW.
-- **Reviewed disk import**, after adding files and the grid work. The user picks one drive. Nothing is copied until they confirm.
-  - The walk skips Windows, Program Files, and cache directories. v1 images are selected by default. Other files are listed and unselected. A folder can be excluded, which excludes its children.
-  - Empty result: the list says nothing was found and offers another drive.
-  - Cancel before confirm leaves the library unchanged. Cancel during copy keeps items already added and reports the rest as cancelled.
-  - A file that is already in the library is a duplicate and follows the same skip / add / attach choice as a normal import.
-  - A locked target folder encrypts each copied file as it is added. A read-only library refuses the import.
-  - Copying uses the same pipeline as adding files. The source files stay where they were.
+- A full-disk reviewed scan (pick a drive, skip Windows / Program Files / caches) stays out of v1; Import Folder… covers the reviewed case for one chosen folder (D-061, EGL-31).
 - Linked folders; hard links instead of copies for imports from the same NTFS volume.
 - Writing comments; a longer undo history.
 - Sync between devices and remote access to a native library (arch §15.8).
@@ -1049,6 +1045,8 @@ Native library (`library-native`, `media`), with temporary folders:
 | Each v1 format, including a PSD | Dimensions, a thumbnail and a palette |
 | Undecodable file | Added with a placeholder |
 | Import of a folder with hidden and system files | They are skipped; nested folders are walked |
+| `preview_import` of a folder with images, text and a subfolder | Totals and tree; the picked folder is the root; nothing copied |
+| Reviewed import: exclude a subfolder, include a text file | Only the confirmed files are added; excluded folder not created |
 | Duplicates in one batch | Asked once; skip, add anyway or cancel holds for the rest |
 | Crash during an import, then open | No row without a file; previews not made yet are made; adding again reports duplicates |
 | Scopes All, Uncategorized, Untagged, Trash | One query each; trashed items only in Trash; tag strings shared |

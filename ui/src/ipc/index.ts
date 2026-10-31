@@ -14,6 +14,7 @@ import type { Folder } from "./generated/Folder";
 import type { FolderChange } from "./generated/FolderChange";
 import type { ImportFailure } from "./generated/ImportFailure";
 import type { ImportKind } from "./generated/ImportKind";
+import type { ImportPreview } from "./generated/ImportPreview";
 import type { ImportProgress } from "./generated/ImportProgress";
 import type { ImportState } from "./generated/ImportState";
 import type { ImportTicket } from "./generated/ImportTicket";
@@ -39,6 +40,7 @@ import type { PivPolicy } from "./generated/PivPolicy";
 import type { PivPrompt } from "./generated/PivPrompt";
 import type { PivWrap } from "./generated/PivWrap";
 import type { Preferences } from "./generated/Preferences";
+import type { PreviewEntry } from "./generated/PreviewEntry";
 import type { ReadOnlyReason } from "./generated/ReadOnlyReason";
 import type { RecentLibrary } from "./generated/RecentLibrary";
 import type { RecoveryKey } from "./generated/RecoveryKey";
@@ -58,6 +60,7 @@ import type { TagGroup } from "./generated/TagGroup";
 import type { TagGroupChange } from "./generated/TagGroupChange";
 import type { TagMode } from "./generated/TagMode";
 import type { Theme } from "./generated/Theme";
+import type { TrashInfo } from "./generated/TrashInfo";
 import type { UiLayout } from "./generated/UiLayout";
 import type { UndoStatus } from "./generated/UndoStatus";
 import type { ViewMode } from "./generated/ViewMode";
@@ -78,6 +81,7 @@ export type {
   FolderChange,
   ImportFailure,
   ImportKind,
+  ImportPreview,
   ImportProgress,
   ImportState,
   ImportTicket,
@@ -104,6 +108,7 @@ export type {
   PivPrompt,
   PivWrap,
   Preferences,
+  PreviewEntry,
   ReadOnlyReason,
   RecentLibrary,
   RecoveryKey,
@@ -122,6 +127,7 @@ export type {
   TagGroupChange,
   TagMode,
   Theme,
+  TrashInfo,
   UiLayout,
   UndoStatus,
   ViewMode,
@@ -138,6 +144,7 @@ export const DEFAULT_PREFERENCES: Preferences = {
   theme: "system",
   reopenLastLibrary: true,
   defaultLibraryParent: null,
+  confirmBeforeTrash: true,
   layout: { leftWidth: 240, rightWidth: 320, leftOpen: true, rightOpen: true },
   browse: {
     viewMode: "grid",
@@ -185,8 +192,14 @@ export const ipc = {
     invoke<Preferences>("set_preferences", { preferences }),
   startup: () => invoke<StartupResult>("startup"),
   libraryCounts: () => invoke<LibraryCounts>("library_counts"),
-  addFiles: (paths: string[], folder: string | null = null) =>
-    invoke<ImportTicket>("add_files", { paths, folder }),
+  addFiles: (
+    paths: string[],
+    folder: string | null = null,
+    exclude: string[] = [],
+    include: string[] = [],
+    reviewed = false,
+  ) => invoke<ImportTicket>("add_files", { paths, folder, exclude, include, reviewed }),
+  previewImport: (path: string) => invoke<ImportPreview>("preview_import", { path }),
   pasteFiles: (folder: string | null = null) =>
     invoke<ImportTicket | null>("paste_files", { folder }),
   answerImport: (id: number, answer: DuplicateAnswer) =>
@@ -218,6 +231,8 @@ export const ipc = {
   undoStatus: () => invoke<UndoStatus | null>("undo_status"),
   deletePermanently: (target: ItemsTarget) => invoke<number>("delete_permanently", { target }),
   emptyTrash: () => invoke<number>("empty_trash"),
+  trashInfo: () => invoke<TrashInfo>("trash_info"),
+  restoreTrash: () => invoke<number>("restore_trash"),
   openOriginal: (id: string) => invoke<void>("open_original", { id }),
   revealOriginals: (ids: string[]) => invoke<void>("reveal_originals", { ids }),
   copyOriginals: (ids: string[]) => invoke<number>("copy_originals", { ids }),

@@ -138,6 +138,19 @@ export function SettingsDialog({
             />
           </div>
           <div className="grid gap-1.5">
+            <div className="flex items-center justify-between gap-4">
+              <Label htmlFor="confirm-before-trash">Confirm before moving items to the trash</Label>
+              <Switch
+                id="confirm-before-trash"
+                checked={draft.confirmBeforeTrash}
+                onCheckedChange={(checked) => setDraft({ ...draft, confirmBeforeTrash: checked })}
+              />
+            </div>
+            <p className="text-xs text-muted-foreground">
+              Off: Delete moves the selection to the trash without asking.
+            </p>
+          </div>
+          <div className="grid gap-1.5">
             <Label htmlFor="default-folder">Default folder for new libraries</Label>
             <div className="flex gap-2">
               <Input

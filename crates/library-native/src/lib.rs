@@ -55,7 +55,7 @@ pub use add::{AddOutcome, Duplicates, Placement};
 pub use create::create_library;
 pub use detect::{is_native_library, looks_like_eagle_library};
 pub use import::{
-    DuplicateChoice, DuplicatePolicy, ImportObserver, ImportTarget, import_files,
+    DuplicateChoice, DuplicatePolicy, ImportFilter, ImportObserver, ImportTarget, import_files,
     make_pending_previews, preview_threads,
 };
 pub use library::{Library, OpenOptions};
