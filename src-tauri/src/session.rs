@@ -692,7 +692,6 @@ impl Session {
                     emit(Event::ExportProgress(progress));
                 };
                 let result = export_items(&library, id, &request, &task_cancel, &mut on_progress);
-                drop(on_progress);
                 if let Err(error) = result {
                     // The engine cleans up after itself; the UI just hears that the run failed.
                     let latest = lock(&progress_latest);
@@ -1823,7 +1822,7 @@ mod tests {
             .iter()
             .filter_map(|event| match event {
                 Event::ViewsInvalidated(views) => Some(views.views.clone()),
-                Event::ImportProgress(_) => None,
+                Event::ImportProgress(_) | Event::ExportProgress(_) => None,
             })
             .collect();
         assert_eq!(
@@ -1922,7 +1921,7 @@ mod tests {
             .rev()
             .find_map(|event| match event {
                 Event::ViewsInvalidated(views) => Some(views.views.clone()),
-                Event::ImportProgress(_) => None,
+                Event::ImportProgress(_) | Event::ExportProgress(_) => None,
             })
             .unwrap_or_default()
     }
