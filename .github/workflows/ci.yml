@@ -31,6 +31,12 @@ jobs:
       - name: libheif (HEIC/HEIF previews, D-063)
         run: vcpkg install libheif:x64-windows
 
+      # libheif-sys finds the vcpkg tree only through VCPKG_ROOT; the runner image
+      # exports VCPKG_INSTALLATION_ROOT instead, so set it for cargo build scripts.
+      - name: VCPKG_ROOT for libheif-sys
+        shell: bash
+        run: echo "VCPKG_ROOT=${VCPKG_INSTALLATION_ROOT:-C:/vcpkg}" >> "$GITHUB_ENV"
+
       - name: libheif on PATH for tests
         shell: bash
         run: echo "$VCPKG_ROOT/installed/x64-windows/bin" >> "$GITHUB_PATH"
@@ -87,6 +93,12 @@ jobs:
 
       - name: libheif (HEIC/HEIF previews, D-063)
         run: vcpkg install libheif:x64-windows
+
+      # libheif-sys finds the vcpkg tree only through VCPKG_ROOT; the runner image
+      # exports VCPKG_INSTALLATION_ROOT instead, so set it for cargo build scripts.
+      - name: VCPKG_ROOT for libheif-sys
+        shell: bash
+        run: echo "VCPKG_ROOT=${VCPKG_INSTALLATION_ROOT:-C:/vcpkg}" >> "$GITHUB_ENV"
 
       - name: libheif on PATH for tests
         shell: bash
