@@ -703,13 +703,13 @@ The Windows app adds files that the user picks in the file dialog (`tauri-plugin
 **Native library** (the main path):
 
 ```
-paths ──► Rust: an import task per batch, owned by AppState; files processed by a bounded pool
-      ──► per file (library-native add_file): stream-copy into <library>/files/.tmp/<ulid> while hashing (BLAKE3); sync_all
-      ──► duplicate? (content_hash index, the trash included) → the batch's choice: skip | add anyway | add existing item to the target folder
-      ──► INSERT pending_file(path), commit; rename the temp file to files/<shard>/<id>/<file name> (retried on sharing violations)
-      ──► INSERT item (+ folders, tags, change_log, item_fts) and DELETE pending_file in one transaction
-      ──► import-progress event; the item appears in views with the placeholder
-      ──► media job (rayon): probe, thumbnail, palette → UPDATE item, thumb_version += 1 → views-invalidated
+paths ─► Rust: an import task per batch, owned by AppState; files processed by a bounded pool
+      ─► per file (library-native add_file): stream-copy into <library>/files/.tmp/<ulid> while hashing (BLAKE3); sync_all
+      ─► duplicate? (content_hash index, the trash included) → the batch's choice: skip | add anyway | add existing item to the target folder
+      ─► INSERT pending_file(path), commit; rename the temp file to files/<shard>/<id>/<file name> (retried on sharing violations)
+      ─► INSERT item (+ folders, tags, change_log, item_fts) and DELETE pending_file in one transaction
+      ─► import-progress event; the item appears in views with the placeholder
+      ─► media job (rayon): probe, thumbnail, palette → UPDATE item, thumb_version += 1 → views-invalidated
 ```
 
 - A crash before the journal entry leaves only a file in `files/.tmp/`; opening the library deletes that folder's content. A crash after it leaves a `pending_file` row, and the next open deletes the file unless an item points at it. So a row never points at a missing file, and no file stays without a row, without walking `files/` (`library-format.md` §6, D-023). `synchronous = FULL` makes each commit durable, which this order relies on.
@@ -720,17 +720,17 @@ paths ──► Rust: an import task per batch, owned by AppState; files process
 **Running Eagle:**
 
 ```
-paths ──► Rust: one import task per file (sequential, through the write semaphore)
+paths ─► Rust: one import task per file (sequential, through the write semaphore)
       ├─ same PC as Eagle (127.0.0.1 / localhost):
       │     POST item/add { items: [{ path, name, folders:[F]?, tags?, annotation?, star?, modificationTime? }] }
       │     batch form even for one file: keeps star and modificationTime; Eagle copies the file (correction 35)
       └─ another PC:
             read the file (size limit, e.g. 50 MB) → base64 without line breaks
             POST item/add { base64: "data:<mime>;base64,…", name, folders:[F]?, tags?, website? }  (correction 1)
-      ──► { id } ──► "Importing…" cell (import-progress event)
-      ──► poll item/get {id}: 0.25/0.5/1/2/4 s                (correction 2; ~0.3 s live)
-      ──► appeared: (data URL only, if a star was chosen) item/update {star} (correction 11)
-      ──► drop snapshots, recompute views, the cell becomes the real item
+      ─► { id } ─► "Importing…" cell (import-progress event)
+      ─► poll item/get {id}: 0.25/0.5/1/2/4 s                (correction 2; ~0.3 s live)
+      ─► appeared: (data URL only, if a star was chosen) item/update {star} (correction 11)
+      ─► drop snapshots, recompute views, the cell becomes the real item
 ```
 
 - `name` is the file name without extension. Folder ids are checked against the tree first (correction 13).
