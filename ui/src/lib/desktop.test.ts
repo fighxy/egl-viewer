@@ -47,7 +47,7 @@ describe("desktop behaviour", () => {
     expect(scroll.defaultPrevented).toBe(false);
   });
 
-  it("replaces the browser context menu but keeps it in text fields", () => {
+  it("blocks the browser context menu on the page and in text fields", () => {
     uninstall = installDesktopBehaviour();
     const input = document.createElement("input");
     document.body.append(input);
@@ -56,7 +56,7 @@ describe("desktop behaviour", () => {
     expect(onPage.defaultPrevented).toBe(true);
     const inField = new MouseEvent("contextmenu", { cancelable: true, bubbles: true });
     input.dispatchEvent(inField);
-    expect(inField.defaultPrevented).toBe(false);
+    expect(inField.defaultPrevented).toBe(true);
     input.remove();
   });
 

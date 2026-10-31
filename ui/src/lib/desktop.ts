@@ -1,5 +1,5 @@
-// Desktop behaviour in the WebView: no browser context menu, reload, printing, find, page zoom
-// or history navigation (docs/architecture.md §8, D-029).
+// Desktop behaviour in the WebView: no browser context menu (anywhere, D-068), reload, printing,
+// find, page zoom or history navigation (docs/architecture.md §8, D-029).
 
 /** Browser shortcuts that do nothing in the app. Some become app commands later (Ctrl+F). */
 const BLOCKED_KEYS = new Set([
@@ -68,8 +68,10 @@ export function installDesktopBehaviour(target: Window = window): () => void {
     if (BLOCKED_KEYS.has(keyName(event))) event.preventDefault();
   };
   const onContextMenu = (event: MouseEvent) => {
-    // Text fields keep cut, copy and paste.
-    if (!isEditable(event.target)) event.preventDefault();
+    // Always block the WebView/Chromium menu, including on text fields (no emoji / password /
+    // cut-copy-paste chrome). App menus (Radix) still open: they handle the event on the
+    // target before this bubbling listener runs (D-042, D-068).
+    event.preventDefault();
   };
   // The browser menu is blocked after the page saw the event (bubbling, not capture): a menu
   // of the app, such as the folder tree's, ignores an event that was already prevented.

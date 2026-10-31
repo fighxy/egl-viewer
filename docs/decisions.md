@@ -1104,3 +1104,16 @@ entry does not collide.
   is a committed base64 file, decoded by `fixtures::heic()`: pure Rust has no HEIC encoder to
   make one in code. It does not vary with the fixture seed, so it stays out of
   `every_format()` and the duplicate-detection tests; the media tests use it directly.
+
+## D-068 No native WebView context menu anywhere (2026-10-31)
+
+- D-029 already said the WebView2 context menu is replaced by the app's own. Phase 1 still
+  left it on for `input` / `textarea` / contenteditable so cut, copy and paste stayed in the
+  browser chrome. That menu also offers emoji and password-import entries (localized by the
+  OS), which made the app feel like a browser page.
+- **Always** `preventDefault` on `contextmenu` in `installDesktopBehaviour`, including over
+  text fields. Clipboard shortcuts (`Ctrl+X` / `C` / `V`) still work in fields; there is no
+  app context menu for fields yet.
+- Keep the listener on the **bubbling** phase of the window (D-042): Radix `ContextMenu`
+  handlers on folder / item / tag triggers run first and open the app menu; a capture-phase
+  prevent would leave those menus dead.

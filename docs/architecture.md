@@ -817,7 +817,7 @@ Every command that works on a library goes through the open `LibrarySource`; a s
 
 **Desktop behaviour** (D-029). The WebView must not feel like a browser:
 
-- The default WebView2 context menu is off; right-click opens the app's own context menus (shadcn `ContextMenu`), built from the command registry.
+- The default WebView2 context menu is off everywhere, including text fields (D-068); right-click opens the app's own context menus (shadcn `ContextMenu`), built from the command registry, via a bubbling `preventDefault` so Radix still sees the event (D-042).
 - `F5`, `Ctrl+R`, `Ctrl+P`, the browser's `Ctrl+F`, back navigation and page zoom do nothing browser-like. `Ctrl` + mouse wheel and `Ctrl+=` / `Ctrl+-` change the thumbnail size instead.
 - Text in the chrome is not selectable (`user-select: none`); fields and notes are. Images are not draggable as web images; dragging files out of the window is native (phase 7).
 - Buttons show the arrow cursor, as desktop apps do. Focus rings appear only for keyboard focus (`:focus-visible`).
