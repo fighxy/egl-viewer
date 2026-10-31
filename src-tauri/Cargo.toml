@@ -35,6 +35,10 @@ tracing-subscriber.workspace = true
 ts-rs.workspace = true
 yubikey.workspace = true
 
+[target.'cfg(any(target_os = "macos", windows, target_os = "linux"))'.dependencies]
+tauri-plugin-process.workspace = true
+tauri-plugin-updater.workspace = true
+
 [target.'cfg(windows)'.dependencies]
 windows = { version = "0.62.2", features = [
     "Win32_Foundation",

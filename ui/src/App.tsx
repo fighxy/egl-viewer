@@ -70,6 +70,13 @@ import { replaced, useRecentTags } from "@/features/tags/recent";
 import { type TagDialog, TagDialogs } from "@/features/tags/TagDialogs";
 import type { TagActions } from "@/features/tags/TagMenu";
 import { TagSections } from "@/features/tags/TagSections";
+import { UpdateDialog, type UpdateDialogState } from "@/features/updates/UpdateDialog";
+import {
+  checkForUpdate,
+  dismissPendingUpdate,
+  installAndRelaunch,
+  progressLabel,
+} from "@/features/updates/updater";
 import { CreateLibraryDialog } from "@/features/welcome/CreateLibraryDialog";
 import { WelcomeScreen } from "@/features/welcome/WelcomeScreen";
 import {
@@ -271,6 +278,8 @@ function AppShell() {
   } | null>(null);
   const [importsOpen, setImportsOpen] = useState(false);
   const [confirmation, setConfirmation] = useState<Confirmation | null>(null);
+  const [updateDialog, setUpdateDialog] = useState<UpdateDialogState | null>(null);
+  const launchUpdateChecked = useRef(false);
   const [dropping, setDropping] = useState(false);
   const [place, setPlace] = useState<Place>({ kind: "all" });
   /** A sort picked on a screen whose folder has its own sort: that screen only. */
@@ -1256,6 +1265,24 @@ function AppShell() {
         changeLayout({ ...preferences.layout, rightOpen: !preferences.layout.rightOpen }, true),
       shortcuts: () => setDialog("shortcuts"),
       about: () => setDialog("about"),
+      checkForUpdates: () => {
+        void (async () => {
+          setUpdateDialog({ kind: "checking" });
+          try {
+            const update = await checkForUpdate();
+            if (!update) {
+              setUpdateDialog({
+                kind: "upToDate",
+                version: info?.version ?? "this build",
+              });
+              return;
+            }
+            setUpdateDialog({ kind: "available", update });
+          } catch (error: unknown) {
+            setUpdateDialog({ kind: "error", message: describeError(error) });
+          }
+        })();
+      },
       selectAll: () => setSelection((current) => everything(current)),
       preview: () => openPreview(selection.focus ?? 0, singleId(selection)),
       setViewMode: (viewMode) => changeBrowse({ ...browse, viewMode }, true),
@@ -1342,6 +1369,7 @@ function AppShell() {
       client,
       itemActions,
       place.kind,
+      info,
     ],
   );
 
@@ -1388,9 +1416,31 @@ function AppShell() {
     smartDialog !== null ||
     importsOpen ||
     confirmation !== null ||
+    updateDialog !== null ||
     imports.waiting !== undefined ||
     previewIndex !== null;
   useShortcuts(commandState, actions, !modalOpen);
+
+  // Silent update check once the login gate is open (production builds only; D-062).
+  useEffect(() => {
+    if (gate !== "open" || !inTauri() || import.meta.env.DEV || launchUpdateChecked.current) {
+      return;
+    }
+    launchUpdateChecked.current = true;
+    let cancelled = false;
+    void (async () => {
+      try {
+        const update = await checkForUpdate();
+        if (cancelled || !update) return;
+        setUpdateDialog({ kind: "available", update });
+      } catch {
+        // Launch checks stay quiet on network or config errors; Help → Check for Updates shows them.
+      }
+    })();
+    return () => {
+      cancelled = true;
+    };
+  }, [gate]);
 
   // Files dragged onto the window: an overlay, then an import (paths only, D-029). Originals
   // dragged out of this library and back over the window are not offered as new files.
@@ -1901,6 +1951,28 @@ function AppShell() {
           }
         />
         <ConfirmDialog confirmation={confirmation} onClose={() => setConfirmation(null)} />
+        <UpdateDialog
+          state={updateDialog}
+          onClose={() => {
+            void dismissPendingUpdate();
+            setUpdateDialog(null);
+          }}
+          onInstall={() => {
+            if (updateDialog?.kind !== "available") return;
+            const update = updateDialog.update;
+            setUpdateDialog({
+              kind: "downloading",
+              update,
+              progress: { downloaded: 0, contentLength: null },
+            });
+            void installAndRelaunch((progress) => {
+              setUpdateDialog({ kind: "downloading", update, progress });
+              setStatus(progressLabel(progress));
+            }).catch((error: unknown) => {
+              setUpdateDialog({ kind: "error", message: describeError(error) });
+            });
+          }}
+        />
         {opened.view && (
           <Preview
             viewId={opened.view.viewId}
