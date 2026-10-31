@@ -433,7 +433,7 @@ function AppShell() {
   // The open folder is gone (deleted) or locked again: back to All.
   useEffect(() => {
     if (place.kind !== "folder" || !folders.data) return;
-    const folder = findFolder(tree, place.id);
+    const folder = findFolder(folders.data, place.id);
     if (!folder || (folder.isLocked && !folder.isUnlocked)) setPlace({ kind: "all" });
   }, [place, folders.data]);
   const addingFiles = imports.running.some((progress) => progress.kind === "files");
@@ -1690,6 +1690,7 @@ function AppShell() {
                   cellSize={browse.thumbnailSize}
                   showNames={browse.showNames}
                   selection={selection}
+                  viewCount={selection}
                   onSelectionChange={setSelection}
                   onOpen={openPreview}
                   onEnter={focusDetails}
