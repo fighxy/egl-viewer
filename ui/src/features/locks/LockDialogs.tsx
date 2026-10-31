@@ -465,12 +465,8 @@ function UnlockFolder({
             <DialogDescription>
               {mode === "password" && t("locksUi.unlockHint")}
               {mode === "recovery" && t("locksUi.recoveryHint")}
-              {mode === "yubikey" &&
-                selected?.policy === "pin" &&
-                t("locksUi.yubiPinHint")}
-              {mode === "yubikey" &&
-                selected?.policy !== "pin" &&
-                t("locksUi.yubiTouchHint")}
+              {mode === "yubikey" && selected?.policy === "pin" && t("locksUi.yubiPinHint")}
+              {mode === "yubikey" && selected?.policy !== "pin" && t("locksUi.yubiTouchHint")}
             </DialogDescription>
           </DialogHeader>
           {mode === "password" && (
