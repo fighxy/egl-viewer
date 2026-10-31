@@ -170,9 +170,7 @@ function SmartEditor({
           {folder ? t("smart.editTitle", { name: folder.name }) : t("smart.newTitle")}
         </DialogTitle>
         <DialogDescription>
-          {parent
-            ? t("smart.insideParent", { name: parent.name })
-            : t("smart.topDescription")}
+          {parent ? t("smart.insideParent", { name: parent.name }) : t("smart.topDescription")}
         </DialogDescription>
       </DialogHeader>
       <div className="grid gap-3">

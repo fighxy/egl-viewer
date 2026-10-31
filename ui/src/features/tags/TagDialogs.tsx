@@ -112,9 +112,7 @@ export function TagDialogs({
         {dialog?.kind === "deleteGroup" && (
           <DialogContent showCloseButton={false}>
             <DialogHeader>
-              <DialogTitle>
-                {t("tagsUi.deleteGroupTitle", { name: group?.name ?? "" })}
-              </DialogTitle>
+              <DialogTitle>{t("tagsUi.deleteGroupTitle", { name: group?.name ?? "" })}</DialogTitle>
               <DialogDescription>{t("tagsUi.deleteGroupBody")}</DialogDescription>
             </DialogHeader>
             <DialogFooter>

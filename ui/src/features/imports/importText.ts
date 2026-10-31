@@ -79,8 +79,7 @@ export function importSummary(progress: ImportProgress): string {
       );
     case "cancelled":
       return (
-        i18n.t("imports.stopped", { count: progress.added, formatted: fmt(progress.added) }) +
-        tail
+        i18n.t("imports.stopped", { count: progress.added, formatted: fmt(progress.added) }) + tail
       );
   }
 }

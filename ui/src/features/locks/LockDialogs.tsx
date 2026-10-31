@@ -347,7 +347,9 @@ export function RecoveryKeyDialog({
               })
                 .then((path) =>
                   path
-                    ? ipc.saveRecoveryFile(path, folderName, recovery).then(() => t("locksUi.saved"))
+                    ? ipc
+                        .saveRecoveryFile(path, folderName, recovery)
+                        .then(() => t("locksUi.saved"))
                     : undefined,
                 )
                 .then((message) => message && setStatus(message))

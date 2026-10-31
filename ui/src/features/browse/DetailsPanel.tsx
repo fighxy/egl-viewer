@@ -481,9 +481,7 @@ function ItemDetails({
     <div className="grid min-h-0 content-start gap-4 overflow-y-auto">
       <button
         type="button"
-        title={
-          actions && !item.isDeleted ? t("details.fullSizeDrag") : t("details.fullSize")
-        }
+        title={actions && !item.isDeleted ? t("details.fullSizeDrag") : t("details.fullSize")}
         className="grid aspect-[4/3] touch-none place-items-center overflow-hidden rounded-md bg-grid outline-none focus-visible:ring-3 focus-visible:ring-ring/50"
         onClick={() => {
           if (!drag.consumeDrag()) onPreview();
@@ -505,7 +503,11 @@ function ItemDetails({
         )}
       </button>
       {item.palettes.length > 0 && (
-        <div className="flex h-4 overflow-hidden rounded" role="img" aria-label={t("details.palette")}>
+        <div
+          className="flex h-4 overflow-hidden rounded"
+          role="img"
+          aria-label={t("details.palette")}
+        >
           {item.palettes.map((entry) => (
             <span
               key={entry.color.join(",")}

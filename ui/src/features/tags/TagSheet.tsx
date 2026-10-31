@@ -14,14 +14,20 @@ export const VOCABULARY_SHOWN = 300;
 /** Match modes for tag/folder filters; labels and hints come from `t()` at render time. */
 export const TAG_MODES: readonly TagMode[] = ["any", "all", "exact", "none"];
 
-const MODE_LABEL: Record<TagMode, "filters.modeAny" | "filters.modeAll" | "filters.modeExact" | "filters.modeNone"> = {
+const MODE_LABEL: Record<
+  TagMode,
+  "filters.modeAny" | "filters.modeAll" | "filters.modeExact" | "filters.modeNone"
+> = {
   any: "filters.modeAny",
   all: "filters.modeAll",
   exact: "filters.modeExact",
   none: "filters.modeNone",
 };
 
-const MODE_HINT: Record<TagMode, "filters.hintAny" | "filters.hintAll" | "filters.hintExact" | "filters.hintNone"> = {
+const MODE_HINT: Record<
+  TagMode,
+  "filters.hintAny" | "filters.hintAll" | "filters.hintExact" | "filters.hintNone"
+> = {
   any: "filters.hintAny",
   all: "filters.hintAll",
   exact: "filters.hintExact",

@@ -14,12 +14,7 @@ import { Popover, PopoverContent, PopoverTrigger } from "@/components/ui/popover
 import { FolderPicker } from "@/features/folders/FolderPicker";
 import { findFolder } from "@/features/folders/tree";
 import type { TagActions } from "@/features/tags/TagMenu";
-import {
-  folderModeHintKey,
-  TAG_MODES,
-  TagSheet,
-  tagModeLabelKey,
-} from "@/features/tags/TagSheet";
+import { folderModeHintKey, TAG_MODES, TagSheet, tagModeLabelKey } from "@/features/tags/TagSheet";
 import type { ExtensionCount, Folder, Tag, TagGroup, TagMode } from "@/ipc";
 
 /** The filters of a screen, on top of its place (docs/spec.md §5). All combine with AND. */
@@ -65,7 +60,14 @@ export const SHAPES: readonly { value: string; label: string }[] = [
   { value: "panoramic-portrait", label: "Panoramic portrait" },
 ];
 
-const SHAPE_KEY: Record<string, "filters.square" | "filters.landscape" | "filters.portrait" | "filters.panoramicLandscape" | "filters.panoramicPortrait"> = {
+const SHAPE_KEY: Record<
+  string,
+  | "filters.square"
+  | "filters.landscape"
+  | "filters.portrait"
+  | "filters.panoramicLandscape"
+  | "filters.panoramicPortrait"
+> = {
   square: "filters.square",
   landscape: "filters.landscape",
   portrait: "filters.portrait",
@@ -109,8 +111,7 @@ export function FilterBar({
   const set = (change: Partial<Filters>) => onChange({ ...filters, ...change });
   const modeLabel = (mode: TagMode) => t(tagModeLabelKey(mode));
   const typeLabel = (ext: string) => (ext === "image" ? t("filters.images") : ext.toUpperCase());
-  const ratingLabel = (rating: number) =>
-    rating === 0 ? t("filters.unrated") : `${rating} ★`;
+  const ratingLabel = (rating: number) => (rating === 0 ? t("filters.unrated") : `${rating} ★`);
   const shapeLabel = (value: string) => {
     const key = SHAPE_KEY[value];
     return key ? t(key) : value;
@@ -203,7 +204,10 @@ export function FilterBar({
             }
           />
         </DropdownMenuTrigger>
-        <DropdownMenuContent aria-label={t("filters.typeFilter")} className="max-h-80 overflow-y-auto">
+        <DropdownMenuContent
+          aria-label={t("filters.typeFilter")}
+          className="max-h-80 overflow-y-auto"
+        >
           <DropdownMenuRadioGroup
             value={filters.ext ?? ANY}
             onValueChange={(value) => set({ ext: value === ANY ? null : value })}

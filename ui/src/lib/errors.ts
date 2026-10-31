@@ -1,5 +1,5 @@
-import type { LocationProblem, SourceError } from "@/ipc";
 import i18n from "@/i18n";
+import type { LocationProblem, SourceError } from "@/ipc";
 
 const LOCATION_KEYS: Record<LocationProblem, string> = {
   syncFolder: "errors.syncFolder",
