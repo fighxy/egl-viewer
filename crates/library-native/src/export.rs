@@ -268,19 +268,28 @@ pub fn export_items(
         summary: None,
         error: None,
     });
-    let conn = library.conn();
-    let sql = selection_sql(&conn, &request.selection, request.include_subfolders)?;
+    // The connection mutex is not reentrant: `load_export_items` and the writers lock it
+    // themselves, so every guard here is dropped before they run.
+    let sql = {
+        let conn = library.conn();
+        selection_sql(&conn, &request.selection, request.include_subfolders)?
+    };
     let items = load_export_items(library, &sql)?;
     if items.is_empty() {
         return Err(SourceError::Invalid("The selection has no items.".into()));
     }
-    let folder_rows = load_folder_rows(&conn)?;
-    let roots = layout_roots(&conn, &request.selection)?;
+    let (folder_rows, roots, base) = {
+        let conn = library.conn();
+        (
+            load_folder_rows(&conn)?,
+            layout_roots(&conn, &request.selection)?,
+            export_base(library, &conn, &request.selection),
+        )
+    };
     let (planned, manifest_items) = plan_layout(items, &folder_rows, &roots);
     let bytes_total = planned.iter().map(|p| p.item.size).sum();
     let destination = PathBuf::from(&request.destination);
     fs::create_dir_all(&destination).context("create the destination folder")?;
-    let base = export_base(library, &conn, &request.selection);
     let mut reporter = Reporter {
         emit: on_progress,
         id,
@@ -290,6 +299,8 @@ pub fn export_items(
         bytes_done: 0,
         last: Instant::now() - PROGRESS_EVERY,
     };
+    // Cloned up front so no name guard is held while files are written.
+    let library_name = library.name().clone();
     let outcome = match request.format {
         ExportFormat::Mirror => write_mirror(
             library,
@@ -297,7 +308,7 @@ pub fn export_items(
             &base,
             &planned,
             &manifest_items,
-            library.name().clone(),
+            library_name,
             cancel,
             &mut reporter,
         ),
@@ -307,7 +318,7 @@ pub fn export_items(
             &base,
             &planned,
             &manifest_items,
-            library.name().clone(),
+            library_name,
             compression,
             request.encrypt.as_deref(),
             cancel,
@@ -654,12 +665,13 @@ fn export_base(library: &Library, conn: &Connection, selection: &ExportSelection
         } else {
             None
         };
-    let name = file_name_for(raw.as_deref().unwrap_or("").trim(), "");
-    if name.is_empty() {
-        library.name().clone()
-    } else {
-        name
-    }
+    // `file_name_for` never returns an empty name (it falls back to "file"), so pick the
+    // library name before sanitizing rather than after.
+    let raw = raw
+        .map(|name| name.trim().to_owned())
+        .filter(|name| !name.is_empty())
+        .unwrap_or_else(|| library.name().clone());
+    file_name_for(&raw, "")
 }
 
 /// `folder/name.ext` as a path on disk.
