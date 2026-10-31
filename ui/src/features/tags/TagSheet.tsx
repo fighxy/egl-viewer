@@ -1,6 +1,7 @@
 import { cn } from "cn";
 import { Check, X } from "lucide-react";
 import { useState } from "react";
+import { useTranslation } from "react-i18next";
 import { Button } from "@/components/ui/button";
 import { FOLDER_COLORS } from "@/features/folders/tree";
 import type { Tag, TagGroup, TagMode } from "@/ipc";
@@ -10,12 +11,47 @@ import { type TagActions, TagMenu } from "./TagMenu";
 /** Rows of the full vocabulary drawn at once; typing narrows a longer list. */
 export const VOCABULARY_SHOWN = 300;
 
-export const TAG_MODES: readonly { mode: TagMode; label: string; hint: string }[] = [
-  { mode: "any", label: "Any", hint: "At least one of the tags" },
-  { mode: "all", label: "All", hint: "Every one of the tags" },
-  { mode: "exact", label: "Exact", hint: "These tags and no others" },
-  { mode: "none", label: "None", hint: "None of the tags" },
-];
+/** Match modes for tag/folder filters; labels and hints come from `t()` at render time. */
+export const TAG_MODES: readonly TagMode[] = ["any", "all", "exact", "none"];
+
+const MODE_LABEL: Record<TagMode, "filters.modeAny" | "filters.modeAll" | "filters.modeExact" | "filters.modeNone"> = {
+  any: "filters.modeAny",
+  all: "filters.modeAll",
+  exact: "filters.modeExact",
+  none: "filters.modeNone",
+};
+
+const MODE_HINT: Record<TagMode, "filters.hintAny" | "filters.hintAll" | "filters.hintExact" | "filters.hintNone"> = {
+  any: "filters.hintAny",
+  all: "filters.hintAll",
+  exact: "filters.hintExact",
+  none: "filters.hintNone",
+};
+
+const MODE_HINT_FOLDERS: Record<
+  TagMode,
+  | "filters.hintAnyFolders"
+  | "filters.hintAllFolders"
+  | "filters.hintExactFolders"
+  | "filters.hintNoneFolders"
+> = {
+  any: "filters.hintAnyFolders",
+  all: "filters.hintAllFolders",
+  exact: "filters.hintExactFolders",
+  none: "filters.hintNoneFolders",
+};
+
+export function tagModeLabelKey(mode: TagMode) {
+  return MODE_LABEL[mode];
+}
+
+export function tagModeHintKey(mode: TagMode) {
+  return MODE_HINT[mode];
+}
+
+export function folderModeHintKey(mode: TagMode) {
+  return MODE_HINT_FOLDERS[mode];
+}
 
 type Props = {
   vocabulary: readonly Tag[];
@@ -33,6 +69,7 @@ type Props = {
  * tags and tag groups. Tags are compared as exact strings; the search ignores case.
  */
 export function TagSheet({ vocabulary, groups, recent, selected, mode, onChange, actions }: Props) {
+  const { t, i18n } = useTranslation();
   const [search, setSearch] = useState("");
   const chosen = new Set(selected);
   const counts = new Map(vocabulary.map((tag) => [tag.name, tag.imageCount]));
@@ -70,23 +107,23 @@ export function TagSheet({ vocabulary, groups, recent, selected, mode, onChange,
   return (
     <div className="grid gap-2">
       <fieldset className="grid grid-cols-4 rounded-md border p-0.5">
-        <legend className="sr-only">Match</legend>
+        <legend className="sr-only">{t("filters.match")}</legend>
         {TAG_MODES.map((entry) => (
           <button
-            key={entry.mode}
+            key={entry}
             type="button"
-            aria-pressed={mode === entry.mode}
-            title={entry.hint}
+            aria-pressed={mode === entry}
+            title={t(tagModeHintKey(entry))}
             className="h-6 rounded text-xs outline-none hover:bg-accent focus-visible:ring-2 focus-visible:ring-ring/50 aria-pressed:bg-muted aria-pressed:font-medium"
-            onClick={() => onChange([...selected], entry.mode)}
+            onClick={() => onChange([...selected], entry)}
           >
-            {entry.label}
+            {t(tagModeLabelKey(entry))}
           </button>
         ))}
       </fieldset>
       <input
-        aria-label="Find a tag"
-        placeholder="Find a tag"
+        aria-label={t("tagsUi.searchTags")}
+        placeholder={t("tagsUi.searchTags")}
         value={search}
         onChange={(event) => setSearch(event.target.value)}
         className="h-7 rounded-md border bg-background px-2 text-[13px] outline-none focus:ring-2 focus:ring-ring/50"
@@ -94,8 +131,8 @@ export function TagSheet({ vocabulary, groups, recent, selected, mode, onChange,
       <div className="grid max-h-80 gap-2 overflow-y-auto">
         {search.trim() === "" && recentTags.length > 0 && (
           <section className="grid gap-1">
-            <h4 className="px-2 text-xs font-medium text-muted-foreground">Recent</h4>
-            {rows("Recent tags", recentTags)}
+            <h4 className="px-2 text-xs font-medium text-muted-foreground">{t("tagsUi.recent")}</h4>
+            {rows(t("tagsUi.recentTags"), recentTags)}
           </section>
         )}
         {search.trim() === "" &&
@@ -117,20 +154,21 @@ export function TagSheet({ vocabulary, groups, recent, selected, mode, onChange,
               </section>
             ))}
         <section className="grid gap-1">
-          <h4 className="px-2 text-xs font-medium text-muted-foreground">All tags</h4>
+          <h4 className="px-2 text-xs font-medium text-muted-foreground">{t("tagsUi.allTags")}</h4>
           {rows(
-            "All tags",
+            t("tagsUi.allTags"),
             found.slice(0, VOCABULARY_SHOWN).map((tag) => tag.name),
           )}
           {found.length > VOCABULARY_SHOWN && (
             <p className="px-2 py-1 text-xs text-muted-foreground">
-              {(found.length - VOCABULARY_SHOWN).toLocaleString("en")} more. Type to narrow the
-              list.
+              {t("tagsUi.moreNarrow", {
+                count: (found.length - VOCABULARY_SHOWN).toLocaleString(i18n.language),
+              })}
             </p>
           )}
           {found.length === 0 && (
             <p className="px-2 py-1 text-xs text-muted-foreground">
-              {vocabulary.length === 0 ? "No tags yet." : "No tag has that name."}
+              {vocabulary.length === 0 ? t("tagsUi.noTagsYet") : t("tagsUi.noTagMatch")}
             </p>
           )}
         </section>
@@ -146,7 +184,7 @@ export function TagSheet({ vocabulary, groups, recent, selected, mode, onChange,
               {name}
               <button
                 type="button"
-                aria-label={`Stop filtering by ${name}`}
+                aria-label={t("tagsUi.stopFiltering", { name })}
                 className="rounded p-0.5 hover:bg-background"
                 onClick={() => toggle(name)}
               >
@@ -155,7 +193,7 @@ export function TagSheet({ vocabulary, groups, recent, selected, mode, onChange,
             </span>
           ))}
           <Button variant="ghost" size="xs" onClick={() => onChange([], mode)}>
-            Clear
+            {t("tagsUi.clear")}
           </Button>
         </div>
       )}
