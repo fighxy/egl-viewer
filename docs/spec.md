@@ -30,7 +30,7 @@ egl-viewer keeps a collection of images and design references on the user's disk
 - **Trash:** items go to the trash first; the trash can be restored or emptied.
 - **Eagle compatibility (secondary, section 8):** import an Eagle `.library` folder into a native library; connect to a running Eagle and browse or edit its library; export a native library into Eagle.
 
-v1 file formats (D-015): JPEG, PNG, GIF, WebP, SVG, TIFF, BMP and the composite image of PSD files get dimensions, thumbnails and colour palettes. AVIF files are stored with a placeholder until a decoder is chosen (D-035). Any other file can still be added: it is stored and shown with an extension placeholder. Video, audio, PDF, fonts and RAW previews come later.
+v1 file formats (D-015): JPEG, PNG, GIF, WebP, SVG, TIFF, BMP, the composite image of PSD files and HEIC/HEIF (D-063) get dimensions, thumbnails and colour palettes. AVIF files are stored with a placeholder until a decoder is chosen (D-035). Any other file can still be added: it is stored and shown with an extension placeholder. Video, audio, PDF, fonts and RAW previews come later.
 
 ### Non-goals for v1
 
