@@ -1035,7 +1035,7 @@ fn encrypt_file(
     }
     writer
         .finish()
-        .and_then(|mut file| file.sync_all())
+        .and_then(|file| file.sync_all())
         .context("finish the encrypted archive")?;
     Ok(())
 }
