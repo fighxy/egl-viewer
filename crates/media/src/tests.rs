@@ -5,7 +5,7 @@ use std::fs;
 use image::ImageFormat;
 
 use crate::fixtures::{self, every_format};
-use crate::{Kind, MediaError, THUMBNAIL_SIZE, kind, render, render_bytes};
+use crate::{Kind, MediaError, THUMBNAIL_SIZE, has_preview, kind, render, render_bytes};
 
 fn write(dir: &std::path::Path, name: &str, bytes: &[u8]) -> std::path::PathBuf {
     let path = dir.join(name);
@@ -159,7 +159,10 @@ fn heic_extensions_are_previewed_and_broken_files_fail_cleanly() {
     }
     let dir = tempfile::tempdir().unwrap();
     let broken = write(dir.path(), "broken.heic", b"not a heic");
-    assert!(matches!(render(&broken, "heic"), Err(MediaError::Decode(_))));
+    assert!(matches!(
+        render(&broken, "heic"),
+        Err(MediaError::Decode(_))
+    ));
     assert!(matches!(
         render_bytes(b"not a heic", "heic"),
         Err(MediaError::Decode(_))
