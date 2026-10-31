@@ -1690,7 +1690,6 @@ function AppShell() {
                   cellSize={browse.thumbnailSize}
                   showNames={browse.showNames}
                   selection={selection}
-                  viewCount={selection}
                   onSelectionChange={setSelection}
                   onOpen={openPreview}
                   onEnter={focusDetails}
