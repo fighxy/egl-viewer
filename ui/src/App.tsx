@@ -150,6 +150,8 @@ const IMAGE_EXTENSIONS = [
   "tiff",
   "bmp",
   "psd",
+  "heic",
+  "heif",
 ];
 
 async function pickFiles(): Promise<string[]> {
@@ -1085,7 +1087,7 @@ function AppShell() {
     (id: string) => {
       const folder = findFolder(tree, id);
       if (folder?.isLocked && !folder.isUnlocked) setLockDialog({ kind: "unlock", id });
-      else setPlace({ kind: "folder", id });
+      else setPlace({ kind: "folder", id: createdOrId(id) });
     },
     [tree],
   );
