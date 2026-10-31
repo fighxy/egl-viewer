@@ -5,11 +5,11 @@ use std::sync::{Mutex, PoisonError};
 
 use app_store::{ConnectionSettings, LoginProof, LoginStatus, Preferences, RecentLibrary};
 use library_core::{
-    Backup, ExtensionCount, Folder, FolderChange, ImportPreview, ImportProgress, ImportTicket,
-    Item, ItemCell, ItemEdit, ItemId, LibraryCheck, LibraryCounts, LibraryInfo, LibraryQuery,
-    LibraryStats, PivPolicy, PivPrompt, PivWrap, RecoveryKey, RepairOptions, SelectionTags,
-    SmartFolder, SmartFolderChange, SourceError, Tag, TagGroup, TagGroupChange, TrashInfo,
-    UndoStatus, is_web_link,
+    Backup, ExportPreview, ExportProgress, ExportRequest, ExportSelection, ExtensionCount, Folder,
+    FolderChange, ImportPreview, ImportProgress, ImportTicket, Item, ItemCell, ItemEdit, ItemId,
+    LibraryCheck, LibraryCounts, LibraryInfo, LibraryQuery, LibraryStats, PivPolicy, PivPrompt,
+    PivWrap, RecoveryKey, RepairOptions, SelectionTags, SmartFolder, SmartFolderChange,
+    SourceError, Tag, TagGroup, TagGroupChange, TrashInfo, UndoStatus, is_web_link,
 };
 use library_native::{DuplicateChoice, ImportFilter};
 use serde::{Deserialize, Serialize};
@@ -555,6 +555,46 @@ pub async fn back_up_now(app: AppHandle) -> Result<Backup, SourceError> {
 #[tauri::command]
 pub async fn restore_backup(app: AppHandle, name: String) -> Result<LibraryInfo, SourceError> {
     blocking(app, move |session| session.restore_backup(&name)).await
+}
+
+/// What an export of `selection` would write: item count, bytes, and what stays hidden.
+#[tauri::command]
+pub async fn export_preview(
+    app: AppHandle,
+    selection: ExportSelection,
+    include_subfolders: bool,
+) -> Result<ExportPreview, SourceError> {
+    blocking(app, move |session| {
+        session.export_preview(selection, include_subfolders)
+    })
+    .await
+}
+
+/// Starts an export in the background; its progress arrives as `export-progress` events.
+#[tauri::command]
+pub async fn start_export(
+    app: AppHandle,
+    request: ExportRequest,
+) -> Result<ExportProgress, SourceError> {
+    blocking(app, move |session| session.start_export(request)).await
+}
+
+/// Asks a running export to stop; its partial output is removed.
+#[tauri::command]
+pub async fn cancel_export(app: AppHandle, id: u64) -> Result<(), SourceError> {
+    blocking(app, move |session| session.cancel_export(id)).await
+}
+
+/// Running exports, for a dialog that opens after its export started.
+#[tauri::command]
+pub async fn exports(app: AppHandle) -> Result<Vec<ExportProgress>, SourceError> {
+    blocking(app, move |session| Ok::<_, SourceError>(session.exports())).await
+}
+
+/// Shows an exported file or folder in Explorer.
+#[tauri::command]
+pub async fn reveal_path(path: String) -> Result<(), SourceError> {
+    tauri_plugin_opener::reveal_items_in_dir([PathBuf::from(path)]).map_err(opener_error)
 }
 
 #[tauri::command]

@@ -25,6 +25,8 @@ use crate::views::Event;
 
 /// Import progress for the UI (docs/architecture.md §8).
 const IMPORT_PROGRESS: &str = "import-progress";
+/// Export progress for the UI (docs/spec.md §7.4 item 12).
+const EXPORT_PROGRESS: &str = "export-progress";
 /// Views recomputed after a write; the UI refetches their visible windows.
 const VIEWS_INVALIDATED: &str = "views-invalidated";
 /// The window's close was held back because files are being added; the UI asks the user.
@@ -54,6 +56,7 @@ pub fn run() {
             let emit = Arc::new(move |event: Event| {
                 let _ = match event {
                     Event::ImportProgress(progress) => handle.emit(IMPORT_PROGRESS, progress),
+                    Event::ExportProgress(progress) => handle.emit(EXPORT_PROGRESS, progress),
                     Event::ViewsInvalidated(views) => handle.emit(VIEWS_INVALIDATED, views),
                 };
             });
@@ -74,8 +77,8 @@ pub fn run() {
         .on_window_event(|window, event| {
             if let WindowEvent::CloseRequested { api, .. } = event {
                 let session = window.state::<Session>();
-                if session.has_running_imports() {
-                    // Files are being added: the UI asks, then calls `quit` (arch §9).
+                if session.has_running_imports() || session.has_running_exports() {
+                    // Files are being added or exported: the UI asks, then calls `quit` (arch §9).
                     api.prevent_close();
                     let _ = window.emit(CLOSE_REQUESTED, ());
                 } else {
@@ -124,6 +127,11 @@ pub fn run() {
             commands::backups,
             commands::back_up_now,
             commands::restore_backup,
+            commands::export_preview,
+            commands::start_export,
+            commands::cancel_export,
+            commands::exports,
+            commands::reveal_path,
             commands::rename_library,
             commands::check_library,
             commands::repair_library,

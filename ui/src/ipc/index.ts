@@ -5,10 +5,18 @@ import type { AppInfo } from "./generated/AppInfo";
 import type { Backup } from "./generated/Backup";
 import type { BackupKind } from "./generated/BackupKind";
 import type { BrowsePreferences } from "./generated/BrowsePreferences";
+import type { Compression } from "./generated/Compression";
 import type { ConnectionSettings } from "./generated/ConnectionSettings";
 import type { DuplicateAnswer } from "./generated/DuplicateAnswer";
 import type { DuplicateNotice } from "./generated/DuplicateNotice";
 import type { EditKind } from "./generated/EditKind";
+import type { ExportFormat } from "./generated/ExportFormat";
+import type { ExportPreview } from "./generated/ExportPreview";
+import type { ExportProgress } from "./generated/ExportProgress";
+import type { ExportRequest } from "./generated/ExportRequest";
+import type { ExportSelection } from "./generated/ExportSelection";
+import type { ExportState } from "./generated/ExportState";
+import type { ExportSummary } from "./generated/ExportSummary";
 import type { ExtensionCount } from "./generated/ExtensionCount";
 import type { Folder } from "./generated/Folder";
 import type { FolderChange } from "./generated/FolderChange";
@@ -73,10 +81,18 @@ export type {
   Backup,
   BackupKind,
   BrowsePreferences,
+  Compression,
   ConnectionSettings,
   DuplicateAnswer,
   DuplicateNotice,
   EditKind,
+  ExportFormat,
+  ExportPreview,
+  ExportProgress,
+  ExportRequest,
+  ExportSelection,
+  ExportState,
+  ExportSummary,
   ExtensionCount,
   Folder,
   FolderChange,
@@ -148,6 +164,7 @@ export const DEFAULT_PREFERENCES: Preferences = {
   reopenLastLibrary: true,
   defaultLibraryParent: null,
   confirmBeforeTrash: true,
+  exportDestination: null,
   layout: { leftWidth: 240, rightWidth: 320, leftOpen: true, rightOpen: true },
   browse: {
     viewMode: "grid",
@@ -248,6 +265,13 @@ export const ipc = {
   backups: () => invoke<Backup[]>("backups"),
   backUpNow: () => invoke<Backup>("back_up_now"),
   restoreBackup: (name: string) => invoke<LibraryInfo>("restore_backup", { name }),
+  // Backup / Export (docs/spec.md §7.4 item 12).
+  exportPreview: (selection: ExportSelection, includeSubfolders: boolean) =>
+    invoke<ExportPreview>("export_preview", { selection, includeSubfolders }),
+  startExport: (request: ExportRequest) => invoke<ExportProgress>("start_export", { request }),
+  cancelExport: (id: number) => invoke<void>("cancel_export", { id }),
+  exports: () => invoke<ExportProgress[]>("exports"),
+  revealPath: (path: string) => invoke<void>("reveal_path", { path }),
   renameLibrary: (name: string) => invoke<LibraryInfo>("rename_library", { name }),
   checkLibrary: () => invoke<LibraryCheck>("check_library"),
   repairLibrary: (options: RepairOptions) => invoke<LibraryCheck>("repair_library", { options }),
@@ -329,6 +353,7 @@ export const ipc = {
 /** Events from Rust (docs/architecture.md §8). */
 export const EVENTS = {
   importProgress: "import-progress",
+  exportProgress: "export-progress",
   closeRequested: "close-requested",
   viewsInvalidated: "views-invalidated",
 } as const;

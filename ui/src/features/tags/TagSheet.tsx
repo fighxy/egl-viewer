@@ -66,8 +66,8 @@ type Props = {
   selected: readonly string[];
   mode: TagMode;
   onChange: (tags: string[], mode: TagMode) => void;
-  /** Rename, merge and delete from a row's context menu; absent in a read-only library. */
-  actions?: TagActions;
+  /** Export from a row's context menu, and rename, merge and delete in a writable library. */
+  actions: TagActions;
 };
 
 /**

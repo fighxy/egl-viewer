@@ -613,11 +613,7 @@ mod tests {
             Err(VaultError::WrongKey)
         ));
         assert!(blob.starts_with(AGE_MAGIC));
-        assert!(
-            !blob
-                .windows(6)
-                .any(|w| w == "Секрет".as_bytes()[..6].as_ref())
-        );
+        assert!(!blob.windows(6).any(|w| w == &"Секрет".as_bytes()[..6]));
     }
 
     #[test]

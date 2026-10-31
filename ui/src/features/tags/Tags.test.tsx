@@ -387,7 +387,7 @@ describe("Rename, merge and delete", () => {
     expect(called(calls, "delete_tag")[0]?.args).toEqual({ name: "Logo" });
   });
 
-  it("a read-only library has no tag menu", async () => {
+  it("a read-only library offers Export but no tag edits", async () => {
     library({ startup: () => ({ library: { ...LIBRARY, readOnly: true }, notice: null }) });
     const user = userEvent.setup();
     render(<App />);
@@ -397,7 +397,9 @@ describe("Rename, merge and delete", () => {
         name: "Poster",
       }),
     );
+    expect(await screen.findByRole("menuitem", { name: "Export…" })).toBeInTheDocument();
     expect(screen.queryByRole("menuitem", { name: "Rename…" })).not.toBeInTheDocument();
+    await user.keyboard("{Escape}");
     expect(screen.getByRole("button", { name: "New tag group" })).toBeDisabled();
   });
 });

@@ -391,6 +391,7 @@ export const en = {
     moveTrash: "Move to Trash",
   },
   tagMenu: {
+    export: "Export…",
     rename: "Rename…",
     merge: "Merge Into…",
     delete: "Delete…",

@@ -134,6 +134,8 @@ pub struct Preferences {
     /// `Delete` asks before moving items to the trash; off means the trash takes them at once.
     /// The trash confirmation can turn this off for good, Settings turns it back on.
     pub confirm_before_trash: bool,
+    /// Where the last Backup / Export wrote; the next one starts there (docs/spec.md §7.4 item 12).
+    pub export_destination: Option<String>,
     pub layout: UiLayout,
     pub browse: BrowsePreferences,
 }
@@ -146,6 +148,7 @@ impl Default for Preferences {
             reopen_last_library: true,
             default_library_parent: None,
             confirm_before_trash: true,
+            export_destination: None,
             layout: UiLayout::default(),
             browse: BrowsePreferences::default(),
         }
@@ -220,6 +223,7 @@ mod tests {
             reopen_last_library: false,
             default_library_parent: Some("D:\\Libraries".into()),
             confirm_before_trash: false,
+            export_destination: Some("D:\\Backups".into()),
             layout: UiLayout {
                 left_width: 50,
                 right_width: 999,

@@ -7,6 +7,7 @@ mod create;
 mod detect;
 mod edits;
 mod error;
+mod export;
 mod folders;
 mod fsutil;
 mod import;
@@ -54,6 +55,7 @@ mod tests;
 pub use add::{AddOutcome, Duplicates, Placement};
 pub use create::create_library;
 pub use detect::{is_native_library, looks_like_eagle_library};
+pub use export::{export_items, export_preview};
 pub use import::{
     DuplicateChoice, DuplicatePolicy, ImportFilter, ImportObserver, ImportTarget, import_files,
     make_pending_previews, preview_threads,

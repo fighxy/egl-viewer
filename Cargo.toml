@@ -61,6 +61,7 @@ ulid = "3.0.0"
 webp = { version = "0.3.1", default-features = false }
 winreg = "0.56.0"
 yubikey = { version = "0.8.0", features = ["untested"] }
+zip = { version = "9.2.0", default-features = false, features = ["deflate-flate2"] }
 zeroize = "1.9.1"
 
 [workspace.lints.rust]

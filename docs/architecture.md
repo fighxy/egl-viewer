@@ -110,6 +110,7 @@ The "Spec said" column quotes the wording of the **first** version of the spec (
 | Storage | `rusqlite` (`bundled`, FTS5 enabled), `ulid` | The native library (§15.3); on a blocking thread pool |
 | Media | `blake3`, `image`, `fast_image_resize`, `resvg`, `psd`, `kamadak-exif`, `webp` (libwebp), `libheif-rs` (system libheif, D-063), `rayon` | The media pipeline (§15.4, D-033) |
 | Passwords | `argon2`, `age`, `secrecy` | Each locked folder wraps its own age identity with Argon2id; files and sensitive columns are age ciphertext (D-018) |
+| Archives | `zip` 9.2 (`deflate-flate2` only) | Backup / Export of originals as a ZIP (D-064, D-065); age passphrase wraps the finished archive |
 | HTTP | `reqwest` (`rustls-tls`, default features off) | Only for Eagle; one client per endpoint |
 | Serialization | `serde`, `serde_json`, `ciborium` (Eagle offline cache, later), `base64` | |
 | Errors and logs | `thiserror`, `tracing`, `tracing-subscriber` | Logs never contain the token or raw folder bodies |
@@ -143,7 +144,7 @@ egl-viewer/
                              sort.rs (collation keys, random), view.rs (View, Views, ItemCell, ViewSource)
       edit/                  ItemEdit, cycle guard
       source.rs              the LibrarySource trait, Capabilities, SourceError (§15.2)
-    library-native/          the native library: SQLite + files + thumbnails (§15.3); no Tauri
+    library-native/          the native library: SQLite + files + thumbnails + export (§15.3, D-064); no Tauri
       schema.rs, schema/     format version, schema v1, migrations; docs/library-format.md describes it
       create.rs, name.rs     creating a library in a temporary folder; library names
       library.rs, lock.rs    open, close, read-only modes; library.lock (OS file lock)
@@ -792,6 +793,9 @@ Later, for phones: the WebView prepares the image (`createImageBitmap`, long edg
 | `open_original`, `reveal_originals`, `copy_originals`, `start_drag` | id / ids | — / count; Rust finds the files and refuses items of locked folders (D-052) |
 | `open_link` | url | — (`http` and `https` only) |
 | `backups`, `back_up_now`, `restore_backup` | —, —, file name | `Backup[]`, `Backup`, `LibraryInfo` (D-051) |
+| `export_preview` | `ExportSelection` (whole, folders, tags), include subfolders | `ExportPreview`: items, bytes, hidden in locked folders (D-064) |
+| `start_export`, `cancel_export`, `exports` | `ExportRequest` (selection, format, destination, optional age passphrase), id, — | `ExportProgress` (the task starts in the background) / — / running tasks |
+| `reveal_path` | an absolute path | — (Explorer) |
 | `rename_library`, `library_stats`, `reveal_library` | name, —, — | `LibraryInfo`, `LibraryStats`, — |
 | `rebuild_thumbnails`, `check_library`, `repair_library` | —, —, `RepairOptions` | items waiting, `LibraryCheck`, `LibraryCheck` |
 | `import_eagle_library` | `.library` path, target, options | import id (spec §8.2) |
@@ -803,7 +807,7 @@ Later, for phones: the WebView prepares the image (`createImageBitmap`, long edg
 
 Every command that works on a library goes through the open `LibrarySource`; a source that cannot do something returns `ReadOnly` or `NotSupported`, and the UI hides the control using `capabilities`.
 
-**Events** from Rust: `views-invalidated` (`{ views: [{ viewId, total }] }`, recomputed at most every 500 ms while an import writes and once at its end, before its final progress), `import-progress`, `close-requested` (the window's close was held back because files are being added; the UI asks, then calls `quit`), `library-closed` (the library folder disappeared or the lock was lost), and for Eagle `connection-state` and `library-changed` (another library was opened on the PC).
+**Events** from Rust: `views-invalidated` (`{ views: [{ viewId, total }] }`, recomputed at most every 500 ms while an import writes and once at its end, before its final progress), `import-progress`, `export-progress` (`ExportProgress` of a running Backup / Export, D-064; the final one carries the summary or the error), `close-requested` (the window's close was held back because files are being added or exported; the UI asks, then calls `quit`), `library-closed` (the library folder disappeared or the lock was lost), and for Eagle `connection-state` and `library-changed` (another library was opened on the PC).
 
 **UI structure.** Routes: `/welcome`, `/library` with the scope and the filters in typed search parameters, `/item/$id` as a side panel or a dialog, `/eagle/connect`, `/eagle/import`, `/eagle/export`. The tag, filter and sort sheets are components of the library screen, not routes. Server state lives in TanStack Query (keys per view window, per item, for the tree and the vocabulary); local UI state stays in components. The last `LibraryQuery` per library is saved by `app-store` so that the app reopens where it was.
 

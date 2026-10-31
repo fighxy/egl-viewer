@@ -1108,13 +1108,69 @@ entry does not collide.
   make one in code. It does not vary with the fixture seed, so it stays out of
   `every_format()` and the duplicate-detection tests; the media tests use it directly.
 
+## D-064 Export and Backup of originals (2026-10-31)
+
+- **What it is.** Library → Backup… and the Export… item of the folder and tag context menus
+  copy the originals of a scope (whole library, chosen folders with or without subfolders,
+  chosen tags, any mix) to a user-picked folder, as a plain folder tree or one ZIP archive.
+  The existing database backup (Back Up Now, restore) is unchanged and unrelated.
+- **Selection SQL.** One `WITH RECURSIVE` over all chosen folders plus an `EXISTS` per tag
+  name, `deleted_at IS NULL` and the `VISIBLE` lock rule; an item is counted and exported once
+  (`DISTINCT`). The preview (item count, byte sum) is the same query with `COUNT + SUM(size)`,
+  so the dialog's numbers cannot disagree with what is written. `hidden` counts what the
+  selection covers without `VISIBLE` — items of locked folders that stay home.
+- **Layout.** Selected folders mirror their subtree (`<export root>/<folder>/<sub>/file`);
+  the whole library mirrors every top-level folder and puts unfiled items at the root; a tag
+  export (or anything a folder tree does not cover) is flat. File names reuse
+  `file_name_for` (Windows-safe, D-050); a path collision becomes `name (2).ext`,
+  case-insensitively. The export root is named after the single selected folder or tag, else
+  the library; a second export into the same destination gets ` (2)`.
+- **Manifest.** `egl-export.json` at the export root carries the library name, the time and,
+  per item, id, name, tags, folders, rating, note, link and the written relative path — a bare
+  file copy keeps its metadata. There is no restore from an export in v1.
+- **Protection.** The archive option encrypts the ZIP with an **age passphrase**
+  (`Encryptor::with_user_passphrase`, scrypt) into `<name>.zip.age`; the password goes over
+  IPC like a lock password and is never stored. Decrypting is age CLI territory
+  (`age -d -p file.zip.age`). An export refuses a destination inside the library folder.
+- **Reads only.** A read-only library exports fine. Items of a locked folder are hidden like
+  everywhere else (`VISIBLE`); items of a folder unlocked in this session export decrypted,
+  streaming through the vault — plaintext never sits on disk inside the library.
+
+## D-065 The `zip` crate for export archives (2026-10-31)
+
+- **Choice.** `zip` **9.2** (MIT), default features off, `deflate-flate2` only: flate2 with the
+  pure Rust zlib-rs backend, no C, no zopfli/bzip2/lzma/zstd. `zip` is the same library Eagle
+  uses for `.eaglepack` (architecture §17), so the archives read everywhere.
+- **Compression levels.** None (Stored), Fast (deflate 1), Balanced (6, the default), Smallest
+  (9). Media is usually pre-compressed, so None is a first-class choice; v1 has no zstd.
+- **Writing.** `ZipWriter` over a `.zip.part` file in the destination (auto-large-file for
+  entries above 4 GiB), renamed on success — a crash or a cancel never leaves a half-written
+  archive under its final name. `set_auto_large_file` keeps zip64 entry sizes honest.
+- **Rejected.** `tar` + external gzip: no entry index without reading to the end, worse for
+  partial restores later. Per-entry AES of the zip crate: nonstandard readers; age over the
+  whole archive (D-064) is one well-audited construction instead.
+
+## D-066 Export progress and tasks (2026-10-31)
+
+- **Background task, event progress.** `start_export` returns at once; the work runs on a
+  named thread holding `Arc<Library>` and reports `export-progress` events through the session
+  emitter, the same shape as imports (D-022). The dialog subscribes by task id; `cancel_export`
+  sets a flag the engine checks between files and removes the partial output. Closing the
+  library or the window stops exports like imports.
+- **Why not a `Channel`.** A channel dies with the dialog; the event registry lets the dialog
+  reopen onto a running export (`exports` lists it) and keeps one mechanism for long file
+  work. Channels stay for genuinely modal waits (open view, locking).
+- **Final states.** `done` carries the summary (items, files, bytes, missing names, path);
+  `failed` carries the message; `cancelled` means the partial output was removed. The engine
+  removes partial output on any non-success, so a failed export never masquerades as a backup.
+
 ## D-067 Justified library grid (2026-10-31)
 
 - **Layout.** The grid mode is justified rows (Flickr / Google Photos): one height per row, each
   cell width from `ItemCell.width` / `height` (aspect), rows fill the container width, `8px`
   gutters, rounded thumbs. The thumbnail size slider is the **target row height** (still
   80–320 px). Show Names keeps the existing name-only caption under the thumb (no WxH line).
-  List mode is unchanged. Number skipped D-064…D-066: those are claimed on `feat/export-library`.
+  List mode is unchanged.
 - **Packing data.** Stable row breaks need sizes for every position, not only the visible
   windows. `view_dimensions(viewId) → Vec<[u32; 2]>` returns stored pixels (zeros = unknown →
   square). That is numbers only — still not a whole `ItemCell` list over IPC. Invalidated with
