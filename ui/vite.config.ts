@@ -22,6 +22,8 @@ export default defineConfig({
   test: {
     environment: "jsdom",
     setupFiles: ["./src/test/setup.ts"],
+    // Leaves room for the 5 s async query timeout set in setup.ts.
+    testTimeout: 20_000,
     // Vitest blanks CSS imports unless a file is included. The scrollbar test reads index.css.
     css: { include: [/index\.css/] },
   },

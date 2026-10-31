@@ -1,8 +1,13 @@
 import "@testing-library/jest-dom/vitest";
 import { clearMocks } from "@tauri-apps/api/mocks";
-import { cleanup } from "@testing-library/react";
+import { cleanup, configure } from "@testing-library/react";
 import { afterEach } from "vitest";
 import { setAppLocale } from "@/i18n";
+
+// The first render of the whole app in a test file loads every feature module and the
+// locale catalogs; on a cold Windows CI runner that alone can outlast the 1 s default of
+// `findBy*`/`waitFor`, leaving the app on the Welcome screen when the query gives up.
+configure({ asyncUtilTimeout: 5000 });
 
 // jsdom lacks what Radix menus and dialogs call.
 class ResizeObserverStub {
