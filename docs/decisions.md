@@ -455,8 +455,8 @@ gigabytes. Thumbnails are encoded at quality 80 by the `webp` crate, which build
 - **Counts** of the left bar and the toolbar arrive in phase 2 (D-032 expected them in phase 3):
   with files going in, the screen needs to show that they did.
 - **Checks:** 1 020 files (1 000 previews, 20 PDF placeholders) in 2.6 s in a release build on Linux
-  (the ignored test `a_thousand_mixed_files`). In the real app under Xvfb: pasting an image from the
-  clipboard, adding files through the GTK file dialog, the Imports panel and the duplicate
+  (the ignored test `a_thousand_mixed_files`). In the real app under Xvfb: pasting an image from
+  the clipboard, adding files through the GTK file dialog, the Imports panel and the duplicate
   question. The Windows checks are still open.
 
 ## D-038 Dependencies of phase 3 (2026-10-28)
