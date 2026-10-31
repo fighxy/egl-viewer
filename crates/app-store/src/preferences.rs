@@ -115,6 +115,9 @@ pub struct Preferences {
     pub reopen_last_library: bool,
     /// Where Create library starts; `None` means `%USERPROFILE%\egl-library` (D-021).
     pub default_library_parent: Option<String>,
+    /// `Delete` asks before moving items to the trash; off means the trash takes them at once.
+    /// The trash confirmation can turn this off for good, Settings turns it back on.
+    pub confirm_before_trash: bool,
     pub layout: UiLayout,
     pub browse: BrowsePreferences,
 }
@@ -125,6 +128,7 @@ impl Default for Preferences {
             theme: Theme::System,
             reopen_last_library: true,
             default_library_parent: None,
+            confirm_before_trash: true,
             layout: UiLayout::default(),
             browse: BrowsePreferences::default(),
         }
@@ -181,6 +185,7 @@ mod tests {
         assert_eq!(preferences.theme, Theme::System);
         assert!(preferences.reopen_last_library);
         assert_eq!(preferences.default_library_parent, None);
+        assert!(preferences.confirm_before_trash);
         assert_eq!(preferences.layout, UiLayout::default());
         assert_eq!(preferences.browse.view_mode, ViewMode::Grid);
         assert_eq!(preferences.browse.sort, SortKey::DateAdded);
@@ -195,6 +200,7 @@ mod tests {
             theme: Theme::Dark,
             reopen_last_library: false,
             default_library_parent: Some("D:\\Libraries".into()),
+            confirm_before_trash: false,
             layout: UiLayout {
                 left_width: 50,
                 right_width: 999,
@@ -236,6 +242,7 @@ mod tests {
         let preferences: Preferences = serde_json::from_str(r#"{ "theme": "light" }"#).unwrap();
         assert_eq!(preferences.theme, Theme::Light);
         assert!(preferences.reopen_last_library);
+        assert!(preferences.confirm_before_trash);
     }
 
     #[test]

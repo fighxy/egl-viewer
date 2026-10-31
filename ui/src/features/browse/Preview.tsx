@@ -104,7 +104,7 @@ export function Preview({ viewId, total, index, onIndexChange, onClose, onLost }
             else if (event.key === "-") zoomTo(zoom / 1.25);
             else if (event.key === "0") zoomTo(1);
             else if (
-              event.key.toLowerCase() === "r" &&
+              event.code === "KeyR" &&
               !event.ctrlKey &&
               !event.metaKey &&
               !event.altKey &&

@@ -205,8 +205,16 @@ describe("Browsing a library", () => {
     fireEvent.click(within(preview).getByRole("button", { name: "Rotate clockwise" }));
     expect(image.style.transform).toContain("rotate(90deg)");
 
-    fireEvent.keyDown(preview, { key: "r" });
+    fireEvent.keyDown(preview, { key: "r", code: "KeyR" });
     expect(image.style.transform).toContain("rotate(180deg)");
+
+    // The same physical key on the Russian layout, and Ctrl+R, which is not a rotation.
+    fireEvent.keyDown(preview, { key: "к", code: "KeyR" });
+    expect(image.style.transform).toContain("rotate(270deg)");
+    fireEvent.keyDown(preview, { key: "r", code: "KeyR", ctrlKey: true });
+    expect(image.style.transform).toContain("rotate(270deg)");
+    fireEvent.keyDown(preview, { key: "к", code: "KeyR", ctrlKey: true });
+    expect(image.style.transform).toContain("rotate(270deg)");
 
     fireEvent.keyDown(preview, { key: "ArrowRight" });
     const next = await screen.findByRole("dialog", { name: "image-1" });

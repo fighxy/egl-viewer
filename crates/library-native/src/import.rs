@@ -1,7 +1,7 @@
 //! Adding many files: walking dropped folders, one duplicate decision per batch, cancelling,
 //! progress, and previews on a small thread pool (docs/spec.md §4, docs/architecture.md §7.4).
 
-use std::collections::HashMap;
+use std::collections::{HashMap, HashSet};
 use std::fs;
 use std::path::{Path, PathBuf};
 use std::sync::atomic::{AtomicBool, Ordering};
@@ -9,11 +9,12 @@ use std::sync::{Mutex, PoisonError};
 use std::time::{Duration, Instant};
 
 use library_core::{
-    DuplicateNotice, ImportFailure, ImportKind, ImportProgress, ImportState, ItemEdit, ItemId,
-    SourceError,
+    DuplicateNotice, ImportFailure, ImportKind, ImportPreview, ImportProgress, ImportState,
+    ItemEdit, ItemId, PreviewEntry, SourceError,
 };
 
 use crate::add::{AddOutcome, Duplicates, Placement};
+use crate::error::Result;
 use crate::library::Library;
 use crate::time::now_ms;
 
@@ -53,6 +54,33 @@ struct Source {
     folders: Vec<String>,
 }
 
+/// What a reviewed import takes, decided in the preview dialog (docs/spec.md §4). An empty
+/// filter with `reviewed` off takes everything, as an unreviewed add does.
+#[derive(Debug, Clone, Default)]
+pub struct ImportFilter {
+    /// Relative paths (folders or files) to skip while walking.
+    pub exclude: HashSet<String>,
+    /// Non-image files to take anyway; only read when `reviewed` is on.
+    pub include: HashSet<String>,
+    /// The reviewed import: a file that is not an image is skipped unless it is in `include`.
+    pub reviewed: bool,
+}
+
+impl ImportFilter {
+    fn takes_file(&self, rel: &str, image: bool) -> bool {
+        !self.exclude.contains(rel) && (!self.reviewed || image || self.include.contains(rel))
+    }
+}
+
+/// `parent` with `name` below it; the root's children have no prefix.
+fn rel_join(parent: &str, name: &str) -> String {
+    if parent.is_empty() {
+        name.to_owned()
+    } else {
+        format!("{parent}/{name}")
+    }
+}
+
 /// Receives progress and answers the duplicate question. `decide` may block until the user
 /// chooses.
 pub trait ImportObserver: Send + Sync {
@@ -75,19 +103,22 @@ pub fn preview_threads() -> usize {
 
 /// Adds `sources` (files and folders, walked recursively) and makes their previews.
 /// Returns the final progress. Cancelling stops after the current file; added files stay, and
-/// previews not made yet are left for the next open.
+/// previews not made yet are left for the next open. `filter` is what a reviewed import
+/// confirmed.
+#[allow(clippy::too_many_arguments)] // observer, cancel and filter sit beside the import inputs
 pub fn import_files(
     library: &Library,
     id: u64,
     sources: &[PathBuf],
     target: &ImportTarget,
+    filter: &ImportFilter,
     policy: DuplicatePolicy,
     observer: &dyn ImportObserver,
     cancel: &AtomicBool,
 ) -> ImportProgress {
     let tracker = Tracker::new(id, ImportKind::Files, observer);
     tracker.update(true, |progress| progress.state = ImportState::Scanning);
-    let (files, refused) = collect(library.root(), sources, cancel);
+    let (files, refused) = collect(library.root(), sources, filter, cancel);
     tracker.update(true, |progress| {
         progress.total = u32::try_from(files.len() + refused.len()).unwrap_or(u32::MAX);
         progress.processed = u32::try_from(refused.len()).unwrap_or(u32::MAX);
@@ -393,6 +424,7 @@ fn make_preview(
 fn collect(
     root: &Path,
     sources: &[PathBuf],
+    filter: &ImportFilter,
     cancel: &AtomicBool,
 ) -> (Vec<Source>, Vec<ImportFailure>) {
     let root = root.canonicalize().unwrap_or_else(|_| root.to_path_buf());
@@ -424,20 +456,34 @@ fn collect(
                 .file_name()
                 .map(|name| name.to_string_lossy().into_owned())
                 .unwrap_or_else(|| "Imported".into());
-            walk(source, &[name], &mut files, cancel);
+            walk(source, &[name], "", filter, &mut files, cancel);
         } else if !is_junk(source) {
-            files.push(Source {
-                path: source.clone(),
-                folders: Vec::new(),
-            });
+            let rel = source
+                .file_name()
+                .map(|name| name.to_string_lossy().into_owned())
+                .unwrap_or_default();
+            if filter.takes_file(&rel, media::has_preview(&extension(source))) {
+                files.push(Source {
+                    path: source.clone(),
+                    folders: Vec::new(),
+                });
+            }
         }
     }
     (files, refused)
 }
 
-/// Every file under `dir`, in name order, with the folders above it; hidden and system files
-/// and linked folders are skipped.
-fn walk(dir: &Path, folders: &[String], files: &mut Vec<Source>, cancel: &AtomicBool) {
+/// Every taken file under `dir`, in name order, with the folders above it and its path
+/// relative to the source root; hidden and system files, linked folders and what `filter`
+/// skips stay out.
+fn walk(
+    dir: &Path,
+    folders: &[String],
+    rel: &str,
+    filter: &ImportFilter,
+    files: &mut Vec<Source>,
+    cancel: &AtomicBool,
+) {
     let Ok(entries) = fs::read_dir(dir) else {
         return;
     };
@@ -454,11 +500,18 @@ fn walk(dir: &Path, folders: &[String], files: &mut Vec<Source>, cancel: &Atomic
         if is_junk(&path) || is_hidden(&entry) {
             continue;
         }
+        let name = entry.file_name().to_string_lossy().into_owned();
+        let child_rel = rel_join(rel, &name);
         if kind.is_dir() {
+            if filter.exclude.contains(&child_rel) {
+                continue;
+            }
             let mut below = folders.to_vec();
-            below.push(entry.file_name().to_string_lossy().into_owned());
-            walk(&path, &below, files, cancel);
-        } else if kind.is_file() || (kind.is_symlink() && path.is_file()) {
+            below.push(name);
+            walk(&path, &below, &child_rel, filter, files, cancel);
+        } else if (kind.is_file() || (kind.is_symlink() && path.is_file()))
+            && filter.takes_file(&child_rel, media::has_preview(&extension(&path)))
+        {
             files.push(Source {
                 path,
                 folders: folders.to_vec(),
@@ -507,6 +560,97 @@ fn failure_for(path: &Path, reason: String) -> ImportFailure {
         path: path.to_string_lossy().into_owned(),
         reason,
     }
+}
+
+/// At most this many entries (folders and files) the import preview lists; its totals still
+/// count everything under the picked folder (docs/spec.md §4).
+const PREVIEW_CAP: usize = 10_000;
+
+impl Library {
+    /// Walks `source` for a reviewed import and answers what is there, with counts, bytes and
+    /// the folder tree; nothing is copied. A refused source (missing, or already inside the
+    /// library) is an error, like it is for the import itself.
+    pub fn preview_import(&self, source: &Path) -> Result<ImportPreview> {
+        let cancel = AtomicBool::new(false);
+        let (files, refused) = collect(
+            self.root(),
+            &[source.to_path_buf()],
+            &ImportFilter::default(),
+            &cancel,
+        );
+        if let Some(failure) = refused.into_iter().next() {
+            return Err(SourceError::Invalid(format!(
+                "{}: {}",
+                failure.path, failure.reason
+            )));
+        }
+        Ok(build_preview(files))
+    }
+}
+
+/// The preview tree from walked files: totals exact, siblings in walk order, the listing cut
+/// at [`PREVIEW_CAP`] entries (`unlisted` counts the files past it).
+fn build_preview(files: Vec<Source>) -> ImportPreview {
+    let mut preview = ImportPreview {
+        files: u32::try_from(files.len()).unwrap_or(u32::MAX),
+        bytes: 0,
+        unlisted: 0,
+        tree: Vec::new(),
+    };
+    let mut listed = 0usize;
+    for source in &files {
+        let size = fs::metadata(&source.path).map_or(0, |metadata| metadata.len());
+        preview.bytes = preview.bytes.saturating_add(size);
+        let name = source
+            .path
+            .file_name()
+            .map(|name| name.to_string_lossy().into_owned())
+            .unwrap_or_default();
+        let file = PreviewEntry {
+            name,
+            folder: false,
+            bytes: size,
+            image: media::has_preview(&extension(&source.path)),
+            children: Vec::new(),
+        };
+        // The folders below the source root, created on first sight.
+        let mut level = &mut preview.tree;
+        let mut rel = String::new();
+        let mut made_it = true;
+        for part in &source.folders {
+            rel = rel_join(&rel, part);
+            let index = level
+                .iter()
+                .position(|entry| entry.folder && entry.name == *part);
+            let node = match index {
+                Some(index) => &mut level[index],
+                None => {
+                    if listed >= PREVIEW_CAP {
+                        made_it = false;
+                        break;
+                    }
+                    listed += 1;
+                    level.push(PreviewEntry {
+                        name: part.clone(),
+                        folder: true,
+                        bytes: 0,
+                        image: false,
+                        children: Vec::new(),
+                    });
+                    level.last_mut().expect("just pushed")
+                }
+            };
+            node.bytes = node.bytes.saturating_add(size);
+            level = &mut node.children;
+        }
+        if !made_it || listed >= PREVIEW_CAP {
+            preview.unlisted = preview.unlisted.saturating_add(1);
+            continue;
+        }
+        listed += 1;
+        level.push(file);
+    }
+    preview
 }
 
 fn note_failure(progress: &mut ImportProgress, failure: ImportFailure) {

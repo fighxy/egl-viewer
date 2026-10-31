@@ -5,12 +5,13 @@ use std::sync::{Mutex, PoisonError};
 
 use app_store::{ConnectionSettings, LoginProof, LoginStatus, Preferences, RecentLibrary};
 use library_core::{
-    Backup, ExtensionCount, Folder, FolderChange, ImportProgress, ImportTicket, Item, ItemCell,
-    ItemEdit, ItemId, LibraryCheck, LibraryCounts, LibraryInfo, LibraryQuery, LibraryStats,
-    PivPolicy, PivPrompt, PivWrap, RecoveryKey, RepairOptions, SelectionTags, SmartFolder,
-    SmartFolderChange, SourceError, Tag, TagGroup, TagGroupChange, UndoStatus, is_web_link,
+    Backup, ExtensionCount, Folder, FolderChange, ImportPreview, ImportProgress, ImportTicket,
+    Item, ItemCell, ItemEdit, ItemId, LibraryCheck, LibraryCounts, LibraryInfo, LibraryQuery,
+    LibraryStats, PivPolicy, PivPrompt, PivWrap, RecoveryKey, RepairOptions, SelectionTags,
+    SmartFolder, SmartFolderChange, SourceError, Tag, TagGroup, TagGroupChange, TrashInfo,
+    UndoStatus, is_web_link,
 };
-use library_native::DuplicateChoice;
+use library_native::{DuplicateChoice, ImportFilter};
 use serde::{Deserialize, Serialize};
 use tauri::ipc::Channel;
 use tauri::{AppHandle, Manager, State, WebviewWindow};
@@ -441,6 +442,18 @@ pub async fn empty_trash(app: AppHandle) -> Result<u32, SourceError> {
     blocking(app, Session::empty_trash).await
 }
 
+/// Items and bytes of the trash, for the context menu of the Trash row.
+#[tauri::command]
+pub async fn trash_info(app: AppHandle) -> Result<TrashInfo, SourceError> {
+    blocking(app, Session::trash_info).await
+}
+
+/// Restore All of the trash context menu: every visible trash item comes back.
+#[tauri::command]
+pub async fn restore_trash(app: AppHandle) -> Result<u32, SourceError> {
+    blocking(app, Session::restore_trash).await
+}
+
 /// Opens the original with the app Windows associates with its type.
 #[tauri::command]
 pub async fn open_original(app: AppHandle, id: ItemId) -> Result<(), SourceError> {
@@ -669,14 +682,33 @@ pub async fn reorder_items(
 }
 
 /// Files and folders by path (picked, dropped or pasted), into `folder` when one is open;
-/// their bytes never cross IPC.
+/// their bytes never cross IPC. `exclude` and `include` are what a reviewed import confirmed:
+/// relative paths from each source root, `/` separated; with `reviewed`, a file that is not an
+/// image is skipped unless it is in `include`.
 #[tauri::command]
 pub async fn add_files(
     app: AppHandle,
     paths: Vec<String>,
     folder: Option<String>,
+    exclude: Vec<String>,
+    include: Vec<String>,
+    reviewed: bool,
 ) -> Result<ImportTicket, SourceError> {
-    blocking(app, move |session| session.add_files(paths, folder)).await
+    let filter = ImportFilter {
+        exclude: exclude.into_iter().collect(),
+        include: include.into_iter().collect(),
+        reviewed,
+    };
+    blocking(app, move |session| {
+        session.add_files_filtered(paths, folder, filter)
+    })
+    .await
+}
+
+/// Walks `path` for a reviewed import and answers what is there; nothing is copied.
+#[tauri::command]
+pub async fn preview_import(app: AppHandle, path: String) -> Result<ImportPreview, SourceError> {
+    blocking(app, move |session| session.preview_import(&path)).await
 }
 
 /// Copied files or an image on the clipboard; `None` when there is nothing to add.

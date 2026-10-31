@@ -14,7 +14,15 @@ import {
 import type { ComponentType, ReactNode } from "react";
 import type { Availability } from "@/commands/registry";
 import { Button } from "@/components/ui/button";
+import {
+  ContextMenu,
+  ContextMenuContent,
+  ContextMenuItem,
+  ContextMenuSeparator,
+  ContextMenuTrigger,
+} from "@/components/ui/context-menu";
 import { Slider } from "@/components/ui/slider";
+import { formatBytes } from "@/features/browse/format";
 import { SortButton } from "@/features/browse/SortButton";
 import { plural } from "@/features/imports/importText";
 import {
@@ -25,6 +33,7 @@ import {
   type Scope,
   type SortKey,
   THUMBNAIL_SIZES,
+  type TrashInfo,
   type UiLayout,
 } from "@/ipc";
 import { ReadOnlyBanner } from "./ReadOnlyBanner";
@@ -96,6 +105,12 @@ type Props = {
   onClearFilters?: () => void;
   /** Buttons of the open place in the toolbar, for example Empty Trash. */
   placeActions?: ReactNode;
+  /** Items and bytes of the trash, for the context menu of its row. */
+  trashInfo?: TrashInfo | null;
+  /** Restore All of the trash context menu: every item comes back. */
+  onRestoreTrash?: () => void;
+  /** Empty Trash… of the trash context menu (asks first). */
+  onEmptyTrash?: () => void;
 };
 
 type Row = {
@@ -185,6 +200,9 @@ export function LibraryScreen({
   onFilterOpenChange,
   onClearFilters,
   placeActions,
+  trashInfo,
+  onRestoreTrash,
+  onEmptyTrash,
 }: Props) {
   const total =
     itemCount ??
@@ -201,6 +219,7 @@ export function LibraryScreen({
   const known = itemCount !== undefined || counts;
 
   const barShown = filterBar !== undefined && (filterOpen || filterCount > 0);
+  const trashCount = trashInfo?.items ?? counts?.trash ?? 0;
 
   let body: ReactNode;
   if (total > 0 && content) {
@@ -289,8 +308,8 @@ export function LibraryScreen({
                 )}
               </div>
               <ul className="grid gap-px">
-                {SCOPES.map(({ id, label, icon: Icon }) => (
-                  <li key={id}>
+                {SCOPES.map(({ id, label, icon: Icon }) => {
+                  const row = (
                     <button
                       type="button"
                       aria-current={id === place.kind ? "page" : undefined}
@@ -305,8 +324,47 @@ export function LibraryScreen({
                         </span>
                       )}
                     </button>
-                  </li>
-                ))}
+                  );
+                  if (id !== "trash") return <li key={id}>{row}</li>;
+                  const trashDisabled = trashCount === 0 || library.readOnly;
+                  const trashTitle = library.readOnly
+                    ? "This library is read-only."
+                    : trashCount === 0
+                      ? "The trash is empty."
+                      : undefined;
+                  return (
+                    <li key={id}>
+                      <ContextMenu>
+                        <ContextMenuTrigger asChild>{row}</ContextMenuTrigger>
+                        <ContextMenuContent>
+                          <p className="px-2 py-1 text-xs text-muted-foreground">
+                            {trashInfo
+                              ? `${plural(trashInfo.items, "item")} · ${formatBytes(trashInfo.bytes)}`
+                              : counts
+                                ? plural(counts.trash, "item")
+                                : "Trash"}
+                          </p>
+                          <ContextMenuSeparator />
+                          <ContextMenuItem
+                            disabled={trashDisabled}
+                            title={trashTitle}
+                            onSelect={() => onRestoreTrash?.()}
+                          >
+                            Restore All
+                          </ContextMenuItem>
+                          <ContextMenuItem
+                            disabled={trashDisabled}
+                            title={trashTitle}
+                            className="text-destructive focus:text-destructive"
+                            onSelect={() => onEmptyTrash?.()}
+                          >
+                            Empty Trash…
+                          </ContextMenuItem>
+                        </ContextMenuContent>
+                      </ContextMenu>
+                    </li>
+                  );
+                })}
               </ul>
               {folderTree}
               {lockedFolders}

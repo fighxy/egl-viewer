@@ -327,6 +327,9 @@ describe("Folder membership", () => {
       expect(called(calls, "add_files")[0]?.args).toEqual({
         paths: ["C:\\in\\a.jpg"],
         folder: "F3",
+        exclude: [],
+        include: [],
+        reviewed: false,
       }),
     );
 

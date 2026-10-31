@@ -25,13 +25,22 @@ const BLOCKED_KEYS = new Set([
   "BrowserRefresh",
 ]);
 
+/** The layout-independent letter for KeyA–KeyZ, so shortcuts work on non-Latin layouts. */
+function letterOf(code: string): string | null {
+  return /^Key[A-Z]$/.test(code) ? code.slice(3) : null;
+}
+
 export function keyName(event: KeyboardEvent): string {
   const parts: string[] = [];
   if (event.ctrlKey || event.metaKey) parts.push("Ctrl");
   if (event.altKey) parts.push("Alt");
   if (event.shiftKey) parts.push("Shift");
   const key =
-    event.key === " " ? "Space" : event.key.length === 1 ? event.key.toUpperCase() : event.key;
+    event.key === " "
+      ? "Space"
+      : event.key.length === 1
+        ? (letterOf(event.code) ?? event.key.toUpperCase())
+        : event.key;
   parts.push(key);
   return parts.join("+");
 }

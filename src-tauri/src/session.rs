@@ -1,7 +1,7 @@
 //! The open library, its import tasks and the app's files, without Tauri: what the commands
 //! call, and what the tests drive (docs/architecture.md §7.4, §9, D-022, D-024).
 
-use std::collections::HashMap;
+use std::collections::{HashMap, HashSet};
 use std::path::{Path, PathBuf};
 use std::sync::atomic::{AtomicBool, Ordering};
 use std::sync::{Arc, Condvar, Mutex, MutexGuard, PoisonError};
@@ -14,16 +14,16 @@ use app_store::{
 };
 use library_core::{
     Backup, DuplicateNotice, ExtensionCount, Folder, FolderChange, FolderIndex, ImportKind,
-    ImportProgress, ImportState, ImportTicket, Item, ItemCell, ItemEdit, ItemId, LibraryCheck,
-    LibraryCounts, LibraryInfo, LibraryQuery, LibrarySource, LibraryStats, LocationProblem,
-    PivPolicy, PivPrompt, PivWrap, Progress, ReadOnlyReason, RecoveryKey, RepairOptions,
-    SelectionTags, SmartFolder, SmartFolderChange, SourceError, Tag, TagGroup, TagGroupChange,
-    Thumbnail, UndoStack, UndoStatus, Views, rules_from_query,
+    ImportPreview, ImportProgress, ImportState, ImportTicket, Item, ItemCell, ItemEdit, ItemId,
+    LibraryCheck, LibraryCounts, LibraryInfo, LibraryQuery, LibrarySource, LibraryStats,
+    LocationProblem, PivPolicy, PivPrompt, PivWrap, Progress, ReadOnlyReason, RecoveryKey,
+    RepairOptions, SelectionTags, SmartFolder, SmartFolderChange, SourceError, Tag, TagGroup,
+    TagGroupChange, Thumbnail, TrashInfo, UndoStack, UndoStatus, Views, rules_from_query,
 };
 use library_native::{
-    DuplicateChoice, DuplicatePolicy, ImportObserver, ImportTarget, Library, NativeSource,
-    OpenOptions, check_enrollment, create_library, import_files, make_pending_previews,
-    utc_file_stamp,
+    DuplicateChoice, DuplicatePolicy, ImportFilter, ImportObserver, ImportTarget, Library,
+    NativeSource, OpenOptions, check_enrollment, create_library, import_files,
+    make_pending_previews, utc_file_stamp,
 };
 use secrecy::SecretString;
 use serde::Serialize;
@@ -384,6 +384,16 @@ impl Session {
         paths: Vec<String>,
         folder: Option<String>,
     ) -> Result<ImportTicket, SourceError> {
+        self.add_files_filtered(paths, folder, ImportFilter::default())
+    }
+
+    /// `add_files` for a reviewed import: `filter` is what its preview dialog confirmed.
+    pub fn add_files_filtered(
+        &self,
+        paths: Vec<String>,
+        folder: Option<String>,
+        filter: ImportFilter,
+    ) -> Result<ImportTicket, SourceError> {
         let library = self.writable_library()?;
         let target = self.import_target(&library, folder)?;
         let sources: Vec<PathBuf> = paths.into_iter().map(PathBuf::from).collect();
@@ -396,6 +406,7 @@ impl Session {
                     id,
                     &sources,
                     &target,
+                    &filter,
                     DuplicatePolicy::Ask,
                     observer,
                     cancel,
@@ -403,6 +414,13 @@ impl Session {
             },
         );
         Ok(ImportTicket { id })
+    }
+
+    /// Walks `path` for a reviewed import and answers what is there; refuses like the import
+    /// (a read-only library, or a folder already inside this one).
+    pub fn preview_import(&self, path: &str) -> Result<ImportPreview, SourceError> {
+        self.writable_library()?;
+        ready(self.source()?.preview_import(Path::new(path)))
     }
 
     fn import_target(
@@ -471,7 +489,7 @@ impl Session {
             .ok_or_else(|| SourceError::Invalid("Select All needs its view.".into()))?;
         let mut views = lock(&self.views);
         let view = views.get(view_id).ok_or(SourceError::NotFound)?;
-        let except: std::collections::HashSet<&ItemId> = target.ids.iter().collect();
+        let except: HashSet<&ItemId> = target.ids.iter().collect();
         Ok(view
             .ids(0, view.total())
             .into_iter()
@@ -515,6 +533,26 @@ impl Session {
         let removed = ready(self.source()?.empty_trash())?;
         self.refresh_views();
         Ok(removed)
+    }
+
+    /// Items and bytes of the trash, for the context menu of its row.
+    pub fn trash_info(&self) -> Result<TrashInfo, SourceError> {
+        ready(self.source()?.trash_info())
+    }
+
+    /// Restore All of the trash context menu: every visible trash item comes back with its
+    /// folders and tags. `Ctrl+Z` can take it back.
+    pub fn restore_trash(&self) -> Result<u32, SourceError> {
+        let source = self.source()?;
+        let ids = ready(source.trash_ids())?;
+        if ids.is_empty() {
+            return Ok(0);
+        }
+        let before = self.writable_library()?.item_states(&ids)?;
+        let restored = ready(source.apply_batch_edit(&ids, ItemEdit::Restore))?;
+        lock(&self.undo).push(&ItemEdit::Restore, &before);
+        self.refresh_views();
+        Ok(restored)
     }
 
     /// The originals of the selected items, for Open, Show in Explorer, Copy File and dragging
@@ -972,6 +1010,7 @@ impl Session {
                     id,
                     &[file],
                     &target,
+                    &ImportFilter::default(),
                     DuplicatePolicy::Ask,
                     observer,
                     cancel,
@@ -2283,6 +2322,129 @@ mod tests {
         // The trash edit is still the last undoable one; its items are gone, so nothing returns.
         f.session.undo().unwrap();
         assert_eq!(f.session.counts().unwrap().all, 1);
+    }
+
+    #[test]
+    fn the_trash_menu_counts_sums_and_restores_everything() {
+        let f = fixture();
+        f.session
+            .create_library(&f.home.path().to_string_lossy(), "Trash menu")
+            .unwrap();
+        let ticket = f.session.add_files(images(f.home.path(), 3), None).unwrap();
+        finished(&f.session, ticket.id);
+        let all = f
+            .session
+            .open_view(LibraryQuery::default(), &|_, _| {})
+            .unwrap();
+        let ids = f.session.view_ids(all.view_id, 0, 3).unwrap();
+        let target = |ids: &[ItemId]| ItemsTarget {
+            view_id: None,
+            all: false,
+            ids: ids.to_vec(),
+        };
+        f.session
+            .apply_batch_edit(target(&ids[..2]), ItemEdit::Trash)
+            .unwrap();
+        let info = f.session.trash_info().unwrap();
+        assert_eq!(info.items, 2);
+        assert!(info.bytes > 0);
+
+        assert_eq!(f.session.restore_trash().unwrap(), 2);
+        assert_eq!(f.session.counts().unwrap().trash, 0);
+        assert_eq!(f.session.counts().unwrap().all, 3);
+        // Restore All is one undoable edit: Ctrl+Z trashes the items again.
+        let undone = f.session.undo().unwrap().unwrap();
+        assert_eq!(undone.kind, library_core::EditKind::Restore);
+        assert_eq!(f.session.counts().unwrap().trash, 2);
+        assert_eq!(f.session.trash_info().unwrap().items, 2);
+        // An empty trash restores nothing and is not remembered for undo: the last undoable
+        // edit is still the move to the trash, its items gone for good.
+        f.session.empty_trash().unwrap();
+        assert_eq!(f.session.restore_trash().unwrap(), 0);
+        assert_eq!(
+            f.session.undo_status().unwrap().kind,
+            library_core::EditKind::Trash
+        );
+    }
+
+    #[test]
+    fn a_reviewed_import_previews_then_takes_only_what_was_confirmed() {
+        let f = fixture();
+        let info = f
+            .session
+            .create_library(&f.home.path().to_string_lossy(), "Reviewed")
+            .unwrap();
+        // The picked folder: an image at the top, a text file, and a subfolder with both.
+        let picked = f.home.path().join("incoming");
+        let nested = picked.join("skip me");
+        std::fs::create_dir_all(&nested).unwrap();
+        for (path, bytes) in [
+            (
+                picked.join("a.png"),
+                media::fixtures::raster(image::ImageFormat::Png, 8, 8, 1),
+            ),
+            (picked.join("b.txt"), b"notes".to_vec()),
+            (
+                nested.join("c.png"),
+                media::fixtures::raster(image::ImageFormat::Png, 8, 8, 2),
+            ),
+            (nested.join("d.txt"), b"more".to_vec()),
+        ] {
+            std::fs::write(path, bytes).unwrap();
+        }
+
+        let preview = f.session.preview_import(&picked.to_string_lossy()).unwrap();
+        assert_eq!(preview.files, 4);
+        assert!(preview.bytes > 0);
+        assert_eq!(preview.unlisted, 0);
+        // The picked folder itself is the root of the tree, as it becomes the library folder.
+        let names: Vec<_> = preview
+            .tree
+            .iter()
+            .map(|entry| entry.name.as_str())
+            .collect();
+        assert_eq!(names, ["incoming"]);
+        let root = &preview.tree[0];
+        assert!(root.folder);
+        assert_eq!(root.bytes, preview.bytes);
+        let children: Vec<_> = root
+            .children
+            .iter()
+            .map(|entry| entry.name.as_str())
+            .collect();
+        assert_eq!(children, ["a.png", "b.txt", "skip me"]);
+        let nested = root.children.iter().find(|entry| entry.folder).unwrap();
+        let deep: Vec<_> = nested
+            .children
+            .iter()
+            .map(|entry| entry.name.as_str())
+            .collect();
+        assert_eq!(deep, ["c.png", "d.txt"]);
+        assert!(root.children[0].image && !root.children[1].image);
+
+        // The library itself refuses, like the import would.
+        assert!(
+            f.session
+                .preview_import(&info.path.clone().unwrap())
+                .is_err()
+        );
+
+        // Confirm: skip the subfolder, take the text file at the top anyway.
+        let filter = ImportFilter {
+            exclude: HashSet::from(["skip me".to_owned()]),
+            include: HashSet::from(["b.txt".to_owned()]),
+            reviewed: true,
+        };
+        let ticket = f
+            .session
+            .add_files_filtered(vec![picked.to_string_lossy().into_owned()], None, filter)
+            .unwrap();
+        finished(&f.session, ticket.id);
+        assert_eq!(f.session.counts().unwrap().all, 2);
+        let tree = f.session.folder_tree().unwrap();
+        assert_eq!(tree.len(), 1);
+        assert_eq!(tree[0].name, "incoming");
+        assert!(tree[0].children.is_empty());
     }
 
     #[test]

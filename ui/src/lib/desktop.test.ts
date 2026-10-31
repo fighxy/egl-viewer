@@ -18,12 +18,17 @@ describe("desktop behaviour", () => {
     );
     expect(keyName(new KeyboardEvent("keydown", { key: ",", ctrlKey: true }))).toBe("Ctrl+,");
     expect(keyName(new KeyboardEvent("keydown", { key: "F11" }))).toBe("F11");
+    // A letter key keeps its shortcut name on a non-Latin layout.
+    expect(keyName(new KeyboardEvent("keydown", { key: "к", code: "KeyR", ctrlKey: true }))).toBe(
+      "Ctrl+R",
+    );
   });
 
   it("blocks reload, printing, the browser's find and page zoom", () => {
     uninstall = installDesktopBehaviour();
     expect(press({ key: "F5" })).toBe(true);
     expect(press({ key: "r", ctrlKey: true })).toBe(true);
+    expect(press({ key: "к", code: "KeyR", ctrlKey: true })).toBe(true);
     expect(press({ key: "p", ctrlKey: true })).toBe(true);
     expect(press({ key: "f", ctrlKey: true })).toBe(true);
     expect(press({ key: "=", ctrlKey: true })).toBe(true);

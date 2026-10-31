@@ -12,7 +12,9 @@ use library_core::{
 use media::fixtures;
 use rusqlite::params;
 
-use crate::import::{DuplicateChoice, DuplicatePolicy, ImportObserver, ImportTarget, import_files};
+use crate::import::{
+    DuplicateChoice, DuplicatePolicy, ImportFilter, ImportObserver, ImportTarget, import_files,
+};
 use crate::test_support::*;
 use crate::{Library, OpenOptions};
 
@@ -375,6 +377,7 @@ fn imports_go_into_the_open_folder_and_mirror_dropped_folders() {
         1,
         &[dropped.clone(), loose.clone()],
         &into,
+        &ImportFilter::default(),
         DuplicatePolicy::Ask,
         &Answer(DuplicateChoice::Skip),
         &AtomicBool::new(false),
@@ -401,6 +404,7 @@ fn imports_go_into_the_open_folder_and_mirror_dropped_folders() {
         &ImportTarget {
             folder: Some(elsewhere.clone()),
         },
+        &ImportFilter::default(),
         DuplicatePolicy::Ask,
         &Answer(DuplicateChoice::AddToFolder),
         &AtomicBool::new(false),

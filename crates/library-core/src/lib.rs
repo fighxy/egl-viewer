@@ -23,9 +23,10 @@ pub use maintenance::{
 };
 pub use model::{
     AddTarget, ChangeToken, Changes, DuplicateNotice, ExtensionCount, Folder, ImportFailure,
-    ImportKind, ImportProgress, ImportState, ImportTicket, Item, ItemId, ItemLite, LibraryCounts,
-    LibraryHolder, LibraryInfo, LibraryKind, NewFile, Palette, PivPolicy, PivPrompt, PivWrap,
-    ReadOnlyReason, RecoveryKey, SmartFolder, Tag, TagGroup, Thumbnail,
+    ImportKind, ImportPreview, ImportProgress, ImportState, ImportTicket, Item, ItemId, ItemLite,
+    LibraryCounts, LibraryHolder, LibraryInfo, LibraryKind, NewFile, Palette, PivPolicy, PivPrompt,
+    PivWrap, PreviewEntry, ReadOnlyReason, RecoveryKey, SmartFolder, Tag, TagGroup, Thumbnail,
+    TrashInfo,
 };
 pub use query::filter::{FolderIndex, matches_tags, shape_of, type_matches};
 pub use query::search::{SearchExpr, SearchMatch, fold, parse_search};

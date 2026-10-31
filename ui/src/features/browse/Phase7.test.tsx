@@ -3,7 +3,7 @@ import { act, fireEvent, render, screen, waitFor, within } from "@testing-librar
 import userEvent from "@testing-library/user-event";
 import { afterEach, beforeEach, describe, expect, it } from "vitest";
 import { App } from "@/App";
-import type { ItemEdit, LibraryCheck, LibraryQuery } from "@/ipc";
+import { DEFAULT_PREFERENCES, type ItemEdit, type LibraryCheck, type LibraryQuery } from "@/ipc";
 import {
   CLEAN_CHECK,
   called,
@@ -176,6 +176,44 @@ describe("Phase 7: editing, the trash and file actions", () => {
     expect(called(calls, "undo")).toHaveLength(1);
   });
 
+  it("stops asking after Don't ask again, and skips the dialog when the setting is off", async () => {
+    const calls = library();
+    const user = userEvent.setup();
+    render(<App />);
+    await pick("image-0");
+    await waitFor(() => expect(screen.getByRole("contentinfo")).toHaveTextContent("1 selected"));
+    fireEvent.keyDown(screen.getByRole("grid", { name: "Items" }), { key: "Delete" });
+    const dialog = await screen.findByRole("dialog", { name: "Move to the trash?" });
+    expect(dialog).toHaveTextContent("You can turn this back on in Settings.");
+    await user.click(within(dialog).getByRole("checkbox", { name: "Don't ask again" }));
+    await user.click(within(dialog).getByRole("button", { name: "Move to Trash" }));
+    await waitFor(() =>
+      expect(called(calls, "set_preferences").at(-1)?.args).toEqual({
+        preferences: { ...DEFAULT_PREFERENCES, confirmBeforeTrash: false },
+      }),
+    );
+
+    // The next Delete goes straight to the trash.
+    await pick("image-1");
+    await waitFor(() => expect(screen.getByRole("contentinfo")).toHaveTextContent("1 selected"));
+    fireEvent.keyDown(screen.getByRole("grid", { name: "Items" }), { key: "Delete" });
+    await waitFor(() => expect(called(calls, "apply_batch_edit")).toHaveLength(2));
+    expect(screen.queryByRole("dialog", { name: "Move to the trash?" })).not.toBeInTheDocument();
+  });
+
+  it("moves to the trash without asking when the confirmation is off in Settings", async () => {
+    const calls = library(3, {
+      get_preferences: () => ({ ...DEFAULT_PREFERENCES, confirmBeforeTrash: false }),
+    });
+    render(<App />);
+    await pick("image-0");
+    await waitFor(() => expect(screen.getByRole("contentinfo")).toHaveTextContent("1 selected"));
+    fireEvent.keyDown(screen.getByRole("grid", { name: "Items" }), { key: "Delete" });
+    await waitFor(() => expect(called(calls, "apply_batch_edit")).toHaveLength(1));
+    expect(screen.queryByRole("dialog", { name: "Move to the trash?" })).not.toBeInTheDocument();
+    expect(called(calls, "set_preferences")).toHaveLength(0);
+  });
+
   it("restores, deletes for good and empties the trash", async () => {
     const calls = library(3, {
       view_range: (args) =>
@@ -215,11 +253,42 @@ describe("Phase 7: editing, the trash and file actions", () => {
         target: { viewId: 1, all: false, ids: ["ID0002"] },
       }),
     );
+    await waitFor(() => expect(screen.queryByRole("dialog")).not.toBeInTheDocument());
 
-    await user.click(screen.getByRole("button", { name: "Empty Trash" }));
+    // Counts load on a 300 ms debounce; the toolbar button stays disabled until then.
+    const emptyTrash = await screen.findByRole("button", { name: "Empty Trash" });
+    await waitFor(() => expect(emptyTrash).toBeEnabled());
+    await user.click(emptyTrash);
     const empty = await screen.findByRole("dialog", { name: "Empty the trash?" });
     expect(empty).toHaveTextContent("2 items and their files");
     await user.click(within(empty).getByRole("button", { name: "Empty Trash" }));
+    await waitFor(() => expect(called(calls, "empty_trash")).toHaveLength(1));
+  });
+
+  it("shows items and size and restores or empties from the Trash row menu", async () => {
+    const calls = library(3, {
+      trash_info: () => ({ items: 2, bytes: 3 * 1024 * 1024 }),
+      restore_trash: () => 2,
+    });
+    const user = userEvent.setup();
+    render(<App />);
+    // Counts and trash info arrive on a short debounce; the row shows the count when ready.
+    const trash = await screen.findByRole("button", { name: /^Trash/ });
+    await waitFor(() => expect(trash).toHaveTextContent("2"));
+
+    fireEvent.contextMenu(trash);
+    const menu = await screen.findByRole("menu");
+    await waitFor(() => expect(menu).toHaveTextContent("2 items · 3.0 MB"));
+    await user.click(within(menu).getByRole("menuitem", { name: "Restore All" }));
+    await waitFor(() => expect(called(calls, "restore_trash")).toHaveLength(1));
+
+    // Empty Trash… asks first.
+    fireEvent.contextMenu(trash);
+    await user.click(
+      within(await screen.findByRole("menu")).getByRole("menuitem", { name: "Empty Trash…" }),
+    );
+    const confirm = await screen.findByRole("dialog", { name: "Empty the trash?" });
+    await user.click(within(confirm).getByRole("button", { name: "Empty Trash" }));
     await waitFor(() => expect(called(calls, "empty_trash")).toHaveLength(1));
   });
 
