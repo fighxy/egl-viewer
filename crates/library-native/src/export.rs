@@ -593,19 +593,17 @@ fn subtree_path(
     loop {
         chain.push(current);
         if roots.contains(current) {
-            return Some(
-                chain
-                    .iter()
-                    .rev()
-                    .map(|id| {
-                        let name = rows
-                            .get(*id)
-                            .map(|row| row.name.as_str())
-                            .unwrap_or("folder");
-                        sanitize_segment(name)
-                    })
-                    .collect::<Option<Vec<_>>>()?,
-            );
+            return chain
+                .iter()
+                .rev()
+                .map(|id| {
+                    let name = rows
+                        .get(*id)
+                        .map(|row| row.name.as_str())
+                        .unwrap_or("folder");
+                    sanitize_segment(name)
+                })
+                .collect::<Option<Vec<_>>>();
         }
         current = rows.get(current)?.parent.as_deref()?;
     }
