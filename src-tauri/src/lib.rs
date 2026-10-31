@@ -4,6 +4,10 @@ mod commands;
 mod drag_out;
 mod session;
 mod views;
+#[cfg(windows)]
+mod webauthn;
+#[cfg(not(windows))]
+#[path = "webauthn_unsupported.rs"]
 mod webauthn;
 mod window;
 mod yubikey;
