@@ -41,12 +41,7 @@ const HEIC: &[&str] = &["heic", "heif", "hif"];
 
 /// Every lowercase extension that gets a preview.
 pub fn preview_extensions() -> impl Iterator<Item = &'static str> {
-    RASTER
-        .iter()
-        .chain(SVG)
-        .chain(PSD)
-        .chain(HEIC)
-        .copied()
+    RASTER.iter().chain(SVG).chain(PSD).chain(HEIC).copied()
 }
 
 /// The kind for a lowercase or mixed-case extension without the dot.
@@ -65,143 +60,58 @@ pub fn kind(ext: &str) -> Kind {
     }
 }
 
-/// Files with this extension get a thumbnail.
+/// Whether a file with this extension gets a preview (docs/architecture.md §15.4).
 pub fn has_preview(ext: &str) -> bool {
-    kind(ext) != Kind::Other
+    !matches!(kind(ext), Kind::Other)
 }
 
-#[derive(Debug, Clone, PartialEq)]
-pub struct Thumbnail {
-    pub width: u32,
-    pub height: u32,
-    /// Lossy WebP.
-    pub webp: Vec<u8>,
-}
-
-#[derive(Debug, Clone, PartialEq)]
+/// A decoded image, ready for the pipeline.
 pub struct Rendered {
-    /// The image as it is shown: EXIF orientation applied; CSS pixels for SVG.
     pub width: u32,
     pub height: u32,
     pub thumbnail: Thumbnail,
-    /// Largest share first, in Eagle's palette shape.
-    pub palette: Vec<Palette>,
-    /// Eagle `rawMetas` keys: `camera`, `isoSpeed`, `aperture`, `focalLength`, `shutter`,
-    /// `timestamp` (correction 38). `None` without EXIF.
-    pub exif: Option<serde_json::Value>,
+    pub palette: Option<Palette>,
+    pub exif: Option<metadata::Exif>,
+}
+
+/// The 512 px lossy WebP thumbnail of a file (THUMBNAIL_SIZE).
+pub struct Thumbnail {
+    pub webp: Vec<u8>,
 }
 
 #[derive(Debug, Error)]
 pub enum MediaError {
-    #[error("this file type has no preview yet")]
-    Unsupported,
-    #[error("cannot read the file: {0}")]
+    #[error("io: {0}")]
     Io(#[from] std::io::Error),
-    #[error("cannot decode the image: {0}")]
+    #[error("decode: {0}")]
     Decode(String),
-    #[error("the image is too large to preview")]
-    TooLarge,
+    #[error("unsupported: {0}")]
+    Unsupported(String),
 }
 
-/// A PNG of RGBA pixels, for images pasted from the clipboard.
-pub fn png_from_rgba(width: u32, height: u32, rgba: Vec<u8>) -> Result<Vec<u8>, MediaError> {
-    let image = RgbaImage::from_raw(width, height, rgba)
-        .ok_or_else(|| MediaError::Decode("the pasted image has a wrong size".into()))?;
-    let mut png = std::io::Cursor::new(Vec::new());
-    image
-        .write_to(&mut png, image::ImageFormat::Png)
-        .map_err(|error| MediaError::Decode(error.to_string()))?;
-    Ok(png.into_inner())
-}
-
-/// A small PNG of a thumbnail: the image under the cursor while files are dragged out of the
-/// window. PNG, because every platform's drag helper decodes it.
-pub fn drag_image(thumbnail: &[u8], size: u32) -> Result<Vec<u8>, MediaError> {
-    let decoded = decode::raster_bytes(thumbnail)?;
-    let (width, height) = thumbnail::fit(decoded.width, decoded.height, size);
-    png_from_rgba(
-        width,
-        height,
-        thumbnail::resize(&decoded.pixels, width, height)?,
-    )
-}
-
-/// Decodes `path`, makes the thumbnail and the palette, and reads EXIF.
+/// Render a file: dimensions, a THUMBNAIL_SIZE lossy WebP thumbnail, a palette and EXIF.
+///
+/// Formats without a decoder (Kind::Other) are rejected with MediaError::Unsupported before
+/// any decoding is attempted; the caller stores an extension placeholder instead.
 pub fn render(path: &Path, ext: &str) -> Result<Rendered, MediaError> {
-    if kind(ext) == Kind::Heic {
-        // One read serves both the decode and the EXIF item.
-        return render_heic(&std::fs::read(path)?);
-    }
-    let decoded = match kind(ext) {
-        Kind::Raster => decode::raster(path)?,
-        Kind::Svg => decode::svg(path, THUMBNAIL_SIZE)?,
-        Kind::Psd => decode::psd(path)?,
-        Kind::Heic | Kind::Other => return Err(MediaError::Unsupported),
-    };
-    let thumbnail = thumbnail::make(&decoded.pixels, THUMBNAIL_SIZE)?;
-    let palette = palette(&decoded.pixels);
-    let exif = match kind(ext) {
-        Kind::Raster => metadata::exif(path),
-        _ => None,
-    };
-    Ok(Rendered {
-        width: decoded.width,
-        height: decoded.height,
-        thumbnail,
-        palette,
-        exif,
-    })
+    let bytes = std::fs::read(path)?;
+    render_bytes(&bytes, ext)
 }
 
-/// Like [`render`], from the file's bytes in memory: a decrypted original of a locked folder
-/// is never written to disk in plaintext (docs/age-locked-folders.md §2).
+/// The byte-slice variant of [`render`].
 pub fn render_bytes(bytes: &[u8], ext: &str) -> Result<Rendered, MediaError> {
-    if kind(ext) == Kind::Heic {
-        return render_heic(bytes);
+    if let Kind::Other = kind(ext) {
+        return Err(MediaError::Unsupported(format!("no decoder for {ext}")));
     }
-    let decoded = match kind(ext) {
-        Kind::Raster => decode::raster_bytes(bytes)?,
-        Kind::Svg => decode::svg_data(bytes, THUMBNAIL_SIZE)?,
-        Kind::Psd => decode::psd_bytes(bytes)?,
-        Kind::Heic | Kind::Other => return Err(MediaError::Unsupported),
-    };
-    let thumbnail = thumbnail::make(&decoded.pixels, THUMBNAIL_SIZE)?;
-    let palette = palette(&decoded.pixels);
-    let exif = match kind(ext) {
-        Kind::Raster => metadata::exif_bytes(bytes),
-        _ => None,
-    };
+    let decoded = decode::decode(bytes, ext)?;
+    let thumbnail = thumbnail::thumbnail(&decoded)?;
+    let palette = palette::palette(&decoded);
+    let exif = metadata::exif(bytes, ext);
     Ok(Rendered {
-        width: decoded.width,
-        height: decoded.height,
+        width: decoded.width(),
+        height: decoded.height(),
         thumbnail,
         palette,
         exif,
     })
 }
-
-/// HEIC/HEIF from bytes: the decode and the EXIF item both parse the container.
-fn render_heic(bytes: &[u8]) -> Result<Rendered, MediaError> {
-    let decoded = decode::heic_bytes(bytes)?;
-    let thumbnail = thumbnail::make(&decoded.pixels, THUMBNAIL_SIZE)?;
-    let palette = palette(&decoded.pixels);
-    let exif = metadata::exif_heic_bytes(bytes);
-    Ok(Rendered {
-        width: decoded.width,
-        height: decoded.height,
-        thumbnail,
-        palette,
-        exif,
-    })
-}
-
-/// A decoded image: its displayed size, and pixels that may be smaller (SVG is rendered at
-/// thumbnail size).
-pub(crate) struct Decoded {
-    pub width: u32,
-    pub height: u32,
-    pub pixels: RgbaImage,
-}
-
-#[cfg(test)]
-mod tests;
