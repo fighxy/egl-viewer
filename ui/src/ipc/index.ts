@@ -29,6 +29,7 @@ import type { LibraryHolder } from "./generated/LibraryHolder";
 import type { LibraryInfo } from "./generated/LibraryInfo";
 import type { LibraryQuery } from "./generated/LibraryQuery";
 import type { LibraryStats } from "./generated/LibraryStats";
+import type { Locale } from "./generated/Locale";
 import type { LocationProblem } from "./generated/LocationProblem";
 import type { LockProgress } from "./generated/LockProgress";
 import type { LoginMethod } from "./generated/LoginMethod";
@@ -97,6 +98,7 @@ export type {
   LibraryInfo,
   LibraryQuery,
   LibraryStats,
+  Locale,
   LocationProblem,
   LockProgress,
   LoginMethod,
@@ -142,6 +144,7 @@ export function inTauri(): boolean {
 
 export const DEFAULT_PREFERENCES: Preferences = {
   theme: "system",
+  locale: "en",
   reopenLastLibrary: true,
   defaultLibraryParent: null,
   confirmBeforeTrash: true,

@@ -1,3 +1,4 @@
+import { useTranslation } from "react-i18next";
 import { Button } from "@/components/ui/button";
 import {
   Dialog,
@@ -24,11 +25,13 @@ type Props = {
  * can instead put the existing items into that folder.
  */
 export function DuplicateDialog({ waiting, folders = [], onAnswer }: Props) {
+  const { t } = useTranslation();
   const duplicate = waiting?.duplicate;
   const target = duplicate?.targetFolder ? findFolder(folders, duplicate.targetFolder) : undefined;
   const answer = (choice: DuplicateAnswer) => {
     if (waiting) onAnswer(waiting.id, choice);
   };
+  const name = duplicate ? fileName(duplicate.path) : "";
   return (
     <Dialog open={duplicate !== undefined && duplicate !== null}>
       <DialogContent
@@ -37,32 +40,36 @@ export function DuplicateDialog({ waiting, folders = [], onAnswer }: Props) {
         onInteractOutside={(event) => event.preventDefault()}
       >
         <DialogHeader>
-          <DialogTitle>Some files are already in this library</DialogTitle>
+          <DialogTitle>{t("imports.dupeTitle")}</DialogTitle>
           <DialogDescription>
             {duplicate
-              ? `“${fileName(duplicate.path)}” is already in the library${duplicate.inTrash ? ", in the trash" : ""}. `
+              ? `${
+                  duplicate.inTrash
+                    ? t("imports.dupeAlreadyInTrash", { name })
+                    : t("imports.dupeAlready", { name })
+                } `
               : ""}
-            Your choice applies to every duplicate in this batch.
-            {target && ` “Add to ${target.name}” puts the existing items into that folder.`}
+            {t("imports.dupeApplies")}
+            {target && ` ${t("imports.dupeFolderHint", { name: target.name })}`}
           </DialogDescription>
         </DialogHeader>
         <DialogFooter>
           <Button variant="outline" onClick={() => answer("cancel")}>
-            Cancel import
+            {t("imports.cancelImport")}
           </Button>
           <Button variant="outline" onClick={() => answer("addAnyway")}>
-            Add anyway
+            {t("imports.addAnyway")}
           </Button>
           <Button
             variant={target ? "outline" : "default"}
             autoFocus={!target}
             onClick={() => answer("skip")}
           >
-            Skip duplicates
+            {t("imports.skip")}
           </Button>
           {target && (
             <Button autoFocus onClick={() => answer("addToFolder")}>
-              Add to {target.name}
+              {t("imports.addToFolder", { name: target.name })}
             </Button>
           )}
         </DialogFooter>

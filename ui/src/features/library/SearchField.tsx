@@ -1,5 +1,6 @@
 import { Search, X } from "lucide-react";
 import { forwardRef, useEffect, useState } from "react";
+import { useTranslation } from "react-i18next";
 
 /** How long typing pauses before the search runs (docs/spec.md §5). */
 export const SEARCH_DELAY_MS = 300;
@@ -20,6 +21,7 @@ export const SearchField = forwardRef<HTMLInputElement, Props>(function SearchFi
   { value, onChange },
   ref,
 ) {
+  const { t } = useTranslation();
   const [text, setText] = useState(value);
   // Another place or library may reset the search from outside.
   useEffect(() => setText(value), [value]);
@@ -37,9 +39,9 @@ export const SearchField = forwardRef<HTMLInputElement, Props>(function SearchFi
       <input
         ref={ref}
         type="search"
-        aria-label="Search"
-        placeholder="Search…"
-        title="Search names, notes, links, tags and folders (Ctrl+F). OR, ( ) and -word work."
+        aria-label={t("search.label")}
+        placeholder={t("search.placeholder")}
+        title={t("search.title")}
         value={text}
         onChange={(event) => setText(event.target.value)}
         onKeyDown={(event) => {
@@ -55,7 +57,7 @@ export const SearchField = forwardRef<HTMLInputElement, Props>(function SearchFi
       {text !== "" && (
         <button
           type="button"
-          aria-label="Clear the search"
+          aria-label={t("search.clear")}
           className="absolute right-1 rounded p-0.5 text-muted-foreground hover:bg-muted hover:text-foreground"
           onClick={() => {
             setText("");

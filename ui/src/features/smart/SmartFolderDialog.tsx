@@ -1,5 +1,6 @@
 import { Plus, X } from "lucide-react";
 import { type ReactNode, useState } from "react";
+import { useTranslation } from "react-i18next";
 import { Button } from "@/components/ui/button";
 import {
   Dialog,
@@ -70,6 +71,7 @@ export function SmartFolderDialogs({
   onSave,
   onDelete,
 }: Props) {
+  const { t } = useTranslation();
   const close = (open: boolean) => {
     if (!open) onClose();
   };
@@ -106,18 +108,19 @@ export function SmartFolderDialogs({
         {dialog?.kind === "delete" && (
           <DialogContent showCloseButton={false}>
             <DialogHeader>
-              <DialogTitle>Delete the smart folder “{target?.name}”?</DialogTitle>
+              <DialogTitle>{t("smart.deleteTitle", { name: target?.name ?? "" })}</DialogTitle>
               <DialogDescription>
-                {target && target.children.length > 0 ? "The smart folders under it go too. " : ""}
-                Items stay where they are.
+                {target && target.children.length > 0
+                  ? t("smart.deleteBodyWithChildren")
+                  : t("smart.deleteBody")}
               </DialogDescription>
             </DialogHeader>
             <DialogFooter>
               <Button variant="outline" autoFocus onClick={onClose}>
-                Cancel
+                {t("smart.cancel")}
               </Button>
               <Button variant="destructive" onClick={() => onDelete(dialog.id)}>
-                Delete smart folder
+                {t("smart.deleteAction")}
               </Button>
             </DialogFooter>
           </DialogContent>
@@ -146,6 +149,7 @@ function SmartEditor({
   extensions: readonly ExtensionCount[];
   onSave: (name: string, conditions: JsonValue) => void;
 }) {
+  const { t } = useTranslation();
   const [name, setName] = useState(folder?.name ?? draftName ?? "");
   const [conditions, setConditions] = useState<SmartCondition[]>(() => {
     const read = readConditions(folder?.conditions ?? draftConditions);
@@ -162,17 +166,17 @@ function SmartEditor({
   return (
     <DialogContent className="max-h-[85vh] overflow-y-auto sm:max-w-2xl">
       <DialogHeader>
-        <DialogTitle>{folder ? `Edit “${folder.name}”` : "New smart folder"}</DialogTitle>
+        <DialogTitle>
+          {folder ? t("smart.editTitle", { name: folder.name }) : t("smart.newTitle")}
+        </DialogTitle>
         <DialogDescription>
-          {parent
-            ? `Inside “${parent.name}”: its rules apply too.`
-            : "Shows every item that matches all the conditions below."}
+          {parent ? t("smart.insideParent", { name: parent.name }) : t("smart.topDescription")}
         </DialogDescription>
       </DialogHeader>
       <div className="grid gap-3">
         <input
-          aria-label="Smart folder name"
-          placeholder="Name"
+          aria-label={t("smart.nameAria")}
+          placeholder={t("smart.name")}
           // biome-ignore lint/a11y/noAutofocus: the first field of the dialog.
           autoFocus
           value={name}
@@ -199,7 +203,7 @@ function SmartEditor({
           onClick={() => setConditions((current) => [...current, newCondition()])}
         >
           <Plus aria-hidden />
-          Add condition
+          {t("smart.addCondition")}
         </Button>
       </div>
       <DialogFooter>
@@ -207,7 +211,7 @@ function SmartEditor({
           disabled={!complete}
           onClick={() => onSave(name.trim(), conditions as unknown as JsonValue)}
         >
-          {folder ? "Save" : "Create"}
+          {folder ? t("smart.save") : t("smart.create")}
         </Button>
       </DialogFooter>
     </DialogContent>
@@ -231,6 +235,7 @@ function ConditionBlock({
   extensions: readonly ExtensionCount[];
   onChange: (next: SmartCondition | null) => void;
 }) {
+  const { t } = useTranslation();
   const setRule = (at: number, next: SmartRule | null) =>
     onChange({
       ...condition,
@@ -241,19 +246,19 @@ function ConditionBlock({
     });
   return (
     <fieldset className="grid gap-2 rounded-md border p-2">
-      <legend className="sr-only">Condition {index + 1}</legend>
+      <legend className="sr-only">{t("smart.conditionN", { n: index + 1 })}</legend>
       <div className="flex flex-wrap items-center gap-2 text-[13px]">
-        <span>Items that match</span>
+        <span>{t("smart.itemsMatch")}</span>
         <select
-          aria-label="Match"
+          aria-label={t("smart.match")}
           className={SELECT}
           value={condition.match === "OR" ? "OR" : "AND"}
           onChange={(event) => onChange({ ...condition, match: event.target.value })}
         >
-          <option value="AND">all</option>
-          <option value="OR">any</option>
+          <option value="AND">{t("smart.and")}</option>
+          <option value="OR">{t("smart.or")}</option>
         </select>
-        <span>of these rules</span>
+        <span>{t("smart.ofTheseRules")}</span>
         <label className="ml-auto flex items-center gap-1.5 text-xs text-muted-foreground">
           <input
             type="checkbox"
@@ -262,13 +267,13 @@ function ConditionBlock({
               onChange({ ...condition, boolean: event.target.checked ? "FALSE" : "TRUE" })
             }
           />
-          Leave these items out
+          {t("smart.leaveOut")}
         </label>
         {removable && (
           <Button
             variant="ghost"
             size="icon-xs"
-            aria-label={`Remove condition ${index + 1}`}
+            aria-label={t("smart.removeCondition", { n: index + 1 })}
             onClick={() => onChange(null)}
           >
             <X aria-hidden />
@@ -288,7 +293,7 @@ function ConditionBlock({
         />
       ))}
       {condition.rules.length === 0 && (
-        <p className="text-xs text-muted-foreground">Add at least one rule.</p>
+        <p className="text-xs text-muted-foreground">{t("smart.addAtLeastOne")}</p>
       )}
       <Button
         variant="ghost"
@@ -297,7 +302,7 @@ function ConditionBlock({
         onClick={() => onChange({ ...condition, rules: [...condition.rules, newRule("tags")] })}
       >
         <Plus aria-hidden />
-        Add rule
+        {t("smart.addRule")}
       </Button>
     </fieldset>
   );
@@ -318,11 +323,12 @@ function RuleRow({
   extensions: readonly ExtensionCount[];
   onChange: (next: SmartRule | null) => void;
 }) {
+  const { t } = useTranslation();
   const remove = (
     <Button
       variant="ghost"
       size="icon-xs"
-      aria-label={`Remove rule ${index + 1}`}
+      aria-label={t("smart.removeRule", { n: index + 1 })}
       onClick={() => onChange(null)}
     >
       <X aria-hidden />
@@ -332,9 +338,9 @@ function RuleRow({
   if (!editable(rule) || kind === undefined) {
     return (
       <fieldset className="flex items-center gap-2">
-        <legend className="sr-only">Rule {index + 1}</legend>
+        <legend className="sr-only">{t("smart.ruleN", { n: index + 1 })}</legend>
         <span className="flex-1 text-[13px] text-muted-foreground">
-          {`${rule.property} ${rule.method}`.trim()}: not supported here, so it matches nothing
+          {t("smart.unsupportedRule", { property: rule.property, method: rule.method })}
         </span>
         {remove}
       </fieldset>
@@ -342,9 +348,9 @@ function RuleRow({
   }
   return (
     <fieldset className="flex flex-wrap items-start gap-1.5">
-      <legend className="sr-only">Rule {index + 1}</legend>
+      <legend className="sr-only">{t("smart.ruleN", { n: index + 1 })}</legend>
       <select
-        aria-label="Property"
+        aria-label={t("smart.property")}
         className={SELECT}
         value={rule.property}
         onChange={(event) => onChange(newRule(event.target.value))}
@@ -356,7 +362,7 @@ function RuleRow({
         ))}
       </select>
       <select
-        aria-label="Method"
+        aria-label={t("smart.method")}
         className={SELECT}
         value={rule.method}
         onChange={(event) => onChange(withMethod(rule, event.target.value))}
@@ -401,12 +407,13 @@ function text(value: JsonValue | undefined): string {
 }
 
 function Chip({ label, onRemove }: { label: string; onRemove: () => void }) {
+  const { t } = useTranslation();
   return (
     <span className="flex items-center gap-0.5 rounded bg-muted py-0.5 pr-0.5 pl-1.5 text-xs">
       {label}
       <button
         type="button"
-        aria-label={`Remove ${label}`}
+        aria-label={t("smart.removeChip", { label })}
         className="rounded p-0.5 hover:bg-background"
         onClick={onRemove}
       >
@@ -429,6 +436,7 @@ function RuleValue({
   extensions: readonly ExtensionCount[];
   onChange: (next: SmartRule) => void;
 }) {
+  const { t } = useTranslation();
   const set = (value: JsonValue) => onChange({ ...rule, value });
   const kind = kindOf(rule.property);
   let editor: ReactNode = null;
@@ -444,7 +452,7 @@ function RuleValue({
           </div>
         )}
         <TagInput
-          label="Rule tags"
+          label={t("smart.ruleTags")}
           vocabulary={vocabulary}
           exclude={new Set(values)}
           onPick={(tag) => set([...values, tag])}
@@ -459,7 +467,7 @@ function RuleValue({
         {values.map((id) => (
           <Chip
             key={id}
-            label={findFolder([...folders], id)?.name ?? "Unknown folder"}
+            label={findFolder([...folders], id)?.name ?? t("smart.unknownFolder")}
             onRemove={() => set(values.filter((value) => value !== id))}
           />
         ))}
@@ -467,12 +475,12 @@ function RuleValue({
           <PopoverTrigger asChild>
             <Button variant="outline" size="xs">
               <Plus aria-hidden />
-              Folders
+              {t("smart.pickFolders")}
             </Button>
           </PopoverTrigger>
           <PopoverContent className="p-2">
             <FolderPicker
-              label="Rule folders"
+              label={t("smart.ruleFolders")}
               folders={[...folders]}
               checked={checked}
               onPick={(id) =>
@@ -486,7 +494,7 @@ function RuleValue({
   } else if (kind === "text") {
     editor = (
       <input
-        aria-label="Value"
+        aria-label={t("smart.value")}
         className={`${FIELD} min-w-40 flex-1`}
         value={text(rule.value)}
         onChange={(event) => set(event.target.value)}
@@ -497,13 +505,13 @@ function RuleValue({
     const known = ["image", ...extensions.map((entry) => entry.ext)];
     editor = (
       <select
-        aria-label="Value"
+        aria-label={t("smart.value")}
         className={SELECT}
         value={current}
         onChange={(event) => set(event.target.value)}
       >
         {!known.includes(current) && <option value={current}>{current.toUpperCase()}</option>}
-        <option value="image">Images</option>
+        <option value="image">{t("smart.images")}</option>
         {extensions.map((entry) => (
           <option key={entry.ext} value={entry.ext}>
             {entry.ext.toUpperCase()}
@@ -514,12 +522,12 @@ function RuleValue({
   } else if (kind === "rating") {
     editor = (
       <select
-        aria-label="Value"
+        aria-label={t("smart.value")}
         className={SELECT}
         value={text(rule.value)}
         onChange={(event) => set(event.target.value)}
       >
-        <option value="none">Unrated</option>
+        <option value="none">{t("smart.unrated")}</option>
         {[1, 2, 3, 4, 5].map((star) => (
           <option key={star} value={String(star)}>
             {"★".repeat(star)}
@@ -530,7 +538,7 @@ function RuleValue({
   } else if (kind === "shape") {
     editor = (
       <select
-        aria-label="Value"
+        aria-label={t("smart.value")}
         className={SELECT}
         value={text(rule.value)}
         onChange={(event) => set(event.target.value)}
@@ -546,14 +554,14 @@ function RuleValue({
     editor = (
       <span className="flex items-center gap-1 text-[13px]">
         <input
-          aria-label="Days"
+          aria-label={t("smart.daysAria")}
           type="number"
           min={1}
           className={`${FIELD} w-20`}
           value={numbers(rule.value)[0] ?? 7}
           onChange={(event) => set([Math.max(1, Number(event.target.value) || 1)])}
         />
-        days
+        {t("smart.days")}
       </span>
     );
   } else if (kind === "date") {
@@ -576,10 +584,10 @@ function RuleValue({
     editor =
       rule.method === "between" ? (
         <span className="flex items-center gap-1 text-[13px]">
-          {day(0, "From")} and {day(1, "To")}
+          {day(0, t("smart.from"))} {t("smart.andJoin")} {day(1, t("smart.to"))}
         </span>
       ) : (
-        day(0, "Date")
+        day(0, t("smart.date"))
       );
   } else if (kind === "number") {
     const values = numbers(rule.value);
@@ -601,14 +609,14 @@ function RuleValue({
       <span className="flex items-center gap-1 text-[13px]">
         {rule.method === "between" ? (
           <>
-            {field(0, "From")} and {field(1, "To")}
+            {field(0, t("smart.from"))} {t("smart.andJoin")} {field(1, t("smart.to"))}
           </>
         ) : (
-          field(0, "Value")
+          field(0, t("smart.value"))
         )}
         {rule.property === "fileSize" ? (
           <select
-            aria-label="Unit"
+            aria-label={t("smart.unit")}
             className={SELECT}
             value={rule.unit === "kb" ? "kb" : "mb"}
             onChange={(event) => onChange({ ...rule, unit: event.target.value })}

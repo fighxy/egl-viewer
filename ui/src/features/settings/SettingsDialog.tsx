@@ -1,5 +1,6 @@
 import { cn } from "cn";
 import { type FormEvent, useEffect, useState } from "react";
+import { useTranslation } from "react-i18next";
 import { Button } from "@/components/ui/button";
 import {
   Dialog,
@@ -12,7 +13,8 @@ import {
 import { Input } from "@/components/ui/input";
 import { Label } from "@/components/ui/label";
 import { Switch } from "@/components/ui/switch";
-import type { LoginMethod, Preferences, Theme } from "@/ipc";
+import { APP_LOCALES } from "@/i18n";
+import type { Locale, LoginMethod, Preferences, Theme } from "@/ipc";
 import { describeError } from "@/lib/errors";
 
 type Props = {
@@ -32,20 +34,11 @@ type Props = {
   onClearLogin: () => Promise<void>;
 };
 
-const THEMES: readonly { value: Theme; label: string }[] = [
-  { value: "system", label: "System" },
-  { value: "light", label: "Light" },
-  { value: "dark", label: "Dark" },
-];
+const THEMES: readonly Theme[] = ["system", "light", "dark"];
 
-const LOGIN_METHODS: readonly { value: LoginMethod; label: string }[] = [
-  { value: "none", label: "Off" },
-  { value: "password", label: "Password" },
-  { value: "pin", label: "PIN" },
-  { value: "webAuthn", label: "YubiKey" },
-];
+const LOGIN_METHODS: readonly LoginMethod[] = ["none", "password", "pin", "webAuthn"];
 
-/** Settings → General (docs/spec.md §7.4, D-027). */
+/** Settings → General (docs/spec.md §7.4, D-027, D-069). */
 export function SettingsDialog({
   open,
   onOpenChange,
@@ -59,6 +52,7 @@ export function SettingsDialog({
   onSetWebAuthn,
   onClearLogin,
 }: Props) {
+  const { t } = useTranslation();
   const [draft, setDraft] = useState(preferences);
   const [method, setMethod] = useState<LoginMethod>(login);
   const [secret, setSecret] = useState("");
@@ -95,18 +89,31 @@ export function SettingsDialog({
     if (picked) setDraft({ ...draft, defaultLibraryParent: picked });
   };
 
+  const loginLabel = (value: LoginMethod) => {
+    switch (value) {
+      case "none":
+        return t("settings.loginOff");
+      case "password":
+        return t("settings.loginPasswordMethod");
+      case "pin":
+        return t("settings.loginPinMethod");
+      case "webAuthn":
+        return t("settings.loginWebAuthn");
+    }
+  };
+
   return (
     <Dialog open={open} onOpenChange={onOpenChange}>
       <DialogContent className="sm:max-w-lg">
         <form className="grid gap-5" onSubmit={submit}>
           <DialogHeader>
-            <DialogTitle>Settings</DialogTitle>
-            <DialogDescription>General</DialogDescription>
+            <DialogTitle>{t("settings.title")}</DialogTitle>
+            <DialogDescription>{t("settings.general")}</DialogDescription>
           </DialogHeader>
           <fieldset className="grid gap-1.5">
-            <legend className="mb-1.5 text-sm font-medium">Theme</legend>
+            <legend className="mb-1.5 text-sm font-medium">{t("settings.theme")}</legend>
             <div className="flex gap-1">
-              {THEMES.map(({ value, label }) => (
+              {THEMES.map((value) => (
                 <label
                   key={value}
                   className={cn(
@@ -124,13 +131,39 @@ export function SettingsDialog({
                     checked={draft.theme === value}
                     onChange={() => setDraft({ ...draft, theme: value })}
                   />
-                  {label}
+                  {t(`themes.${value}`)}
+                </label>
+              ))}
+            </div>
+          </fieldset>
+          <fieldset className="grid gap-1.5">
+            <legend className="mb-1.5 text-sm font-medium">{t("settings.language")}</legend>
+            <div className="flex flex-wrap gap-1">
+              {APP_LOCALES.map(({ value, nativeLabel }) => (
+                <label
+                  key={value}
+                  className={cn(
+                    "rounded-md border px-3 py-1 text-[13px] has-focus-visible:ring-3 has-focus-visible:ring-ring/50",
+                    draft.locale === value
+                      ? "border-primary bg-primary text-primary-foreground"
+                      : "hover:bg-muted",
+                  )}
+                >
+                  <input
+                    type="radio"
+                    name="locale"
+                    value={value}
+                    className="sr-only"
+                    checked={draft.locale === value}
+                    onChange={() => setDraft({ ...draft, locale: value as Locale })}
+                  />
+                  {nativeLabel}
                 </label>
               ))}
             </div>
           </fieldset>
           <div className="flex items-center justify-between gap-4">
-            <Label htmlFor="reopen-last-library">Reopen the last library on start</Label>
+            <Label htmlFor="reopen-last-library">{t("settings.reopenLast")}</Label>
             <Switch
               id="reopen-last-library"
               checked={draft.reopenLastLibrary}
@@ -139,19 +172,17 @@ export function SettingsDialog({
           </div>
           <div className="grid gap-1.5">
             <div className="flex items-center justify-between gap-4">
-              <Label htmlFor="confirm-before-trash">Confirm before moving items to the trash</Label>
+              <Label htmlFor="confirm-before-trash">{t("settings.confirmTrash")}</Label>
               <Switch
                 id="confirm-before-trash"
                 checked={draft.confirmBeforeTrash}
                 onCheckedChange={(checked) => setDraft({ ...draft, confirmBeforeTrash: checked })}
               />
             </div>
-            <p className="text-xs text-muted-foreground">
-              Off: Delete moves the selection to the trash without asking.
-            </p>
+            <p className="text-xs text-muted-foreground">{t("settings.confirmTrashHint")}</p>
           </div>
           <div className="grid gap-1.5">
-            <Label htmlFor="default-folder">Default folder for new libraries</Label>
+            <Label htmlFor="default-folder">{t("settings.defaultFolder")}</Label>
             <div className="flex gap-2">
               <Input
                 id="default-folder"
@@ -162,21 +193,18 @@ export function SettingsDialog({
                 }
               />
               <Button type="button" variant="outline" onClick={pick}>
-                Browse…
+                {t("common.browse")}
               </Button>
             </div>
             <p className="text-xs text-muted-foreground">
-              Leave empty to use {builtInLocation}. Changing it does not move existing libraries.
+              {t("settings.defaultFolderHint", { path: builtInLocation })}
             </p>
           </div>
           <fieldset className="grid gap-2">
-            <legend className="text-sm font-medium">App login</legend>
-            <p className="text-xs text-muted-foreground">
-              One method. A password, a PIN, or a YubiKey touch. The touch does not unlock folders,
-              and choosing it means login does not ask for a PIN.
-            </p>
+            <legend className="text-sm font-medium">{t("settings.appLogin")}</legend>
+            <p className="text-xs text-muted-foreground">{t("settings.appLoginHint")}</p>
             <div className="flex flex-wrap gap-1">
-              {LOGIN_METHODS.map(({ value, label }) => (
+              {LOGIN_METHODS.map((value) => (
                 <label
                   key={value}
                   className={cn(
@@ -197,13 +225,13 @@ export function SettingsDialog({
                       setSecret("");
                     }}
                   />
-                  {label}
+                  {loginLabel(value)}
                 </label>
               ))}
             </div>
             {method === "password" && (
               <Input
-                aria-label="Login password"
+                aria-label={t("settings.loginPassword")}
                 type="password"
                 autoComplete="new-password"
                 value={secret}
@@ -212,7 +240,7 @@ export function SettingsDialog({
             )}
             {method === "pin" && (
               <Input
-                aria-label="Login PIN"
+                aria-label={t("settings.loginPin")}
                 type="password"
                 inputMode="numeric"
                 autoComplete="off"
@@ -221,7 +249,7 @@ export function SettingsDialog({
               />
             )}
             {method === "webAuthn" && (
-              <p className="text-xs text-muted-foreground">Touch the YubiKey when asked.</p>
+              <p className="text-xs text-muted-foreground">{t("settings.webAuthnHint")}</p>
             )}
             <div>
               <Button
@@ -247,7 +275,7 @@ export function SettingsDialog({
                     .finally(() => setBusy(false));
                 }}
               >
-                Set login
+                {t("settings.setLogin")}
               </Button>
             </div>
           </fieldset>
@@ -258,10 +286,10 @@ export function SettingsDialog({
           )}
           <DialogFooter>
             <Button type="button" variant="outline" onClick={() => onOpenChange(false)}>
-              Cancel
+              {t("common.cancel")}
             </Button>
             <Button type="submit" disabled={busy}>
-              Save
+              {t("common.save")}
             </Button>
           </DialogFooter>
         </form>

@@ -1,6 +1,7 @@
 import { cn } from "cn";
 import { ChevronDown, ChevronRight, Hash, Plus } from "lucide-react";
 import type { ReactNode } from "react";
+import { useTranslation } from "react-i18next";
 import { Button } from "@/components/ui/button";
 import {
   ContextMenu,
@@ -50,6 +51,7 @@ export function TagSections({
   onDeleteGroup,
   actions,
 }: Props) {
+  const { t } = useTranslation();
   const { active } = useDrag();
   const counts = new Map(vocabulary.map((tag) => [tag.name, tag.imageCount]));
   const current = filtered.length === 1 ? filtered[0] : undefined;
@@ -83,13 +85,14 @@ export function TagSections({
   return (
     <>
       <Section
-        label="Tag groups"
+        label={t("sidebar.tagGroups")}
+        storageKey="Tag groups"
         action={
           <Button
             variant="ghost"
             size="icon-xs"
-            aria-label="New tag group"
-            title={canWrite ? "New tag group" : writable}
+            aria-label={t("sidebar.newTagGroup")}
+            title={canWrite ? t("sidebar.newTagGroup") : writable}
             disabled={!canWrite}
             onClick={onCreateGroup}
           >
@@ -98,7 +101,7 @@ export function TagSections({
         }
       >
         {groups.length === 0 ? (
-          <p className="px-2 py-1 text-xs text-muted-foreground">No tag groups yet.</p>
+          <p className="px-2 py-1 text-xs text-muted-foreground">{t("sidebar.noTagGroups")}</p>
         ) : (
           <ul className="grid gap-px">
             {groups.map((group) => (
@@ -117,9 +120,9 @@ export function TagSections({
           </ul>
         )}
       </Section>
-      <Section label="Recent tags">
+      <Section label={t("sidebar.recentTags")} storageKey="Recent tags">
         {recentTags.length === 0 ? (
-          <p className="px-2 py-1 text-xs text-muted-foreground">Tags you add show here.</p>
+          <p className="px-2 py-1 text-xs text-muted-foreground">{t("sidebar.recentTagsHint")}</p>
         ) : (
           <ul className="grid gap-px">
             {recentTags.map((name, index) => tagRow(name, `recent:${index}`))}

@@ -1,6 +1,7 @@
 // Thin wrappers over the Tauri updater and process plugins so tests can mock one module.
 import { relaunch } from "@tauri-apps/plugin-process";
 import { check, type DownloadEvent, type Update } from "@tauri-apps/plugin-updater";
+import i18n from "@/i18n";
 import { inTauri } from "@/ipc";
 
 export type AvailableUpdate = {
@@ -54,11 +55,11 @@ export async function installAndRelaunch(
   onProgress?: (progress: UpdateProgress) => void,
 ): Promise<void> {
   if (!inTauri()) {
-    throw new Error("Updates are only available in the desktop app.");
+    throw new Error(i18n.t("updates.onlyDesktop"));
   }
   const update = pending;
   if (!update) {
-    throw new Error("No update is available.");
+    throw new Error(i18n.t("updates.noneAvailable"));
   }
   let downloaded = 0;
   let contentLength: number | null = null;
@@ -89,12 +90,12 @@ export async function installAndRelaunch(
 export function progressLabel(progress: UpdateProgress): string {
   if (progress.contentLength && progress.contentLength > 0) {
     const pct = Math.min(100, Math.round((100 * progress.downloaded) / progress.contentLength));
-    return `Downloading update… ${pct}%`;
+    return i18n.t("updates.downloadingPct", { pct });
   }
   if (progress.downloaded > 0) {
-    return `Downloading update… ${formatBytes(progress.downloaded)}`;
+    return i18n.t("updates.downloadingBytes", { bytes: formatBytes(progress.downloaded) });
   }
-  return "Downloading update…";
+  return i18n.t("updates.downloadingPlain");
 }
 
 function formatBytes(bytes: number): string {

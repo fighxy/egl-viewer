@@ -1,6 +1,7 @@
 import { useQuery, useQueryClient } from "@tanstack/react-query";
 import { FolderOpen, Images, RotateCcw, Save, Stethoscope } from "lucide-react";
 import { type FormEvent, useEffect, useState } from "react";
+import { useTranslation } from "react-i18next";
 import { Button } from "@/components/ui/button";
 import {
   Dialog,
@@ -28,11 +29,11 @@ type Props = {
   onReveal: () => void;
 };
 
-const KINDS: Record<BackupKind, string> = {
-  daily: "On opening",
-  manual: "Backed up by hand",
-  beforeMigration: "Before an upgrade",
-  beforeRestore: "Before a restore",
+const KIND_KEYS: Record<BackupKind, string> = {
+  daily: "maintenance.kindDaily",
+  manual: "maintenance.kindManual",
+  beforeMigration: "maintenance.kindBeforeMigration",
+  beforeRestore: "maintenance.kindBeforeRestore",
 };
 
 /**
@@ -49,6 +50,7 @@ export function LibrarySettingsDialog({
   onRebuild,
   onReveal,
 }: Props) {
+  const { t } = useTranslation();
   const client = useQueryClient();
   const [name, setName] = useState(library.name);
   const [error, setError] = useState<string>();
@@ -118,12 +120,12 @@ export function LibrarySettingsDialog({
     <Dialog open={open} onOpenChange={onOpenChange}>
       <DialogContent className="grid max-h-[85vh] grid-cols-[minmax(0,1fr)] gap-5 overflow-y-auto sm:max-w-xl">
         <DialogHeader>
-          <DialogTitle>Library Settings</DialogTitle>
+          <DialogTitle>{t("maintenance.librarySettings")}</DialogTitle>
           <DialogDescription>{library.name}</DialogDescription>
         </DialogHeader>
 
         <form className="grid gap-1.5" onSubmit={rename}>
-          <Label htmlFor="library-name">Name</Label>
+          <Label htmlFor="library-name">{t("maintenance.name")}</Label>
           <div className="flex gap-2">
             <Input
               id="library-name"
@@ -137,58 +139,57 @@ export function LibrarySettingsDialog({
               variant="outline"
               disabled={busy || blocked !== undefined || name.trim() === library.name}
             >
-              Rename
+              {t("maintenance.rename")}
             </Button>
           </div>
-          <p className="text-xs text-muted-foreground">
-            The name shown in the app. The folder on disk keeps its name.
-          </p>
+          <p className="text-xs text-muted-foreground">{t("maintenance.nameHint")}</p>
         </form>
 
         <section className="grid gap-1.5">
-          <h3 className="text-sm font-medium">Location and size</h3>
+          <h3 className="text-sm font-medium">{t("maintenance.locationAndSize")}</h3>
           <div className="flex items-center gap-2">
             <p className="min-w-0 flex-1 text-[13px] break-all text-muted-foreground select-text">
               {library.path}
             </p>
             <Button variant="outline" size="sm" onClick={onReveal}>
               <FolderOpen aria-hidden />
-              Show in Explorer
+              {t("maintenance.reveal")}
             </Button>
           </div>
           {stats.data && total !== null ? (
             <p className="text-[13px]">
-              {formatBytes(total)} on disk: originals {formatBytes(stats.data.originals)},
-              thumbnails {formatBytes(stats.data.thumbnails)}, database{" "}
-              {formatBytes(stats.data.database)}, backups {formatBytes(stats.data.backups)}
+              {t("maintenance.onDisk", {
+                total: formatBytes(total),
+                originals: formatBytes(stats.data.originals),
+                thumbnails: formatBytes(stats.data.thumbnails),
+                database: formatBytes(stats.data.database),
+                backups: formatBytes(stats.data.backups),
+              })}
             </p>
           ) : (
-            <p className="text-[13px] text-muted-foreground">Measuring…</p>
+            <p className="text-[13px] text-muted-foreground">{t("maintenance.measuring")}</p>
           )}
         </section>
 
         <section className="grid gap-2">
           <div className="flex items-center justify-between gap-2">
-            <h3 className="text-sm font-medium">Backups</h3>
+            <h3 className="text-sm font-medium">{t("maintenance.backups")}</h3>
             <Button
               variant="outline"
               size="sm"
               disabled={busy || blocked !== undefined}
-              title={blocked ?? "A copy of the library's database in its backups folder"}
+              title={blocked ?? t("maintenance.backUpNowTitle")}
               onClick={() => void backUp()}
             >
               <Save aria-hidden />
-              Back up now
+              {t("maintenance.backUpNow")}
             </Button>
           </div>
-          <p className="text-xs text-muted-foreground">
-            The library database is copied when the library opens (once a day), before an upgrade
-            and on request; the last 10 copies are kept. Files are not copied.
-          </p>
+          <p className="text-xs text-muted-foreground">{t("maintenance.backupsHint")}</p>
           {(backups.data ?? []).length === 0 ? (
-            <p className="text-[13px] text-muted-foreground">No backups yet.</p>
+            <p className="text-[13px] text-muted-foreground">{t("maintenance.noBackups")}</p>
           ) : (
-            <ul aria-label="Backups" className="grid gap-1">
+            <ul aria-label={t("maintenance.backups")} className="grid gap-1">
               {(backups.data ?? []).map((backup) => (
                 <li
                   key={backup.name}
@@ -197,14 +198,16 @@ export function LibrarySettingsDialog({
                   <span className="min-w-0 flex-1">
                     <span className="block">{formatDate(backup.createdAt)}</span>
                     <span className="block text-xs text-muted-foreground">
-                      {KINDS[backup.kind]} · {formatBytes(backup.size)}
+                      {t(KIND_KEYS[backup.kind])} · {formatBytes(backup.size)}
                     </span>
                   </span>
                   {restoring === backup.name ? (
                     <>
-                      <span className="text-xs text-muted-foreground">Restore this backup?</span>
+                      <span className="text-xs text-muted-foreground">
+                        {t("maintenance.restoreConfirm")}
+                      </span>
                       <Button variant="outline" size="xs" onClick={() => setRestoring(null)}>
-                        Cancel
+                        {t("common.cancel")}
                       </Button>
                       <Button
                         variant="destructive"
@@ -212,7 +215,7 @@ export function LibrarySettingsDialog({
                         disabled={busy}
                         onClick={() => void restore(backup)}
                       >
-                        Restore
+                        {t("maintenance.restoreAction")}
                       </Button>
                     </>
                   ) : (
@@ -220,14 +223,11 @@ export function LibrarySettingsDialog({
                       variant="ghost"
                       size="xs"
                       disabled={busy || blocked !== undefined}
-                      title={
-                        blocked ??
-                        "Brings back folders, tags and item fields as they were then. The current state is backed up first."
-                      }
+                      title={blocked ?? t("maintenance.restoreTitle")}
                       onClick={() => setRestoring(backup.name)}
                     >
                       <RotateCcw aria-hidden />
-                      Restore…
+                      {t("maintenance.restore")}
                     </Button>
                   )}
                 </li>
@@ -237,21 +237,21 @@ export function LibrarySettingsDialog({
         </section>
 
         <section className="grid gap-2">
-          <h3 className="text-sm font-medium">Maintenance</h3>
+          <h3 className="text-sm font-medium">{t("maintenance.maintenance")}</h3>
           <div className="flex flex-wrap gap-2">
             <Button
               variant="outline"
               size="sm"
               disabled={blocked !== undefined}
-              title={blocked ?? "Makes every thumbnail again in the background"}
+              title={blocked ?? t("maintenance.rebuildThumbnailsTitle")}
               onClick={onRebuild}
             >
               <Images aria-hidden />
-              Rebuild thumbnails
+              {t("maintenance.rebuildThumbnails")}
             </Button>
             <Button variant="outline" size="sm" onClick={onCheck}>
               <Stethoscope aria-hidden />
-              Check library…
+              {t("maintenance.checkLibraryAction")}
             </Button>
           </div>
         </section>

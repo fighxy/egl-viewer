@@ -1,5 +1,6 @@
 import { ChevronDown, ChevronRight, File as FileIcon, Folder as FolderIcon } from "lucide-react";
 import { useMemo, useState } from "react";
+import { useTranslation } from "react-i18next";
 import { Button } from "@/components/ui/button";
 import { Checkbox } from "@/components/ui/checkbox";
 import {
@@ -11,7 +12,6 @@ import {
 } from "@/components/ui/dialog";
 import { formatBytes } from "@/features/browse/format";
 import type { ImportPreview, PreviewEntry } from "@/ipc";
-import { plural } from "./importText";
 
 export type ImportChoice = { exclude: string[]; include: string[] };
 
@@ -92,6 +92,7 @@ function folderState(
  * preselected and everything else a click away. Nothing is copied until Import.
  */
 export function ImportReviewDialog({ review, target, onConfirm }: Props) {
+  const { t, i18n } = useTranslation();
   // Unchecked folders and image files; checked non-image files. Overrides below an unchecked
   // folder are dropped, so the sets stay compact.
   const [off, setOff] = useState<ReadonlySet<string>>(() => new Set());
@@ -167,22 +168,32 @@ export function ImportReviewDialog({ review, target, onConfirm }: Props) {
     });
 
   const name = path.replaceAll("\\", "/").split("/").filter(Boolean).at(-1) ?? path;
+  const filesLabel = (count: number) =>
+    t("imports.files", { count, formatted: count.toLocaleString(i18n.language) });
+
+  const description = [
+    `${filesLabel(preview.files)} · ${formatBytes(preview.bytes)}`,
+    preview.unlisted > 0
+      ? t("imports.unlistedMore", {
+          count: preview.unlisted,
+          formatted: preview.unlisted.toLocaleString(i18n.language),
+        })
+      : null,
+    target ? t("imports.intoTarget", { name: target }) : t("imports.intoLibrary"),
+  ]
+    .filter((part): part is string => part !== null)
+    .join(" · ");
 
   return (
     <Dialog open onOpenChange={(isOpen) => !isOpen && onConfirm(null)}>
       <DialogContent className="flex max-h-[80vh] flex-col sm:max-w-2xl">
         <DialogHeader>
-          <DialogTitle>Import “{name}”</DialogTitle>
-          <DialogDescription>
-            {plural(preview.files, "file")} · {formatBytes(preview.bytes)}
-            {preview.unlisted > 0 &&
-              ` · ${plural(preview.unlisted, "file")} more not listed; they follow their folders`}
-            {target ? ` · into “${target}”` : " · into the library"}
-          </DialogDescription>
+          <DialogTitle>{t("imports.reviewTitle", { name })}</DialogTitle>
+          <DialogDescription>{description}</DialogDescription>
         </DialogHeader>
         <div
           role="tree"
-          aria-label="Folder contents"
+          aria-label={t("imports.folderContents")}
           className="min-h-0 flex-1 overflow-y-auto rounded-md border p-1"
         >
           {preview.tree.map((entry) => (
@@ -209,17 +220,20 @@ export function ImportReviewDialog({ review, target, onConfirm }: Props) {
               setOn(new Set());
             }}
           >
-            Images only
+            {t("imports.imagesOnly")}
           </Button>
           <span className="ml-auto text-xs text-muted-foreground">
-            {plural(selected.files, "file")} · {formatBytes(selected.bytes)} selected
+            {t("imports.selectedCount", {
+              files: filesLabel(selected.files),
+              bytes: formatBytes(selected.bytes),
+            })}
           </span>
           <Button
             size="sm"
             disabled={selected.files === 0}
             onClick={() => onConfirm({ exclude: [...off], include: [...on] })}
           >
-            Import
+            {t("imports.import")}
           </Button>
         </div>
       </DialogContent>
@@ -250,6 +264,7 @@ function Node({
   onToggleFile,
   onToggleFolder,
 }: NodeProps) {
+  const { t } = useTranslation();
   const checked: CheckState = entry.folder
     ? folderState(entry, rel, off, on)
     : fileSelected(entry, rel, off, on)
@@ -265,7 +280,11 @@ function Node({
         {entry.folder && entry.children.length > 0 ? (
           <button
             type="button"
-            aria-label={expanded ? `Collapse ${entry.name}` : `Expand ${entry.name}`}
+            aria-label={
+              expanded
+                ? t("imports.collapseNamed", { name: entry.name })
+                : t("imports.expandNamed", { name: entry.name })
+            }
             className="grid size-4 place-items-center rounded text-muted-foreground hover:text-foreground"
             onClick={() => onToggleOpen(rel)}
           >
@@ -292,7 +311,7 @@ function Node({
         )}
         <span className="min-w-0 flex-1 truncate">{entry.name}</span>
         {!entry.image && !entry.folder && (
-          <span className="text-xs text-muted-foreground">not an image</span>
+          <span className="text-xs text-muted-foreground">{t("imports.notAnImage")}</span>
         )}
         <span className="text-xs text-muted-foreground tabular-nums">
           {formatBytes(entry.bytes)}

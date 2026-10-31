@@ -1,5 +1,6 @@
 import { X } from "lucide-react";
 import { useState } from "react";
+import { useTranslation } from "react-i18next";
 import { Button } from "@/components/ui/button";
 import {
   Dialog,
@@ -10,7 +11,6 @@ import {
   DialogTitle,
 } from "@/components/ui/dialog";
 import { ColourPicker } from "@/features/folders/ColourPicker";
-import { plural } from "@/features/imports/importText";
 import type { Tag, TagGroup, TagGroupChange } from "@/ipc";
 import { cleanTag } from "./match";
 import { TagInput } from "./TagInput";
@@ -50,10 +50,13 @@ export function TagDialogs({
   onSaveGroup,
   onDeleteGroup,
 }: Props) {
+  const { t, i18n } = useTranslation();
   const close = (open: boolean) => {
     if (!open) onClose();
   };
   const count = (name: string) => vocabulary.find((tag) => tag.name === name)?.imageCount ?? 0;
+  const itemsLabel = (n: number) =>
+    t("common.item", { count: n, formatted: n.toLocaleString(i18n.language) });
   const group =
     dialog?.kind === "group" || dialog?.kind === "deleteGroup"
       ? groups.find((candidate) => candidate.id === dialog.id)
@@ -84,18 +87,17 @@ export function TagDialogs({
         {dialog?.kind === "delete" && (
           <DialogContent showCloseButton={false}>
             <DialogHeader>
-              <DialogTitle>Delete the tag “{dialog.name}”?</DialogTitle>
+              <DialogTitle>{t("tagsUi.deleteTitle", { name: dialog.name })}</DialogTitle>
               <DialogDescription>
-                It is removed from {plural(count(dialog.name), "item")} and from tag groups. The
-                items stay. This cannot be undone.
+                {t("tagsUi.deleteBody", { items: itemsLabel(count(dialog.name)) })}
               </DialogDescription>
             </DialogHeader>
             <DialogFooter>
               <Button variant="outline" autoFocus onClick={onClose}>
-                Cancel
+                {t("common.cancel")}
               </Button>
               <Button variant="destructive" onClick={() => onDelete(dialog.name)}>
-                Delete tag
+                {t("tagsUi.deleteTag")}
               </Button>
             </DialogFooter>
           </DialogContent>
@@ -110,15 +112,15 @@ export function TagDialogs({
         {dialog?.kind === "deleteGroup" && (
           <DialogContent showCloseButton={false}>
             <DialogHeader>
-              <DialogTitle>Delete the group “{group?.name}”?</DialogTitle>
-              <DialogDescription>Its tags stay on their items.</DialogDescription>
+              <DialogTitle>{t("tagsUi.deleteGroupTitle", { name: group?.name ?? "" })}</DialogTitle>
+              <DialogDescription>{t("tagsUi.deleteGroupBody")}</DialogDescription>
             </DialogHeader>
             <DialogFooter>
               <Button variant="outline" autoFocus onClick={onClose}>
-                Cancel
+                {t("common.cancel")}
               </Button>
               <Button variant="destructive" onClick={() => onDeleteGroup(dialog.id)}>
-                Delete group
+                {t("tagsUi.deleteGroup")}
               </Button>
             </DialogFooter>
           </DialogContent>
@@ -137,6 +139,7 @@ function RenameTag({
   vocabulary: readonly Tag[];
   onRename: (to: string) => void;
 }) {
+  const { t } = useTranslation();
   const [text, setText] = useState(name);
   const to = cleanTag(text);
   // Exact strings: "poster" → "Poster" is a rename unless "Poster" exists too.
@@ -151,11 +154,11 @@ function RenameTag({
         }}
       >
         <DialogHeader>
-          <DialogTitle>Rename “{name}”</DialogTitle>
-          <DialogDescription>The tag changes on every item and in tag groups.</DialogDescription>
+          <DialogTitle>{t("tagsUi.renameTitle", { name })}</DialogTitle>
+          <DialogDescription>{t("tagsUi.renameHint")}</DialogDescription>
         </DialogHeader>
         <input
-          aria-label="New name"
+          aria-label={t("tagsUi.renameAria")}
           // biome-ignore lint/a11y/noAutofocus: the dialog asks for this one field.
           autoFocus
           value={text}
@@ -164,12 +167,12 @@ function RenameTag({
         />
         {merges && (
           <p role="status" className="text-[13px] text-muted-foreground">
-            “{to}” already exists: the two tags will be merged.
+            {t("tagsUi.renameMergeHint", { name: to })}
           </p>
         )}
         <DialogFooter>
           <Button type="submit" disabled={!to || to === name}>
-            {merges ? "Merge" : "Rename"}
+            {merges ? t("tagsUi.merge") : t("commonExtra.rename")}
           </Button>
         </DialogFooter>
       </form>
@@ -190,19 +193,22 @@ function MergeTag({
   onCancel: () => void;
   onMerge: (target: string) => void;
 }) {
+  const { t, i18n } = useTranslation();
   const [target, setTarget] = useState<string | null>(null);
   const others = vocabulary.filter((tag) => tag.name !== name);
+  const items = t("common.item", {
+    count,
+    formatted: count.toLocaleString(i18n.language),
+  });
   return (
     <DialogContent>
       <DialogHeader>
-        <DialogTitle>Merge “{name}” into…</DialogTitle>
-        <DialogDescription>
-          {plural(count, "item")} with “{name}” get the other tag, and “{name}” is gone.
-        </DialogDescription>
+        <DialogTitle>{t("tagsUi.mergeTitle", { name })}</DialogTitle>
+        <DialogDescription>{t("tagsUi.mergeBody", { items, name })}</DialogDescription>
       </DialogHeader>
       <TagInput
-        label="Merge into"
-        placeholder="Find a tag"
+        label={t("tagsUi.mergeInto")}
+        placeholder={t("tagsUi.findTag")}
         vocabulary={others}
         existingOnly
         keepText
@@ -211,15 +217,15 @@ function MergeTag({
       />
       {target && (
         <p role="status" className="text-[13px]">
-          Merge “{name}” into “{target}”.
+          {t("tagsUi.mergeConfirm", { name, target })}
         </p>
       )}
       <DialogFooter>
         <Button variant="outline" onClick={onCancel}>
-          Cancel
+          {t("common.cancel")}
         </Button>
         <Button disabled={target === null} onClick={() => target && onMerge(target)}>
-          Merge
+          {t("tagsUi.merge")}
         </Button>
       </DialogFooter>
     </DialogContent>
@@ -235,6 +241,7 @@ function GroupDialog({
   vocabulary: readonly Tag[];
   onSave: (change: TagGroupChange) => void;
 }) {
+  const { t } = useTranslation();
   const [name, setName] = useState(group?.name ?? "");
   const [color, setColor] = useState<string | null>(group?.color ?? null);
   const [tags, setTags] = useState<string[]>(group?.tags ?? []);
@@ -250,15 +257,15 @@ function GroupDialog({
   return (
     <DialogContent>
       <DialogHeader>
-        <DialogTitle>{group ? `Edit “${group.name}”` : "New tag group"}</DialogTitle>
-        <DialogDescription>
-          A named set of tags for the left bar and the Tags filter. Item tags do not change.
-        </DialogDescription>
+        <DialogTitle>
+          {group ? t("tagsUi.editGroup", { name: group.name }) : t("tagsUi.newGroup")}
+        </DialogTitle>
+        <DialogDescription>{t("tagsUi.editGroupHint")}</DialogDescription>
       </DialogHeader>
       <div className="grid gap-3">
         <input
-          aria-label="Group name"
-          placeholder="Name"
+          aria-label={t("tagsUi.groupNameAria")}
+          placeholder={t("tagsUi.name")}
           // biome-ignore lint/a11y/noAutofocus: the first field of the dialog.
           autoFocus
           value={name}
@@ -268,11 +275,11 @@ function GroupDialog({
           }}
           className={FIELD}
         />
-        <ColourPicker legend="Colour" value={color} onChange={setColor} />
+        <ColourPicker legend={t("tagsUi.colour")} value={color} onChange={setColor} />
         <div className="grid gap-1.5">
-          <span className="text-xs text-muted-foreground">Tags</span>
+          <span className="text-xs text-muted-foreground">{t("tagsUi.groupTags")}</span>
           {tags.length > 0 && (
-            <ul aria-label="Group tags" className="flex flex-wrap gap-1">
+            <ul aria-label={t("tagsUi.groupTagsAria")} className="flex flex-wrap gap-1">
               {tags.map((tag) => (
                 <li
                   key={tag}
@@ -281,7 +288,7 @@ function GroupDialog({
                   {tag}
                   <button
                     type="button"
-                    aria-label={`Remove ${tag}`}
+                    aria-label={t("tagsUi.removeTag", { name: tag })}
                     className="rounded p-0.5 hover:bg-background"
                     onClick={() => setTags(tags.filter((other) => other !== tag))}
                   >
@@ -292,7 +299,7 @@ function GroupDialog({
             </ul>
           )}
           <TagInput
-            label="Add a tag to the group"
+            label={t("tagsUi.addTagToGroup")}
             vocabulary={vocabulary}
             exclude={new Set(tags)}
             onPick={(tag) => setTags((current) => [...current, tag])}
@@ -301,7 +308,7 @@ function GroupDialog({
       </div>
       <DialogFooter>
         <Button disabled={!name.trim()} onClick={save}>
-          {group ? "Save" : "Create"}
+          {group ? t("common.save") : t("tagsUi.create")}
         </Button>
       </DialogFooter>
     </DialogContent>

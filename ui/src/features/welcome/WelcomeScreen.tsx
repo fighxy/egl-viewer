@@ -1,4 +1,5 @@
 import { Cable, FolderOpen, FolderPlus, Import, X } from "lucide-react";
+import { useTranslation } from "react-i18next";
 import { Button } from "@/components/ui/button";
 import {
   Card,
@@ -22,8 +23,6 @@ type Props = {
   status?: string;
 };
 
-const dateFormat = new Intl.DateTimeFormat("en", { dateStyle: "medium", timeStyle: "short" });
-
 /** The first screen while no library is open (docs/spec.md §7.2, D-017). */
 export function WelcomeScreen({
   onCreateLibrary,
@@ -35,31 +34,36 @@ export function WelcomeScreen({
   onForgetRecent,
   status,
 }: Props) {
+  const { t, i18n } = useTranslation();
+  const dateFormat = new Intl.DateTimeFormat(i18n.language, {
+    dateStyle: "medium",
+    timeStyle: "short",
+  });
   return (
     <Card className="w-full max-w-lg">
       <CardHeader>
         <CardTitle>
-          <h1>Welcome to egl-viewer</h1>
+          <h1>{t("welcome.title")}</h1>
         </CardTitle>
-        <CardDescription>Keep your images and references in a library on this PC.</CardDescription>
+        <CardDescription>{t("welcome.description")}</CardDescription>
       </CardHeader>
       <CardContent className="grid gap-6 py-4">
         <div className="grid gap-2 sm:grid-cols-2">
           <Button size="lg" onClick={onCreateLibrary}>
             <FolderPlus aria-hidden />
-            Create library
+            {t("welcome.create")}
           </Button>
           <Button size="lg" variant="outline" onClick={onOpenLibrary}>
             <FolderOpen aria-hidden />
-            Open library
+            {t("welcome.open")}
           </Button>
         </div>
         <section aria-labelledby="recent-heading" className="grid gap-2">
           <h2 id="recent-heading" className="text-sm font-medium">
-            Recent libraries
+            {t("welcome.recent")}
           </h2>
           {recent.length === 0 ? (
-            <p className="text-sm text-muted-foreground">No recent libraries yet.</p>
+            <p className="text-sm text-muted-foreground">{t("welcome.noRecent")}</p>
           ) : (
             <ul className="grid gap-0.5">
               {recent.map((library) => (
@@ -74,7 +78,7 @@ export function WelcomeScreen({
                       {library.name}
                       {library.missing && (
                         <span className="rounded bg-muted px-1.5 text-xs font-normal text-muted-foreground">
-                          Missing
+                          {t("common.missing")}
                         </span>
                       )}
                     </span>
@@ -85,8 +89,8 @@ export function WelcomeScreen({
                   <Button
                     variant="ghost"
                     size="icon-sm"
-                    aria-label={`Remove ${library.name} from the list`}
-                    title="Remove from the list"
+                    aria-label={t("welcome.removeRecent", { name: library.name })}
+                    title={t("welcome.removeRecentTitle")}
                     onClick={() => onForgetRecent?.(library.path)}
                   >
                     <X aria-hidden />
@@ -98,15 +102,15 @@ export function WelcomeScreen({
         </section>
         <section aria-labelledby="eagle-heading" className="grid gap-1 border-t pt-4">
           <h2 id="eagle-heading" className="text-sm font-medium">
-            Eagle
+            {t("welcome.eagle")}
           </h2>
           <Button variant="ghost" className="justify-start" onClick={onImportEagleLibrary}>
             <Import aria-hidden />
-            Import an Eagle library
+            {t("welcome.importEagle")}
           </Button>
           <Button variant="ghost" className="justify-start" onClick={onConnectEagle}>
             <Cable aria-hidden />
-            Connect to a running Eagle
+            {t("welcome.connectEagle")}
           </Button>
         </section>
       </CardContent>

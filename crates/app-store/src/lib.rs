@@ -18,7 +18,9 @@ pub use login::{
     Authenticator, LoginMethod, LoginProof, LoginStatus, SoftwareAuthenticator, WebAuthnAssertion,
     WebAuthnCredential,
 };
-pub use preferences::{BrowsePreferences, Preferences, Theme, UiLayout, ViewMode, WindowState};
+pub use preferences::{
+    BrowsePreferences, Locale, Preferences, Theme, UiLayout, ViewMode, WindowState,
+};
 pub use recent::RecentLibrary;
 pub use settings::ConnectionSettings;
 

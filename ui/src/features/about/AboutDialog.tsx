@@ -1,3 +1,4 @@
+import { useTranslation } from "react-i18next";
 import {
   Dialog,
   DialogContent,
@@ -15,19 +16,18 @@ type Props = {
 
 /** About egl-viewer (docs/spec.md §7.4). Third-party licenses arrive with the release build. */
 export function AboutDialog({ open, onOpenChange, info }: Props) {
+  const { t } = useTranslation();
   const rows: [string, string][] = [
-    ["Version", info?.version ?? "unknown"],
-    ...(info?.commit ? ([["Build", info.commit]] as [string, string][]) : []),
-    ...(info?.webview ? ([["WebView", info.webview]] as [string, string][]) : []),
+    [t("about.version"), info?.version ?? t("about.unknown")],
+    ...(info?.commit ? ([[t("about.build"), info.commit]] as [string, string][]) : []),
+    ...(info?.webview ? ([[t("about.webview"), info.webview]] as [string, string][]) : []),
   ];
   return (
     <Dialog open={open} onOpenChange={onOpenChange}>
       <DialogContent>
         <DialogHeader>
-          <DialogTitle>About egl-viewer</DialogTitle>
-          <DialogDescription>
-            A desktop app for collections of images and design references.
-          </DialogDescription>
+          <DialogTitle>{t("about.title")}</DialogTitle>
+          <DialogDescription>{t("about.description")}</DialogDescription>
         </DialogHeader>
         <dl className="grid grid-cols-[auto_1fr] gap-x-6 gap-y-1 text-[13px]">
           {rows.map(([label, value]) => (

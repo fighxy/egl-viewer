@@ -1,4 +1,5 @@
 import type { ReactElement } from "react";
+import { useTranslation } from "react-i18next";
 import {
   ContextMenu,
   ContextMenuContent,
@@ -24,15 +25,22 @@ export function TagMenu({
   actions?: TagActions;
   children: ReactElement;
 }) {
+  const { t } = useTranslation();
   if (!actions) return children;
   return (
     <ContextMenu>
       <ContextMenuTrigger asChild>{children}</ContextMenuTrigger>
       <ContextMenuContent>
-        <ContextMenuItem onSelect={() => actions.onRename(name)}>Rename…</ContextMenuItem>
-        <ContextMenuItem onSelect={() => actions.onMerge(name)}>Merge Into…</ContextMenuItem>
+        <ContextMenuItem onSelect={() => actions.onRename(name)}>
+          {t("tagMenu.rename")}
+        </ContextMenuItem>
+        <ContextMenuItem onSelect={() => actions.onMerge(name)}>
+          {t("tagMenu.merge")}
+        </ContextMenuItem>
         <ContextMenuSeparator />
-        <ContextMenuItem onSelect={() => actions.onDelete(name)}>Delete…</ContextMenuItem>
+        <ContextMenuItem onSelect={() => actions.onDelete(name)}>
+          {t("tagMenu.delete")}
+        </ContextMenuItem>
       </ContextMenuContent>
     </ContextMenu>
   );

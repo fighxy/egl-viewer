@@ -35,7 +35,8 @@ Live verification (2026-10-27): two test JPEGs were added to the open library th
 | Who talks to Eagle | **Only Rust.** The UI never calls the Eagle API and never sees the token |
 | HTTP | Only for Eagle: `reqwest` with rustls on `tokio`, our own `EagleHttp` with all protocol rules (§4) |
 | Secrets | Only the Eagle token, in Windows Credential Manager (`keyring`); later the macOS/iOS Keychain and Android Keystore |
-| Settings | `app-store`: JSON files in the app's local data folder for recent libraries, the last query per library, preferences, the Eagle endpoint; not `tauri-plugin-store` (D-022) |
+| Settings | `app-store`: JSON files in the app's local data folder for recent libraries, the last query per library, preferences (including UI locale, D-069), the Eagle endpoint; not `tauri-plugin-store` (D-022) |
+| UI i18n | `i18next` + `react-i18next` catalogs (`en`, `ru`, `zh-CN`); English default (D-069) |
 | Background | Imports and thumbnail generation run as tasks of the open app. No background service; a running Eagle is refreshed when the window regains focus and on demand |
 | Sync | Native: one writer per library (an OS file lock), local disks only (no cloud folders, no network shares), backups; sync between devices later (§15.8). Eagle: only Eagle writes its library; every change goes through the API (§12) |
 | Eagle compatibility | Import of `.library` folders without Eagle running; live work through the API; export into Eagle through its API. The app never writes Eagle's files (§15.5) |
@@ -806,7 +807,7 @@ Every command that works on a library goes through the open `LibrarySource`; a s
 
 **UI structure.** Routes: `/welcome`, `/library` with the scope and the filters in typed search parameters, `/item/$id` as a side panel or a dialog, `/eagle/connect`, `/eagle/import`, `/eagle/export`. The tag, filter and sort sheets are components of the library screen, not routes. Server state lives in TanStack Query (keys per view window, per item, for the tree and the vocabulary); local UI state stays in components. The last `LibraryQuery` per library is saved by `app-store` so that the app reopens where it was.
 
-**Layout.** Desktop-first, as in spec §7.3: the menu bar, the left bar, the toolbar and the filter bar over the grid, the right bar with the metadata, the status bar. The panels use shadcn `resizable`; their widths and open state are saved by `app-store`. The layout is responsive, so a narrow phone layout can be added later without restructuring. UI text is English only in v1 and goes through one place per screen (D-007).
+**Layout.** Desktop-first, as in spec §7.3: the menu bar, the left bar, the toolbar and the filter bar over the grid, the right bar with the metadata, the status bar. The panels use shadcn `resizable`; their widths and open state are saved by `app-store`. The layout is responsive, so a narrow phone layout can be added later without restructuring. UI text goes through `i18next` catalogs under `ui/src/i18n/`; English is the default, with Russian and Chinese Simplified selectable in Settings (D-069).
 
 **In-window drops** (D-042, D-057). Mouse events, not HTML5 drag and drop. A `data-drop` attribute marks the target under the pointer: `folder` (before, inside or after), `root` (the folder heading), `cell` (manual order) and `tag` (a tag row in Tag groups or Recent tags). The items payload is an `ItemsTarget`, the same one a folder drop uses. A tag drop sends `addTags` with that one name. A target `canDrop` refuses is not highlighted. A tag row that would take the items uses the same highlight as a folder's inside zone.
 

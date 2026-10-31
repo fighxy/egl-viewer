@@ -1,4 +1,5 @@
 import { ChevronDown, ChevronRight, Plus, Sparkles, TriangleAlert } from "lucide-react";
+import { useTranslation } from "react-i18next";
 import { Button } from "@/components/ui/button";
 import {
   ContextMenu,
@@ -58,10 +59,12 @@ export function SmartFolders({
   onEdit,
   onDelete,
 }: Props) {
+  const { t } = useTranslation();
   const canWrite = writable === true;
   return (
     <Section
-      label="Smart folders"
+      label={t("sidebar.smartFolders")}
+      storageKey="Smart folders"
       action={
         <Button
           variant="ghost"

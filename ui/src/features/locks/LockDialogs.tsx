@@ -1,5 +1,6 @@
 import { save } from "@tauri-apps/plugin-dialog";
 import { useEffect, useId, useState } from "react";
+import { useTranslation } from "react-i18next";
 import { Button } from "@/components/ui/button";
 import {
   Dialog,
@@ -13,7 +14,6 @@ import { Input } from "@/components/ui/input";
 import { Progress } from "@/components/ui/progress";
 import { ColourPicker } from "@/features/folders/ColourPicker";
 import { findFolder } from "@/features/folders/tree";
-import { plural } from "@/features/imports/importText";
 import {
   type Folder,
   ipc,
@@ -157,15 +157,20 @@ function ErrorText({ children }: { children: React.ReactNode }) {
 }
 
 function Working({ progress, verb }: { progress: LockProgress | null; verb: string }) {
+  const { t, i18n } = useTranslation();
   const total = progress?.total ?? 0;
   const done = progress?.done ?? 0;
   return (
-    <div className="grid gap-2" role="status" aria-label={`${verb} items`}>
+    <div className="grid gap-2" role="status" aria-label={t("locksUi.workingItems", { verb })}>
       <Progress value={total > 0 ? (done / total) * 100 : 0} />
       <p className="text-xs text-muted-foreground">
         {total > 0
-          ? `${verb} ${done.toLocaleString("en")} of ${total.toLocaleString("en")}…`
-          : `${verb}…`}
+          ? t("locksUi.progressCounted", {
+              verb,
+              done: done.toLocaleString(i18n.language),
+              total: total.toLocaleString(i18n.language),
+            })
+          : t("locksUi.progressPlain", { verb })}
       </p>
     </div>
   );
@@ -182,6 +187,7 @@ function LockFolder({
   onLocked: () => void;
   onDone: () => void;
 }) {
+  const { t, i18n } = useTranslation();
   const [password, setPassword] = useState("");
   const [confirm, setConfirm] = useState("");
   const [label, setLabel] = useState("");
@@ -218,28 +224,40 @@ function LockFolder({
           }}
         >
           <DialogHeader>
-            <DialogTitle>Lock “{folder.name}”</DialogTitle>
+            <DialogTitle>{t("locksUi.lockTitle", { name: folder.name })}</DialogTitle>
             <DialogDescription>
-              Locking encrypts the folder on disk: its files, previews, names and notes.
-              {items > 0 ? ` ${plural(items, "item")} will be encrypted.` : ""} Without the password
-              or the recovery key nobody can open them, not even you.
+              {t("locksUi.lockIntro")}
+              {items > 0
+                ? ` ${t("locksUi.lockEncryptCount", {
+                    items: t("common.item", {
+                      count: items,
+                      formatted: items.toLocaleString(i18n.language),
+                    }),
+                  })}`
+                : ""}{" "}
+              {t("locksUi.lockOutro")}
             </DialogDescription>
           </DialogHeader>
           {working ? (
-            <Working progress={progress} verb="Encrypting" />
+            <Working progress={progress} verb={t("locksUi.encrypting")} />
           ) : (
             <>
-              <PasswordField label="Password" value={password} onChange={setPassword} autoFocus />
               <PasswordField
-                label="Repeat the password"
+                label={t("locksUi.password")}
+                value={password}
+                onChange={setPassword}
+                autoFocus
+              />
+              <PasswordField
+                label={t("locksUi.repeatPassword")}
                 value={confirm}
                 onChange={setConfirm}
                 invalid={mismatch}
               />
-              {mismatch && <ErrorText>The passwords are not the same.</ErrorText>}
+              {mismatch && <ErrorText>{t("locksUi.mismatch")}</ErrorText>}
               <div className="grid gap-1">
                 <label htmlFor={labelId} className="text-xs text-muted-foreground">
-                  Label (optional, shown on the lock and not encrypted)
+                  {t("locksUi.labelOptional")}
                 </label>
                 <Input
                   id={labelId}
@@ -248,16 +266,16 @@ function LockFolder({
                   onChange={(event) => setLabel(event.target.value)}
                 />
               </div>
-              <ColourPicker legend="Label colour" value={color} onChange={setColor} />
+              <ColourPicker legend={t("locksUi.labelColour")} value={color} onChange={setColor} />
             </>
           )}
           {error && <ErrorText>{error}</ErrorText>}
           <DialogFooter>
             <Button type="button" variant="outline" disabled={working} onClick={onCancel}>
-              Cancel
+              {t("common.cancel")}
             </Button>
             <Button type="submit" disabled={!password || mismatch || confirm === "" || working}>
-              Lock
+              {t("commonExtra.lock")}
             </Button>
           </DialogFooter>
         </form>
@@ -279,6 +297,7 @@ export function RecoveryKeyDialog({
   recovery: RecoveryKey;
   onDone: () => void;
 }) {
+  const { t } = useTranslation();
   const [words, setWords] = useState(false);
   const [saved, setSaved] = useState(false);
   const [status, setStatus] = useState<string>();
@@ -291,20 +310,19 @@ export function RecoveryKeyDialog({
         onInteractOutside={(event) => event.preventDefault()}
       >
         <DialogHeader>
-          <DialogTitle>Save the recovery key</DialogTitle>
+          <DialogTitle>{t("locksUi.saveRecoveryTitle")}</DialogTitle>
           <DialogDescription>
-            If you forget the password of “{folderName}”, this key is the only way to open it. It is
-            shown now and never again. Keep it somewhere safe, away from the library.
+            {t("locksUi.saveRecoveryBody", { name: folderName })}
           </DialogDescription>
         </DialogHeader>
-        <figure aria-label="Recovery key">
+        <figure aria-label={t("locksUi.recoveryKeyAria")}>
           <p className="rounded-md border bg-muted px-3 py-2 text-center font-mono text-sm break-words select-all">
             {shown}
           </p>
         </figure>
         <div className="flex flex-wrap gap-2">
           <Button variant="outline" size="sm" onClick={() => setWords(!words)}>
-            {words ? "Show as a key" : "Show as 12 words"}
+            {words ? t("locksUi.showAsKey") : t("locksUi.showAsWords")}
           </Button>
           <Button
             variant="outline"
@@ -312,31 +330,33 @@ export function RecoveryKeyDialog({
             onClick={() => {
               navigator.clipboard
                 ?.writeText(`${recovery.key}\n${recovery.phrase}`)
-                .then(() => setStatus("Copied."))
-                .catch(() => setStatus("Copying failed: write the key down instead."));
+                .then(() => setStatus(t("locksUi.copied")))
+                .catch(() => setStatus(t("locksUi.copyFailed")));
             }}
           >
-            Copy
+            {t("commonExtra.copy")}
           </Button>
           <Button
             variant="outline"
             size="sm"
             onClick={() => {
               save({
-                title: "Save the recovery key",
-                defaultPath: `${folderName} recovery key.txt`,
-                filters: [{ name: "Text", extensions: ["txt"] }],
+                title: t("locksUi.saveRecoveryTitle"),
+                defaultPath: t("locksUi.recoveryFileName", { name: folderName }),
+                filters: [{ name: t("locksUi.textFilter"), extensions: ["txt"] }],
               })
                 .then((path) =>
                   path
-                    ? ipc.saveRecoveryFile(path, folderName, recovery).then(() => "Saved.")
+                    ? ipc
+                        .saveRecoveryFile(path, folderName, recovery)
+                        .then(() => t("locksUi.saved"))
                     : undefined,
                 )
                 .then((message) => message && setStatus(message))
                 .catch((error: unknown) => setStatus(describeError(error)));
             }}
           >
-            Save to a file…
+            {t("locksUi.saveToFile")}
           </Button>
         </div>
         {status && (
@@ -350,11 +370,11 @@ export function RecoveryKeyDialog({
             checked={saved}
             onChange={(event) => setSaved(event.target.checked)}
           />
-          I saved the recovery key
+          {t("locksUi.savedRecoveryConfirm")}
         </label>
         <DialogFooter>
           <Button disabled={!saved} onClick={onDone}>
-            Done
+            {t("commonExtra.done")}
           </Button>
         </DialogFooter>
       </DialogContent>
@@ -373,6 +393,7 @@ function UnlockFolder({
   onCancel: () => void;
   onDone: (opened?: string) => void;
 }) {
+  const { t } = useTranslation();
   const [mode, setMode] = useState<"password" | "recovery" | "yubikey">("password");
   const [password, setPassword] = useState("");
   const [recovery, setRecovery] = useState("");
@@ -426,12 +447,9 @@ function UnlockFolder({
             event.preventDefault();
             if (!ready || working) return;
             if (mode === "password") {
-              run(ipc.unlockFolder(id, password), "The password is not right.");
+              run(ipc.unlockFolder(id, password), t("locksUi.wrongPassword"));
             } else if (mode === "recovery") {
-              run(
-                ipc.recoverFolder(id, recovery, next),
-                "This recovery key does not open the folder.",
-              );
+              run(ipc.recoverFolder(id, recovery, next), t("locksUi.wrongRecovery"));
             } else if (selected) {
               run(
                 ipc.unlockWithYubiKey(
@@ -439,36 +457,33 @@ function UnlockFolder({
                   selected.serial,
                   selected.policy === "pin" ? { kind: "pin", pin } : { kind: "touch" },
                 ),
-                selected.policy === "pin"
-                  ? "The YubiKey PIN is not right."
-                  : "The YubiKey did not open the folder.",
+                selected.policy === "pin" ? t("locksUi.wrongYubiPin") : t("locksUi.yubiFailed"),
               );
             }
           }}
         >
           <DialogHeader>
-            <DialogTitle>Unlock “{name}”</DialogTitle>
+            <DialogTitle>{t("locksUi.unlockTitle", { name })}</DialogTitle>
             <DialogDescription>
-              {mode === "password" &&
-                "The folder opens until you lock it again or close the library. Other locked folders stay locked."}
-              {mode === "recovery" &&
-                "Enter the recovery key or its 12 words, then a new password. The old password stops working."}
-              {mode === "yubikey" &&
-                selected?.policy === "pin" &&
-                "Enter the YubiKey PIN. It replaces the touch, and it opens only this folder."}
-              {mode === "yubikey" &&
-                selected?.policy !== "pin" &&
-                "Touch the YubiKey. It opens only this folder. Without the key, the password and the recovery key still work."}
+              {mode === "password" && t("locksUi.unlockHint")}
+              {mode === "recovery" && t("locksUi.recoveryHint")}
+              {mode === "yubikey" && selected?.policy === "pin" && t("locksUi.yubiPinHint")}
+              {mode === "yubikey" && selected?.policy !== "pin" && t("locksUi.yubiTouchHint")}
             </DialogDescription>
           </DialogHeader>
           {mode === "password" && (
-            <PasswordField label="Password" value={password} onChange={setPassword} autoFocus />
+            <PasswordField
+              label={t("locksUi.password")}
+              value={password}
+              onChange={setPassword}
+              autoFocus
+            />
           )}
           {mode === "recovery" && (
             <>
               <div className="grid gap-1">
                 <label htmlFor={recoveryId} className="text-xs text-muted-foreground">
-                  Recovery key or words
+                  {t("locksUi.recoveryKeyOrWords")}
                 </label>
                 <textarea
                   id={recoveryId}
@@ -481,23 +496,23 @@ function UnlockFolder({
                   className="rounded-lg border bg-transparent px-2.5 py-1 font-mono text-[13px] outline-none focus-visible:ring-3 focus-visible:ring-ring/50"
                 />
               </div>
-              <PasswordField label="New password" value={next} onChange={setNext} />
+              <PasswordField label={t("locksUi.newPassword")} value={next} onChange={setNext} />
               <PasswordField
-                label="Repeat the new password"
+                label={t("locksUi.repeatNewPassword")}
                 value={confirm}
                 onChange={setConfirm}
                 invalid={mismatch}
               />
-              {mismatch && <ErrorText>The passwords are not the same.</ErrorText>}
+              {mismatch && <ErrorText>{t("locksUi.mismatch")}</ErrorText>}
             </>
           )}
           {mode === "yubikey" && selected && (
             <>
               {wraps.length > 1 && (
                 <label className="grid gap-1 text-xs text-muted-foreground">
-                  YubiKey
+                  {t("locksUi.yubiKey")}
                   <select
-                    aria-label="YubiKey"
+                    aria-label={t("locksUi.yubiKey")}
                     className="rounded-lg border bg-transparent px-2.5 py-1 text-sm text-foreground"
                     value={selected.serial}
                     onChange={(event) => setSerial(event.target.value)}
@@ -511,14 +526,19 @@ function UnlockFolder({
                 </label>
               )}
               {selected.policy === "pin" ? (
-                <PasswordField label="YubiKey PIN" value={pin} onChange={setPin} autoFocus />
+                <PasswordField
+                  label={t("locksUi.yubiPin")}
+                  value={pin}
+                  onChange={setPin}
+                  autoFocus
+                />
               ) : (
-                <p className="text-sm">Touch the key when asked.</p>
+                <p className="text-sm">{t("locksUi.touchWhenAsked")}</p>
               )}
             </>
           )}
           {error && <ErrorText>{error}</ErrorText>}
-          {working && <p className="text-xs text-muted-foreground">Checking…</p>}
+          {working && <p className="text-xs text-muted-foreground">{t("locksUi.checking")}</p>}
           <DialogFooter className="sm:justify-between">
             <div className="flex flex-wrap gap-2">
               {mode !== "password" && (
@@ -531,7 +551,7 @@ function UnlockFolder({
                     setError(undefined);
                   }}
                 >
-                  Use the password
+                  {t("locksUi.usePassword")}
                 </Button>
               )}
               {mode !== "recovery" && (
@@ -544,7 +564,7 @@ function UnlockFolder({
                     setError(undefined);
                   }}
                 >
-                  Forgot the password?
+                  {t("locksUi.forgotPassword")}
                 </Button>
               )}
               {mode !== "yubikey" && wraps.length > 0 && (
@@ -557,16 +577,16 @@ function UnlockFolder({
                     setError(undefined);
                   }}
                 >
-                  Use a YubiKey
+                  {t("locksUi.useYubiKey")}
                 </Button>
               )}
             </div>
             <div className="flex gap-2">
               <Button type="button" variant="outline" disabled={working} onClick={onCancel}>
-                Cancel
+                {t("common.cancel")}
               </Button>
               <Button type="submit" disabled={!ready || working}>
-                Unlock
+                {t("commonExtra.unlock")}
               </Button>
             </div>
           </DialogFooter>
@@ -587,6 +607,7 @@ function ChangePassword({
   onCancel: () => void;
   onDone: () => void;
 }) {
+  const { t } = useTranslation();
   const [current, setCurrent] = useState("");
   const [next, setNext] = useState("");
   const [confirm, setConfirm] = useState("");
@@ -610,7 +631,7 @@ function ChangePassword({
               .catch((reason: unknown) =>
                 setError(
                   isWrongPassword(reason)
-                    ? "The current password is not right."
+                    ? t("locksUi.wrongCurrentPassword")
                     : describeError(reason),
                 ),
               )
@@ -618,27 +639,30 @@ function ChangePassword({
           }}
         >
           <DialogHeader>
-            <DialogTitle>Change the password of “{name}”</DialogTitle>
-            <DialogDescription>
-              The files stay as they are. The recovery key keeps working.
-            </DialogDescription>
+            <DialogTitle>{t("locksUi.changePasswordTitle", { name })}</DialogTitle>
+            <DialogDescription>{t("locksUi.changePasswordBody")}</DialogDescription>
           </DialogHeader>
-          <PasswordField label="Current password" value={current} onChange={setCurrent} autoFocus />
-          <PasswordField label="New password" value={next} onChange={setNext} />
           <PasswordField
-            label="Repeat the new password"
+            label={t("locksUi.currentPassword")}
+            value={current}
+            onChange={setCurrent}
+            autoFocus
+          />
+          <PasswordField label={t("locksUi.newPassword")} value={next} onChange={setNext} />
+          <PasswordField
+            label={t("locksUi.repeatNewPassword")}
             value={confirm}
             onChange={setConfirm}
             invalid={mismatch}
           />
-          {mismatch && <ErrorText>The passwords are not the same.</ErrorText>}
+          {mismatch && <ErrorText>{t("locksUi.mismatch")}</ErrorText>}
           {error && <ErrorText>{error}</ErrorText>}
           <DialogFooter>
             <Button type="button" variant="outline" disabled={working} onClick={onCancel}>
-              Cancel
+              {t("common.cancel")}
             </Button>
             <Button type="submit" disabled={!ready || working}>
-              Change password
+              {t("locksUi.changePasswordAction")}
             </Button>
           </DialogFooter>
         </form>
@@ -658,6 +682,7 @@ function RenewRecovery({
   onCancel: () => void;
   onDone: () => void;
 }) {
+  const { t } = useTranslation();
   const [current, setCurrent] = useState("");
   const [working, setWorking] = useState(false);
   const [error, setError] = useState<string>();
@@ -678,26 +703,29 @@ function RenewRecovery({
               .then(setKey)
               .catch((reason: unknown) =>
                 setError(
-                  isWrongPassword(reason) ? "The password is not right." : describeError(reason),
+                  isWrongPassword(reason) ? t("locksUi.wrongPassword") : describeError(reason),
                 ),
               )
               .finally(() => setWorking(false));
           }}
         >
           <DialogHeader>
-            <DialogTitle>New recovery key for “{name}”</DialogTitle>
-            <DialogDescription>
-              The old recovery key stops working. The new one is shown once.
-            </DialogDescription>
+            <DialogTitle>{t("locksUi.newRecoveryTitle", { name })}</DialogTitle>
+            <DialogDescription>{t("locksUi.renewBody")}</DialogDescription>
           </DialogHeader>
-          <PasswordField label="Password" value={current} onChange={setCurrent} autoFocus />
+          <PasswordField
+            label={t("locksUi.password")}
+            value={current}
+            onChange={setCurrent}
+            autoFocus
+          />
           {error && <ErrorText>{error}</ErrorText>}
           <DialogFooter>
             <Button type="button" variant="outline" disabled={working} onClick={onCancel}>
-              Cancel
+              {t("common.cancel")}
             </Button>
             <Button type="submit" disabled={!current || working}>
-              Make a new key
+              {t("locksUi.makeNewKey")}
             </Button>
           </DialogFooter>
         </form>
@@ -715,6 +743,7 @@ function RemoveLock({
   onCancel: () => void;
   onDone: () => void;
 }) {
+  const { t } = useTranslation();
   const [password, setPassword] = useState("");
   const [working, setWorking] = useState(false);
   const [progress, setProgress] = useState<LockProgress | null>(null);
@@ -734,31 +763,33 @@ function RemoveLock({
               .then(onDone)
               .catch((reason: unknown) =>
                 setError(
-                  isWrongPassword(reason) ? "The password is not right." : describeError(reason),
+                  isWrongPassword(reason) ? t("locksUi.wrongPassword") : describeError(reason),
                 ),
               )
               .finally(() => setWorking(false));
           }}
         >
           <DialogHeader>
-            <DialogTitle>Remove the lock of “{folder.name}”?</DialogTitle>
-            <DialogDescription>
-              Its files are decrypted on disk and the folder is no longer hidden. The password and
-              the recovery key stop mattering.
-            </DialogDescription>
+            <DialogTitle>{t("locksUi.removeLockTitle", { name: folder.name })}</DialogTitle>
+            <DialogDescription>{t("locksUi.removeLockBody")}</DialogDescription>
           </DialogHeader>
           {working ? (
-            <Working progress={progress} verb="Decrypting" />
+            <Working progress={progress} verb={t("locksUi.decrypting")} />
           ) : (
-            <PasswordField label="Password" value={password} onChange={setPassword} autoFocus />
+            <PasswordField
+              label={t("locksUi.password")}
+              value={password}
+              onChange={setPassword}
+              autoFocus
+            />
           )}
           {error && <ErrorText>{error}</ErrorText>}
           <DialogFooter>
             <Button type="button" variant="outline" disabled={working} onClick={onCancel}>
-              Cancel
+              {t("common.cancel")}
             </Button>
             <Button type="submit" variant="destructive" disabled={!password || working}>
-              Remove lock
+              {t("locksUi.removeLockAction")}
             </Button>
           </DialogFooter>
         </form>
@@ -778,6 +809,7 @@ function AddYubiKey({
   onCancel: () => void;
   onDone: () => void;
 }) {
+  const { t } = useTranslation();
   const [policy, setPolicy] = useState<PivPolicy>("touch");
   const [password, setPassword] = useState("");
   const [pin, setPin] = useState("");
@@ -802,14 +834,11 @@ function AddYubiKey({
           }}
         >
           <DialogHeader>
-            <DialogTitle>Add a YubiKey to “{name}”</DialogTitle>
-            <DialogDescription>
-              The key is a third way to open this folder. Touch or PIN, not both. Without the key,
-              the password and the recovery key still work. Other folders stay locked.
-            </DialogDescription>
+            <DialogTitle>{t("locksUi.addYubiTitle", { name })}</DialogTitle>
+            <DialogDescription>{t("locksUi.addYubiBody")}</DialogDescription>
           </DialogHeader>
           <fieldset className="grid gap-1">
-            <legend className="text-xs text-muted-foreground">Open this folder with</legend>
+            <legend className="text-xs text-muted-foreground">{t("locksUi.openWith")}</legend>
             <label className="flex items-center gap-2 text-sm">
               <input
                 type="radio"
@@ -820,7 +849,7 @@ function AddYubiKey({
                   setPin("");
                 }}
               />
-              Touch
+              {t("locksUi.touch")}
             </label>
             <label className="flex items-center gap-2 text-sm">
               <input
@@ -829,12 +858,14 @@ function AddYubiKey({
                 checked={policy === "pin"}
                 onChange={() => setPolicy("pin")}
               />
-              PIN
+              {t("commonExtra.pin")}
             </label>
           </fieldset>
-          {policy === "pin" && <PasswordField label="YubiKey PIN" value={pin} onChange={setPin} />}
+          {policy === "pin" && (
+            <PasswordField label={t("locksUi.yubiPin")} value={pin} onChange={setPin} />
+          )}
           <PasswordField
-            label="Folder password"
+            label={t("locksUi.folderPassword")}
             value={password}
             onChange={setPassword}
             autoFocus
@@ -842,10 +873,10 @@ function AddYubiKey({
           {error && <ErrorText>{error}</ErrorText>}
           <DialogFooter>
             <Button type="button" variant="outline" disabled={working} onClick={onCancel}>
-              Cancel
+              {t("common.cancel")}
             </Button>
             <Button type="submit" disabled={!ready || working}>
-              Add YubiKey
+              {t("locksUi.addYubiAction")}
             </Button>
           </DialogFooter>
         </form>
@@ -865,6 +896,7 @@ function RemoveYubiKey({
   onCancel: () => void;
   onDone: () => void;
 }) {
+  const { t } = useTranslation();
   const [wraps, setWraps] = useState<PivWrap[]>([]);
   const [serial, setSerial] = useState("");
   const [password, setPassword] = useState("");
@@ -904,18 +936,16 @@ function RemoveYubiKey({
           }}
         >
           <DialogHeader>
-            <DialogTitle>Remove a YubiKey from “{name}”</DialogTitle>
-            <DialogDescription>
-              The password and the recovery key keep working. Other YubiKeys on this folder stay.
-            </DialogDescription>
+            <DialogTitle>{t("locksUi.removeYubiTitle", { name })}</DialogTitle>
+            <DialogDescription>{t("locksUi.removeYubiBody")}</DialogDescription>
           </DialogHeader>
           {wraps.length === 0 ? (
-            <p className="text-sm text-muted-foreground">No YubiKey is added to this folder.</p>
+            <p className="text-sm text-muted-foreground">{t("locksUi.noYubiKey")}</p>
           ) : (
             <label className="grid gap-1 text-xs text-muted-foreground">
-              YubiKey
+              {t("locksUi.yubiKey")}
               <select
-                aria-label="YubiKey"
+                aria-label={t("locksUi.yubiKey")}
                 className="rounded-lg border bg-transparent px-2.5 py-1 text-sm text-foreground"
                 value={chosen?.serial ?? ""}
                 onChange={(event) => setSerial(event.target.value)}
@@ -929,7 +959,7 @@ function RemoveYubiKey({
             </label>
           )}
           <PasswordField
-            label="Folder password"
+            label={t("locksUi.folderPassword")}
             value={password}
             onChange={setPassword}
             autoFocus
@@ -937,10 +967,10 @@ function RemoveYubiKey({
           {error && <ErrorText>{error}</ErrorText>}
           <DialogFooter>
             <Button type="button" variant="outline" disabled={working} onClick={onCancel}>
-              Cancel
+              {t("common.cancel")}
             </Button>
             <Button type="submit" disabled={!chosen || password === "" || working}>
-              Remove YubiKey
+              {t("locksUi.removeYubiAction")}
             </Button>
           </DialogFooter>
         </form>

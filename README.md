@@ -70,7 +70,7 @@ crates/eagle-api/      a running Eagle as a LibrarySource (transport from phase 
 crates/media/          decoding, thumbnails, palettes and EXIF for the native library
 (later crates)         eagle-folder (phase 8)
 src-tauri/             the Tauri app: commands, configuration, capabilities, icons
-ui/                    React + TypeScript + Tailwind + shadcn/ui
+ui/                    React + TypeScript + Tailwind + shadcn/ui; i18n catalogs in ui/src/i18n/ (en, ru, zh-CN; D-069)
 docs/                  spec, architecture, decisions
 fixtures/eagle-api/    real Eagle 4.0.0 request and response captures
 ```

@@ -70,10 +70,13 @@ TypeScript 7, if a rule only ESLint has becomes necessary.
 
 ## D-007 UI text in English for now (2026-10-28)
 
-All UI strings are English until a localisation phase adds Russian and English through a
+~~All UI strings are English until a localisation phase adds Russian and English through a
 message catalogue. New strings go through one place per screen, so extracting them later is
 mechanical. Confirmed on 2026-10-28: the first version ships in English only; localisation is in
-the "Later" list of spec §9.
+the "Later" list of spec §9.~~
+
+**Superseded by D-069** (2026-10-31): English remains the default and the source catalog;
+Russian and Chinese (Simplified) are selectable in Settings.
 
 ## D-008 `async-trait` for `LibrarySource` (2026-10-28)
 
@@ -1071,7 +1074,7 @@ entry does not collide.
   new pubkey ships in a manually installed build.
 - **UX.** Help → Check for Updates…; a silent check after the login gate opens in production
   builds (errors stay quiet). Install and Restart only after the user confirms. English
-  strings (D-007).
+  strings follow the active locale (D-069).
 - **Platforms.** Windows NSIS `.exe` + `.sig`; macOS `.app.tar.gz` + `.sig` (DMG still for
   first install); Linux AppImage + `.sig`. `scripts/write-latest-json.mjs` builds the
   manifest to attach to the release.
@@ -1137,3 +1140,23 @@ entry does not collide.
 - Keep the listener on the **bubbling** phase of the window (D-042): Radix `ContextMenu`
   handlers on folder / item / tag triggers run first and open the app menu; a capture-phase
   prevent would leave those menus dead.
+
+## D-069 UI languages: English default, Russian and Chinese selectable (2026-10-31)
+
+Supersedes D-007. The UI ships with **English as the default and the source catalog**, plus
+**Russian (ru)** and **Chinese Simplified (zh-CN)**. The user picks the language in
+Settings → General; the choice is stored in `preferences.locale` through `app-store`
+(D-022), same as theme.
+
+- **Stack.** `i18next` **26.5.11** and `react-i18next` **17.1.9** in the UI package (newest
+  older than pnpm's minimum release age, D-002 / D-003). Catalogs live under `ui/src/i18n/`
+  (`en.ts`, `ru.ts`, `zh-CN.ts`); English is the typed source. `setAppLocale` applies
+  the preference at startup and when Settings saves.
+- **Coverage.** App UI strings are translated (menus, Settings, Welcome, library chrome,
+  filters, imports, locks, details, smart folders, maintenance, updates, errors and status).
+  Native OS file dialogs stay in the OS language. New UI strings go into the English catalog
+  first.
+- **IPC.** `Locale` is a `ts-rs` enum (`"en" | "ru" | "zh-CN"`) on `Preferences`; missing
+  field keeps English.
+- **Tests.** Catalog key coverage for `ru` / `zh-CN` vs English; language switch; Settings
+  saves `locale`.

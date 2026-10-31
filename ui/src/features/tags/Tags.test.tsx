@@ -262,7 +262,7 @@ describe("Tags filter", () => {
     expect(screen.getByRole("button", { name: "Filter (1)" })).toBeInTheDocument();
 
     // The search ignores case; the filter does not.
-    await user.type(within(sheet).getByRole("textbox", { name: "Find a tag" }), "POST");
+    await user.type(within(sheet).getByRole("textbox", { name: "Search tags" }), "POST");
     expect(
       within(all)
         .getAllByRole("option")
