@@ -24,7 +24,7 @@ Live verification (2026-10-27): two test JPEGs were added to the open library th
 | Core | Rust workspace: `library-core` (no IO), `library-native` (the native library), `media` (thumbnails, palettes, hashes), `app-store` (settings, recent libraries, secrets), and for Eagle `eagle-folder` and `eagle-api`; the Tauri app crate is a thin layer of commands |
 | Library sources | One `LibrarySource` trait in `library-core`. Implementations: the native library, an Eagle library folder on disk (read only), a running Eagle (API) (§15.2) |
 | Library format | A folder `Name.eglib` (D-016): SQLite (`library.db`) as the single source of truth, the original files copied in (D-014), regenerable thumbnails; documented in `library-format.md` and versioned (§15.3) |
-| Media | v1 previews for JPEG, PNG, GIF, WebP, SVG, TIFF, BMP and PSD composites; AVIF and other files are stored with a placeholder (D-015, D-035, §15.4) |
+| Media | v1 previews for JPEG, PNG, GIF, WebP, SVG, TIFF, BMP, PSD composites and HEIC/HEIF; AVIF and other files are stored with a placeholder (D-015, D-035, D-063, §15.4) |
 | UI | React + TypeScript (strict) + Vite, Tailwind + shadcn/ui; TanStack Virtual for the grid, TanStack Query for data from Rust, TanStack Router for screens. The first screen is Welcome (D-017). The native window frame with the app's own menu bar, built from one command registry (§8) |
 | Types across IPC | `ts-rs` generates TypeScript from the Rust structs that cross IPC |
 | Where filtering happens | The source loads the **scope** (a folder, Uncategorized, a smart folder): one SQL query in the native library, API pages for a running Eagle. Tags, type, rating, shape, sort and search are combined **in Rust** (§6) |
@@ -107,7 +107,7 @@ The "Spec said" column quotes the wording of the **first** version of the spec (
 | Shell | `tauri` 2.12.x, `tauri-build`, `@tauri-apps/cli`, `@tauri-apps/api` | Pin exact versions. WebView2 on Windows |
 | Async | `tokio` | The runtime Tauri already uses |
 | Storage | `rusqlite` (`bundled`, FTS5 enabled), `ulid` | The native library (§15.3); on a blocking thread pool |
-| Media | `blake3`, `image`, `fast_image_resize`, `resvg`, `psd`, `kamadak-exif`, `webp` (libwebp), `rayon` | The media pipeline (§15.4, D-033) |
+| Media | `blake3`, `image`, `fast_image_resize`, `resvg`, `psd`, `kamadak-exif`, `webp` (libwebp), `libheif-rs` (system libheif, D-063), `rayon` | The media pipeline (§15.4, D-033) |
 | Passwords | `argon2`, `age`, `secrecy` | Each locked folder wraps its own age identity with Argon2id; files and sensitive columns are age ciphertext (D-018) |
 | HTTP | `reqwest` (`rustls-tls`, default features off) | Only for Eagle; one client per endpoint |
 | Serialization | `serde`, `serde_json`, `ciborium` (Eagle offline cache, later), `base64` | |
@@ -703,13 +703,13 @@ The Windows app adds files that the user picks in the file dialog (`tauri-plugin
 **Native library** (the main path):
 
 ```
-paths ─► Rust: an import task per batch, owned by AppState; files processed by a bounded pool
-      ─► per file (library-native add_file): stream-copy into <library>/files/.tmp/<ulid> while hashing (BLAKE3); sync_all
-      ─► duplicate? (content_hash index, the trash included) → the batch's choice: skip | add anyway | add existing item to the target folder
-      ─► INSERT pending_file(path), commit; rename the temp file to files/<shard>/<id>/<file name> (retried on sharing violations)
-      ─► INSERT item (+ folders, tags, change_log, item_fts) and DELETE pending_file in one transaction
-      ─► import-progress event; the item appears in views with the placeholder
-      ─► media job (rayon): probe, thumbnail, palette → UPDATE item, thumb_version += 1 → views-invalidated
+paths ──► Rust: an import task per batch, owned by AppState; files processed by a bounded pool
+      ──► per file (library-native add_file): stream-copy into <library>/files/.tmp/<ulid> while hashing (BLAKE3); sync_all
+      ──► duplicate? (content_hash index, the trash included) → the batch's choice: skip | add anyway | add existing item to the target folder
+      ──► INSERT pending_file(path), commit; rename the temp file to files/<shard>/<id>/<file name> (retried on sharing violations)
+      ──► INSERT item (+ folders, tags, change_log, item_fts) and DELETE pending_file in one transaction
+      ──► import-progress event; the item appears in views with the placeholder
+      ──► media job (rayon): probe, thumbnail, palette → UPDATE item, thumb_version += 1 → views-invalidated
 ```
 
 - A crash before the journal entry leaves only a file in `files/.tmp/`; opening the library deletes that folder's content. A crash after it leaves a `pending_file` row, and the next open deletes the file unless an item points at it. So a row never points at a missing file, and no file stays without a row, without walking `files/` (`library-format.md` §6, D-023). `synchronous = FULL` makes each commit durable, which this order relies on.
@@ -720,17 +720,17 @@ paths ─► Rust: an import task per batch, owned by AppState; files processed 
 **Running Eagle:**
 
 ```
-paths ─► Rust: one import task per file (sequential, through the write semaphore)
+paths ──► Rust: one import task per file (sequential, through the write semaphore)
       ├─ same PC as Eagle (127.0.0.1 / localhost):
       │     POST item/add { items: [{ path, name, folders:[F]?, tags?, annotation?, star?, modificationTime? }] }
       │     batch form even for one file: keeps star and modificationTime; Eagle copies the file (correction 35)
       └─ another PC:
             read the file (size limit, e.g. 50 MB) → base64 without line breaks
             POST item/add { base64: "data:<mime>;base64,…", name, folders:[F]?, tags?, website? }  (correction 1)
-      ─► { id } ─► "Importing…" cell (import-progress event)
-      ─► poll item/get {id}: 0.25/0.5/1/2/4 s                (correction 2; ~0.3 s live)
-      ─► appeared: (data URL only, if a star was chosen) item/update {star} (correction 11)
-      ─► drop snapshots, recompute views, the cell becomes the real item
+      ──► { id } ──► "Importing…" cell (import-progress event)
+      ──► poll item/get {id}: 0.25/0.5/1/2/4 s                (correction 2; ~0.3 s live)
+      ──► appeared: (data URL only, if a star was chosen) item/update {star} (correction 11)
+      ──► drop snapshots, recompute views, the cell becomes the real item
 ```
 
 - `name` is the file name without extension. Folder ids are checked against the tree first (correction 13).
@@ -1191,13 +1191,13 @@ The full schema of format version 1, the connection settings, and the protocols 
 
 Eagle generates thumbnails, palettes and metadata itself; the native library needs its own pipeline, in the `media` crate.
 
-**v1 formats** (D-015): JPEG, PNG, GIF (first frame), WebP, SVG, TIFF, BMP, and the composite image of PSD files. AVIF waits for a decoder (D-035). Every other file is accepted and stored, with an extension placeholder instead of a thumbnail; its `width`, `height` and palette stay empty.
+**v1 formats** (D-015): JPEG, PNG, GIF (first frame), WebP, SVG, TIFF, BMP, and the composite image of PSD files, plus HEIC/HEIF through `libheif` (D-063). AVIF waits for a decoder (D-035). Every other file is accepted and stored, with an extension placeholder instead of a thumbnail; its `width`, `height` and palette stay empty.
 
 | Step | Tools |
 |---|---|
 | Hash | `blake3`, streaming while copying; duplicates are reported on import |
 | Probe | `image` for dimensions of the v1 formats, `nom-exif` (or `kamadak-exif`) for EXIF; later `ffprobe` for video and audio |
-| Thumbnails | `image` (with `zune-jpeg` inside) + `fast_image_resize` (Lanczos3) for JPEG, PNG, GIF, WebP, BMP, TIFF, with the EXIF orientation applied; `resvg` for SVG, rendered at thumbnail size with system fonts; the `psd` crate for PSD composites; encoded as lossy WebP (quality 80) by `webp` (libwebp, D-036). Later: `ffmpeg` (a bundled LGPL build, run as a separate process) for video frames, RAW, PDF (`pdfium`) and fonts |
+| Thumbnails | `image` (with `zune-jpeg` inside) + `fast_image_resize` (Lanczos3) for JPEG, PNG, GIF, WebP, BMP, TIFF, with the EXIF orientation applied; `resvg` for SVG, rendered at thumbnail size with system fonts; the `psd` crate for PSD composites; `libheif-rs` for HEIC/HEIF (geometric transforms applied by libheif, EXIF from the HEIF `Exif` item, D-063); encoded as lossy WebP (quality 80) by `webp` (libwebp, D-036). Later: `ffmpeg` (a bundled LGPL build, run as a separate process) for video frames, RAW, PDF (`pdfium`) and fonts |
 | Thumbnail size | 512 px on the long edge (sharp on high-DPI grids), WebP |
 | Palette | k-means on a 64×64 copy, 5–8 colours with ratios, the same JSON shape as Eagle |
 | Workers | CPU work on a `rayon` pool sized to the cores, IO on `tokio`; progress through the import channel |
