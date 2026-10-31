@@ -32,10 +32,14 @@ jobs:
         run: vcpkg install libheif:x64-windows
 
       # libheif-sys finds the vcpkg tree only through VCPKG_ROOT; the runner image
-      # exports VCPKG_INSTALLATION_ROOT instead, so set it for cargo build scripts.
-      - name: VCPKG_ROOT for libheif-sys
+      # exports VCPKG_INSTALLATION_ROOT instead. VCPKGRS_DYNAMIC=1 selects the
+      # x64-windows (DLL) triplet, matching `vcpkg install` above; without it
+      # vcpkg-rs demands its x64-windows-static-md default, which we don't build.
+      - name: vcpkg env for libheif-sys
         shell: bash
-        run: echo "VCPKG_ROOT=${VCPKG_INSTALLATION_ROOT:-C:/vcpkg}" >> "$GITHUB_ENV"
+        run: |
+          echo "VCPKG_ROOT=${VCPKG_INSTALLATION_ROOT:-C:/vcpkg}" >> "$GITHUB_ENV"
+          echo "VCPKGRS_DYNAMIC=1" >> "$GITHUB_ENV"
 
       - name: libheif on PATH for tests
         shell: bash
@@ -95,10 +99,14 @@ jobs:
         run: vcpkg install libheif:x64-windows
 
       # libheif-sys finds the vcpkg tree only through VCPKG_ROOT; the runner image
-      # exports VCPKG_INSTALLATION_ROOT instead, so set it for cargo build scripts.
-      - name: VCPKG_ROOT for libheif-sys
+      # exports VCPKG_INSTALLATION_ROOT instead. VCPKGRS_DYNAMIC=1 selects the
+      # x64-windows (DLL) triplet, matching `vcpkg install` above; without it
+      # vcpkg-rs demands its x64-windows-static-md default, which we don't build.
+      - name: vcpkg env for libheif-sys
         shell: bash
-        run: echo "VCPKG_ROOT=${VCPKG_INSTALLATION_ROOT:-C:/vcpkg}" >> "$GITHUB_ENV"
+        run: |
+          echo "VCPKG_ROOT=${VCPKG_INSTALLATION_ROOT:-C:/vcpkg}" >> "$GITHUB_ENV"
+          echo "VCPKGRS_DYNAMIC=1" >> "$GITHUB_ENV"
 
       - name: libheif on PATH for tests
         shell: bash
