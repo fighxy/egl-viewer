@@ -862,7 +862,7 @@ Some of these are Tauri or WebView2 settings and some are handled in the UI; whi
 3. Folder passwords are dropped while parsing JSON (§5). Raw bodies of `library/info` and `folder/get` are never logged.
 4. The Host bypass (correction 5) is Eagle's problem, not the client's. The client never uses it. Help text on the Connect screen: "Allow port 41595 in the firewall for the private network only; better, only for this computer's IP".
 5. `/api/script/inject` and `/api/check` are absent from the client entirely: no method, not even a path string.
-6. Tauri capabilities allow only the app's own commands and the plugins in use (`dialog`, `opener` limited to `http`/`https`). No `shell`, no `fs`, no `http` plugin: the UI cannot read files or make requests on its own.
+6. Tauri capabilities allow only the app's own commands and the plugins in use (`dialog`, `updater`, `process` restart, `opener` limited to `http`/`https`). No `shell`, no `fs`, no `http` plugin: the UI cannot read files or make arbitrary requests on its own. The updater talks only to the configured HTTPS release endpoint (D-062).
 7. A strict CSP in `tauri.conf.json`: scripts only from the app bundle; images from `'self'`, `data:`, `blob:` and the `thumb` scheme (`http://thumb.localhost` on Windows).
 8. Commands validate their input in Rust (lengths up to 10 000, star 0–5, known folder ids) before any write or request.
 9. The `thumb` scheme and the commands that open or reveal files only touch files whose canonical path is inside the open library folder (the native library, or an Eagle library on the same PC). Item ids from the UI are looked up in the database; the UI never passes file paths for them.
@@ -1076,7 +1076,7 @@ The full plan with done checks is in §9 of the spec. Key technical points per p
 - **Phase 9.** `EagleHttp`, `escape_non_ascii`, `EagleError`, `page_all` with `wiremock` tests; `SecretStore` on Credential Manager; `connect_eagle` and the Connect screen (404 → "update Eagle to 4.0", `{}` → "open a library on the PC"); `FolderDto` with the password dropped; `plan` + snapshot cache (§6.2, §6.3); search via `item/query`; smart folders via `smartFolder/getItems`.
 - **Phase 10.** `ItemMutator` with a re-read before writing; `FolderUpdateBody` with the full set of fields; adding files with `path` on the same PC and data URLs from another PC; Eagle thumbnails (same PC, then the helper plugin).
 - **Phase 11.** Export into Eagle through its API (§15.7).
-- **Phase 12.** Hardening and the Windows release: NSIS per-user installer, WebView2 bootstrapper, optional signing and auto-update.
+- **Phase 12.** Hardening and the Windows release: NSIS per-user installer, WebView2 bootstrapper, optional OS code signing. In-app auto-update through `tauri-plugin-updater` and GitHub Releases `latest.json` is in (D-062); Authenticode / notarization remain open.
 - **Later, outside the current scope.** More formats (§15.4); the Eagle offline cache (§12.3) and Syncthing mirror (§12.4); sync between devices, remote access to a native library, linked folders, `.eaglepack` (§15.8); macOS, Android and iOS (§4.6). AI features are not planned.
 
 ---

@@ -194,6 +194,7 @@ describe("App inside Tauri", () => {
     expect(shortcuts).toHaveTextContent("Ctrl+O");
     await user.keyboard("{Escape}");
     await user.click(screen.getByRole("menuitem", { name: "Help" }));
+    expect(await screen.findByRole("menuitem", { name: "Check for Updates…" })).toBeInTheDocument();
     await user.click(await screen.findByRole("menuitem", { name: "About egl-viewer" }));
     const about = await screen.findByRole("dialog", { name: "About egl-viewer" });
     expect(about).toHaveTextContent("9.9.9");

@@ -65,6 +65,7 @@ export type CommandActions = {
   toggleDetails: () => void;
   shortcuts: () => void;
   about: () => void;
+  checkForUpdates: () => void;
   selectAll: () => void;
   preview: () => void;
   setViewMode: (mode: ViewMode) => void;
@@ -546,10 +547,17 @@ export const COMMANDS: readonly Command[] = [
     run: (actions) => actions.shortcuts(),
   },
   {
+    id: "help.checkForUpdates",
+    label: "Check for Updates…",
+    menu: "help",
+    group: 0,
+    run: (actions) => actions.checkForUpdates(),
+  },
+  {
     id: "help.about",
     label: "About egl-viewer",
     menu: "help",
-    group: 0,
+    group: 1,
     run: (actions) => actions.about(),
   },
 ];

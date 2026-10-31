@@ -28,6 +28,7 @@
   },
   "bundle": {
     "active": true,
+    "createUpdaterArtifacts": true,
     "targets": ["nsis"],
     "icon": [
       "icons/32x32.png",
@@ -39,6 +40,17 @@
     "windows": {
       "webviewInstallMode": { "type": "downloadBootstrapper" },
       "nsis": { "installMode": "currentUser" }
+    }
+  },
+  "plugins": {
+    "updater": {
+      "pubkey": "dW50cnVzdGVkIGNvbW1lbnQ6IG1pbmlzaWduIHB1YmxpYyBrZXk6IEQ1MEQyRDEzMUMzQzQxMjEKUldRaFFUd2NFeTBOMVNrK2hIa2cyRmtZWWFrbHd2SkFtb2FQL0J4UnpZYzZ0QUFJMjl0YmVYaHQK",
+      "endpoints": [
+        "https://github.com/fighxy/egl-viewer/releases/latest/download/latest.json"
+      ],
+      "windows": {
+        "installMode": "passive"
+      }
     }
   }
 }

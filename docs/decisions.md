@@ -1051,3 +1051,31 @@ Two locks, and they do not share keys (spec §13).
 Note: D-058 (preview rotate, session-only) lives on `feat/viewer-rotate` / was merged in code
 without its decision entry on `main`; this number skips ahead so a later cherry-pick of that
 entry does not collide.
+
+## D-062 Desktop auto-update through GitHub Releases (2026-10-31)
+
+- **Plugin.** `tauri-plugin-updater` / `@tauri-apps/plugin-updater` **2.14.1** and
+  `tauri-plugin-process` / `@tauri-apps/plugin-process` **2.4.0** (relaunch after install),
+  pinned exactly (D-002, D-003). Not the 3.x alphas. Registered in `src-tauri`; capabilities
+  add `updater:default` and `process:allow-restart`.
+- **Endpoint.** Static JSON on the latest GitHub Release:
+  `https://github.com/fighxy/egl-viewer/releases/latest/download/latest.json`.
+  `bundle.createUpdaterArtifacts: true`. Windows `installMode: "passive"` matches the
+  per-user NSIS install (D-053).
+- **Signing.** Minisign keypair from `pnpm tauri signer generate`. The **public** key is the
+  string in `plugins.updater.pubkey` in `tauri.conf.json`. The **private** key never enters
+  git: local file (for example `%USERPROFILE%\.tauri\egl-viewer.key`) and GitHub Actions
+  secrets `TAURI_SIGNING_PRIVATE_KEY` / optional `TAURI_SIGNING_PRIVATE_KEY_PASSWORD`. Release
+  jobs fail if the secret is missing. Losing the private key bricks in-app updates until a
+  new pubkey ships in a manually installed build.
+- **UX.** Help → Check for Updates…; a silent check after the login gate opens in production
+  builds (errors stay quiet). Install and Restart only after the user confirms. English
+  strings (D-007).
+- **Platforms.** Windows NSIS `.exe` + `.sig`; macOS `.app.tar.gz` + `.sig` (DMG still for
+  first install); Linux AppImage + `.sig`. `scripts/write-latest-json.mjs` builds the
+  manifest to attach to the release.
+- **Migration.** Builds before this change (including 0.1.2) cannot self-update: one last
+  manual install of the first updater-enabled release, then in-app updates work. Rollback is
+  a manual reinstall of an older GitHub Release; `allowDowngrades` stays off.
+- **Still phase 12.** Authenticode / Apple notarization are separate; SmartScreen may still
+  warn on unsigned first installs.
