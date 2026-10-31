@@ -121,7 +121,9 @@ fn selection_sql(
     if !selection.folders.is_empty() {
         // A stale folder id means the caller's tree is out of date; refuse instead of silently
         // exporting less than asked.
-        let mut check = conn.prepare("SELECT 1 FROM folder WHERE id = ?1")?;
+        let mut check = conn
+            .prepare("SELECT 1 FROM folder WHERE id = ?1")
+            .context("find a folder")?;
         for id in &selection.folders {
             let known: Option<i64> = check
                 .query_row(params![id], |row| row.get(0))
@@ -727,7 +729,7 @@ struct Reporter<'a> {
     last: Instant,
 }
 
-impl Reporter {
+impl Reporter<'_> {
     fn report(&mut self, state: ExportState) {
         (self.emit)(ExportProgress {
             id: self.id,
@@ -864,7 +866,7 @@ fn write_zip(
             };
             zip.start_file(entry.clone(), file_options(compression))
                 .map_err(zip_error)?;
-            let written = io::copy(&mut source, &mut zip).map_err(zip_error)?;
+            let written = io::copy(&mut source, &mut zip).context("write the archive")?;
             if written != placement.item.size {
                 return Err(SourceError::Storage(
                     "an original changed while it was exported".into(),
@@ -878,7 +880,7 @@ fn write_zip(
         zip.start_file(format!("{base}/{MANIFEST}"), file_options(compression))
             .map_err(zip_error)?;
         let body = manifest_json(&library_name, &manifest_items)?;
-        zip.write_all(&body).map_err(zip_error)?;
+        zip.write_all(&body).context("write the archive")?;
         files += 1;
         zip.finish().map_err(zip_error)?;
         drop(zip);
@@ -928,7 +930,7 @@ fn file_options(compression: Compression) -> SimpleFileOptions {
         None => options.compression_method(zip::CompressionMethod::Stored),
         Some(level) => options
             .compression_method(zip::CompressionMethod::Deflated)
-            .compression_level(Some(level)),
+            .compression_level(Some(i64::from(level))),
     }
 }
 
@@ -1244,7 +1246,7 @@ mod tests {
         let file = fs::File::open(&archive).unwrap();
         let mut zip = zip::ZipArchive::new(file).unwrap();
         let names: Vec<String> = (0..zip.len())
-            .map(|at| zip.by_index(at).unwrap().name().to_owned())
+            .map(|at| zip.by_index(at).unwrap().name().unwrap().into_owned())
             .collect();
         assert_eq!(names, vec!["Z/one.png", "Z/egl-export.json"]);
         let mut body = Vec::new();
@@ -1286,11 +1288,13 @@ mod tests {
 
         let decryptor =
             age::Decryptor::new(BufReader::new(fs::File::open(&encrypted).unwrap())).unwrap();
-        let age::Decryptor::Passphrase(decryptor) = decryptor else {
-            panic!("a passphrase export decrypts with a passphrase");
-        };
+        assert!(
+            decryptor.is_scrypt(),
+            "a passphrase export decrypts with a passphrase"
+        );
+        let identity = age::scrypt::Identity::new(SecretString::from("correct horse".to_owned()));
         let mut reader = decryptor
-            .decrypt(&SecretString::from("correct horse".to_owned()), None)
+            .decrypt(std::iter::once(&identity as &dyn age::Identity))
             .unwrap();
         let mut body = Vec::new();
         reader.read_to_end(&mut body).unwrap();
