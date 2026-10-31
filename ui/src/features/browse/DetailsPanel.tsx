@@ -1,5 +1,6 @@
 import { useQuery } from "@tanstack/react-query";
 import { cn } from "cn";
+import type { TFunction } from "i18next";
 import {
   Copy,
   ExternalLink,
@@ -12,6 +13,7 @@ import {
   X,
 } from "lucide-react";
 import { forwardRef, type ReactNode, useRef, useState } from "react";
+import { useTranslation } from "react-i18next";
 import { Button } from "@/components/ui/button";
 import { Popover, PopoverContent, PopoverTrigger } from "@/components/ui/popover";
 import { FolderPicker } from "@/features/folders/FolderPicker";
@@ -90,7 +92,7 @@ export const DetailsPanel = forwardRef<HTMLDivElement, Props>(function DetailsPa
     itemId,
     onPreview,
     folders = [],
-    writable = "This library is read-only.",
+    writable: writableProp,
     onFolderChange,
     onAddToFolder,
     empty,
@@ -103,6 +105,9 @@ export const DetailsPanel = forwardRef<HTMLDivElement, Props>(function DetailsPa
   },
   ref,
 ) {
+  const { t, i18n } = useTranslation();
+  const writable: true | string =
+    writableProp === undefined ? t("availability.readOnly") : writableProp;
   const tagEditor = (tags: readonly TagChip[]) =>
     onAddTag && onRemoveTag ? (
       <TagEditor
@@ -121,7 +126,7 @@ export const DetailsPanel = forwardRef<HTMLDivElement, Props>(function DetailsPa
 
   let body: React.ReactNode;
   if (count === 0) {
-    body = empty ?? <p className="m-auto text-muted-foreground">Select an item</p>;
+    body = empty ?? <p className="m-auto text-muted-foreground">{t("details.selectItem")}</p>;
   } else if (count > 1 || itemId === null) {
     body = (
       <div className="grid min-h-0 content-start gap-4 overflow-y-auto">
@@ -131,12 +136,12 @@ export const DetailsPanel = forwardRef<HTMLDivElement, Props>(function DetailsPa
           onDragOut={inTrash ? undefined : actions?.onDragOut}
         />
         <p className="text-center text-muted-foreground">
-          {count.toLocaleString("en")} items selected
+          {t("details.itemsSelected", { formatted: count.toLocaleString(i18n.language) })}
           {selectionTags && ` · ${formatBytes(selectionTags.size)}`}
         </p>
         {actions && !inTrash && (
           <dl className="grid gap-2">
-            <Field label="Rating">
+            <Field label={t("details.rating")}>
               <Stars
                 value={null}
                 onChange={actions.onSetStar}
@@ -148,7 +153,7 @@ export const DetailsPanel = forwardRef<HTMLDivElement, Props>(function DetailsPa
         )}
         {onAddTag && (
           <dl className="grid gap-2">
-            <Field label="Tags">
+            <Field label={t("details.tags")}>
               {selectionTags ? (
                 tagEditor(
                   selectionTags.tags.map((tag) =>
@@ -165,7 +170,7 @@ export const DetailsPanel = forwardRef<HTMLDivElement, Props>(function DetailsPa
         )}
         {onAddToFolder && !inTrash && (
           <FolderButton
-            label="Add to folder…"
+            label={t("details.addToFolder")}
             folders={folders}
             writable={writable}
             onPick={onAddToFolder}
@@ -190,7 +195,7 @@ export const DetailsPanel = forwardRef<HTMLDivElement, Props>(function DetailsPa
       />
     );
   } else if (detail.isError) {
-    body = <p className="m-auto text-muted-foreground">This item could not be read.</p>;
+    body = <p className="m-auto text-muted-foreground">{t("details.couldNotRead")}</p>;
   } else {
     body = null;
   }
@@ -212,19 +217,18 @@ function Field({ label, children }: { label: string; children: React.ReactNode }
 }
 
 /** EXIF strings as the media pipeline stores them (Eagle `rawMetas` keys). */
-const EXIF: readonly { key: string; label: string; format?: (value: string) => string }[] = [
-  { key: "camera", label: "Camera" },
-  { key: "isoSpeed", label: "ISO" },
-  { key: "aperture", label: "Aperture", format: (value) => `ƒ/${value}` },
-  { key: "shutter", label: "Shutter" },
-  { key: "focalLength", label: "Focal length", format: (value) => `${value} mm` },
-  { key: "timestamp", label: "Taken" },
-];
-
-function exifRows(item: Item) {
+function exifRows(item: Item, t: TFunction) {
+  const defs: readonly { key: string; label: string; format?: (value: string) => string }[] = [
+    { key: "camera", label: t("details.camera") },
+    { key: "isoSpeed", label: t("details.iso") },
+    { key: "aperture", label: t("details.aperture"), format: (value) => `ƒ/${value}` },
+    { key: "shutter", label: t("details.shutter") },
+    { key: "focalLength", label: t("details.focalLength"), format: (value) => `${value} mm` },
+    { key: "timestamp", label: t("details.taken") },
+  ];
   const exif = item.exif;
   if (typeof exif !== "object" || exif === null || Array.isArray(exif)) return [];
-  return EXIF.flatMap(({ key, label, format }) => {
+  return defs.flatMap(({ key, label, format }) => {
     const value = (exif as Record<string, unknown>)[key];
     if (typeof value !== "string" && typeof value !== "number") return [];
     const text = String(value);
@@ -248,6 +252,7 @@ function FolderButton({
   onPick: (folder: string) => void;
   compact?: boolean;
 }) {
+  const { t } = useTranslation();
   const [open, setOpen] = useState(false);
   return (
     <Popover open={open} onOpenChange={setOpen}>
@@ -264,7 +269,7 @@ function FolderButton({
       </PopoverTrigger>
       <PopoverContent className="p-2">
         <FolderPicker
-          label="Folders"
+          label={t("details.folders")}
           folders={folders}
           checked={checked}
           onPick={(folder) => {
@@ -289,6 +294,7 @@ function SelectionButtons({
   inTrash: boolean;
   several?: boolean;
 }) {
+  const { t } = useTranslation();
   const blocked = writable === true ? undefined : writable;
   return (
     <div className="flex flex-wrap gap-1.5">
@@ -302,7 +308,7 @@ function SelectionButtons({
             onClick={actions.onRestore}
           >
             <RotateCcw aria-hidden />
-            Restore
+            {t("details.restore")}
           </Button>
           <Button
             variant="outline"
@@ -312,39 +318,44 @@ function SelectionButtons({
             onClick={actions.onDeletePermanently}
           >
             <Trash2 aria-hidden />
-            Delete permanently…
+            {t("details.deletePermanent")}
           </Button>
         </>
       ) : (
         <>
-          <Button variant="outline" size="sm" title="Show in Explorer" onClick={actions.onReveal}>
+          <Button
+            variant="outline"
+            size="sm"
+            title={t("details.showExplorer")}
+            onClick={actions.onReveal}
+          >
             <FolderOpen aria-hidden />
-            Show in Explorer
+            {t("details.showExplorer")}
           </Button>
           {!several && (
             <Button variant="outline" size="sm" onClick={actions.onOpenOriginal}>
               <SquareArrowOutUpRight aria-hidden />
-              Open with default app
+              {t("details.openDefault")}
             </Button>
           )}
           <Button
             variant="outline"
             size="sm"
-            title={several ? "Copy the files (Ctrl+C)" : "Copy the file (Ctrl+C)"}
+            title={several ? t("details.copyFilesTitle") : t("details.copyFileTitle")}
             onClick={actions.onCopy}
           >
             <Copy aria-hidden />
-            {several ? "Copy files" : "Copy file"}
+            {several ? t("details.copyFiles") : t("details.copyFile")}
           </Button>
           <Button
             variant="outline"
             size="sm"
             disabled={blocked !== undefined}
-            title={blocked ?? "Move to Trash (Delete)"}
+            title={blocked ?? t("details.moveTrashTitle")}
             onClick={actions.onTrash}
           >
             <Trash2 aria-hidden />
-            Move to Trash
+            {t("details.moveTrash")}
           </Button>
         </>
       )}
@@ -395,13 +406,17 @@ function Stack({
   count: number;
   onDragOut?: () => void;
 }) {
+  const { t, i18n } = useTranslation();
   const drag = useDragOut(onDragOut);
   if (cells.length === 0) return null;
   return (
     <div
       role="img"
-      aria-label={`${count.toLocaleString("en")} items`}
-      title={onDragOut ? "Drag into another app to copy the files" : undefined}
+      aria-label={t("common.item", {
+        count,
+        formatted: count.toLocaleString(i18n.language),
+      })}
+      title={onDragOut ? t("details.dragOut") : undefined}
       className="relative mx-auto mt-2 aspect-square w-32 touch-none"
       onPointerDown={drag.onPointerDown}
       onPointerMove={drag.onPointerMove}
@@ -450,12 +465,13 @@ function ItemDetails({
   tags?: ReactNode;
   actions?: ItemActions;
 }) {
+  const { t } = useTranslation();
   const member = new Set(item.folders);
   const [failed, setFailed] = useState(false);
   const drag = useDragOut(item.isDeleted ? undefined : actions?.onDragOut);
   const editable = actions !== undefined && writable === true;
   const blocked = writable === true ? undefined : writable;
-  const exif = exifRows(item);
+  const exif = exifRows(item, t);
   const info = [
     item.ext.toUpperCase(),
     formatBytes(item.size),
@@ -466,9 +482,7 @@ function ItemDetails({
       <button
         type="button"
         title={
-          actions && !item.isDeleted
-            ? "Show full size (Space). Drag into another app to copy the file."
-            : "Show full size (Space)"
+          actions && !item.isDeleted ? t("details.fullSizeDrag") : t("details.fullSize")
         }
         className="grid aspect-[4/3] touch-none place-items-center overflow-hidden rounded-md bg-grid outline-none focus-visible:ring-3 focus-visible:ring-ring/50"
         onClick={() => {
@@ -491,7 +505,7 @@ function ItemDetails({
         )}
       </button>
       {item.palettes.length > 0 && (
-        <div className="flex h-4 overflow-hidden rounded" role="img" aria-label="Palette">
+        <div className="flex h-4 overflow-hidden rounded" role="img" aria-label={t("details.palette")}>
           {item.palettes.map((entry) => (
             <span
               key={entry.color.join(",")}
@@ -505,25 +519,27 @@ function ItemDetails({
       )}
       {item.isDeleted && (
         <p className="rounded-md bg-muted px-2 py-1 text-xs text-muted-foreground">
-          {item.deletedAt ? `In the trash since ${formatDate(item.deletedAt)}` : "In the trash"}
+          {item.deletedAt
+            ? t("details.inTrashSince", { date: formatDate(item.deletedAt) })
+            : t("details.inTrash")}
         </p>
       )}
       <dl className="grid gap-2">
-        <Field label="Name">
+        <Field label={t("details.name")}>
           {actions ? (
             <EditableText
-              label="Name"
+              label={t("details.name")}
               value={item.name}
               disabled={!editable}
               title={blocked}
-              check={(text) => (text === "" ? "Enter a name." : null)}
+              check={(text) => (text === "" ? t("details.enterName") : null)}
               onSave={(name) => actions.onEdit({ type: "rename", value: name })}
             />
           ) : (
             item.name
           )}
         </Field>
-        <Field label="Rating">
+        <Field label={t("details.rating")}>
           <Stars
             value={item.star}
             disabled={!editable}
@@ -533,10 +549,10 @@ function ItemDetails({
             }
           />
         </Field>
-        <Field label="Tags">
+        <Field label={t("details.tags")}>
           {tags ??
             (item.tags.length === 0 ? (
-              <span className="text-muted-foreground">None</span>
+              <span className="text-muted-foreground">{t("details.none")}</span>
             ) : (
               <span className="flex flex-wrap gap-1">
                 {item.tags.map((tag) => (
@@ -547,7 +563,7 @@ function ItemDetails({
               </span>
             ))}
         </Field>
-        <Field label="Folders">
+        <Field label={t("details.folders")}>
           <span className="flex flex-wrap items-center gap-1">
             {item.folders.map((id) => {
               const folder = findFolder(folders, id);
@@ -560,11 +576,13 @@ function ItemDetails({
                   title={path}
                   className="flex items-center gap-0.5 rounded bg-muted py-0.5 pr-0.5 pl-1.5 text-xs"
                 >
-                  {folder?.name ?? "Unknown folder"}
+                  {folder?.name ?? t("details.unknownFolder")}
                   {writable === true && onFolderChange && (
                     <button
                       type="button"
-                      aria-label={`Remove from ${folder?.name ?? "folder"}`}
+                      aria-label={t("details.removeFrom", {
+                        name: folder?.name ?? t("details.unknownFolder"),
+                      })}
                       className="rounded p-0.5 hover:bg-background"
                       onClick={() => onFolderChange(id, false)}
                     >
@@ -575,12 +593,12 @@ function ItemDetails({
               );
             })}
             {item.folders.length === 0 && writable !== true && (
-              <span className="text-muted-foreground">None</span>
+              <span className="text-muted-foreground">{t("details.none")}</span>
             )}
             {onFolderChange && writable === true && (
               <FolderButton
                 compact
-                label="Add"
+                label={t("details.add")}
                 folders={folders}
                 writable={writable}
                 checked={member}
@@ -591,29 +609,27 @@ function ItemDetails({
         </Field>
         {actions ? (
           <>
-            <Field label="Note">
+            <Field label={t("details.note")}>
               <EditableText
-                label="Note"
+                label={t("details.note")}
                 multiline
                 value={item.annotation}
                 disabled={!editable}
-                title={blocked ?? "Ctrl+Enter saves, Esc reverts"}
-                placeholder={editable ? "Add a note" : undefined}
+                title={blocked ?? t("details.noteKeys")}
+                placeholder={editable ? t("details.addNote") : undefined}
                 onSave={(text) => actions.onEdit({ type: "setAnnotation", value: text })}
               />
             </Field>
-            <Field label="Link">
+            <Field label={t("details.link")}>
               <span className="flex items-start gap-1">
                 <EditableText
-                  label="Link"
+                  label={t("details.link")}
                   value={item.url}
                   disabled={!editable}
                   title={blocked}
                   placeholder={editable ? "https://…" : undefined}
                   check={(text) =>
-                    text === "" || isWebLink(text)
-                      ? null
-                      : "A link starts with http:// or https://."
+                    text === "" || isWebLink(text) ? null : t("details.linkInvalid")
                   }
                   onSave={(url) => actions.onEdit({ type: "setUrl", value: url })}
                 />
@@ -621,8 +637,8 @@ function ItemDetails({
                   <Button
                     variant="ghost"
                     size="icon-xs"
-                    aria-label="Open the link in the browser"
-                    title="Open the link in the browser"
+                    aria-label={t("details.openLink")}
+                    title={t("details.openLink")}
                     onClick={() => actions.onOpenLink(item.url)}
                   >
                     <ExternalLink aria-hidden />
@@ -633,8 +649,8 @@ function ItemDetails({
           </>
         ) : (
           <>
-            {item.annotation && <Field label="Note">{item.annotation}</Field>}
-            {item.url && <Field label="Link">{item.url}</Field>}
+            {item.annotation && <Field label={t("details.note")}>{item.annotation}</Field>}
+            {item.url && <Field label={t("details.link")}>{item.url}</Field>}
           </>
         )}
       </dl>
@@ -642,12 +658,12 @@ function ItemDetails({
         <SelectionButtons actions={actions} writable={writable} inTrash={item.isDeleted} />
       )}
       <section className="grid gap-2">
-        <h3 className="text-xs font-medium text-muted-foreground">Info</h3>
+        <h3 className="text-xs font-medium text-muted-foreground">{t("details.info")}</h3>
         <p className="select-text">{info.join(" · ")}</p>
         <dl className="grid gap-1">
-          <Field label="Added">{formatDate(item.addedAt)}</Field>
-          <Field label="Created">{formatDate(item.fileCreatedAt)}</Field>
-          <Field label="Modified">{formatDate(item.fileModifiedAt)}</Field>
+          <Field label={t("details.added")}>{formatDate(item.addedAt)}</Field>
+          <Field label={t("details.created")}>{formatDate(item.fileCreatedAt)}</Field>
+          <Field label={t("details.modified")}>{formatDate(item.fileModifiedAt)}</Field>
         </dl>
       </section>
       {exif.length > 0 && (
