@@ -13,17 +13,18 @@ use app_store::{
     default_library_parent, display_path,
 };
 use library_core::{
-    Backup, DuplicateNotice, ExtensionCount, Folder, FolderChange, FolderIndex, ImportKind,
-    ImportPreview, ImportProgress, ImportState, ImportTicket, Item, ItemCell, ItemEdit, ItemId,
-    LibraryCheck, LibraryCounts, LibraryInfo, LibraryQuery, LibrarySource, LibraryStats,
-    LocationProblem, PivPolicy, PivPrompt, PivWrap, Progress, ReadOnlyReason, RecoveryKey,
-    RepairOptions, SelectionTags, SmartFolder, SmartFolderChange, SourceError, Tag, TagGroup,
-    TagGroupChange, Thumbnail, TrashInfo, UndoStack, UndoStatus, Views, rules_from_query,
+    Backup, DuplicateNotice, ExportPreview, ExportProgress, ExportRequest, ExportSelection,
+    ExportState, ExtensionCount, Folder, FolderChange, FolderIndex, ImportKind, ImportPreview,
+    ImportProgress, ImportState, ImportTicket, Item, ItemCell, ItemEdit, ItemId, LibraryCheck,
+    LibraryCounts, LibraryInfo, LibraryQuery, LibrarySource, LibraryStats, LocationProblem,
+    PivPolicy, PivPrompt, PivWrap, Progress, ReadOnlyReason, RecoveryKey, RepairOptions,
+    SelectionTags, SmartFolder, SmartFolderChange, SourceError, Tag, TagGroup, TagGroupChange,
+    Thumbnail, TrashInfo, UndoStack, UndoStatus, Views, rules_from_query,
 };
 use library_native::{
     DuplicateChoice, DuplicatePolicy, ImportFilter, ImportObserver, ImportTarget, Library,
-    NativeSource, OpenOptions, check_enrollment, create_library, import_files,
-    make_pending_previews, utc_file_stamp,
+    NativeSource, OpenOptions, check_enrollment, create_library, export_items, export_preview,
+    import_files, make_pending_previews, utc_file_stamp,
 };
 use secrecy::SecretString;
 use serde::Serialize;
@@ -73,6 +74,8 @@ pub struct Session {
     sync: SyncEnvironment,
     library: Mutex<Option<Arc<Library>>>,
     imports: Arc<Mutex<Imports>>,
+    /// Export tasks of the open library (docs/spec.md §7.4 item 12).
+    exports: Arc<Mutex<Exports>>,
     /// Views of the open library; dropped when it closes.
     views: Arc<Mutex<Views>>,
     /// How to take back the last item edits of the open library (docs/spec.md §6).
@@ -85,6 +88,18 @@ struct Imports {
     next_id: u64,
     running: HashMap<u64, Running>,
     finished: Vec<ImportProgress>,
+}
+
+#[derive(Default)]
+struct Exports {
+    next_id: u64,
+    running: HashMap<u64, ExportRunning>,
+}
+
+struct ExportRunning {
+    cancel: Arc<AtomicBool>,
+    latest: Arc<Mutex<Option<ExportProgress>>>,
+    thread: Option<JoinHandle<()>>,
 }
 
 struct Running {
@@ -168,6 +183,7 @@ impl Session {
             sync,
             library: Mutex::new(None),
             imports: Arc::new(Mutex::new(Imports::default())),
+            exports: Arc::new(Mutex::new(Exports::default())),
             views: Arc::new(Mutex::new(Views::default())),
             undo: Mutex::new(UndoStack::default()),
             emit,
@@ -641,6 +657,152 @@ impl Session {
 
     pub fn library_stats(&self) -> Result<LibraryStats, SourceError> {
         self.current_library().ok_or_else(no_library)?.stats()
+    }
+
+    /// What an export of `selection` would write, from the database alone (docs/spec.md §7.4 item 12).
+    /// A read-only library exports fine.
+    pub fn export_preview(
+        &self,
+        selection: ExportSelection,
+        include_subfolders: bool,
+    ) -> Result<ExportPreview, SourceError> {
+        let library = self.current_library().ok_or_else(no_library)?;
+        export_preview(&library, &selection, include_subfolders)
+    }
+
+    /// Starts an export in the background and returns its first progress.
+    pub fn start_export(&self, request: ExportRequest) -> Result<ExportProgress, SourceError> {
+        let library = self.current_library().ok_or_else(no_library)?;
+        let mut exports = lock(&self.exports);
+        exports.next_id += 1;
+        let id = exports.next_id;
+        let cancel = Arc::new(AtomicBool::new(false));
+        let latest = Arc::new(Mutex::new(None));
+        let emit = Arc::clone(&self.emit);
+        let progress_latest = Arc::clone(&latest);
+        let registry = Arc::clone(&self.exports);
+        let task_cancel = Arc::clone(&cancel);
+        // The thread waits for the registry lock that is held here, so it is registered before
+        // it can remove itself.
+        let thread = std::thread::Builder::new()
+            .name(format!("export-{id}"))
+            .spawn(move || {
+                let mut on_progress = |progress: ExportProgress| {
+                    *lock(&progress_latest) = Some(progress.clone());
+                    emit(Event::ExportProgress(progress));
+                };
+                let result = export_items(&library, id, &request, &task_cancel, &mut on_progress);
+                drop(on_progress);
+                if let Err(error) = result {
+                    // The engine cleans up after itself; the UI just hears that the run failed.
+                    let latest = lock(&progress_latest);
+                    let at = |take: fn(&ExportProgress) -> u64| latest.as_ref().map_or(0, take);
+                    let failed = ExportProgress {
+                        id,
+                        state: ExportState::Failed,
+                        total: at(|progress| progress.total),
+                        done: at(|progress| progress.done),
+                        bytes_total: at(|progress| progress.bytes_total),
+                        bytes_done: at(|progress| progress.bytes_done),
+                        current: None,
+                        summary: None,
+                        error: Some(error.to_string()),
+                    };
+                    drop(latest);
+                    *lock(&progress_latest) = Some(failed.clone());
+                    emit(Event::ExportProgress(failed));
+                }
+                drop(library);
+                let mut exports = lock(&registry);
+                exports.running.remove(&id);
+            });
+        match thread {
+            Ok(thread) => {
+                exports.running.insert(
+                    id,
+                    ExportRunning {
+                        cancel,
+                        latest,
+                        thread: Some(thread),
+                    },
+                );
+            }
+            Err(error) => tracing::warn!("cannot start an export: {error}"),
+        }
+        let first = exports
+            .running
+            .get(&id)
+            .and_then(|running| lock(&running.latest).clone());
+        Ok(first.unwrap_or(ExportProgress {
+            id,
+            state: ExportState::Preparing,
+            total: 0,
+            done: 0,
+            bytes_total: 0,
+            bytes_done: 0,
+            current: None,
+            summary: None,
+            error: None,
+        }))
+    }
+
+    /// Export tasks for the dialog to catch up with after it opens.
+    pub fn exports(&self) -> Vec<ExportProgress> {
+        let exports = lock(&self.exports);
+        let mut running: Vec<ExportProgress> = exports
+            .running
+            .values()
+            .filter_map(|running| lock(&running.latest).clone())
+            .collect();
+        running.sort_by_key(|progress| std::cmp::Reverse(progress.id));
+        running
+    }
+
+    /// An export is still running (its final event not sent yet).
+    pub fn has_running_exports(&self) -> bool {
+        lock(&self.exports).running.values().any(|running| {
+            !lock(&running.latest).as_ref().is_some_and(|progress| {
+                matches!(
+                    progress.state,
+                    ExportState::Done | ExportState::Failed | ExportState::Cancelled
+                )
+            })
+        })
+    }
+
+    /// Asks a running export to stop; its partial output is removed by the engine.
+    pub fn cancel_export(&self, id: u64) -> Result<(), SourceError> {
+        let cancel = lock(&self.exports)
+            .running
+            .get(&id)
+            .map(|running| Arc::clone(&running.cancel));
+        match cancel {
+            Some(cancel) => {
+                cancel.store(true, Ordering::Relaxed);
+                Ok(())
+            }
+            None => Err(SourceError::NotFound),
+        }
+    }
+
+    /// Cancels every export and waits for its thread; the partial output is removed.
+    fn stop_exports(&self) {
+        let threads: Vec<JoinHandle<()>> = {
+            let mut exports = lock(&self.exports);
+            exports
+                .running
+                .values_mut()
+                .filter_map(|running| {
+                    running.cancel.store(true, Ordering::Relaxed);
+                    running.thread.take()
+                })
+                .collect()
+        };
+        for thread in threads {
+            if thread.join().is_err() {
+                tracing::warn!("an export thread panicked");
+            }
+        }
     }
 
     /// Rebuild Thumbnails: every preview is made again by the preview task. Returns how many
@@ -1178,13 +1340,14 @@ impl Session {
         ))
     }
 
-    /// Stops imports and takes the library out of the session.
+    /// Stops imports and exports and takes the library out of the session.
     fn take_library(&self) -> Option<Library> {
         self.stop_imports();
+        self.stop_exports();
         lock(&self.views).clear();
         lock(&self.undo).clear();
         let library = lock(&self.library).take()?;
-        // Import threads hold their clones only while they run.
+        // Import and export threads hold their clones only while they run.
         Arc::try_unwrap(library).ok()
     }
 }

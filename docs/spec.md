@@ -104,7 +104,7 @@ The exact layout, the schema and the protocols are in [`library-format.md`](libr
 - **Local disks only.** Cloud sync tools (OneDrive, Dropbox, Google Drive, iCloud, Syncthing and similar) copy a live database mid-write and corrupt it, and SQLite's WAL mode does not work over a network share. A new library cannot be created in a sync folder, on a network path, or inside another library or an Eagle `.library` folder. A library found in a sync folder opens read-only, with a message to move the folder out while the app is closed; one on a network path is refused. Detection is best effort (D-021).
 - **Default location** for new libraries: `%USERPROFILE%\egl-library`. Not Pictures or Documents: Windows' OneDrive folder backup often moves them into OneDrive, and the app never puts a library into OneDrive on its own. The Create dialog can pick another local folder, and the default itself is a preference the user can change later (D-021).
 - **Versioning.** A library made by a newer app version is refused with a clear message, and nothing is written to it. An older library is migrated forward after an automatic backup.
-- **Backups.** A copy of `library.db` in `backups/` when the library opens (at most once a day), before every migration, on Back Up Now and before a restore; the last 10 are kept. Library Settings restores one into the open library, after backing up the current state; files are not part of a backup, so Check Library then lists files without an item and items without a file (D-051).
+- **Backups.** A copy of `library.db` in `backups/` when the library opens (at most once a day), before every migration, on Back Up Now and before a restore; the last 10 are kept. Library Settings restores one into the open library, after backing up the current state; files are not part of a backup, so Check Library then lists files without an item and items without a file (D-051). Distinct from **Backup…** / **Export…**, which copy originals out of the library (§7.4 item 12, D-064).
 
 ### Items
 
@@ -322,7 +322,7 @@ One window with client-side routing and one library per window (D-024). The layo
 | **File** | New Library… (1), Open Library… `Ctrl+O` (1), Open Recent ▸ (1), Close Library `Ctrl+W` (1) · Add Files… (2), Import Folder… (2) · Import Eagle Library… (8), Connect to Eagle… (9), Export to Eagle… (11) · Settings… `Ctrl+,` (1) · Exit `Alt+F4` (1) |
 | **Edit** | Paste `Ctrl+V` (2) · Undo `Ctrl+Z` (7), Select All `Ctrl+A` (3), Copy File `Ctrl+C` (7), Move to Trash `Delete` (7), Find `Ctrl+F` (6) |
 | **View** | Theme ▸ System / Light / Dark (1), Full Screen `F11` (1) · Sidebar `Ctrl+B` (1), Details Panel `Ctrl+I` (1), Filter Bar (6) · Grid / List (3), Larger / Smaller Thumbnails `Ctrl+=` / `Ctrl+-` (3), Show Names (3), Sort By ▸ (3) · Preview `Space` (3) · Include Subfolders (4) |
-| **Library** | New Folder `Ctrl+Shift+N` (4) · Lock All Folders `Ctrl+L` (4) · Library Settings… (7), Back Up Now (7), Check Library (7), Rebuild Thumbnails (7), Show in Explorer (7) |
+| **Library** | New Folder `Ctrl+Shift+N` (4) · Lock All Folders `Ctrl+L` (4) · Library Settings… (7), Backup… (D-064), Back Up Now (7), Check Library (7), Rebuild Thumbnails (7), Show in Explorer (7) |
 | **Help** | Keyboard Shortcuts `F1` (1), Check for Updates… (12 / D-062), About egl-viewer (1), Open Log Folder (12) |
 
 - **Closing the window quits the app**: there is one window and no tray icon (arch §9). Running imports are confirmed first. **Close Library** returns to Welcome and does not quit.
@@ -453,6 +453,7 @@ Link     https://…  ↗
 9. **Keyboard Shortcuts** (`F1`): every command with its shortcut, read from the command registry.
 10. **Check for Updates…** (Help menu, D-062). Asks GitHub Releases for a newer signed build; if one exists, confirms before download, install and restart. A silent check after launch uses the same confirm. Builds without the updater plugin need one last manual install.
 11. **Eagle screens:** the import wizard (section 8.2), Connect (section 8.3), export (section 8.4).
+12. **Backup** (Library menu, D-064) and **Export** (context menus of folders and tags): one dialog. It picks what to export (the whole library, chosen folders with or without subfolders, chosen tags), shows the item count and bytes from the database, the format (a folder tree or a ZIP archive with a compression level), an optional age passphrase for the archive, and the destination folder (the last one is remembered). While it runs, a progress bar; afterwards, the result: what was written where, skipped missing files, **Show in Explorer**. The export runs in the background and can be cancelled; the partial output is removed. It reads only, so a read-only library exports too; items of locked folders stay home and are counted as hidden. `egl-export.json` at the export root carries the exported items' metadata. Distinct from Back Up Now, which copies the database (§7.4 item 6).
 
 ### 7.5 Look and motion
 
@@ -1066,6 +1067,12 @@ Native library (`library-native`, `media`), with temporary folders:
 | Back up, change things, restore the backup | Items, folders and fields as they were; the lock still held; a backup of the state before; an older backup migrated |
 | Check Library after deleting an original and adding a stray file | Both reported; repair removes only what was asked |
 | Undo after rating, renaming, trashing a selection | Each item back to its own earlier value, one edit per `Ctrl+Z` |
+| Export preview: whole library, folders with/without subfolders, overlapping folders, tags | Counts once; unknown folder id refused; locked items in `hidden` |
+| Export mirror of a folder tree | Files under `<root>/<folder>/…`, `egl-export.json`, a second run gets ` (2)` |
+| Export name collision in one folder | `name (2).ext` |
+| Export ZIP | Entries mirror the tree and read back; optional age passphrase decrypts to a ZIP |
+| Export with a missing original | Listed in `missing`; other files and the manifest still written |
+| Export cancel; destination inside the library; encrypt without ZIP | Partial output removed; refused |
 
 Settings (`app-store`), with temporary folders:
 

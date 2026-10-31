@@ -29,6 +29,7 @@ import {
 import { fetchCell, useView } from "@/features/browse/useView";
 import { ConnectScreen } from "@/features/connect/ConnectScreen";
 import { type DragPayload, DragProvider, type DropTarget } from "@/features/dnd/drag";
+import { ExportDialog, type ExportTarget } from "@/features/export/ExportDialog";
 import { type FolderDialog, FolderDialogs } from "@/features/folders/FolderDialogs";
 import { FolderProperties } from "@/features/folders/FolderProperties";
 import { FolderTree, type LockAction } from "@/features/folders/FolderTree";
@@ -279,6 +280,8 @@ function AppShell() {
   const started = useRef(false);
   const [recent, setRecent] = useState<RecentLibrary[]>([]);
   const [dialog, setDialog] = useState<DialogKind | null>(null);
+  /** The Backup / Export dialog: `target` presets the scope for a context-menu export. */
+  const [exportDialog, setExportDialog] = useState<{ target: ExportTarget | null } | null>(null);
   const [fullscreen, setFullscreenState] = useState(false);
   const [builtInLocation, setBuiltInLocation] = useState("");
   const [counts, setCounts] = useState<LibraryCounts | null>(null);
@@ -997,15 +1000,17 @@ function AppShell() {
     [client, failed, recentTags],
   );
 
-  const tagActions = useMemo<TagActions | undefined>(
-    () =>
-      writable === true
+  const tagActions = useMemo<TagActions>(
+    () => ({
+      onExport: (name) => setExportDialog({ target: { kind: "tag", name } }),
+      ...(writable === true
         ? {
-            onRename: (name) => setTagDialog({ kind: "rename", name }),
-            onMerge: (name) => setTagDialog({ kind: "merge", name }),
-            onDelete: (name) => setTagDialog({ kind: "delete", name }),
+            onRename: (name: string) => setTagDialog({ kind: "rename", name }),
+            onMerge: (name: string) => setTagDialog({ kind: "merge", name }),
+            onDelete: (name: string) => setTagDialog({ kind: "delete", name }),
           }
-        : undefined,
+        : {}),
+    }),
     [writable],
   );
 
@@ -1338,6 +1343,7 @@ function AppShell() {
       deleteSelection: () =>
         place.kind === "trash" ? itemActions.onDeletePermanently() : itemActions.onTrash(),
       librarySettings: () => setDialog("librarySettings"),
+      backup: () => setExportDialog({ target: null }),
       backUpNow: () => {
         ipc
           .backUpNow()
@@ -1605,6 +1611,7 @@ function AppShell() {
                 onColor={(id, iconColor) => changeFolder(id, { iconColor })}
                 onMoveTo={(id) => setFolderDialog({ kind: "move", id })}
                 onDelete={(id) => setFolderDialog({ kind: "delete", id })}
+                onExport={(id, name) => setExportDialog({ target: { kind: "folder", id, name } })}
                 onLock={lockAction}
               />
             }
@@ -1883,6 +1890,25 @@ function AppShell() {
             onCheck={() => setDialog("checkLibrary")}
             onRebuild={actions.rebuildThumbnails}
             onReveal={actions.revealLibrary}
+          />
+        )}
+        {library && (
+          <ExportDialog
+            open={exportDialog !== null}
+            onOpenChange={(next) => {
+              if (!next) setExportDialog(null);
+            }}
+            library={library}
+            target={exportDialog?.target ?? null}
+            folders={tree}
+            vocabulary={vocabulary}
+            preferences={preferences}
+            onPreferences={(next) => {
+              setPreferences(next);
+              if (inTauri()) {
+                ipc.setPreferences(next).catch((error: unknown) => setStatus(describeError(error)));
+              }
+            }}
           />
         )}
         <CheckLibraryDialog

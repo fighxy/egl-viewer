@@ -269,6 +269,21 @@ impl Library {
         Ok(Some(plain))
     }
 
+    /// A decrypting reader over an encrypted file of an item, for export: the plaintext streams
+    /// to the destination instead of sitting in memory. `None` when the file is gone.
+    pub(crate) fn open_sealed(&self, item: &str, path: &Path) -> Result<Option<Box<dyn Read>>> {
+        let file = match File::open(path) {
+            Ok(file) => file,
+            Err(error) if error.kind() == ErrorKind::NotFound => return Ok(None),
+            Err(error) => return Err(error).context("read an encrypted file"),
+        };
+        let key = self.item_key(item)?;
+        let reader = key
+            .decrypt_from(io::BufReader::new(file))
+            .map_err(vault_error)?;
+        Ok(Some(Box::new(reader)))
+    }
+
     /// `thumbs/<shard>/<id>.age`: the preview of an encrypted item.
     pub(crate) fn sealed_thumbnail_path(&self, id: &str) -> Result<PathBuf> {
         Ok(self.thumbnail_path(id)?.with_extension("age"))

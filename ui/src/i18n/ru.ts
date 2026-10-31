@@ -394,6 +394,7 @@ export const ru: MessageCatalog = {
     moveTrash: "В корзину",
   },
   tagMenu: {
+    export: "Экспорт…",
     rename: "Переименовать…",
     merge: "Объединить с…",
     delete: "Удалить…",

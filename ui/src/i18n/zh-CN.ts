@@ -389,6 +389,7 @@ export const zhCN: MessageCatalog = {
     moveTrash: "移到废纸篓",
   },
   tagMenu: {
+    export: "导出…",
     rename: "重命名…",
     merge: "合并到…",
     delete: "删除…",

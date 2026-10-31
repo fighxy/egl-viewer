@@ -40,6 +40,8 @@ type Props = {
   onColor: (id: string, color: string | null) => void;
   onMoveTo: (id: string) => void;
   onDelete: (id: string) => void;
+  /** Export the folder (and its subfolders) to a folder tree or an archive. */
+  onExport: (id: string, name: string) => void;
   /** Lock… on an unlocked folder (other lock commands live under Locked folders, D-059). */
   onLock?: (id: string, action: LockAction) => void;
 };
@@ -75,6 +77,7 @@ export function FolderTree({
   onColor,
   onMoveTo,
   onDelete,
+  onExport,
   onLock,
 }: Props) {
   const { begin, active } = useDrag();
@@ -299,6 +302,9 @@ export function FolderTree({
                   </ContextMenuSub>
                   <ContextMenuItem disabled={!canWrite} onSelect={() => onMoveTo(folder.id)}>
                     Move To…
+                  </ContextMenuItem>
+                  <ContextMenuItem onSelect={() => onExport(folder.id, folder.name)}>
+                    Export…
                   </ContextMenuItem>
                   {onLock && (
                     <>

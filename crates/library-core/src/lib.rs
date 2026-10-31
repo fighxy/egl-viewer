@@ -6,6 +6,7 @@
 
 pub mod edit;
 pub mod error;
+pub mod export;
 pub mod folder;
 pub mod maintenance;
 pub mod model;
@@ -17,6 +18,10 @@ pub mod undo;
 
 pub use edit::{ItemEdit, is_web_link};
 pub use error::{LocationProblem, NetworkError, SourceError};
+pub use export::{
+    Compression, ExportFormat, ExportPreview, ExportProgress, ExportRequest, ExportSelection,
+    ExportState, ExportSummary,
+};
 pub use folder::{FOLDER_COLORS, FolderChange, order_key_between};
 pub use maintenance::{
     Backup, BackupKind, LibraryCheck, LibraryStats, MissingOriginal, RepairOptions,

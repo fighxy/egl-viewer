@@ -85,6 +85,8 @@ export type CommandActions = {
   /** Moves the selection to the trash, or in the Trash removes it for good; both confirm. */
   deleteSelection: () => void;
   librarySettings: () => void;
+  /** The Backup dialog: what to back up, in which format, where (docs/spec.md §7.4 item 12). */
+  backup: () => void;
   backUpNow: () => void;
   checkLibrary: () => void;
   rebuildThumbnails: () => void;
@@ -484,6 +486,14 @@ export const COMMANDS: readonly Command[] = [
     group: 2,
     available: needsLibrary,
     run: (actions) => actions.librarySettings(),
+  },
+  {
+    id: "library.backup",
+    label: "Backup…",
+    menu: "library",
+    group: 2,
+    available: needsLibrary,
+    run: (actions) => actions.backup(),
   },
   {
     id: "library.backUp",

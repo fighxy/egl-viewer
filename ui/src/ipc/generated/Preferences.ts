@@ -17,4 +17,8 @@ defaultLibraryParent: string | null,
  * `Delete` asks before moving items to the trash; off means the trash takes them at once.
  * The trash confirmation can turn this off for good, Settings turns it back on.
  */
-confirmBeforeTrash: boolean, layout: UiLayout, browse: BrowsePreferences, };
+confirmBeforeTrash: boolean, 
+/**
+ * Where the last Backup / Export wrote; the next one starts there (docs/spec.md §7.4 item 12).
+ */
+exportDestination: string | null, layout: UiLayout, browse: BrowsePreferences, };

@@ -31,7 +31,8 @@ type Props = {
   onCreateGroup: () => void;
   onEditGroup: (id: string) => void;
   onDeleteGroup: (id: string) => void;
-  actions?: TagActions;
+  /** Export, and rename, merge and delete where the library can be written. */
+  actions: TagActions;
 };
 
 /**

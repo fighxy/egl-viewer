@@ -85,7 +85,7 @@ type Props = {
   recent: readonly string[];
   folders: readonly Folder[];
   extensions: readonly ExtensionCount[];
-  actions?: TagActions;
+  actions: TagActions;
   /** Saves the screen as a smart folder; `true`, or why it cannot be saved. */
   canSaveSmart?: true | string;
   onSaveSmart?: () => void;

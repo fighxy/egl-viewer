@@ -8,8 +8,8 @@ use std::task::{Context, Poll, Waker};
 use std::time::{Duration, Instant};
 
 use library_core::{
-    FolderIndex, ImportProgress, ItemId, ItemLite, LibrarySource, Progress, Scope, ScopeHints,
-    SearchMatch, SourceError, Thumbnail, ViewSource, Views,
+    ExportProgress, FolderIndex, ImportProgress, ItemId, ItemLite, LibrarySource, Progress, Scope,
+    ScopeHints, SearchMatch, SourceError, Thumbnail, ViewSource, Views,
 };
 use serde::{Deserialize, Serialize};
 use ts_rs::TS;
@@ -71,6 +71,7 @@ pub(crate) fn invalidated(totals: Vec<(u64, usize)>) -> Option<Event> {
 #[derive(Debug, Clone, PartialEq)]
 pub enum Event {
     ImportProgress(ImportProgress),
+    ExportProgress(ExportProgress),
     ViewsInvalidated(ViewsInvalidated),
 }
 
