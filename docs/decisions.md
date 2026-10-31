@@ -1108,7 +1108,6 @@ entry does not collide.
   make one in code. It does not vary with the fixture seed, so it stays out of
   `every_format()` and the duplicate-detection tests; the media tests use it directly.
 
-<<<<<<< HEAD
 ## D-067 Justified library grid (2026-10-31)
 
 - **Layout.** The grid mode is justified rows (Flickr / Google Photos): one height per row, each
@@ -1141,11 +1140,11 @@ entry does not collide.
 - Keep the listener on the **bubbling** phase of the window (D-042): Radix `ContextMenu`
   handlers on folder / item / tag triggers run first and open the app menu; a capture-phase
   prevent would leave those menus dead.
-=======
+
 ## D-069 UI languages: English default, Russian and Chinese selectable (2026-10-31)
 
 Supersedes D-007. The UI ships with **English as the default and the source catalog**, plus
-**Russian (u)** and **Chinese Simplified (zh-CN)**. The user picks the language in
+**Russian (ru)** and **Chinese Simplified (zh-CN)**. The user picks the language in
 Settings → General; the choice is stored in `preferences.locale` through `app-store`
 (D-022), same as theme.
 
@@ -1153,13 +1152,11 @@ Settings → General; the choice is stored in `preferences.locale` through `app-
   older than pnpm's minimum release age, D-002 / D-003). Catalogs live under `ui/src/i18n/`
   (`en.ts`, `ru.ts`, `zh-CN.ts`); English is the typed source. `setAppLocale` applies
   the preference at startup and when Settings saves.
-- **Coverage.** Menus and command labels, Settings, Welcome / Create library, About, Keyboard
-  shortcuts, sidebar scopes and section titles, empty states, and the main confirmations are
-  translated. Native OS file dialogs stay in the OS language. Remaining screens (Connect,
-  filter chips, lock dialogs, Library Settings, updates, many context menus, error copy) still
-  use English until their catalogs are filled; new UI strings go into the English catalog first.
+- **Coverage.** App UI strings are translated (menus, Settings, Welcome, library chrome,
+  filters, imports, locks, details, smart folders, maintenance, updates, errors and status).
+  Native OS file dialogs stay in the OS language. New UI strings go into the English catalog
+  first.
 - **IPC.** `Locale` is a `ts-rs` enum (`"en" | "ru" | "zh-CN"`) on `Preferences`; missing
   field keeps English.
 - **Tests.** Catalog key coverage for `ru` / `zh-CN` vs English; language switch; Settings
   saves `locale`.
->>>>>>> 24f443d (feat: UI language switch with Russian and Chinese (D-069))
