@@ -314,9 +314,9 @@ full-database cipher is ever required; it is out of scope here.
 - Filters: a filter bar under the toolbar, shown by the Filter button and on its own while a
   filter is active. Rejected: an always visible bar (it costs a row most of the time) and filters
   in the right bar (that belongs to the selection).
-- Grid: uniform square cells in phase 3, plus a list. Masonry and justified rows can come later as
-  View modes. Double-click and `Space` open the full-size preview; `Enter` moves focus to the
-  right bar (spec §7 said before that `Enter` opens the detail).
+- Grid: justified rows from item aspect ratios (D-067; phase 3 shipped squares first). List
+  unchanged. Masonry can still come later. Double-click and `Space` open the full-size preview;
+  `Enter` moves focus to the right bar (spec §7 said before that `Enter` opens the detail).
 - Right bar: fields save on `Enter` or blur, `Esc` reverts, no Save button. With several items it
   shows batch edits; with nothing selected, the open folder's properties (from phase 4).
 - Phase 1 builds the whole frame with empty zones, so later phases fill zones instead of
@@ -1104,6 +1104,26 @@ entry does not collide.
   is a committed base64 file, decoded by `fixtures::heic()`: pure Rust has no HEIC encoder to
   make one in code. It does not vary with the fixture seed, so it stays out of
   `every_format()` and the duplicate-detection tests; the media tests use it directly.
+
+## D-067 Justified library grid (2026-10-31)
+
+- **Layout.** The grid mode is justified rows (Flickr / Google Photos): one height per row, each
+  cell width from `ItemCell.width` / `height` (aspect), rows fill the container width, `8px`
+  gutters, rounded thumbs. The thumbnail size slider is the **target row height** (still
+  80–320 px). Show Names keeps the existing name-only caption under the thumb (no WxH line).
+  List mode is unchanged. Number skipped D-064…D-066: those are claimed on `feat/export-library`.
+- **Packing data.** Stable row breaks need sizes for every position, not only the visible
+  windows. `view_dimensions(viewId) → Vec<[u32; 2]>` returns stored pixels (zeros = unknown →
+  square). That is numbers only — still not a whole `ItemCell` list over IPC. Invalidated with
+  the view on `views-invalidated`.
+- **Virtualization.** TanStack Virtual still virtualizes **rows**; each row now has a variable
+  height and cell count. Rubber-band hit-testing and arrow keys use the packed geometry
+  (down/up = nearest cell by X in the next/previous row). Selection, DnD onto folders/tags, and
+  manual reorder drop targets stay index/id based.
+- **Tradeoff vs fixed squares.** Variable items-per-row and row height; scroll anchoring remaps
+  by item index when the size slider or window width changes. Extreme panoramas are clamped to
+  0.5×–1.5× the target height so one row cannot dominate. Last incomplete rows stay near the
+  target height unless they already fill most of the width.
 
 ## D-068 No native WebView context menu anywhere (2026-10-31)
 

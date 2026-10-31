@@ -629,6 +629,20 @@ fn view_range_never_returns_more_than_the_window() {
 }
 
 #[test]
+fn view_dimensions_match_the_ordered_items() {
+    let source = FakeSource::new(3);
+    let mut views = Views::default();
+    let (id, _) = open(&mut views, &source, LibraryQuery::default());
+    let view = views.get(id).unwrap();
+    let dims = view.dimensions();
+    assert_eq!(dims.len(), 3);
+    let cells = view.range(0, 3);
+    for (i, cell) in cells.iter().enumerate() {
+        assert_eq!(dims[i], [cell.width.unwrap_or(0), cell.height.unwrap_or(0)]);
+    }
+}
+
+#[test]
 fn old_views_are_dropped_and_closed_views_are_gone() {
     let source = FakeSource::new(3);
     let mut views = Views::default();

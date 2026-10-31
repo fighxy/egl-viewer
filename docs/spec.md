@@ -398,8 +398,8 @@ Each filter is a button with a dropdown panel. Later filters (size, dates, colou
 
 **Grid**, in the middle:
 
-- v1 has uniform square cells with the image fitted on a neutral background; the column count follows the width and the size slider. Masonry and justified rows can come later as View modes, since width and height are stored. **List** shows a small thumbnail, name, type, size, dimensions, date added, rating and tags.
-- A cell shows the thumbnail, or the first palette colour and the extension until the thumbnail exists; stars when rated; the name under the image when View → Show Names is on. Selection is an outline.
+- The **grid** is justified (D-067): rows share one height, each cell's width follows the item's aspect ratio so the row fills the container; the size slider sets the target row height. Gutters stay small (`8px`). Missing width/height use a square. **List** shows a small thumbnail, name, type, size, dimensions, date added, rating and tags. Masonry can still come later as another View mode.
+- A cell shows the thumbnail, or the first palette colour and the extension until the thumbnail exists; stars when rated; the name under the image when View → Show Names is on (same caption density as before — name only). Selection is an outline.
 - Click, `Ctrl`, `Shift`, a rubber band and `Ctrl+A` select. Double-click or `Space` opens the full-size preview. `Enter` moves focus to the right bar and opens it if hidden. `Delete` moves the selection to the trash after a confirmation; the confirmation has a "Don't ask again" checkbox that turns the confirmation off for good, and Settings → General turns it back on.
 - Files dragged onto the window show an overlay "Add to <scope>".
 - Empty states: a new library ("Drop images here", a big drop target and Add files), a folder without items, no results (with Clear filters), an empty trash.

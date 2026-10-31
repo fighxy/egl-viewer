@@ -1,6 +1,6 @@
 // A view in Rust for the screen's query, and the windows of cells the grid shows
 // (docs/architecture.md §6.5). Whole item lists never cross IPC.
-import { type QueryClient, useQueries, useQueryClient } from "@tanstack/react-query";
+import { type QueryClient, useQueries, useQuery, useQueryClient } from "@tanstack/react-query";
 import { listen } from "@tauri-apps/api/event";
 import { useCallback, useEffect, useRef, useState } from "react";
 import {
@@ -107,6 +107,7 @@ export function useView(query: LibraryQuery | null) {
           setView(changed);
         }
         void client.invalidateQueries({ queryKey: ["view", changed.viewId] });
+        // Dimensions share the view prefix; invalidation above covers them too.
       }
       void client.invalidateQueries({ queryKey: ["item"] });
     })
@@ -164,4 +165,18 @@ export async function fetchCell(
   const w = Math.floor(index / WINDOW);
   const cells = await client.fetchQuery(windowQuery(viewId, w));
   return cells[index - w * WINDOW];
+}
+
+/**
+ * Stored `[width, height]` for every position of a view (D-067). Used to pack justified rows
+ * without fetching every `ItemCell`. Zeros mean unknown → the packer uses a square.
+ */
+export function useViewDimensions(viewId: number | null): [number, number][] | undefined {
+  const { data } = useQuery({
+    queryKey: ["view", viewId, "dimensions"] as const,
+    queryFn: () => ipc.viewDimensions(viewId ?? 0),
+    enabled: viewId !== null,
+    staleTime: Number.POSITIVE_INFINITY,
+  });
+  return data;
 }

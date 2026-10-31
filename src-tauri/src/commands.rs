@@ -163,6 +163,12 @@ pub async fn view_ids(
     blocking(app, move |session| session.view_ids(view_id, start, len)).await
 }
 
+/// Stored width/height of every position: justified packing without whole `ItemCell` lists.
+#[tauri::command]
+pub async fn view_dimensions(app: AppHandle, view_id: u64) -> Result<Vec<[u32; 2]>, SourceError> {
+    blocking(app, move |session| session.view_dimensions(view_id)).await
+}
+
 #[tauri::command]
 pub async fn close_view(app: AppHandle, view_id: u64) -> Result<(), SourceError> {
     blocking(app, move |session| {

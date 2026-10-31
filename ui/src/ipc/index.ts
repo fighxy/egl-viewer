@@ -216,6 +216,8 @@ export const ipc = {
     invoke<ItemCell[]>("view_range", { viewId, start, len }),
   viewIds: (viewId: number, start: number, len: number) =>
     invoke<ItemId[]>("view_ids", { viewId, start, len }),
+  /** Stored `[width, height]` per position (zeros = unknown); for justified packing. */
+  viewDimensions: (viewId: number) => invoke<[number, number][]>("view_dimensions", { viewId }),
   closeView: (viewId: number) => invoke<void>("close_view", { viewId }),
   itemDetail: (id: string) => invoke<Item | null>("item_detail", { id }),
   folderTree: () => invoke<Folder[]>("folder_tree"),

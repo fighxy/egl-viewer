@@ -100,6 +100,7 @@ pub fn run() {
             commands::open_view,
             commands::view_range,
             commands::view_ids,
+            commands::view_dimensions,
             commands::close_view,
             commands::item_detail,
             commands::folder_tree,
