@@ -1,5 +1,7 @@
+import i18n from "@/i18n";
 import type { ImportProgress } from "@/ipc";
 
+/** English-only plural helper still used by a few untranslated dialogs. */
 export function plural(count: number, one: string, many = `${one}s`) {
   return `${count.toLocaleString("en")} ${count === 1 ? one : many}`;
 }
@@ -23,30 +25,62 @@ export function percent(progress: ImportProgress): number {
   return progress.total === 0 ? 0 : Math.round((progress.processed / progress.total) * 100);
 }
 
+function fmt(count: number) {
+  return count.toLocaleString(i18n.language);
+}
+
 /** One line for the status bar and the Imports panel (docs/spec.md §4, §7.3). */
 export function importSummary(progress: ImportProgress): string {
   if (progress.kind === "previews") {
     return isRunning(progress)
-      ? `Making previews: ${progress.previewsDone} of ${progress.previewsTotal}`
-      : `Made ${plural(progress.previewsDone, "preview")}`;
+      ? i18n.t("imports.makingPreviews", {
+          done: progress.previewsDone,
+          total: progress.previewsTotal,
+        })
+      : i18n.t("imports.madePreviews", {
+          count: progress.previewsDone,
+          formatted: fmt(progress.previewsDone),
+        });
   }
   const extras = [
-    progress.duplicates > 0 ? `${plural(progress.duplicates, "duplicate")} skipped` : null,
-    progress.failed > 0 ? plural(progress.failed, "problem") : null,
+    progress.duplicates > 0
+      ? i18n.t("imports.duplicatesSkipped", {
+          count: progress.duplicates,
+          formatted: fmt(progress.duplicates),
+        })
+      : null,
+    progress.failed > 0
+      ? i18n.t("imports.problemsCount", {
+          count: progress.failed,
+          formatted: fmt(progress.failed),
+        })
+      : null,
   ].filter((part): part is string => part !== null);
   const tail = extras.length > 0 ? ` · ${extras.join(" · ")}` : "";
   switch (progress.state) {
     case "scanning":
-      return "Looking for files…";
+      return i18n.t("imports.looking");
     case "adding":
-      return `Adding files: ${progress.processed} of ${progress.total}${tail}`;
+      return (
+        i18n.t("imports.adding", { processed: progress.processed, total: progress.total }) + tail
+      );
     case "waitingForDecision":
-      return "Waiting for your choice about duplicates";
+      return i18n.t("imports.waitingDupes");
     case "previews":
-      return `Making previews: ${progress.previewsDone} of ${progress.previewsTotal}${tail}`;
+      return (
+        i18n.t("imports.makingPreviews", {
+          done: progress.previewsDone,
+          total: progress.previewsTotal,
+        }) + tail
+      );
     case "done":
-      return `Added ${plural(progress.added, "file")}${tail}`;
+      return (
+        i18n.t("imports.added", { count: progress.added, formatted: fmt(progress.added) }) + tail
+      );
     case "cancelled":
-      return `Stopped · added ${plural(progress.added, "file")}${tail}`;
+      return (
+        i18n.t("imports.stopped", { count: progress.added, formatted: fmt(progress.added) }) +
+        tail
+      );
   }
 }

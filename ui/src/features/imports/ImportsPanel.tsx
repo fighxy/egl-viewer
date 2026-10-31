@@ -1,3 +1,5 @@
+import { useMemo } from "react";
+import { useTranslation } from "react-i18next";
 import { Button } from "@/components/ui/button";
 import {
   Dialog,
@@ -8,7 +10,7 @@ import {
 } from "@/components/ui/dialog";
 import { Progress } from "@/components/ui/progress";
 import type { ImportProgress } from "@/ipc";
-import { importSummary, isRunning, percent, plural } from "./importText";
+import { importSummary, isRunning, percent } from "./importText";
 
 type Props = {
   open: boolean;
@@ -17,30 +19,35 @@ type Props = {
   onCancel: (id: number) => void;
 };
 
-const timeFormat = new Intl.DateTimeFormat("en", { timeStyle: "short" });
-
 /** Running and finished imports with their problems and skipped duplicates (docs/spec.md §7.4). */
 export function ImportsPanel({ open, onOpenChange, imports, onCancel }: Props) {
+  const { t, i18n } = useTranslation();
+  const timeFormat = useMemo(
+    () => new Intl.DateTimeFormat(i18n.language, { timeStyle: "short" }),
+    [i18n.language],
+  );
   return (
     <Dialog open={open} onOpenChange={onOpenChange}>
       <DialogContent className="sm:max-w-xl">
         <DialogHeader>
-          <DialogTitle>Imports</DialogTitle>
-          <DialogDescription>Files added in this session.</DialogDescription>
+          <DialogTitle>{t("imports.title")}</DialogTitle>
+          <DialogDescription>{t("imports.sessionHint")}</DialogDescription>
         </DialogHeader>
         {imports.length === 0 ? (
-          <p className="text-sm text-muted-foreground">Nothing added yet.</p>
+          <p className="text-sm text-muted-foreground">{t("imports.nothingYet")}</p>
         ) : (
           <ul className="grid max-h-[60vh] gap-3 overflow-y-auto">
             {imports.map((progress) => (
               <li
                 key={progress.id}
-                aria-label={`Import ${progress.id}`}
+                aria-label={t("imports.importLabel", { id: progress.id })}
                 className="grid gap-2 rounded-lg border p-3"
               >
                 <div className="flex items-center gap-2">
                   <span className="text-[13px] font-medium">
-                    {progress.kind === "previews" ? "Previews" : "Adding files"}
+                    {progress.kind === "previews"
+                      ? t("imports.kindPreviews")
+                      : t("imports.kindAdding")}
                   </span>
                   <span className="text-xs text-muted-foreground">
                     {timeFormat.format(progress.startedAt)}
@@ -52,16 +59,16 @@ export function ImportsPanel({ open, onOpenChange, imports, onCancel }: Props) {
                       className="ml-auto"
                       onClick={() => onCancel(progress.id)}
                     >
-                      Cancel
+                      {t("imports.cancel")}
                     </Button>
                   )}
                 </div>
-                <Progress value={percent(progress)} aria-label="Progress" />
+                <Progress value={percent(progress)} aria-label={t("imports.progress")} />
                 <p className="text-[13px]">{importSummary(progress)}</p>
                 {progress.failures.length > 0 && (
                   <details className="text-[13px]">
                     <summary className="cursor-default text-destructive">
-                      {plural(progress.failed, "problem")}
+                      {t("imports.problems", { count: progress.failed })}
                     </summary>
                     <ul className="mt-1 grid gap-1">
                       {progress.failures.map((failure) => (
@@ -76,14 +83,14 @@ export function ImportsPanel({ open, onOpenChange, imports, onCancel }: Props) {
                 {progress.skipped.length > 0 && (
                   <details className="text-[13px]">
                     <summary className="cursor-default text-muted-foreground">
-                      {plural(progress.duplicates, "duplicate")} skipped
+                      {t("imports.skipped", { count: progress.duplicates })}
                     </summary>
                     <ul className="mt-1 grid gap-1">
                       {progress.skipped.map((duplicate) => (
                         <li key={duplicate.path} className="break-all select-text">
                           {duplicate.path}
                           {duplicate.inTrash && (
-                            <span className="text-muted-foreground"> (in the trash)</span>
+                            <span className="text-muted-foreground"> {t("imports.inTrash")}</span>
                           )}
                         </li>
                       ))}
