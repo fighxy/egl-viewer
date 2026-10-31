@@ -1,5 +1,6 @@
 import { ChevronDown, ChevronRight, Lock, LockOpen } from "lucide-react";
 import { useState } from "react";
+import { useTranslation } from "react-i18next";
 import {
   ContextMenu,
   ContextMenuContent,
@@ -40,12 +41,13 @@ type Props = {
  * the Folders tree.
  */
 export function LockedFolders({ folders, selectedId, writable, onUnlock, onOpen, onLock }: Props) {
+  const { t } = useTranslation();
   const [open, setOpen] = useState(true);
   const locked = lockedFolders(folders);
   const canWrite = writable === true;
   if (locked.length === 0) return null;
   return (
-    <section aria-label="Locked folders" className="grid gap-px">
+    <section aria-label={t("sidebar.lockedFolders")} className="grid gap-px">
       <button
         type="button"
         aria-expanded={open}
@@ -57,7 +59,7 @@ export function LockedFolders({ folders, selectedId, writable, onUnlock, onOpen,
         ) : (
           <ChevronRight aria-hidden className="size-3.5" />
         )}
-        Locked folders
+        {t("sidebar.lockedFolders")}
       </button>
       {open && (
         <ul className="grid gap-px">
@@ -71,12 +73,14 @@ export function LockedFolders({ folders, selectedId, writable, onUnlock, onOpen,
                     <button
                       type="button"
                       aria-current={folder.id === selectedId ? "page" : undefined}
-                      title={folder.isUnlocked ? "Open the folder" : "Unlock the folder"}
+                      title={
+                        folder.isUnlocked ? t("sidebar.openFolder") : t("sidebar.unlockFolder")
+                      }
                       className="flex h-7 w-full items-center gap-2 rounded-md px-2 text-left text-[13px] outline-none hover:bg-sidebar-accent focus-visible:ring-3 focus-visible:ring-ring/50 aria-[current=page]:bg-sidebar-accent aria-[current=page]:font-medium"
                       onClick={() => (folder.isUnlocked ? onOpen(folder.id) : onUnlock(folder.id))}
                     >
                       <Icon
-                        aria-label={folder.isUnlocked ? "Unlocked" : "Locked"}
+                        aria-label={folder.isUnlocked ? t("sidebar.unlocked") : t("sidebar.locked")}
                         className="size-4 shrink-0 text-muted-foreground"
                       />
                       <span className="min-w-0 flex-1 truncate">{folder.name}</span>

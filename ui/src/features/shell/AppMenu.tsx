@@ -1,11 +1,11 @@
 import { Fragment } from "react";
+import { useTranslation } from "react-i18next";
 import {
   availability,
   COMMANDS,
   type Command,
   type CommandActions,
   type CommandState,
-  labelOf,
   type SubmenuItem,
   visibleMenus,
 } from "@/commands/registry";
@@ -24,6 +24,12 @@ import {
   MenubarSubTrigger,
   MenubarTrigger,
 } from "@/components/ui/menubar";
+import {
+  translateAvailability,
+  translateCommandLabel,
+  translateMenuLabel,
+  translateSubmenuItem,
+} from "@/i18n/labels";
 
 type Props = {
   state: CommandState;
@@ -33,11 +39,12 @@ type Props = {
 
 /** The app's own menu bar under the native title bar (docs/spec.md §7.1, D-025). */
 export function AppMenu({ state, actions, commands = COMMANDS }: Props) {
+  const { t } = useTranslation();
   return (
-    <Menubar aria-label="Menu" className="border-b bg-background">
+    <Menubar aria-label={t("menus.bar")} className="border-b bg-background">
       {visibleMenus(commands).map((menu) => (
         <MenubarMenu key={menu.id}>
-          <MenubarTrigger>{menu.label}</MenubarTrigger>
+          <MenubarTrigger>{translateMenuLabel(t, menu.id)}</MenubarTrigger>
           <MenubarContent>
             {menu.commands.map((command, index) => (
               <Fragment key={command.id}>
@@ -63,17 +70,18 @@ function MenuCommand({
   state: CommandState;
   actions: CommandActions;
 }) {
-  const available = availability(command, state);
+  const { t } = useTranslation();
+  const available = translateAvailability(t, availability(command, state));
   const disabled = available !== true;
   const title = disabled ? available : undefined;
   const shortcut = command.shortcut && <MenubarShortcut>{command.shortcut}</MenubarShortcut>;
-  const label = labelOf(command, state);
+  const label = translateCommandLabel(t, command, state);
 
   if (command.submenu) {
     return (
       <MenubarSub>
         <MenubarSubTrigger disabled={disabled} title={title}>
-          {command.label}
+          {label}
         </MenubarSubTrigger>
         <MenubarSubContent>
           <SubmenuGroups items={command.submenu(state)} actions={actions} />
@@ -106,6 +114,7 @@ function MenuCommand({
 
 /** Each group of a submenu is its own choice (radio items) or a plain list, between lines. */
 function SubmenuGroups({ items, actions }: { items: SubmenuItem[]; actions: CommandActions }) {
+  const { t } = useTranslation();
   const groups: SubmenuItem[][] = [];
   for (const item of items) {
     const last = groups[groups.length - 1];
@@ -121,14 +130,14 @@ function SubmenuGroups({ items, actions }: { items: SubmenuItem[]; actions: Comm
           <MenubarRadioGroup value={group.find((item) => item.checked)?.id}>
             {group.map((item) => (
               <MenubarRadioItem key={item.id} value={item.id} onSelect={() => item.run(actions)}>
-                {item.label}
+                {translateSubmenuItem(t, item)}
               </MenubarRadioItem>
             ))}
           </MenubarRadioGroup>
         ) : (
           group.map((item) => (
             <MenubarItem key={item.id} title={item.title} onSelect={() => item.run(actions)}>
-              {item.label}
+              {translateSubmenuItem(t, item)}
             </MenubarItem>
           ))
         )}

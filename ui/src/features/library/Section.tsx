@@ -29,14 +29,17 @@ export function useSectionOpen(name: string): [boolean, (open: boolean) => void]
 
 export function Section({
   label,
+  storageKey,
   action,
   children,
 }: {
   label: string;
+  /** Stable id for collapse state so a translated label does not reset it (D-069). */
+  storageKey?: string;
   action?: ReactNode;
   children: ReactNode;
 }) {
-  const [open, setOpen] = useSectionOpen(label);
+  const [open, setOpen] = useSectionOpen(storageKey ?? label);
   return (
     <section aria-label={label} className="grid gap-px">
       <div className="flex items-center">

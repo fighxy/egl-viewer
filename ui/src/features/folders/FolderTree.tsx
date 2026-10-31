@@ -7,6 +7,7 @@ import {
   Plus,
 } from "lucide-react";
 import { useEffect, useRef, useState } from "react";
+import { useTranslation } from "react-i18next";
 import { Button } from "@/components/ui/button";
 import {
   ContextMenu,
@@ -81,6 +82,7 @@ export function FolderTree({
   const [focused, setFocused] = useState<string | null>(null);
   const [renaming, setRenaming] = useState<string | null>(null);
   const rowRefs = useRef(new Map<string, HTMLDivElement>());
+  const { t } = useTranslation();
   const canWrite = writable === true;
   const focusId =
     focused && rows.some((row) => row.folder.id === focused)
@@ -138,7 +140,7 @@ export function FolderTree({
   };
 
   return (
-    <section aria-label="Folders" className="grid gap-px">
+    <section aria-label={t("sidebar.folders")} className="grid gap-px">
       <div
         data-drop="root"
         className={cn(
@@ -146,7 +148,7 @@ export function FolderTree({
           dropHint(active, (target) => target.kind === "root") && "bg-primary/15",
         )}
       >
-        <span className="flex-1">Folders</span>
+        <span className="flex-1">{t("sidebar.folders")}</span>
         <Button
           variant="ghost"
           size="icon-xs"

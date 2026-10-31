@@ -1,4 +1,5 @@
 import { type FormEvent, useEffect, useState } from "react";
+import { useTranslation } from "react-i18next";
 import { Button } from "@/components/ui/button";
 import {
   Dialog,
@@ -32,6 +33,7 @@ export function CreateLibraryDialog({
   create,
   onCreated,
 }: Props) {
+  const { t } = useTranslation();
   const [name, setName] = useState("");
   const [location, setLocation] = useState("");
   const [error, setError] = useState<string>();
@@ -71,13 +73,13 @@ export function CreateLibraryDialog({
       <DialogContent>
         <form className="grid gap-4" onSubmit={submit} noValidate>
           <DialogHeader>
-            <DialogTitle>Create library</DialogTitle>
+            <DialogTitle>{t("createLibrary.title")}</DialogTitle>
             <DialogDescription>
               A library is a folder that keeps your files and their tags, notes and ratings.
             </DialogDescription>
           </DialogHeader>
           <div className="grid gap-1.5">
-            <Label htmlFor="library-name">Name</Label>
+            <Label htmlFor="library-name">{t("createLibrary.name")}</Label>
             <Input
               id="library-name"
               autoFocus
@@ -87,7 +89,7 @@ export function CreateLibraryDialog({
             />
           </div>
           <div className="grid gap-1.5">
-            <Label htmlFor="library-location">Location</Label>
+            <Label htmlFor="library-location">{t("createLibrary.location")}</Label>
             <div className="flex gap-2">
               <Input
                 id="library-location"
@@ -95,7 +97,7 @@ export function CreateLibraryDialog({
                 onChange={(event) => setLocation(event.target.value)}
               />
               <Button type="button" variant="outline" onClick={pick}>
-                Browse…
+                {t("common.browse")}
               </Button>
             </div>
             {name.trim() !== "" && location.trim() !== "" && (
@@ -111,10 +113,10 @@ export function CreateLibraryDialog({
           )}
           <DialogFooter>
             <Button type="button" variant="outline" onClick={() => onOpenChange(false)}>
-              Cancel
+              {t("common.cancel")}
             </Button>
             <Button type="submit" disabled={!ready}>
-              Create
+              {t("createLibrary.create")}
             </Button>
           </DialogFooter>
         </form>

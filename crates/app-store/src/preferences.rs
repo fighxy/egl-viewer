@@ -21,6 +21,20 @@ pub enum Theme {
     Dark,
 }
 
+/// UI language (D-069). Stored as BCP 47 tags; English is the source locale.
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Default, Serialize, Deserialize, TS)]
+#[ts(export)]
+pub enum Locale {
+    #[default]
+    #[serde(rename = "en")]
+    En,
+    #[serde(rename = "ru")]
+    Ru,
+    /// Chinese (Simplified).
+    #[serde(rename = "zh-CN")]
+    ZhCn,
+}
+
 /// Widths and open state of the left and right bars (docs/spec.md §7.3).
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize, TS)]
 #[serde(rename_all = "camelCase", default)]
@@ -112,6 +126,8 @@ impl Default for BrowsePreferences {
 #[ts(export)]
 pub struct Preferences {
     pub theme: Theme,
+    /// UI language; English is the default (D-069).
+    pub locale: Locale,
     pub reopen_last_library: bool,
     /// Where Create library starts; `None` means `%USERPROFILE%\egl-library` (D-021).
     pub default_library_parent: Option<String>,
@@ -126,6 +142,7 @@ impl Default for Preferences {
     fn default() -> Self {
         Self {
             theme: Theme::System,
+            locale: Locale::En,
             reopen_last_library: true,
             default_library_parent: None,
             confirm_before_trash: true,
@@ -183,6 +200,7 @@ mod tests {
         let store = AppStore::new(dir.path());
         let preferences = store.preferences();
         assert_eq!(preferences.theme, Theme::System);
+        assert_eq!(preferences.locale, Locale::En);
         assert!(preferences.reopen_last_library);
         assert_eq!(preferences.default_library_parent, None);
         assert!(preferences.confirm_before_trash);
@@ -198,6 +216,7 @@ mod tests {
         let store = AppStore::new(dir.path());
         let preferences = Preferences {
             theme: Theme::Dark,
+            locale: Locale::Ru,
             reopen_last_library: false,
             default_library_parent: Some("D:\\Libraries".into()),
             confirm_before_trash: false,
@@ -219,6 +238,7 @@ mod tests {
         store.save_preferences(&preferences).unwrap();
         let stored = store.preferences();
         assert_eq!(stored.theme, Theme::Dark);
+        assert_eq!(stored.locale, Locale::Ru);
         assert_eq!(
             stored.default_library_parent.as_deref(),
             Some("D:\\Libraries")
@@ -241,8 +261,17 @@ mod tests {
     fn missing_fields_keep_their_defaults() {
         let preferences: Preferences = serde_json::from_str(r#"{ "theme": "light" }"#).unwrap();
         assert_eq!(preferences.theme, Theme::Light);
+        assert_eq!(preferences.locale, Locale::En);
         assert!(preferences.reopen_last_library);
         assert!(preferences.confirm_before_trash);
+    }
+
+    #[test]
+    fn locale_round_trips_including_zh_cn() {
+        let preferences: Preferences = serde_json::from_str(r#"{ "locale": "zh-CN" }"#).unwrap();
+        assert_eq!(preferences.locale, Locale::ZhCn);
+        let json = serde_json::to_string(&preferences).unwrap();
+        assert!(json.contains(r#""locale":"zh-CN""#));
     }
 
     #[test]

@@ -5,6 +5,7 @@ import { open as openDialog } from "@tauri-apps/plugin-dialog";
 import { Trash2 } from "lucide-react";
 import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import { flushSync } from "react-dom";
+import { useTranslation } from "react-i18next";
 import {
   type Availability,
   type CommandActions,
@@ -79,6 +80,7 @@ import {
 } from "@/features/updates/updater";
 import { CreateLibraryDialog } from "@/features/welcome/CreateLibraryDialog";
 import { WelcomeScreen } from "@/features/welcome/WelcomeScreen";
+import { setAppLocale } from "@/i18n";
 import {
   type AppInfo,
   type BrowsePreferences,
@@ -189,9 +191,16 @@ function insideFolder(paths: readonly string[], folder: string): boolean {
   return paths.length > 0 && paths.every((path) => normal(path).startsWith(base));
 }
 
-/** "1 item", "3 items". */
-function many(count: number): string {
-  return count === 1 ? "1 item" : `${count.toLocaleString("en")} items`;
+/** "1 item", "3 items" — uses the active locale catalog. */
+function many(
+  count: number,
+  translate: (key: string, opts: { count: number; formatted: string }) => string,
+  language: string,
+): string {
+  return translate("common.item", {
+    count,
+    formatted: count.toLocaleString(language),
+  });
 }
 
 /** How far one Ctrl+= or Ctrl+- step changes the thumbnail size. */
@@ -259,6 +268,7 @@ export function App() {
 }
 
 function AppShell() {
+  const { t, i18n } = useTranslation();
   const [info, setInfo] = useState<AppInfo | null>(null);
   const [defaults, setDefaults] = useState<ConnectionSettings>(FALLBACK_DEFAULTS);
   const [view, setView] = useState<View>({ kind: "welcome" });
@@ -312,6 +322,10 @@ function AppShell() {
     if (preferences.theme !== "system") return;
     return watchSystemTheme(() => applyTheme("system"));
   }, [preferences.theme]);
+
+  useEffect(() => {
+    setAppLocale(preferences.locale);
+  }, [preferences.locale]);
 
   const library = view.kind === "library" ? view.library : null;
   const imports = useImports(library?.path ?? null);
@@ -635,14 +649,14 @@ function AppShell() {
         return;
       }
       setConfirmation({
-        title: "Files are still being added",
-        description: "Stop adding them? Files added so far stay in the library.",
-        confirm: "Stop adding",
-        cancel: "Keep adding",
+        title: t("confirm.stopAddingTitle"),
+        description: t("confirm.stopAddingBody"),
+        confirm: t("confirm.stopAddingConfirm"),
+        cancel: t("confirm.keepAdding"),
         onConfirm: action,
       });
     },
-    [addingFiles],
+    [addingFiles, t],
   );
 
   // Files added while a folder is open go into it (docs/spec.md §4).
@@ -867,13 +881,13 @@ function AppShell() {
       return;
     }
     setConfirmation({
-      title: "Move to the trash?",
-      description: `${many(selected)} go to the trash. You can restore them from there.`,
-      confirm: "Move to Trash",
-      cancel: "Cancel",
+      title: t("confirm.trashTitle"),
+      description: t("confirm.trashBody", { items: many(selected, t, i18n.language) }),
+      confirm: t("confirm.trashConfirm"),
+      cancel: t("common.cancel"),
       dontAskAgain: {
-        label: "Don't ask again",
-        hint: "You can turn this back on in Settings.",
+        label: t("confirm.dontAskAgain"),
+        hint: t("confirm.dontAskHint"),
       },
       onConfirm: (dontAskAgain) => {
         if (dontAskAgain) {
@@ -882,36 +896,36 @@ function AppShell() {
         move();
       },
     });
-  }, [selectedTarget, selected, editItems, preferences, savePreferences]);
+  }, [selectedTarget, selected, editItems, preferences, savePreferences, t, i18n.language]);
 
   /** Delete Permanently: rows and files go; there is no undo (docs/spec.md §3 Trash). */
   const deleteSelection = useCallback(() => {
     const target = selectedTarget();
     setConfirmation({
-      title: "Delete permanently?",
-      description: `${many(selected)} and their files are removed from the disk. There is no undo.`,
-      confirm: "Delete permanently",
-      cancel: "Cancel",
+      title: t("confirm.deleteTitle"),
+      description: t("confirm.deleteBody", { items: many(selected, t, i18n.language) }),
+      confirm: t("confirm.deleteConfirm"),
+      cancel: t("common.cancel"),
       onConfirm: () => {
         setSelection(NOTHING);
         ipc.deletePermanently(target).catch(failed);
       },
     });
-  }, [selectedTarget, selected, failed]);
+  }, [selectedTarget, selected, failed, t, i18n.language]);
 
   const emptyTrash = useCallback(() => {
     const items = counts?.trash ?? 0;
     setConfirmation({
-      title: "Empty the trash?",
-      description: `${many(items)} and their files are removed from the disk. There is no undo.`,
-      confirm: "Empty Trash",
-      cancel: "Cancel",
+      title: t("confirm.emptyTrashTitle"),
+      description: t("confirm.emptyTrashBody", { items: many(items, t, i18n.language) }),
+      confirm: t("confirm.emptyTrashConfirm"),
+      cancel: t("common.cancel"),
       onConfirm: () => {
         setSelection(NOTHING);
         ipc.emptyTrash().catch(failed);
       },
     });
-  }, [counts, failed]);
+  }, [counts, failed, t, i18n.language]);
 
   /** Restore All of the trash context menu; one undoable edit. */
   const restoreTrashAll = useCallback(() => {
@@ -1338,7 +1352,7 @@ function AppShell() {
             setStatus(
               waiting === 0
                 ? "There are no thumbnails to make."
-                : `Making ${many(waiting).replace("item", "thumbnail")} again…`,
+                : `Making ${waiting.toLocaleString(i18n.language)} thumbnail${waiting === 1 ? "" : "s"} again…`,
             ),
           )
           .catch(failed);
@@ -1372,6 +1386,7 @@ function AppShell() {
       itemActions,
       place.kind,
       info,
+      i18n.language,
     ],
   );
 
@@ -1488,10 +1503,10 @@ function AppShell() {
     let cancelled = false;
     listen(EVENTS.closeRequested, () =>
       setConfirmation({
-        title: "Files are still being added",
-        description: "Stop adding them and quit? Files added so far stay in the library.",
-        confirm: "Stop and quit",
-        cancel: "Keep adding",
+        title: t("confirm.stopQuitTitle"),
+        description: t("confirm.stopQuitBody"),
+        confirm: t("confirm.stopQuitConfirm"),
+        cancel: t("confirm.keepAdding"),
         onConfirm: () => void ipc.quit().catch(() => {}),
       }),
     )
@@ -1504,7 +1519,7 @@ function AppShell() {
       cancelled = true;
       unlisten?.();
     };
-  }, []);
+  }, [t]);
 
   const latestImport = imports.running[0] ?? imports.imports[0];
 
@@ -1659,14 +1674,14 @@ function AppShell() {
                     writable !== true
                       ? writable
                       : (counts?.trash ?? 0) === 0
-                        ? "The trash is empty."
-                        : "Empty Trash: every item of the trash goes, with its file"
+                        ? t("empty.trashEmpty")
+                        : t("sidebar.emptyTrash")
                   }
                   onClick={emptyTrash}
                 >
                   <Trash2 aria-hidden />
                   {/* A narrow toolbar keeps the icon (docs/decisions.md D-048). */}
-                  <span className="@max-3xl:sr-only">Empty Trash</span>
+                  <span className="@max-3xl:sr-only">{t("sidebar.emptyTrashShort")}</span>
                 </Button>
               ) : undefined
             }

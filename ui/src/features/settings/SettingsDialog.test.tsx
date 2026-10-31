@@ -40,6 +40,18 @@ describe("SettingsDialog", () => {
     expect(props.onOpenChange).toHaveBeenCalledWith(false);
   });
 
+  it("saves the chosen UI language", async () => {
+    const user = userEvent.setup();
+    const props = renderSettings();
+    expect(screen.getByRole("radio", { name: "English" })).toBeChecked();
+    await user.click(screen.getByRole("radio", { name: "Русский" }));
+    await user.click(screen.getByRole("button", { name: "Save" }));
+    expect(props.save).toHaveBeenCalledWith({
+      ...DEFAULT_PREFERENCES,
+      locale: "ru",
+    });
+  });
+
   it("an empty default folder means the built-in one", async () => {
     const user = userEvent.setup();
     const props = renderSettings();
