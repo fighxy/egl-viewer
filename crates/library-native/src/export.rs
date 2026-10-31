@@ -883,7 +883,6 @@ fn write_zip(
         zip.write_all(&body).context("write the archive")?;
         files += 1;
         zip.finish().map_err(zip_error)?;
-        drop(zip);
         Ok(Outcome::Done(ExportSummary {
             items: manifest_items.len() as u64,
             files,
