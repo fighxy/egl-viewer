@@ -739,6 +739,7 @@ export const zhCN: MessageCatalog = {
       backupsHint:
         "打开图库时（每天一次）、升级前以及按请求时会复制图库数据库；保留最近 10 份。不复制文件。",
       restore: "还原…",
+      restoreAction: "还原",
       restoreConfirm: "还原此备份？",
       restoreTitle: "将文件夹、标签和项目字段恢复到当时的状态。会先备份当前状态。",
       noBackups: "还没有备份。",
@@ -815,6 +816,7 @@ export const zhCN: MessageCatalog = {
       newGroup: "新建标签组",
       editGroup: "编辑“{{name}}”",
       editGroupHint: "用于左侧栏和标签筛选的命名标签集。不会更改项目上的标签。",
+      name: "名称",
       groupNameAria: "组名称",
       groupTags: "标签",
       groupTagsAria: "组内标签",

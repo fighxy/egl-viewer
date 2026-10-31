@@ -741,6 +741,7 @@ export const en = {
       backupsHint:
         "The library database is copied when the library opens (once a day), before an upgrade and on request; the last 10 copies are kept. Files are not copied.",
       restore: "Restore…",
+      restoreAction: "Restore",
       restoreConfirm: "Restore this backup?",
       restoreTitle:
         "Brings back folders, tags and item fields as they were then. The current state is backed up first.",
@@ -822,6 +823,7 @@ export const en = {
       editGroup: "Edit “{{name}}”",
       editGroupHint:
         "A named set of tags for the left bar and the Tags filter. Item tags do not change.",
+      name: "Name",
       groupNameAria: "Group name",
       groupTags: "Tags",
       groupTagsAria: "Group tags",

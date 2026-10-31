@@ -1251,7 +1251,7 @@ function AppShell() {
         ipc
           .pasteFiles(intoFolder)
           .then((ticket) => {
-            if (ticket === null) setStatus("Nothing to paste: copy an image or files first.");
+            if (ticket === null) setStatus(t("status.nothingToPaste"));
           })
           .catch((error: unknown) => setStatus(describeError(error)));
       },
@@ -1341,7 +1341,7 @@ function AppShell() {
       backUpNow: () => {
         ipc
           .backUpNow()
-          .then(() => setStatus("The library was backed up."))
+          .then(() => setStatus(t("status.backedUp")))
           .catch(failed);
       },
       checkLibrary: () => setDialog("checkLibrary"),
@@ -1351,8 +1351,11 @@ function AppShell() {
           .then((waiting) =>
             setStatus(
               waiting === 0
-                ? "There are no thumbnails to make."
-                : `Making ${waiting.toLocaleString(i18n.language)} thumbnail${waiting === 1 ? "" : "s"} again…`,
+                ? t("status.noThumbnails")
+                : t("status.makingThumbnails", {
+                    count: waiting,
+                    formatted: waiting.toLocaleString(i18n.language),
+                  }),
             ),
           )
           .catch(failed);
@@ -1387,6 +1390,7 @@ function AppShell() {
       place.kind,
       info,
       i18n.language,
+      t,
     ],
   );
 
@@ -1693,7 +1697,10 @@ function AppShell() {
             viewStatus={
               opened.error ??
               (opened.view === null && opened.progress
-                ? `Loading ${opened.progress.loaded.toLocaleString("en")} of ${opened.progress.total.toLocaleString("en")}…`
+                ? t("status.loading", {
+                    loaded: opened.progress.loaded.toLocaleString(i18n.language),
+                    total: opened.progress.total.toLocaleString(i18n.language),
+                  })
                 : undefined)
             }
             content={
@@ -1799,9 +1806,7 @@ function AppShell() {
                       .catch((error: unknown) => setStatus(describeError(error)));
                   }}
                   // The Eagle import arrives in phase 8 (docs/spec.md §9).
-                  onImportEagleLibrary={() =>
-                    setStatus("Importing an Eagle library is not available yet.")
-                  }
+                  onImportEagleLibrary={() => setStatus(t("status.eagleImportSoon"))}
                   onConnectEagle={() => {
                     setStatus(undefined);
                     setView({ kind: "connect" });
@@ -1813,7 +1818,7 @@ function AppShell() {
                   defaults={defaults}
                   status={status}
                   // Phase 9 connects for real (docs/spec.md §9).
-                  onConnect={() => setStatus("Connecting is not available yet.")}
+                  onConnect={() => setStatus(t("status.connectSoon"))}
                   onBack={() => {
                     setStatus(undefined);
                     setView({ kind: "welcome" });
@@ -1871,7 +1876,7 @@ function AppShell() {
               // Everything may differ now: the views, folders, tags and smart folders.
               setPlace({ kind: "all" });
               setSelection(NOTHING);
-              setStatus("The backup was restored. The state before it was backed up first.");
+              setStatus(t("status.backupRestored"));
               void client.invalidateQueries();
               setRevision((count) => count + 1);
             }}

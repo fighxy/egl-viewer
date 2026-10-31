@@ -1,5 +1,6 @@
 // Eagle's smart folder rules as the editor sees them (docs/architecture.md §16). The JSON is
 // stored unchanged: a rule this editor does not know keeps its keys, and Rust evaluates it.
+import i18n from "@/i18n";
 import type { JsonValue } from "@/ipc";
 
 export type SmartRule = {
@@ -19,79 +20,108 @@ export type SmartCondition = {
 
 export type RuleKind = "set" | "text" | "type" | "rating" | "shape" | "date" | "number";
 
+type PropertyDef = { property: string; labelKey: string; kind: RuleKind };
+type MethodDef = { method: string; labelKey: string };
+
 /** The properties of the v1 subset, in the order the editor offers them. */
-export const PROPERTIES: readonly { property: string; label: string; kind: RuleKind }[] = [
-  { property: "tags", label: "Tags", kind: "set" },
-  { property: "folders", label: "Folders", kind: "set" },
-  { property: "name", label: "Name", kind: "text" },
-  { property: "annotation", label: "Note", kind: "text" },
-  { property: "url", label: "Link", kind: "text" },
-  { property: "type", label: "Type", kind: "type" },
-  { property: "rating", label: "Rating", kind: "rating" },
-  { property: "shape", label: "Shape", kind: "shape" },
-  { property: "createTime", label: "Date added", kind: "date" },
-  { property: "mtime", label: "Date modified", kind: "date" },
-  { property: "btime", label: "Date created", kind: "date" },
-  { property: "width", label: "Width", kind: "number" },
-  { property: "height", label: "Height", kind: "number" },
-  { property: "fileSize", label: "File size", kind: "number" },
+const PROPERTY_DEFS: readonly PropertyDef[] = [
+  { property: "tags", labelKey: "smart.propertyTags", kind: "set" },
+  { property: "folders", labelKey: "smart.propertyFolders", kind: "set" },
+  { property: "name", labelKey: "smart.propertyName", kind: "text" },
+  { property: "annotation", labelKey: "smart.propertyNote", kind: "text" },
+  { property: "url", labelKey: "smart.propertyLink", kind: "text" },
+  { property: "type", labelKey: "smart.propertyType", kind: "type" },
+  { property: "rating", labelKey: "smart.propertyRating", kind: "rating" },
+  { property: "shape", labelKey: "smart.propertyShape", kind: "shape" },
+  { property: "createTime", labelKey: "smart.propertyDateAdded", kind: "date" },
+  { property: "mtime", labelKey: "smart.propertyDateModified", kind: "date" },
+  { property: "btime", labelKey: "smart.propertyDateCreated", kind: "date" },
+  { property: "width", labelKey: "smart.propertyWidth", kind: "number" },
+  { property: "height", labelKey: "smart.propertyHeight", kind: "number" },
+  { property: "fileSize", labelKey: "smart.propertyFileSize", kind: "number" },
 ];
 
-export const METHODS: Record<RuleKind, readonly { method: string; label: string }[]> = {
+const METHOD_DEFS: Record<RuleKind, readonly MethodDef[]> = {
   set: [
-    { method: "union", label: "is any of" },
-    { method: "intersection", label: "has all of" },
-    { method: "equal", label: "is exactly" },
-    { method: "identity", label: "has none of" },
-    { method: "empty", label: "is empty" },
-    { method: "not-empty", label: "is not empty" },
+    { method: "union", labelKey: "smart.methodIsAnyOf" },
+    { method: "intersection", labelKey: "smart.methodHasAllOf" },
+    { method: "equal", labelKey: "smart.methodIsExactly" },
+    { method: "identity", labelKey: "smart.methodHasNoneOf" },
+    { method: "empty", labelKey: "smart.methodIsEmpty" },
+    { method: "not-empty", labelKey: "smart.methodIsNotEmpty" },
   ],
   text: [
-    { method: "contain", label: "contains" },
-    { method: "uncontain", label: "does not contain" },
-    { method: "equal", label: "is" },
-    { method: "startWith", label: "starts with" },
-    { method: "endWith", label: "ends with" },
-    { method: "empty", label: "is empty" },
-    { method: "not-empty", label: "is not empty" },
+    { method: "contain", labelKey: "smart.methodContains" },
+    { method: "uncontain", labelKey: "smart.methodDoesNotContain" },
+    { method: "equal", labelKey: "smart.methodIs" },
+    { method: "startWith", labelKey: "smart.methodStartsWith" },
+    { method: "endWith", labelKey: "smart.methodEndsWith" },
+    { method: "empty", labelKey: "smart.methodIsEmpty" },
+    { method: "not-empty", labelKey: "smart.methodIsNotEmpty" },
   ],
   type: [
-    { method: "equal", label: "is" },
-    { method: "unequal", label: "is not" },
+    { method: "equal", labelKey: "smart.methodIs" },
+    { method: "unequal", labelKey: "smart.methodIsNot" },
   ],
   rating: [
-    { method: "equal", label: "is" },
-    { method: "unequal", label: "is not" },
+    { method: "equal", labelKey: "smart.methodIs" },
+    { method: "unequal", labelKey: "smart.methodIsNot" },
   ],
   shape: [
-    { method: "equal", label: "is" },
-    { method: "unequal", label: "is not" },
+    { method: "equal", labelKey: "smart.methodIs" },
+    { method: "unequal", labelKey: "smart.methodIsNot" },
   ],
   date: [
-    { method: "on", label: "is on" },
-    { method: "before", label: "is before" },
-    { method: "after", label: "is after" },
-    { method: "between", label: "is between" },
-    { method: "within", label: "is in the last" },
+    { method: "on", labelKey: "smart.methodIsOn" },
+    { method: "before", labelKey: "smart.methodIsBefore" },
+    { method: "after", labelKey: "smart.methodIsAfter" },
+    { method: "between", labelKey: "smart.methodIsBetween" },
+    { method: "within", labelKey: "smart.methodIsInTheLast" },
   ],
   number: [
-    { method: ">=", label: "is at least" },
-    { method: "<=", label: "is at most" },
-    { method: ">", label: "is more than" },
-    { method: "<", label: "is less than" },
-    { method: "=", label: "is" },
-    { method: "between", label: "is between" },
+    { method: ">=", labelKey: "smart.methodIsAtLeast" },
+    { method: "<=", labelKey: "smart.methodIsAtMost" },
+    { method: ">", labelKey: "smart.methodIsMoreThan" },
+    { method: "<", labelKey: "smart.methodIsLessThan" },
+    { method: "=", labelKey: "smart.methodIs" },
+    { method: "between", labelKey: "smart.methodIsBetween" },
   ],
 };
 
+/** Property options with labels resolved for the current locale. */
+export const PROPERTIES: readonly { property: string; label: string; kind: RuleKind }[] =
+  PROPERTY_DEFS.map((entry) => ({
+    property: entry.property,
+    kind: entry.kind,
+    get label() {
+      return i18n.t(entry.labelKey);
+    },
+  }));
+
+/** Method options with labels resolved for the current locale. */
+export const METHODS: Record<RuleKind, readonly { method: string; label: string }[]> = (
+  Object.keys(METHOD_DEFS) as RuleKind[]
+).reduce(
+  (acc, kind) => {
+    acc[kind] = METHOD_DEFS[kind].map((entry) => ({
+      method: entry.method,
+      get label() {
+        return i18n.t(entry.labelKey);
+      },
+    }));
+    return acc;
+  },
+  {} as Record<RuleKind, readonly { method: string; label: string }[]>,
+);
+
 export function kindOf(property: string): RuleKind | undefined {
-  return PROPERTIES.find((entry) => entry.property === property)?.kind;
+  return PROPERTY_DEFS.find((entry) => entry.property === property)?.kind;
 }
 
 /** The rule can be edited here; the others stay as they are and are listed as unsupported. */
 export function editable(rule: SmartRule): boolean {
   const kind = kindOf(rule.property);
-  return kind !== undefined && METHODS[kind].some((entry) => entry.method === rule.method);
+  return kind !== undefined && METHOD_DEFS[kind].some((entry) => entry.method === rule.method);
 }
 
 /** Methods that take no value. */

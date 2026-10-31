@@ -1,5 +1,6 @@
 import { useQuery } from "@tanstack/react-query";
 import { useEffect, useState } from "react";
+import { useTranslation } from "react-i18next";
 import { Button } from "@/components/ui/button";
 import {
   Dialog,
@@ -25,10 +26,6 @@ type Props = {
   onRepaired: () => void;
 };
 
-function plural(count: number, word: string): string {
-  return `${count.toLocaleString("en")} ${word}${count === 1 ? "" : "s"}`;
-}
-
 /**
  * Check Library (docs/spec.md §9, phase 7): the database's own check, items whose original is
  * missing, and files no item points at. Nothing is removed unless the user asks.
@@ -40,6 +37,7 @@ export function CheckLibraryDialog({
   writable,
   onRepaired,
 }: Props) {
+  const { t, i18n } = useTranslation();
   const check = useQuery({
     queryKey: ["checkLibrary", libraryPath],
     queryFn: ipc.checkLibrary,
@@ -63,6 +61,7 @@ export function CheckLibraryDialog({
 
   const report = result ?? check.data ?? null;
   const strays = report ? report.orphanCount + report.orphanThumbnails : 0;
+  const fmt = (count: number) => count.toLocaleString(i18n.language);
 
   const repair = async () => {
     setBusy(true);
@@ -79,54 +78,75 @@ export function CheckLibraryDialog({
     }
   };
 
+  const strayParts = report
+    ? [
+        report.orphanCount > 0 &&
+          t("maintenance.checkOrphanFiles", {
+            count: report.orphanCount,
+            formatted: fmt(report.orphanCount),
+            bytes: formatBytes(report.orphanBytes),
+          }),
+        report.orphanThumbnails > 0 &&
+          t("maintenance.checkOrphanThumbnails", {
+            count: report.orphanThumbnails,
+            formatted: fmt(report.orphanThumbnails),
+          }),
+      ].filter((part): part is string => Boolean(part))
+    : [];
+
   return (
     <Dialog open={open} onOpenChange={onOpenChange}>
       <DialogContent className="grid max-h-[85vh] grid-cols-[minmax(0,1fr)] gap-4 overflow-y-auto sm:max-w-lg">
         <DialogHeader>
-          <DialogTitle>Check Library</DialogTitle>
+          <DialogTitle>{t("maintenance.checkLibrary")}</DialogTitle>
           <DialogDescription>
             {report
-              ? `${plural(report.items, "item")} checked.`
+              ? t("maintenance.checkItemsChecked", {
+                  count: report.items,
+                  formatted: fmt(report.items),
+                })
               : check.isError
                 ? describeError(check.error)
-                : "Checking the database and the files…"}
+                : t("maintenance.checkChecking")}
           </DialogDescription>
         </DialogHeader>
         {report && (
           <div className="grid gap-3 text-[13px]">
             <p>
               {report.databaseOk
-                ? "The database is fine."
-                : `The database has problems: ${report.databaseProblems.join("; ")}. Restore a backup in Library Settings.`}
+                ? t("maintenance.checkDatabaseOk")
+                : t("maintenance.checkDatabaseProblems", {
+                    problems: report.databaseProblems.join("; "),
+                  })}
             </p>
             {report.missingCount === 0 ? (
-              <p>Every item has its file.</p>
+              <p>{t("maintenance.checkEveryFile")}</p>
             ) : (
               <div className="grid gap-1">
-                <p>{plural(report.missingCount, "item")} without a file:</p>
+                <p>
+                  {t("maintenance.checkMissing", {
+                    count: report.missingCount,
+                    formatted: fmt(report.missingCount),
+                  })}
+                </p>
                 <ul className="max-h-32 overflow-y-auto rounded-md border px-2 py-1 text-xs">
                   {report.missing.map((item) => (
                     <li key={item.id}>
-                      {item.name || "An item of a locked folder"}
-                      {item.inTrash && " (in the trash)"}
+                      {item.name || t("maintenance.checkLockedItem")}
+                      {item.inTrash && t("maintenance.checkInTrash")}
                     </li>
                   ))}
                 </ul>
               </div>
             )}
             {strays === 0 ? (
-              <p>No stray files.</p>
+              <p>{t("maintenance.checkNoStrays")}</p>
             ) : (
               <div className="grid gap-1">
                 <p>
-                  {[
-                    report.orphanCount > 0 &&
-                      `${plural(report.orphanCount, "file")} (${formatBytes(report.orphanBytes)})`,
-                    report.orphanThumbnails > 0 && plural(report.orphanThumbnails, "thumbnail"),
-                  ]
-                    .filter(Boolean)
-                    .join(" and ")}{" "}
-                  that no item points at. They are often left by restoring an older backup.
+                  {t("maintenance.checkStraysJoin", {
+                    parts: strayParts.join(t("maintenance.checkAnd")),
+                  })}
                 </p>
                 {report.orphans.length > 0 && (
                   <ul className="max-h-32 overflow-y-auto rounded-md border px-2 py-1 text-xs break-all select-text">
@@ -139,22 +159,20 @@ export function CheckLibraryDialog({
             )}
             {(strays > 0 || report.missingCount > 0) && writable === true && (
               <fieldset className="grid gap-2 rounded-md border p-3">
-                <legend className="px-1 text-xs font-medium">Repair</legend>
+                <legend className="px-1 text-xs font-medium">{t("maintenance.checkRepair")}</legend>
                 {strays > 0 && (
                   <div className="flex items-center justify-between gap-3">
-                    <Label htmlFor="repair-orphans">Delete the stray files</Label>
+                    <Label htmlFor="repair-orphans">{t("maintenance.checkDeleteOrphans")}</Label>
                     <Switch id="repair-orphans" checked={orphans} onCheckedChange={setOrphans} />
                   </div>
                 )}
                 {report.missingCount > 0 && (
                   <div className="flex items-center justify-between gap-3">
-                    <Label htmlFor="repair-missing">Remove the items without a file</Label>
+                    <Label htmlFor="repair-missing">{t("maintenance.checkRemoveMissing")}</Label>
                     <Switch id="repair-missing" checked={missing} onCheckedChange={setMissing} />
                   </div>
                 )}
-                <p className="text-xs text-muted-foreground">
-                  There is no undo. A backup restored later may need the deleted files.
-                </p>
+                <p className="text-xs text-muted-foreground">{t("maintenance.checkRepairHint")}</p>
               </fieldset>
             )}
           </div>
@@ -166,11 +184,11 @@ export function CheckLibraryDialog({
         )}
         <DialogFooter>
           <Button variant="outline" onClick={() => onOpenChange(false)}>
-            Close
+            {t("maintenance.checkClose")}
           </Button>
           {report && (orphans || missing) && (
             <Button variant="destructive" disabled={busy} onClick={() => void repair()}>
-              Repair
+              {t("maintenance.checkRepairAction")}
             </Button>
           )}
         </DialogFooter>
