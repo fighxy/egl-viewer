@@ -408,6 +408,7 @@ The newest versions older than the minimum release age (D-002, D-003):
 | `media` | `fast_image_resize` | 6.1.0 | Lanczos3 downscaling with alpha handled |
 | `media` | `resvg` | 0.49.0 | SVG rendering, system fonts for text |
 | `media` | `psd` | 0.3.5 | The composite image of PSD files |
+| `media` | `libheif-rs`, default features off: `v1_17` | 2.6 | HEIC/HEIF through the system libheif (D-063) |
 | `media` | `kamadak-exif` | 0.6.1 | EXIF from JPEG, TIFF, PNG and WebP |
 | `media` | `webp`, default features off | 0.3.1 | Lossy WebP thumbnails through libwebp (D-036) |
 | `library-native` | `rayon` | 1.12.0 | The thread pool for previews (at most four threads) |
@@ -454,8 +455,8 @@ gigabytes. Thumbnails are encoded at quality 80 by the `webp` crate, which build
 - **Counts** of the left bar and the toolbar arrive in phase 2 (D-032 expected them in phase 3):
   with files going in, the screen needs to show that they did.
 - **Checks:** 1 020 files (1 000 previews, 20 PDF placeholders) in 2.6 s in a release build on Linux
-  (the ignored test `a_thousand_mixed_files`). In the real app under Xvfb: pasting an image from
-  the clipboard, adding files through the GTK file dialog, the Imports panel and the duplicate
+  (the ignored test `a_thousand_mixed_files`). In the real app under Xvfb: pasting an image from the
+  clipboard, adding files through the GTK file dialog, the Imports panel and the duplicate
   question. The Windows checks are still open.
 
 ## D-038 Dependencies of phase 3 (2026-10-28)
@@ -1079,3 +1080,27 @@ entry does not collide.
   a manual reinstall of an older GitHub Release; `allowDowngrades` stays off.
 - **Still phase 12.** Authenticode / Apple notarization are separate; SmartScreen may still
   warn on unsigned first installs.
+
+## D-063 HEIC/HEIF previews through the system libheif (2026-10-31)
+
+- **Decoder.** `libheif-rs` **2.6** (MIT), default features off, `v1_17`: works with any system
+  libheif >= 1.17 and never requires the newest one. The pure Rust `heic` crate was rejected:
+  every version is AGPL-3.0-only or commercial, which would relicense the distributed app.
+  libheif itself is LGPL: it is linked dynamically and must ship next to the app with a notice
+  (phase 12, together with the libwebp DLL story).
+- **Pipeline.** `heic`/`heif`/`hif` map to `Kind::Heic` in `media`. libheif applies the file's
+  geometric transforms (irot/imir), so no EXIF-orientation pass is needed. EXIF comes from the
+  HEIF `Exif` metadata item: a four-byte big-endian offset to the TIFF header (ISO/IEC
+  23008-12 §6.2), parsed by the existing kamadak-exif code. Files above 1 GiB keep the
+  placeholder, like PSD. Decoding is from bytes (`read_from_bytes`), so locked folders never
+  write plaintext to disk.
+- **Preview.** The WebView cannot show HEIC, so the full-size preview falls back to the 512 px
+  thumbnail like TIFF and PSD (`Preview.tsx`); a converted full-size PNG endpoint is a later
+  option.
+- **CI.** Windows: `vcpkg install libheif:x64-windows` (on `PATH` for tests). macOS:
+  `brew install libheif`. Linux AppImage (Ubuntu 22.04): libheif from the `strukturag/libheif`
+  PPA because Jammy ships 1.12 < 1.17.
+- **Fixture exception to D-034.** `crates/media/fixtures/sample.heic.b64` (96x64, with EXIF)
+  is a committed base64 file, decoded by `fixtures::heic()`: pure Rust has no HEIC encoder to
+  make one in code. It does not vary with the fixture seed, so it stays out of
+  `every_format()` and the duplicate-detection tests; the media tests use it directly.
