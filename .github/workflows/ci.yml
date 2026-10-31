@@ -151,6 +151,7 @@ jobs:
             wget \
             file \
             libxdo-dev \
+            libpcsclite-dev \
             libssl-dev \
             libayatana-appindicator3-dev \
             librsvg2-dev \
