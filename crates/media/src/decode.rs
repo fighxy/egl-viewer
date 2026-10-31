@@ -1,19 +1,21 @@
-//! Raster images through `image`, SVG through `resvg`, PSD composites through `psd`.
+//! Raster images through `image`, SVG through `resvg`, PSD composites through `psd`,
+//! HEIC/HEIF through `libheif`.
 
 use std::fs;
 use std::io::{BufRead, Cursor, Seek};
 use std::path::Path;
 use std::sync::{Arc, OnceLock};
 
-use image::{DynamicImage, ImageDecoder, ImageReader, Limits, RgbaImage};
+use image::{DynamicImage, ImageDecoder, ImageReader, Limits, Rgba, RgbaImage};
+use libheif_rs::{ColorSpace, HeifContext, LibHeif, RgbChroma};
 use resvg::{tiny_skia, usvg};
 
 use crate::{Decoded, MediaError};
 
 /// Decoding stops above this many bytes of pixel memory instead of exhausting RAM.
 const MAX_ALLOC: u64 = 1 << 30;
-/// PSD files are read whole; larger ones keep the placeholder.
-const MAX_PSD: u64 = 1 << 30;
+/// PSD and HEIC files are read whole; larger ones keep the placeholder.
+const MAX_WHOLE_FILE: u64 = 1 << 30;
 
 fn decode_error(error: impl std::fmt::Display) -> MediaError {
     MediaError::Decode(error.to_string())
@@ -109,20 +111,52 @@ pub(crate) fn svg_data(data: &[u8], size: u32) -> Result<Decoded, MediaError> {
 
 /// The composite image that Photoshop stores in the file ("Maximize compatibility").
 pub(crate) fn psd(path: &Path) -> Result<Decoded, MediaError> {
-    if fs::metadata(path)?.len() > MAX_PSD {
+    if fs::metadata(path)?.len() > MAX_WHOLE_FILE {
         return Err(MediaError::TooLarge);
     }
     psd_bytes(&fs::read(path)?)
 }
 
 pub(crate) fn psd_bytes(bytes: &[u8]) -> Result<Decoded, MediaError> {
-    if bytes.len() as u64 > MAX_PSD {
+    if bytes.len() as u64 > MAX_WHOLE_FILE {
         return Err(MediaError::TooLarge);
     }
     let psd = psd::Psd::from_bytes(bytes).map_err(decode_error)?;
     let (width, height) = (psd.width(), psd.height());
     let pixels = RgbaImage::from_raw(width, height, psd.rgba())
         .ok_or_else(|| MediaError::Decode("the PSD composite has a wrong size".into()))?;
+    Ok(Decoded {
+        width,
+        height,
+        pixels,
+    })
+}
+
+/// HEIC/HEIF through `libheif`: iPhone photos and modern camera files (HEVC, AVIF in HEIF).
+/// libheif applies the file's geometric transforms (irot/imir), so the pixels come out
+/// display-oriented, like EXIF orientation for raster files.
+pub(crate) fn heic_bytes(bytes: &[u8]) -> Result<Decoded, MediaError> {
+    if bytes.len() as u64 > MAX_WHOLE_FILE {
+        return Err(MediaError::TooLarge);
+    }
+    let context = HeifContext::read_from_bytes(bytes).map_err(decode_error)?;
+    let handle = context.primary_image_handle().map_err(decode_error)?;
+    let image = LibHeif::new()
+        .decode(&handle, ColorSpace::Rgb(RgbChroma::Rgb), None)
+        .map_err(decode_error)?;
+    let plane = image
+        .planes()
+        .interleaved
+        .ok_or_else(|| MediaError::Decode("the HEIC has no RGB plane".into()))?;
+    let (width, height) = (plane.width, plane.height);
+    let mut pixels = RgbaImage::new(width, height);
+    for y in 0..height as usize {
+        let row = &plane.data[y * plane.stride..y * plane.stride + width as usize * 3];
+        for x in 0..width as usize {
+            let rgb = &row[x * 3..x * 3 + 3];
+            pixels.put_pixel(x as u32, y as u32, Rgba([rgb[0], rgb[1], rgb[2], 255]));
+        }
+    }
     Ok(Decoded {
         width,
         height,

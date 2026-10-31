@@ -1,7 +1,7 @@
 //! What the native library learns from a file: its dimensions, a 512 px WebP thumbnail, a colour
 //! palette and EXIF (docs/architecture.md §15.4). Plain functions on a path; no database, no
 //! Tauri. Formats without a preview are reported as [`MediaError::Unsupported`] and get an
-//! extension placeholder (D-015).
+//! extension placeholder (D-015). HEIC/HEIF decode through libheif (D-063).
 
 mod decode;
 #[cfg(any(test, feature = "fixtures"))]
@@ -27,6 +27,7 @@ pub enum Kind {
     Raster,
     Svg,
     Psd,
+    Heic,
     /// Stored with a placeholder: no decoder in this version (AVIF, video, documents, …).
     Other,
 }
@@ -36,10 +37,16 @@ const RASTER: &[&str] = &[
 ];
 const SVG: &[&str] = &["svg", "svgz"];
 const PSD: &[&str] = &["psd"];
+const HEIC: &[&str] = &["heic", "heif", "hif"];
 
 /// Every lowercase extension that gets a preview.
 pub fn preview_extensions() -> impl Iterator<Item = &'static str> {
-    RASTER.iter().chain(SVG).chain(PSD).copied()
+    RASTER
+        .iter()
+        .chain(SVG)
+        .chain(PSD)
+        .chain(HEIC)
+        .copied()
 }
 
 /// The kind for a lowercase or mixed-case extension without the dot.
@@ -51,6 +58,8 @@ pub fn kind(ext: &str) -> Kind {
         Kind::Svg
     } else if PSD.contains(&ext.as_str()) {
         Kind::Psd
+    } else if HEIC.contains(&ext.as_str()) {
+        Kind::Heic
     } else {
         Kind::Other
     }
@@ -119,11 +128,15 @@ pub fn drag_image(thumbnail: &[u8], size: u32) -> Result<Vec<u8>, MediaError> {
 
 /// Decodes `path`, makes the thumbnail and the palette, and reads EXIF.
 pub fn render(path: &Path, ext: &str) -> Result<Rendered, MediaError> {
+    if kind(ext) == Kind::Heic {
+        // One read serves both the decode and the EXIF item.
+        return render_heic(&std::fs::read(path)?);
+    }
     let decoded = match kind(ext) {
         Kind::Raster => decode::raster(path)?,
         Kind::Svg => decode::svg(path, THUMBNAIL_SIZE)?,
         Kind::Psd => decode::psd(path)?,
-        Kind::Other => return Err(MediaError::Unsupported),
+        Kind::Heic | Kind::Other => return Err(MediaError::Unsupported),
     };
     let thumbnail = thumbnail::make(&decoded.pixels, THUMBNAIL_SIZE)?;
     let palette = palette(&decoded.pixels);
@@ -143,11 +156,14 @@ pub fn render(path: &Path, ext: &str) -> Result<Rendered, MediaError> {
 /// Like [`render`], from the file's bytes in memory: a decrypted original of a locked folder
 /// is never written to disk in plaintext (docs/age-locked-folders.md §2).
 pub fn render_bytes(bytes: &[u8], ext: &str) -> Result<Rendered, MediaError> {
+    if kind(ext) == Kind::Heic {
+        return render_heic(bytes);
+    }
     let decoded = match kind(ext) {
         Kind::Raster => decode::raster_bytes(bytes)?,
         Kind::Svg => decode::svg_data(bytes, THUMBNAIL_SIZE)?,
         Kind::Psd => decode::psd_bytes(bytes)?,
-        Kind::Other => return Err(MediaError::Unsupported),
+        Kind::Heic | Kind::Other => return Err(MediaError::Unsupported),
     };
     let thumbnail = thumbnail::make(&decoded.pixels, THUMBNAIL_SIZE)?;
     let palette = palette(&decoded.pixels);
@@ -155,6 +171,21 @@ pub fn render_bytes(bytes: &[u8], ext: &str) -> Result<Rendered, MediaError> {
         Kind::Raster => metadata::exif_bytes(bytes),
         _ => None,
     };
+    Ok(Rendered {
+        width: decoded.width,
+        height: decoded.height,
+        thumbnail,
+        palette,
+        exif,
+    })
+}
+
+/// HEIC/HEIF from bytes: the decode and the EXIF item both parse the container.
+fn render_heic(bytes: &[u8]) -> Result<Rendered, MediaError> {
+    let decoded = decode::heic_bytes(bytes)?;
+    let thumbnail = thumbnail::make(&decoded.pixels, THUMBNAIL_SIZE)?;
+    let palette = palette(&decoded.pixels);
+    let exif = metadata::exif_heic_bytes(bytes);
     Ok(Rendered {
         width: decoded.width,
         height: decoded.height,
