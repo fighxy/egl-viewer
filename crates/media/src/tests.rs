@@ -122,6 +122,51 @@ fn exif_orientation_is_applied_and_camera_data_read() {
 }
 
 #[test]
+fn heic_gives_dimensions_a_thumbnail_a_palette_and_exif() {
+    let dir = tempfile::tempdir().unwrap();
+    let photo = write(dir.path(), "photo.heic", &fixtures::heic());
+    let rendered = render(&photo, "heic").unwrap();
+    assert_eq!((rendered.width, rendered.height), (96, 64));
+    assert!(is_webp(&rendered.thumbnail.webp));
+    assert!(!rendered.palette.is_empty());
+    assert_eq!(
+        rendered.exif,
+        Some(serde_json::json!({
+            "camera": "Canon EOS R5",
+            "isoSpeed": "400",
+            "aperture": "2.8",
+            "focalLength": "35",
+            "shutter": "1/250",
+            "timestamp": "2026:10:28 09:30:00",
+        }))
+    );
+
+    let from_bytes = render_bytes(&fixtures::heic(), "heic").unwrap();
+    assert_eq!(
+        (from_bytes.width, from_bytes.height),
+        (rendered.width, rendered.height)
+    );
+    assert_eq!(from_bytes.thumbnail.webp, rendered.thumbnail.webp);
+    assert_eq!(from_bytes.palette, rendered.palette);
+    assert_eq!(from_bytes.exif, rendered.exif);
+}
+
+#[test]
+fn heic_extensions_are_previewed_and_broken_files_fail_cleanly() {
+    for ext in ["heic", "heif", "hif", "HEIC"] {
+        assert_eq!(kind(ext), Kind::Heic, "{ext}");
+        assert!(has_preview(ext), "{ext}");
+    }
+    let dir = tempfile::tempdir().unwrap();
+    let broken = write(dir.path(), "broken.heic", b"not a heic");
+    assert!(matches!(render(&broken, "heic"), Err(MediaError::Decode(_))));
+    assert!(matches!(
+        render_bytes(b"not a heic", "heic"),
+        Err(MediaError::Decode(_))
+    ));
+}
+
+#[test]
 fn other_formats_have_no_preview_and_broken_files_fail_cleanly() {
     let dir = tempfile::tempdir().unwrap();
     for ext in ["avif", "mp4", "pdf", "txt", ""] {
