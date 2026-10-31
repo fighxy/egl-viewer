@@ -28,6 +28,23 @@ jobs:
       - name: Rust toolchain (from rust-toolchain.toml)
         run: rustup toolchain install
 
+      - name: libheif (HEIC/HEIF previews, D-063)
+        run: vcpkg install libheif:x64-windows
+
+      # libheif-sys finds the vcpkg tree only through VCPKG_ROOT; the runner image
+      # exports VCPKG_INSTALLATION_ROOT instead. VCPKGRS_DYNAMIC=1 selects the
+      # x64-windows (DLL) triplet, matching `vcpkg install` above; without it
+      # vcpkg-rs demands its x64-windows-static-md default, which we don't build.
+      - name: vcpkg env for libheif-sys
+        shell: bash
+        run: |
+          echo "VCPKG_ROOT=${VCPKG_INSTALLATION_ROOT:-C:/vcpkg}" >> "$GITHUB_ENV"
+          echo "VCPKGRS_DYNAMIC=1" >> "$GITHUB_ENV"
+
+      - name: libheif on PATH for tests
+        shell: bash
+        run: echo "$VCPKG_ROOT/installed/x64-windows/bin" >> "$GITHUB_PATH"
+
       - uses: Swatinem/rust-cache@v2
 
       - name: Install JavaScript dependencies
@@ -77,6 +94,23 @@ jobs:
 
       - name: Rust toolchain (from rust-toolchain.toml)
         run: rustup toolchain install
+
+      - name: libheif (HEIC/HEIF previews, D-063)
+        run: vcpkg install libheif:x64-windows
+
+      # libheif-sys finds the vcpkg tree only through VCPKG_ROOT; the runner image
+      # exports VCPKG_INSTALLATION_ROOT instead. VCPKGRS_DYNAMIC=1 selects the
+      # x64-windows (DLL) triplet, matching `vcpkg install` above; without it
+      # vcpkg-rs demands its x64-windows-static-md default, which we don't build.
+      - name: vcpkg env for libheif-sys
+        shell: bash
+        run: |
+          echo "VCPKG_ROOT=${VCPKG_INSTALLATION_ROOT:-C:/vcpkg}" >> "$GITHUB_ENV"
+          echo "VCPKGRS_DYNAMIC=1" >> "$GITHUB_ENV"
+
+      - name: libheif on PATH for tests
+        shell: bash
+        run: echo "$VCPKG_ROOT/installed/x64-windows/bin" >> "$GITHUB_PATH"
 
       - uses: Swatinem/rust-cache@v2
 
@@ -131,6 +165,9 @@ jobs:
 
       - name: Rust toolchain (from rust-toolchain.toml)
         run: rustup toolchain install
+
+      - name: libheif (HEIC/HEIF previews, D-063)
+        run: brew install libheif
 
       - uses: Swatinem/rust-cache@v2
 
@@ -191,6 +228,14 @@ jobs:
             librsvg2-dev \
             patchelf \
             libfuse2
+
+      # Jammy ships libheif 1.12, libheif-rs needs >= 1.17 (D-063). The author's PPA
+      # covers Jammy; if its version ever lags, the build fails here on purpose.
+      - name: libheif from the strukturag PPA (HEIC/HEIF previews, D-063)
+        run: |
+          sudo add-apt-repository -y ppa:strukturag/libheif
+          sudo apt-get update
+          sudo apt-get install -y libheif-dev
 
       - uses: pnpm/action-setup@v6
 
