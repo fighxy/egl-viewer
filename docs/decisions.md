@@ -1326,3 +1326,21 @@ dependencies, the newest stable releases of 2026-10-28 where available:
   implementation for tests.
 - `wiremock 0.6.3` (dev, `eagle-api` only): the integration tests replay the
   captures from `fixtures/eagle-api/`, per docs/architecture.md §13.
+
+## D-076 Phase 10: eagle-api writes, adds, same-PC thumbnails (2026-11-01)
+
+Phase 10 (docs/spec.md §9) turns a live Eagle session writable and serves
+same-PC thumbnails. `eagle-api` takes two already-pinned workspace crates:
+
+- `base64 0.22.1`: data-URL bodies for `item/add` from another computer
+  (correction 1).
+- `media`: when Eagle reports `noThumbnail: true`, the original under
+  `images/{id}.info/` is downscaled for the grid (docs/spec.md §8.3
+  "Thumbnails"); the library path sandbox still refuses any thumbnail path
+  outside the open `.library` folder.
+
+Remote thumbnails stay deferred to a helper plugin on the Eagle PC. Undo of
+item edits stays native-only: Eagle's API does not return previous states.
+Unsupported native-only session commands (`delete_folder`, empty trash, tag
+groups, smart-folder writes, …) return `NotSupported` while an Eagle session
+is open, not "Open a library first".

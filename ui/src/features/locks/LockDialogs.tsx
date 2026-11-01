@@ -38,6 +38,8 @@ export type LockDialog =
 type Props = {
   dialog: LockDialog | null;
   folders: Folder[];
+  /** A running Eagle: unlock only (docs/spec.md §8.3 "Writes"). */
+  eagle?: boolean;
   onClose: () => void;
   /** A lock changed. `opened` is a folder that is now unlocked and should open. */
   onChanged: (opened?: string) => void;
@@ -47,7 +49,7 @@ type Props = {
  * Locking a folder, unlocking it (with the password or the recovery key), changing the
  * password, a new recovery key, and removing the lock (docs/age-locked-folders.md, spec §3).
  */
-export function LockDialogs({ dialog, folders, onClose, onChanged }: Props) {
+export function LockDialogs({ dialog, folders, eagle = false, onClose, onChanged }: Props) {
   const folder = dialog ? findFolder(folders, dialog.id) : undefined;
   const name = folder?.name ?? "";
   const done = (opened?: string) => {
@@ -66,7 +68,14 @@ export function LockDialogs({ dialog, folders, onClose, onChanged }: Props) {
         />
       )}
       {dialog?.kind === "unlock" && (
-        <UnlockFolder key={dialog.id} id={dialog.id} name={name} onCancel={onClose} onDone={done} />
+        <UnlockFolder
+          key={dialog.id}
+          id={dialog.id}
+          name={name}
+          eagle={eagle}
+          onCancel={onClose}
+          onDone={done}
+        />
       )}
       {dialog?.kind === "change" && (
         <ChangePassword
@@ -385,11 +394,14 @@ export function RecoveryKeyDialog({
 function UnlockFolder({
   id,
   name,
+  eagle = false,
   onCancel,
   onDone,
 }: {
   id: string;
   name: string;
+  /** A running Eagle: password only, and the unlock reaches the Eagle desktop too. */
+  eagle?: boolean;
   onCancel: () => void;
   onDone: (opened?: string) => void;
 }) {
@@ -415,6 +427,7 @@ function UnlockFolder({
         : selected !== undefined && (selected.policy === "touch" || pin !== "");
 
   useEffect(() => {
+    if (eagle) return;
     let cancelled = false;
     ipc
       .pivWraps(id)
@@ -428,7 +441,7 @@ function UnlockFolder({
     return () => {
       cancelled = true;
     };
-  }, [id]);
+  }, [id, eagle]);
 
   const run = (call: Promise<void>, wrong: string) => {
     setWorking(true);
@@ -471,6 +484,9 @@ function UnlockFolder({
               {mode === "yubikey" && selected?.policy !== "pin" && t("locksUi.yubiTouchHint")}
             </DialogDescription>
           </DialogHeader>
+          {eagle && (
+            <p className="text-sm text-muted-foreground">{t("locksUi.eagleUnlockWarning")}</p>
+          )}
           {mode === "password" && (
             <PasswordField
               label={t("locksUi.password")}
@@ -554,7 +570,7 @@ function UnlockFolder({
                   {t("locksUi.usePassword")}
                 </Button>
               )}
-              {mode !== "recovery" && (
+              {mode !== "recovery" && !eagle && (
                 <Button
                   type="button"
                   variant="link"
@@ -567,7 +583,7 @@ function UnlockFolder({
                   {t("locksUi.forgotPassword")}
                 </Button>
               )}
-              {mode !== "yubikey" && wraps.length > 0 && (
+              {mode !== "yubikey" && wraps.length > 0 && !eagle && (
                 <Button
                   type="button"
                   variant="link"

@@ -970,6 +970,11 @@ Done when: a real Eagle on the same PC and one on another computer both browse w
 
 ### Phase 10 — Running Eagle: edits, adding files, thumbnails
 
+Implemented 2026-11-01. The done checks against a real Eagle (edits visible in the desktop
+app, adds from both PCs, images in the grid) still run by hand; undo of item edits stays
+native-only, and thumbnails from another computer wait for the helper plugin on the Eagle
+PC (docs/spec.md §8.3 "Thumbnails").
+
 - `ItemMutator` (re-read, then full arrays), folder edits with `FolderUpdateBody`, tag rename and merge, trash, the unlock dialog.
 - Adding files: batch `path` on the same PC, data URLs from another computer, polling, "Importing…" cells. Check live which formats the data URL path accepts besides JPEG; record the captures in `fixtures/eagle-api/`.
 - Thumbnails: the same-PC source, then the helper plugin on the Eagle PC.

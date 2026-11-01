@@ -16,4 +16,9 @@ thumbVersion: number, addedAt: number | null,
 /**
  * In the trash since, ms (the Trash list shows it).
  */
-deletedAt: number | null, tags: Array<string>, };
+deletedAt: number | null, tags: Array<string>, 
+/**
+ * An "Importing…" placeholder: the file is on its way to a running Eagle and has no
+ * item yet (docs/spec.md §8.3 "Adding files").
+ */
+pending: boolean, };
