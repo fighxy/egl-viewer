@@ -904,6 +904,8 @@ export const zhCN: MessageCatalog = {
     chooseWhere: "请选择导出位置。",
     nothingToExport: "没有可导出的内容。",
     mirror: "按文件夹存放文件",
+    intoEagle: "导入到正在运行的 Eagle",
+    eagleLockedWarning: "锁定的文件夹将以解锁状态导出：Eagle 的 API 无法为文件夹设置密码。",
     zip: "ZIP 压缩包",
     wherePlaceholder: "本机上的文件夹",
     backUp: "备份",

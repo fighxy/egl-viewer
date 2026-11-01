@@ -983,6 +983,9 @@ Done when: edits from egl-viewer show up in the desktop app (an item added to a 
 
 ### Phase 11 — Export into Eagle
 
+Implemented 2026-11-01. The done check against a real Eagle (same folders, tags and
+ratings; a second export updates instead of duplicating) still runs by hand.
+
 - The export screen and the steps of section 8.4; Eagle ids stored for repeated exports.
 
 Done when: a native library exported into an empty Eagle library shows the same folders, tags and ratings in Eagle, and a second export after changes updates instead of duplicating.
@@ -1089,6 +1092,9 @@ Native library (`library-native`, `media`), with temporary folders:
 | Export ZIP | Entries mirror the tree and read back; optional age passphrase decrypts to a ZIP |
 | Export with a missing original | Listed in `missing`; other files and the manifest still written |
 | Export cancel; destination inside the library; encrypt without ZIP | Partial output removed; refused |
+| `load_eagle_export` of the whole library | Folders top-down (parent before child); items, tag groups and smart folders present |
+| `store_eagle_ids` then `load_eagle_export` again | Every stored folder and item carries its Eagle id |
+| `load_eagle_export` of one folder | Only that folder's subtree |
 
 Settings (`app-store`), with temporary folders:
 
@@ -1130,6 +1136,7 @@ Running Eagle (`eagle-api`), unit tests and HTTP tests with `wiremock` and `fixt
 | `page_all` when `total` changes mid-loop | Restarts and deduplicates |
 | Nested page | Parsed from `body.data.data` |
 | Same-PC thumbnail path outside the library folder | Refused, nothing is read |
+| `tagGroup/create`, `smartFolder/create`, `item/addComment` | Return the new id (or succeed); bodies match the captures |
 
 UI tests: Vitest and Testing Library with `mockIPC` from `@tauri-apps/api/mocks`: the Welcome screen, the read-only banner, the menu and shortcuts built from the command registry (no items of later phases, write commands disabled in a read-only library), the Settings and About dialogs, Connect error copy, the grid window loading, selection (click, Ctrl, Shift, rubber band, arrow keys, Ctrl+A), sort, the list, the preview, `views-invalidated`, dialogs and empty states.
 
@@ -1138,6 +1145,7 @@ Manual checks on Windows:
 - Create a library, add a folder of mixed images, browse, tag, search, trash, restore.
 - Import a copy of a real Eagle library; compare folder counts with the desktop app.
 - Against a live Eagle (a separate test library, never the user's real one without asking): wrong token → 401 copy; folder counts with subfolders off and on; add a JPEG and see it in the desktop app; rename a tag and see it in the desktop inspector.
+- Export a native library into an empty Eagle test library (Export… → Into a running Eagle): folders, tags and ratings match; a second export after edits updates instead of duplicating.
 
 Already verified live on Eagle 4.0.0 on 2026-10-27 (captures in `fixtures/eagle-api/`): data URL `item/add`, asynchronous import, ignored `star`, the error model, the UTF-8 split, folder updates with partial and full bodies, cycle handling, folder counts; on 2026-10-28 `item/add` with `path` in batch and single mode. Checked in code: Eagle's library cache, smart folder rules (arch §16), the `.eaglepack` format (arch §17). Still unverified: locked folders (`password`, `isUnLock`, `folder/unlock`), non-empty tag groups and smart folders, the silent failure of raw base64.
 

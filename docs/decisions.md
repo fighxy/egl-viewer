@@ -1344,3 +1344,28 @@ item edits stays native-only: Eagle's API does not return previous states.
 Unsupported native-only session commands (`delete_folder`, empty trash, tag
 groups, smart-folder writes, …) return `NotSupported` while an Eagle session
 is open, not "Open a library first".
+
+## D-077 Phase 11: export into a running Eagle (2026-11-01)
+
+Phase 11 (docs/spec.md §8.4 / §9, docs/architecture.md §15.7) exports a native
+library into a running Eagle through its API only, so Eagle stays the writer of
+its library.
+
+- **Destination.** `ExportRequest.eagle: Option<EagleExportTarget>` (host, port,
+  token). When set, `format`, `destination` and `encrypt` are ignored. The
+  Export dialog adds “Into a running Eagle” beside folder / ZIP; the token never
+  reaches the WebView beyond the form field for that run (same Connect rules).
+- **Plan.** `library-native::load_eagle_export` lists folders top-down, items
+  (locked-folder items stay hidden like every export), comments, tag groups and
+  smart folders. Locked folders themselves are listed and exported unlocked
+  after a UI warning.
+- **API.** `eagle-api` gains `tag_group_create`, `smart_folder_create` and
+  `item_add_comment` (folder create/update and item add already existed). Same-PC
+  uses batch `item/add` with `path`; another computer uses data URLs then
+  `item/update {star}`.
+- **Repeat exports.** New Eagle ids are written back with `store_eagle_ids` into
+  the existing `eagle_id` columns (format version 1), so a second export updates
+  instead of duplicating. No format bump.
+- **Engine.** `src-tauri/export_eagle.rs` runs on the export thread via
+  `start_export`; progress and cancel reuse D-066. Live done check against a
+  real Eagle stays manual.

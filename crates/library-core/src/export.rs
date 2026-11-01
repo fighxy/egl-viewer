@@ -80,6 +80,22 @@ pub struct ExportRequest {
     /// An age passphrase protecting the archive; only valid with [`ExportFormat::Zip`].
     /// The UI sends it like a lock password and Rust never stores it.
     pub encrypt: Option<String>,
+    /// A running Eagle to export into instead of a folder or archive (docs/spec.md §8.4).
+    /// When set, `format`, `destination` and `encrypt` are ignored.
+    #[serde(default)]
+    pub eagle: Option<EagleExportTarget>,
+}
+
+/// A running Eagle as the export destination (docs/spec.md §8.4): the app connects, keeps
+/// Eagle the writer of its library, and stores every new Eagle id for the next export.
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize, TS)]
+#[serde(rename_all = "camelCase")]
+#[ts(export)]
+pub struct EagleExportTarget {
+    pub host: String,
+    pub port: u16,
+    /// API token; `None` or empty only works when Eagle runs on the same PC.
+    pub token: Option<String>,
 }
 
 /// What an export would write, computed from the database without touching the files.

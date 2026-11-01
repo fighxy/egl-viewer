@@ -916,6 +916,9 @@ export const en = {
     chooseWhere: "Choose where to export.",
     nothingToExport: "Nothing to export.",
     mirror: "Files in folders",
+    intoEagle: "Into a running Eagle",
+    eagleLockedWarning:
+      "Locked folders are exported unlocked: Eagle's API cannot set a folder password.",
     zip: "ZIP archive",
     wherePlaceholder: "A folder on this PC",
     backUp: "Back up",

@@ -5,6 +5,7 @@ mod add;
 mod backup;
 mod create;
 mod detect;
+mod eagle_export;
 mod eagle_import;
 mod edits;
 mod error;
@@ -30,6 +31,10 @@ mod tags;
 mod time;
 mod vault;
 
+pub use eagle_export::{
+    EagleComment, EagleExportItem, EagleExportPlan, EagleGroup, item_bytes, item_path,
+    load_eagle_export, store_eagle_ids,
+};
 pub use time::utc_file_stamp;
 
 #[cfg(test)]

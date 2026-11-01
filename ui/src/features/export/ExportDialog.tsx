@@ -19,6 +19,7 @@ import { Label } from "@/components/ui/label";
 import { Progress } from "@/components/ui/progress";
 import { Switch } from "@/components/ui/switch";
 import { formatBytes } from "@/features/browse/format";
+import { isValid, validateConnectForm } from "@/features/connect/validation";
 import { allRows, FOLDER_COLORS, withoutLockedFolders } from "@/features/folders/tree";
 import { countText } from "@/features/tags/match";
 import type {
@@ -128,12 +129,16 @@ export function ExportDialog({
   const [selectedFolders, setSelectedFolders] = useState<ReadonlySet<string>>(new Set());
   const [selectedTags, setSelectedTags] = useState<ReadonlySet<string>>(new Set());
   const [includeSubfolders, setIncludeSubfolders] = useState(true);
-  const [formatKind, setFormatKind] = useState<"mirror" | "zip">("zip");
+  const [formatKind, setFormatKind] = useState<"mirror" | "zip" | "eagle">("zip");
   const [compression, setCompression] = useState<Compression>("balanced");
   const [encrypt, setEncrypt] = useState(false);
   const [password, setPassword] = useState("");
   const [confirm, setConfirm] = useState("");
   const [destination, setDestination] = useState("");
+  /** Into a running Eagle (docs/spec.md §8.4). */
+  const [eagleHost, setEagleHost] = useState("127.0.0.1");
+  const [eaglePort, setEaglePort] = useState("41595");
+  const [eagleToken, setEagleToken] = useState("");
   const [progress, setProgress] = useState<ExportProgress | null>(null);
   /** The export the dialog follows; separate state so the listener does not re-subscribe per event. */
   const [runId, setRunId] = useState<number | null>(null);
@@ -151,9 +156,17 @@ export function ExportDialog({
       setPassword("");
       setConfirm("");
       setDestination(preferences.exportDestination ?? "");
+      setEagleToken("");
       setProgress(null);
       setRunId(null);
       setStartError(null);
+      ipc
+        .connectionDefaults()
+        .then((defaults) => {
+          setEagleHost(defaults.host);
+          setEaglePort(String(defaults.port));
+        })
+        .catch(() => {});
     }
   }, [open, preferences.exportDestination]);
 
@@ -214,7 +227,12 @@ export function ExportDialog({
 
   const problems = (): string | null => {
     if (!chosen) return t("exportUi.chooseWhat");
-    if (destination.trim() === "") return t("exportUi.chooseWhere");
+    if (formatKind === "eagle") {
+      const errors = validateConnectForm({ host: eagleHost, port: eaglePort, token: eagleToken });
+      if (!isValid(errors)) return errors.host ?? errors.port ?? t("errors.generic");
+    } else if (destination.trim() === "") {
+      return t("exportUi.chooseWhere");
+    }
     if (formatKind === "zip" && encrypt) {
       if (password === "") return t("exportUi.typePassword");
       if (password !== confirm) return t("exportUi.passwordMismatch");
@@ -230,20 +248,28 @@ export function ExportDialog({
       return;
     }
     setStartError(null);
+    const intoEagle = formatKind === "eagle";
     const request: ExportRequest = {
       selection,
       includeSubfolders:
         target?.kind === "folder" || scope === "folders" ? includeSubfolders : false,
       format: formatKind === "zip" ? { kind: "zip", compression } : { kind: "mirror" },
-      destination: destination.trim(),
+      destination: intoEagle ? "" : destination.trim(),
       encrypt: formatKind === "zip" && encrypt ? password : null,
+      eagle: intoEagle
+        ? {
+            host: eagleHost.trim(),
+            port: Number(eaglePort.trim()),
+            token: eagleToken || null,
+          }
+        : null,
     };
     ipc
       .startExport(request)
       .then((first) => {
         setProgress(first);
         setRunId(first.id);
-        if (destination.trim() !== preferences.exportDestination) {
+        if (!intoEagle && destination.trim() !== preferences.exportDestination) {
           onPreferences({ ...preferences, exportDestination: destination.trim() });
         }
       })
@@ -271,6 +297,7 @@ export function ExportDialog({
   const formats = [
     ["mirror", t("exportUi.mirror")],
     ["zip", t("exportUi.zip")],
+    ["eagle", t("exportUi.intoEagle")],
   ] as const;
 
   return (
@@ -453,23 +480,62 @@ export function ExportDialog({
                   />
                 </div>
               )}
+              {formatKind === "eagle" && (
+                <div className="grid grid-cols-[1fr_7rem] gap-2">
+                  <div className="grid gap-1">
+                    <Label htmlFor="export-eagle-host">{t("connect.host")}</Label>
+                    <Input
+                      id="export-eagle-host"
+                      value={eagleHost}
+                      onChange={(event) => setEagleHost(event.target.value)}
+                      autoComplete="off"
+                      spellCheck={false}
+                    />
+                  </div>
+                  <div className="grid gap-1">
+                    <Label htmlFor="export-eagle-port">{t("connect.port")}</Label>
+                    <Input
+                      id="export-eagle-port"
+                      inputMode="numeric"
+                      value={eaglePort}
+                      onChange={(event) => setEaglePort(event.target.value)}
+                    />
+                  </div>
+                  <div className="col-span-2 grid gap-1">
+                    <Label htmlFor="export-eagle-token">{t("connect.token")}</Label>
+                    <Input
+                      id="export-eagle-token"
+                      type="password"
+                      value={eagleToken}
+                      onChange={(event) => setEagleToken(event.target.value)}
+                      autoComplete="off"
+                    />
+                    <p className="text-xs text-muted-foreground">{t("connect.tokenHint")}</p>
+                  </div>
+                  <p className="col-span-2 text-xs text-muted-foreground">
+                    {t("exportUi.eagleLockedWarning")}
+                  </p>
+                </div>
+              )}
             </section>
 
-            <section className="grid gap-1.5">
-              <Label htmlFor="export-destination">{t("exportUi.where")}</Label>
-              <div className="flex gap-2">
-                <Input
-                  id="export-destination"
-                  placeholder={t("exportUi.wherePlaceholder")}
-                  value={destination}
-                  onChange={(event) => setDestination(event.target.value)}
-                />
-                <Button variant="outline" size="sm" onClick={pickDestination}>
-                  <FolderOpen aria-hidden />
-                  {t("common.browse")}
-                </Button>
-              </div>
-            </section>
+            {formatKind !== "eagle" && (
+              <section className="grid gap-1.5">
+                <Label htmlFor="export-destination">{t("exportUi.where")}</Label>
+                <div className="flex gap-2">
+                  <Input
+                    id="export-destination"
+                    placeholder={t("exportUi.wherePlaceholder")}
+                    value={destination}
+                    onChange={(event) => setDestination(event.target.value)}
+                  />
+                  <Button variant="outline" size="sm" onClick={pickDestination}>
+                    <FolderOpen aria-hidden />
+                    {t("common.browse")}
+                  </Button>
+                </div>
+              </section>
+            )}
 
             {(startError || preview.isError) && (
               <p role="alert" className="text-sm text-destructive">

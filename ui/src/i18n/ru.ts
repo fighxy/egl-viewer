@@ -922,6 +922,9 @@ export const ru: MessageCatalog = {
     chooseWhere: "Выберите, куда экспортировать.",
     nothingToExport: "Нечего экспортировать.",
     mirror: "Файлы в папках",
+    intoEagle: "В запущенный Eagle",
+    eagleLockedWarning:
+      "Запертые папки экспортируются открытыми: API Eagle не умеет ставить пароль на папку.",
     zip: "ZIP-архив",
     wherePlaceholder: "Папка на этом ПК",
     backUp: "Создать копию",

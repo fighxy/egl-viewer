@@ -512,3 +512,82 @@ async fn item_add_on_the_same_pc_sends_path_items() {
     assert!(sent.get("base64").is_none());
     assert!(sent.get("token").is_some());
 }
+
+#[tokio::test]
+async fn export_creates_hit_their_endpoints_and_return_ids() {
+    let server = MockServer::start().await;
+    Mock::given(method("POST"))
+        .and(path("/api/v2/tagGroup/create"))
+        .and(wiremock::matchers::body_partial_json(serde_json::json!({
+            "name": "Posters",
+            "tags": ["a"]
+        })))
+        .respond_with(
+            ResponseTemplate::new(200)
+                .insert_header("content-type", "application/json")
+                .set_body_string(
+                    serde_json::json!({ "status": "success", "data": { "id": "G1" } }).to_string(),
+                ),
+        )
+        .mount(&server)
+        .await;
+    Mock::given(method("POST"))
+        .and(path("/api/v2/smartFolder/create"))
+        .and(wiremock::matchers::body_partial_json(serde_json::json!({
+            "name": "Rated",
+            "conditions": []
+        })))
+        .respond_with(
+            ResponseTemplate::new(200)
+                .insert_header("content-type", "application/json")
+                .set_body_string(
+                    serde_json::json!({ "status": "success", "data": { "id": "S1" } }).to_string(),
+                ),
+        )
+        .mount(&server)
+        .await;
+    Mock::given(method("POST"))
+        .and(path("/api/v2/item/addComment"))
+        .and(wiremock::matchers::body_partial_json(serde_json::json!({
+            "id": "I1",
+            "annotation": "here",
+            "x": 1.0,
+            "y": 2.0,
+            "width": 3.0,
+            "height": 4.0
+        })))
+        .respond_with(
+            ResponseTemplate::new(200)
+                .insert_header("content-type", "application/json")
+                .set_body_string(serde_json::json!({ "status": "success" }).to_string()),
+        )
+        .mount(&server)
+        .await;
+    let api = api_at(&server);
+    let id = api
+        .tag_group_create(serde_json::Map::from_iter([
+            ("name".to_owned(), Value::from("Posters")),
+            ("tags".to_owned(), Value::from(vec!["a"])),
+        ]))
+        .await
+        .unwrap();
+    assert_eq!(id, "G1");
+    let id = api
+        .smart_folder_create(serde_json::Map::from_iter([
+            ("name".to_owned(), Value::from("Rated")),
+            ("conditions".to_owned(), Value::from(Vec::<Value>::new())),
+        ]))
+        .await
+        .unwrap();
+    assert_eq!(id, "S1");
+    api.item_add_comment(serde_json::Map::from_iter([
+        ("id".to_owned(), Value::from("I1")),
+        ("annotation".to_owned(), Value::from("here")),
+        ("x".to_owned(), Value::from(1.0)),
+        ("y".to_owned(), Value::from(2.0)),
+        ("width".to_owned(), Value::from(3.0)),
+        ("height".to_owned(), Value::from(4.0)),
+    ]))
+    .await
+    .unwrap();
+}
