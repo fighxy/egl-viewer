@@ -1576,6 +1576,7 @@ dependencies = [
  "tauri-plugin-process",
  "tauri-plugin-updater",
  "tempfile",
+ "tokio",
  "tracing",
  "tracing-subscriber",
  "ts-rs",

@@ -1114,6 +1114,7 @@ impl Session {
         let task_cancel = Arc::clone(&cancel);
         // The thread waits for the registry lock that is held here, so it is registered before
         // it can remove itself.
+        let eagle = request.eagle.is_some();
         let thread = std::thread::Builder::new()
             .name(format!("export-{id}"))
             .spawn(move || {
@@ -1121,25 +1122,39 @@ impl Session {
                     *lock(&progress_latest) = Some(progress.clone());
                     emit(Event::ExportProgress(progress));
                 };
-                let result = export_items(&library, id, &request, &task_cancel, &mut on_progress);
-                if let Err(error) = result {
-                    // The engine cleans up after itself; the UI just hears that the run failed.
-                    let latest = lock(&progress_latest);
-                    let at = |take: fn(&ExportProgress) -> u64| latest.as_ref().map_or(0, take);
-                    let failed = ExportProgress {
+                if eagle {
+                    // Into a running Eagle: the engine reports failures in the progress.
+                    let result = crate::export_eagle::export_into_eagle(
+                        &library,
                         id,
-                        state: ExportState::Failed,
-                        total: at(|progress| progress.total),
-                        done: at(|progress| progress.done),
-                        bytes_total: at(|progress| progress.bytes_total),
-                        bytes_done: at(|progress| progress.bytes_done),
-                        current: None,
-                        summary: None,
-                        error: Some(error.to_string()),
-                    };
-                    drop(latest);
-                    *lock(&progress_latest) = Some(failed.clone());
-                    emit(Event::ExportProgress(failed));
+                        &request,
+                        &task_cancel,
+                        &mut on_progress,
+                    );
+                    *lock(&progress_latest) = Some(result.clone());
+                    emit(Event::ExportProgress(result));
+                } else {
+                    let result =
+                        export_items(&library, id, &request, &task_cancel, &mut on_progress);
+                    if let Err(error) = result {
+                        // The engine cleans up after itself; the UI just hears that the run failed.
+                        let latest = lock(&progress_latest);
+                        let at = |take: fn(&ExportProgress) -> u64| latest.as_ref().map_or(0, take);
+                        let failed = ExportProgress {
+                            id,
+                            state: ExportState::Failed,
+                            total: at(|progress| progress.total),
+                            done: at(|progress| progress.done),
+                            bytes_total: at(|progress| progress.bytes_total),
+                            bytes_done: at(|progress| progress.bytes_done),
+                            current: None,
+                            summary: None,
+                            error: Some(error.to_string()),
+                        };
+                        drop(latest);
+                        *lock(&progress_latest) = Some(failed.clone());
+                        emit(Event::ExportProgress(failed));
+                    }
                 }
                 drop(library);
                 let mut exports = lock(&registry);

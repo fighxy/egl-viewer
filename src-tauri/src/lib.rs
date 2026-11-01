@@ -2,6 +2,7 @@
 
 mod commands;
 mod drag_out;
+mod export_eagle;
 mod session;
 mod views;
 #[cfg(windows)]

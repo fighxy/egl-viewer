@@ -264,6 +264,34 @@ impl EagleApi {
         Ok(())
     }
 
+    /// `tagGroup/create`: returns the new group id (docs/spec.md §8.4 step 4).
+    pub async fn tag_group_create(&self, body: Map<String, Value>) -> Result<String, EagleError> {
+        let data = self.http.post(&v2("tagGroup/create"), body).await?;
+        data.get("id")
+            .and_then(Value::as_str)
+            .map(str::to_owned)
+            .ok_or_else(|| EagleError::Invalid("tagGroup/create returned no id".into()))
+    }
+
+    /// `smartFolder/create` with `conditions` unchanged (docs/spec.md §8.4 step 4).
+    pub async fn smart_folder_create(
+        &self,
+        body: Map<String, Value>,
+    ) -> Result<String, EagleError> {
+        let data = self.http.post(&v2("smartFolder/create"), body).await?;
+        data.get("id")
+            .and_then(Value::as_str)
+            .map(str::to_owned)
+            .ok_or_else(|| EagleError::Invalid("smartFolder/create returned no id".into()))
+    }
+
+    /// `item/addComment`: a rect (`x`, `y`, `width`, `height`) or a video `duration` is
+    /// mandatory (correction 18).
+    pub async fn item_add_comment(&self, body: Map<String, Value>) -> Result<(), EagleError> {
+        self.http.post(&v2("item/addComment"), body).await?;
+        Ok(())
+    }
+
     /// Batch `item/add` with `path` entries: the form for a same-PC client, even for one
     /// file (it keeps `star` and `modificationTime`, correction 35). The ids come back
     /// before the items exist (correction 2): poll `item/get {id}`.

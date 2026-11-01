@@ -34,21 +34,26 @@ const PROGRESS_EVERY: Duration = Duration::from_millis(100);
 const BUFFER: usize = 1024 * 1024;
 
 /// One item placed in the export.
-struct ExportItem {
-    id: String,
-    name: String,
-    ext: String,
-    size: u64,
-    star: i64,
-    annotation: String,
-    url: String,
-    file_path: String,
-    encrypted: bool,
-    tags: Vec<String>,
+#[derive(Debug, Clone)]
+pub(crate) struct ExportItem {
+    pub(crate) id: String,
+    pub(crate) name: String,
+    pub(crate) ext: String,
+    pub(crate) size: u64,
+    pub(crate) star: i64,
+    pub(crate) annotation: String,
+    pub(crate) url: String,
+    pub(crate) file_path: String,
+    pub(crate) encrypted: bool,
+    pub(crate) tags: Vec<String>,
     /// The direct folders' names, sorted; for the manifest.
-    folder_names: Vec<String>,
+    pub(crate) folder_names: Vec<String>,
     /// The direct folders' ids; for the layout.
-    folder_ids: Vec<String>,
+    pub(crate) folder_ids: Vec<String>,
+    /// Eagle id from a previous export into Eagle (docs/spec.md §8.4).
+    pub(crate) eagle_id: Option<String>,
+    /// Date added, ms: Eagle `modificationTime`.
+    pub(crate) added_at: i64,
 }
 
 /// A folder row, for walking from an item's folder up to a selected root.
@@ -100,14 +105,14 @@ fn is_zero(value: &i64) -> bool {
 
 /// The SQL of a selection: a WITH clause for the folder subtrees, the WHERE condition and its
 /// binds. Shared by the preview and the export so the numbers they show cannot disagree.
-struct SelectionSql {
+pub(crate) struct SelectionSql {
     prefix: String,
     condition: String,
     /// `:fN` folder ids and `:tN` tag names; `:hidden`/`:unlocked` come from the visibility.
     binds: Vec<(String, Value)>,
 }
 
-fn selection_sql(
+pub(crate) fn selection_sql(
     conn: &Connection,
     selection: &ExportSelection,
     include_subfolders: bool,
@@ -195,7 +200,10 @@ fn selection_sql(
 
 /// The binds of a selection query; `visibility` is `None` for a count over everything the
 /// selection covers, locks ignored.
-fn bind<'a>(sql: &'a SelectionSql, visibility: Option<&'a Visibility>) -> Vec<(&'a str, Value)> {
+pub(crate) fn bind<'a>(
+    sql: &'a SelectionSql,
+    visibility: Option<&'a Visibility>,
+) -> Vec<(&'a str, Value)> {
     let mut binds: Vec<(&str, Value)> = sql
         .binds
         .iter()
@@ -383,11 +391,12 @@ fn validate(request: &ExportRequest, library: &Library) -> Result<()> {
 
 /// The visible items of the selection with their tags and folder links, names opened for
 /// encrypted items of an unlocked folder.
-fn load_export_items(library: &Library, sql: &SelectionSql) -> Result<Vec<ExportItem>> {
+pub(crate) fn load_export_items(library: &Library, sql: &SelectionSql) -> Result<Vec<ExportItem>> {
     let conn = library.conn();
     let visibility = library.visibility(&conn)?;
     let query = format!(
-        "{}SELECT id, name, ext, size, star, annotation, url, file_path, encrypted, sealed \
+        "{}SELECT id, name, ext, size, star, annotation, url, file_path, encrypted, sealed, \
+         eagle_id, added_at \
          FROM item WHERE deleted_at IS NULL AND {} AND {VISIBLE} ORDER BY seq",
         sql.prefix, sql.condition
     );
@@ -412,6 +421,8 @@ fn load_export_items(library: &Library, sql: &SelectionSql) -> Result<Vec<Export
             tags: Vec::new(),
             folder_names: Vec::new(),
             folder_ids: Vec::new(),
+            eagle_id: row.get(10).context("read an item")?,
+            added_at: row.get(11).context("read an item")?,
         };
         if encrypted {
             sealed.push((
@@ -583,6 +594,8 @@ fn plan_layout(
                     tags: Vec::new(),
                     folder_names: Vec::new(),
                     folder_ids: Vec::new(),
+                    eagle_id: None,
+                    added_at: 0,
                 },
                 rel,
             });
@@ -968,7 +981,7 @@ fn copy_item(library: &Library, item: &ExportItem, target: &Path) -> Result<Opti
 
 /// Opens the item's original for export: a plaintext file or a decrypting reader. `None` when
 /// the file is missing.
-fn export_source(library: &Library, item: &ExportItem) -> Result<Option<Box<dyn Read>>> {
+pub(crate) fn export_source(library: &Library, item: &ExportItem) -> Result<Option<Box<dyn Read>>> {
     let path = library_file(library.root(), &item.file_path)
         .ok_or_else(|| SourceError::Storage("bad stored path".into()))?;
     if item.encrypted {
@@ -1077,6 +1090,7 @@ mod tests {
             format,
             destination: destination.to_string_lossy().into_owned(),
             encrypt: None,
+            eagle: None,
         }
     }
 

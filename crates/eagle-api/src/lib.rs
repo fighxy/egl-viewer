@@ -5,7 +5,7 @@
 
 mod add;
 mod api;
-mod dto;
+pub mod dto;
 mod error;
 mod http;
 mod page;
