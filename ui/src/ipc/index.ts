@@ -11,6 +11,7 @@ import type { DuplicateAnswer } from "./generated/DuplicateAnswer";
 import type { DuplicateNotice } from "./generated/DuplicateNotice";
 import type { EagleImportRequest } from "./generated/EagleImportRequest";
 import type { EagleLibrarySummary } from "./generated/EagleLibrarySummary";
+import type { EagleSessionInfo } from "./generated/EagleSessionInfo";
 import type { EditKind } from "./generated/EditKind";
 import type { ExportFormat } from "./generated/ExportFormat";
 import type { ExportPreview } from "./generated/ExportPreview";
@@ -46,6 +47,7 @@ import type { LoginMethod } from "./generated/LoginMethod";
 import type { LoginProof } from "./generated/LoginProof";
 import type { LoginStatus } from "./generated/LoginStatus";
 import type { MissingOriginal } from "./generated/MissingOriginal";
+import type { NetworkError } from "./generated/NetworkError";
 import type { Palette } from "./generated/Palette";
 import type { PivPolicy } from "./generated/PivPolicy";
 import type { PivPrompt } from "./generated/PivPrompt";
@@ -89,6 +91,7 @@ export type {
   DuplicateNotice,
   EagleImportRequest,
   EagleLibrarySummary,
+  EagleSessionInfo,
   EditKind,
   ExportFormat,
   ExportPreview,
@@ -125,6 +128,7 @@ export type {
   LoginProof,
   LoginStatus,
   MissingOriginal,
+  NetworkError,
   Palette,
   PivPolicy,
   PivPrompt,
@@ -203,6 +207,10 @@ export function queryFor(scope: Scope, browse: BrowsePreferences): LibraryQuery 
 export const ipc = {
   appInfo: () => invoke<AppInfo>("app_info"),
   connectionDefaults: () => invoke<ConnectionSettings>("connection_defaults"),
+  connectEagle: (host: string, port: number, token: string | null) =>
+    invoke<EagleSessionInfo>("connect_eagle", { host, port, token }),
+  eagleSession: () => invoke<EagleSessionInfo | null>("eagle_session"),
+  disconnectEagle: () => invoke<void>("disconnect_eagle"),
   defaultLibraryLocation: () => invoke<string>("default_library_location"),
   createLibrary: (parent: string, name: string) =>
     invoke<LibraryInfo>("create_library", { parent, name }),

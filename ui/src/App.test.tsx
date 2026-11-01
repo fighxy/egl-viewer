@@ -9,6 +9,8 @@ import { App } from "./App";
 
 async function openConnect() {
   const user = userEvent.setup();
+  // Inside Tauri the gate opens after `login_status` answers.
+  await screen.findByRole("heading", { name: "Welcome to egl-viewer" });
   await user.click(screen.getByRole("button", { name: "Connect to a running Eagle" }));
   return user;
 }
@@ -37,8 +39,9 @@ describe("App outside Tauri", () => {
   it("goes back to Welcome and clears the last message", async () => {
     render(<App />);
     const user = await openConnect();
+    // Outside Tauri the form cannot connect; nothing changes.
     await user.click(screen.getByRole("button", { name: "Connect" }));
-    expect(screen.getByRole("status")).toHaveTextContent("Connecting is not available yet.");
+    expect(screen.queryByRole("status")).not.toBeInTheDocument();
     await user.click(screen.getByRole("button", { name: "Back" }));
     expect(screen.getByRole("heading", { name: "Welcome to egl-viewer" })).toBeInTheDocument();
     expect(screen.queryByRole("status")).not.toBeInTheDocument();
@@ -46,6 +49,32 @@ describe("App outside Tauri", () => {
 });
 
 describe("App inside Tauri", () => {
+  it("connects to a running Eagle and opens its library", async () => {
+    const calls = mockBackend();
+    render(<App />);
+    const user = await openConnect();
+    const host = screen.getByLabelText("Host");
+    await user.clear(host);
+    await user.type(host, "eagle-pc");
+    await user.click(screen.getByRole("button", { name: "Connect" }));
+    expect(await screen.findByRole("navigation", { name: "Library" })).toBeInTheDocument();
+    const connect = called(calls, "connect_eagle");
+    expect(connect).toHaveLength(1);
+    expect(connect[0]?.args).toMatchObject({ host: "eagle-pc", port: 41595, token: null });
+  });
+
+  it("shows the mapped reason when Eagle refuses the token", async () => {
+    mockBackend({
+      connect_eagle: () => {
+        throw { kind: "unauthorized" };
+      },
+    });
+    render(<App />);
+    const user = await openConnect();
+    await user.click(screen.getByRole("button", { name: "Connect" }));
+    expect(await screen.findByRole("status")).toHaveTextContent("API token is wrong");
+  });
+
   it("takes the version and the Eagle defaults from Rust", async () => {
     mockBackend({ connection_defaults: () => ({ host: "10.0.0.5", port: 41000 }) });
     render(<App />);

@@ -374,6 +374,16 @@ export const ru: MessageCatalog = {
     storage: "Ошибка на диске: {{detail}}",
     wrongPassword: "Неверный пароль или ключ восстановления.",
     locked: "Сначала отприте «{{folder}}».",
+    unauthorized: "Неверный API-токен. Проверьте его в Eagle → Настройки → Для разработчиков.",
+    apiTooOld: "Eagle на том ПК старше 4.0 — его API не обслужит это приложение.",
+    noLibraryOpen: "Eagle там запущен, но в нём не открыта библиотека.",
+    rejected: "Eagle отклонил запрос: {{message}}",
+    connectTimeout:
+      "Нет ответа от этого ПК. Скорее всего, брандмауэр Windows на ПК с Eagle блокирует порт 41595: разрешите его в частном профиле, в идеале только для IP этого компьютера.",
+    refused: "Там никто не слушает. Eagle запущен? Порт верный?",
+    unreachable: "Адрес недоступен. Проверьте сеть или соединение Tailscale.",
+    localNetworkDenied: "Windows запретил приложению доступ к локальной сети.",
+    networkOther: "Ошибка сети: {{detail}}",
     generic: "Что-то пошло не так.",
   },
   filters: {
@@ -444,6 +454,7 @@ export const ru: MessageCatalog = {
     port: "Порт",
     token: "API-токен",
     tokenHint: "Eagle → Preferences → Developer. Не нужен, если Eagle на этом ПК.",
+    help: "На ПК с Eagle ограничьте правило брандмауэра Windows для порта 41595 частным профилем, а в идеале — IP этого компьютера. Вне локальной сети используйте Tailscale; никогда не пробрасывайте порт.",
     connect: "Подключить",
     back: "Назад",
   },
@@ -893,7 +904,6 @@ export const ru: MessageCatalog = {
     makingThumbnails_other: "Снова создаём {{count}} миниатюр…",
     loading: "Загрузка {{loaded}} из {{total}}…",
     nothingToPaste: "Нечего вставить: сначала скопируйте изображение или файлы.",
-    connectSoon: "Подключение пока недоступно.",
   },
   exportUi: {
     titleBackup: "Резервная копия",

@@ -9,6 +9,7 @@ pub mod location;
 pub mod login;
 pub mod preferences;
 pub mod recent;
+pub mod secret;
 pub mod settings;
 
 use std::path::PathBuf;
@@ -22,6 +23,7 @@ pub use preferences::{
     BrowsePreferences, Locale, Preferences, Theme, UiLayout, ViewMode, WindowState,
 };
 pub use recent::RecentLibrary;
+pub use secret::{KeyringStore, MemoryStore, SecretStore, eagle_token_name};
 pub use settings::ConnectionSettings;
 
 /// The app's files in one folder: `%LOCALAPPDATA%\com.fighxy.eglviewer` on Windows.

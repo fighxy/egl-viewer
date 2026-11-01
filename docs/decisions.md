@@ -1309,3 +1309,20 @@ exits. Cancel dismisses the dialog and keeps the process running.
   when the command finishes, the UI re-fetches `library_counts` and `trash_info` and
   invalidates the folder tree so the sidebar badge and the Trash context menu stop showing
   stale numbers. Relying only on `views-invalidated` left the badge wrong or late.
+
+## D-075 Phase 9 libraries: reqwest, url, keyring, wiremock (2026-11-01)
+
+Phase 9 (connect to a running Eagle, docs/spec.md §8.3) adds four pinned
+dependencies, the newest stable releases of 2026-10-28 where available:
+
+- `reqwest 0.12.28` with `default-features = false, features = ["json",
+  "rustls-tls"]`: the Eagle transport (docs/architecture.md §4). rustls, not
+  native-tls: no Schannel dependency to stage in the installer, and Eagle's
+  local API is plain HTTP anyway.
+- `url 2.5.4`: the endpoint base is parsed and joined, never concatenated by
+  hand.
+- `keyring 4.2.0`: the Eagle API token lives in Windows Credential Manager
+  (docs/spec.md §8.3 "Auth"); `app-store` gains `SecretStore` with a memory
+  implementation for tests.
+- `wiremock 0.6.3` (dev, `eagle-api` only): the integration tests replay the
+  captures from `fixtures/eagle-api/`, per docs/architecture.md §13.

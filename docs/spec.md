@@ -957,6 +957,10 @@ Done when: a copy of a real Eagle library imports completely; the counts per fol
 
 ### Phase 9 — Connect to a running Eagle: browse
 
+Implemented 2026-11-01 (D-075). The done checks against a real Eagle (same PC and
+another computer) still run by hand; thumbnails arrive in phase 10, so the grid
+shows the placeholder cells until then.
+
 - `eagle-api`: `EagleHttp` with `get` (token in the query) and `post` (token in the JSON body only), the semaphore, ASCII-escaped bodies, `pool_idle_timeout(4 s)`, `EagleError`, `Page<T>`, `page_all`; `wiremock` tests with the captures from `fixtures/eagle-api/`.
 - `app-store`: `SecretStore` with the `keyring` implementation on Windows Credential Manager.
 - The Connect screen (from Welcome), commands `connect_eagle`, `eagle_session`, `disconnect_eagle`.

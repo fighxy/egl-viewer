@@ -54,6 +54,15 @@ export function mockBackend(overrides: Record<string, Handler> = {}): Call[] {
   const handlers: Record<string, Handler> = {
     app_info: () => ({ name: "egl-viewer", version: "9.9.9", commit: "abc1234", webview: "141.0" }),
     connection_defaults: () => ({ host: "127.0.0.1", port: 41595 }),
+    connect_eagle: (args) => ({
+      library: { ...LIBRARY, kind: "eagleApi", readOnly: true, name: String(args.host) },
+      eagleVersion: "4.0.0",
+      samePc: true,
+      host: String(args.host),
+      port: args.port,
+    }),
+    eagle_session: () => null,
+    disconnect_eagle: () => null,
     get_preferences: () => DEFAULT_PREFERENCES,
     set_preferences: (args) => args.preferences,
     startup: () => ({ library: null, notice: null }),

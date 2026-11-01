@@ -54,6 +54,7 @@ export function ConnectScreen({ defaults, onConnect, onBack, status }: Props) {
         </CardHeader>
         <CardContent className="grid gap-4 py-4">
           <Field id="host" label={t("connect.host")} error={errors.host}>
+            {" "}
             <Input
               id="host"
               value={form.host}
@@ -99,6 +100,7 @@ export function ConnectScreen({ defaults, onConnect, onBack, status }: Props) {
               {status}
             </p>
           )}
+          <p className="text-xs text-muted-foreground">{t("connect.help")}</p>
         </CardFooter>
       </form>
     </Card>
