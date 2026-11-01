@@ -1,3 +1,4 @@
+import { cn } from "cn";
 import {
   Filter,
   Images,
@@ -25,6 +26,7 @@ import {
 import { Slider } from "@/components/ui/slider";
 import { formatBytes } from "@/features/browse/format";
 import { SortButton } from "@/features/browse/SortButton";
+import { DROP_INSIDE_CLASS, dropHint, useDrag } from "@/features/dnd/drag";
 import { translateAvailability } from "@/i18n/labels";
 import {
   type BrowsePreferences,
@@ -199,6 +201,8 @@ export function LibraryScreen({
   onEmptyTrash,
 }: Props) {
   const { t, i18n } = useTranslation();
+  const { active } = useDrag();
+  const trashDrop = dropHint(active, (target) => target.kind === "trash");
   const itemLabel = (count: number) =>
     t("common.item", { count, formatted: count.toLocaleString(i18n.language) });
   const canAddTitle = canAdd === true ? undefined : (translateAvailability(t, canAdd) as string);
@@ -321,11 +325,16 @@ export function LibraryScreen({
               <ul className="grid gap-px">
                 {SCOPES.map(({ id, labelKey, icon: Icon }) => {
                   const label = t(`sidebar.${labelKey}`);
+                  const isTrash = id === "trash";
                   const row = (
                     <button
                       type="button"
                       aria-current={id === place.kind ? "page" : undefined}
-                      className="flex h-7 w-full items-center gap-2 rounded-md px-2 text-left outline-none hover:bg-sidebar-accent focus-visible:ring-3 focus-visible:ring-ring/50 aria-[current=page]:bg-sidebar-accent aria-[current=page]:font-medium"
+                      data-drop={isTrash ? "trash" : undefined}
+                      className={cn(
+                        "flex h-7 w-full items-center gap-2 rounded-md px-2 text-left outline-none hover:bg-sidebar-accent focus-visible:ring-3 focus-visible:ring-ring/50 aria-[current=page]:bg-sidebar-accent aria-[current=page]:font-medium",
+                        isTrash && trashDrop && DROP_INSIDE_CLASS,
+                      )}
                       onClick={() => onPlaceChange?.({ kind: id })}
                     >
                       <Icon className="size-4 text-muted-foreground" />
@@ -337,7 +346,7 @@ export function LibraryScreen({
                       )}
                     </button>
                   );
-                  if (id !== "trash") return <li key={id}>{row}</li>;
+                  if (!isTrash) return <li key={id}>{row}</li>;
                   const trashDisabled = trashCount === 0 || library.readOnly;
                   const trashTitle = library.readOnly
                     ? t("availability.readOnly")

@@ -1281,21 +1281,16 @@ exits. Cancel dismisses the dialog and keeps the process running.
 - **i18n.** `confirm.quitTitle` / `quitBody` / `quitConfirm` in `en`, `ru`, and `zh-CN`
   (D-069); Cancel reuses `common.cancel`.
 
-## D-073 Space hold-vs-toggle and click-out for the preview (2026-11-01)
+## D-073 Dropping items on Trash (2026-11-01)
 
-The full-size preview answers Space like a desktop image browser: a short press toggles it,
-a hold peeks while the key is down. Empty letterbox clicks also dismiss it.
-
-- **Short press.** Keydown opens when closed; keyup within 250 ms (`SPACE_HOLD_MS`) leaves it
-  open. A second short press while open closes on keyup.
-- **Hold.** Keydown opens when closed; after 250 ms the press is a hold; keyup always closes.
-  Holding while already open also closes on release. Key repeats are ignored; a window blur
-  while held closes and clears the stuck key state.
-- **Wiring.** `useSpacePreview` owns Space. `useShortcuts` skips Space so the Preview menu
-  command stays open-only (View → Preview). Other dialogs still disable Space; the preview
-  itself does not, so toggle and hold-close work while it is open.
-- **Click out.** A left or right mouse button on the empty stage beside / above / below the
-  image (not on the image, toolbar, or previous/next controls) closes the preview. Pan when
-  zoomed starts on the image, not on the letterbox.
-- **Help.** The Keyboard Shortcuts dialog lists Space peek/toggle and the outside click.
-- **Covered by** `spacePreview` unit tests, `useSpacePreview` tests, and Browse UI tests.
+- **The Trash row is a drop target** in the same mouse-event drag as folders and tags
+  (D-042, D-057). It carries `data-drop="trash"`. The payload is the items payload already
+  used for a folder or a tag (`ItemsTarget`). A folder dragged onto Trash is refused. A
+  read-only library refuses every drop. Items cannot be dragged out of the Trash view
+  already, so there is no drop-onto-self case.
+- **The edit is the same `trash` intent as Delete / Move to Trash.** Multi-select keeps the
+  selection when the drag starts from a selected cell (same as a folder drop). The
+  confirmation from D-060 applies: when `confirmBeforeTrash` is on, the drop opens the same
+  dialog (with "Don't ask again"); when it is off, the items go straight to the trash.
+- **The highlight** is the folder inside-zone / tag-row highlight on the Trash button under
+  the pointer. A refused target is not highlighted.
