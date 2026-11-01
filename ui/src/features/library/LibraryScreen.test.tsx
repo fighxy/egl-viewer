@@ -176,6 +176,12 @@ describe("LibraryScreen", () => {
     expect(screen.queryByRole("button", { name: /Add files/ })).not.toBeInTheDocument();
   });
 
+  it("marks Trash as a drop target for library items", () => {
+    renderScreen();
+    expect(screen.getByRole("button", { name: /^Trash/ })).toHaveAttribute("data-drop", "trash");
+    expect(screen.getByRole("button", { name: /^All/ })).not.toHaveAttribute("data-drop");
+  });
+
   it("changes the layout and the sort from the toolbar", async () => {
     const onBrowseChange = vi.fn();
     const user = userEvent.setup();
