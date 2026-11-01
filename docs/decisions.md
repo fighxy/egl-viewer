@@ -1279,3 +1279,11 @@ exits. Cancel dismisses the dialog and keeps the process running.
   `window.close()`, so it shares the same path as the title-bar X.
 - **i18n.** `confirm.quitTitle` / `quitBody` / `quitConfirm` in `en`, `ru`, and `zh-CN`
   (D-069); Cancel reuses `common.cancel`.
+
+## D-073 Duplicate dialog actions stay inside the card (2026-11-01)
+
+The import duplicate question (`DuplicateDialog`) offers up to four actions: Cancel import,
+Add anyway, Skip duplicates, and Add to folder. On the default dialog width (`sm:max-w-md`) a
+single footer row overflowed the dark panel for longer locales (notably Russian). The dialog
+is `sm:max-w-xl` and its footer uses `sm:flex-wrap`, so every button stays inside the card
+without dropping an action. Covered by the DuplicateDialog UI tests.
