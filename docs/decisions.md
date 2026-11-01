@@ -1233,11 +1233,14 @@ linked libheif dynamically, but the installer did not ship it).
   (gitignored artefacts; README kept). `tauri.windows.conf.json` maps each file to the
   install root (`heif.dll`, `libde265.dll`, notices) — not under `resources/`.
   `node scripts/check-heif-windows-bundle.mjs` guards those mappings in `pnpm check` / CI.
-- **Decode-only features.** vcpkg's default `hevc` feature pulls **GPL** x265. The install
-  uses `[core,libde265]` so iPhone HEVC HEIC decodes without shipping x265. The staging
-  script refuses `libx265.dll` if it appears, and dumpbin fails the job if heif/libde265
-  import any further DLL that lives in the vcpkg bin (so the fixed resource map cannot
-  silently omit a sibling).
+- **Decode-only features.** vcpkg's default `hevc` feature pulls **GPL** x265. CI removes any
+  prior `libheif` / `x265` install, then installs `[core,libde265]` so iPhone HEVC HEIC
+  decodes without shipping x265, and asserts `libx265.lib` / `libx265.dll` are absent.
+  Rust cache uses `prefix-key: heif-core-libde265-v1` so a previous default-feature install
+  cannot leave `cargo:rustc-link-lib=x265` in a restored `libheif-sys` build script output
+  (that caused `LNK1181` on `libx265.lib`). The staging script refuses `libx265.dll` if it
+  appears, and dumpbin fails the job if heif/libde265 import any further DLL that lives in
+  the vcpkg bin (so the fixed resource map cannot silently omit a sibling).
 - **Other platforms.** macOS and Linux keep system / AppImage libheif from D-063; this
   decision is Windows packaging only. libwebp remains built from source (D-036), so there
   is still no separate libwebp DLL to bundle.
