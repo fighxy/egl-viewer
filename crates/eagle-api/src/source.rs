@@ -1307,10 +1307,7 @@ mod tests {
             true,
             Some(root.path().to_path_buf()),
         );
-        assert_eq!(
-            source.read_inside_library(&inside_file).unwrap(),
-            b"inside"
-        );
+        assert_eq!(source.read_inside_library(&inside_file).unwrap(), b"inside");
         assert!(matches!(
             source.read_inside_library(&outside_file),
             Err(SourceError::NotFound)
