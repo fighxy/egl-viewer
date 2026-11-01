@@ -9,9 +9,11 @@ use std::thread::JoinHandle;
 use std::time::{Duration, SystemTime, UNIX_EPOCH};
 
 use app_store::{
-    AppStore, LoginProof, LoginStatus, Preferences, RecentLibrary, SyncEnvironment, check_location,
-    default_library_parent, display_path,
+    AppStore, ConnectionSettings, KeyringStore, LoginProof, LoginStatus, Preferences,
+    RecentLibrary, SecretStore, SyncEnvironment, check_location, default_library_parent,
+    display_path, eagle_token_name,
 };
+use eagle_api::EagleSource;
 use library_core::{
     Backup, DuplicateNotice, ExportPreview, ExportProgress, ExportRequest, ExportSelection,
     ExportState, ExtensionCount, Folder, FolderChange, FolderIndex, ImportKind, ImportPreview,
@@ -94,6 +96,19 @@ pub struct EagleLibraryTarget {
     pub name: String,
 }
 
+/// A live connection to a running Eagle (docs/spec.md §8.3 "Connect screen").
+#[derive(Debug, Clone, PartialEq, Serialize, TS)]
+#[serde(rename_all = "camelCase")]
+#[ts(export)]
+pub struct EagleSessionInfo {
+    pub library: LibraryInfo,
+    pub eagle_version: String,
+    /// Eagle runs on this PC: files are added by path and thumbnails are read from disk.
+    pub same_pc: bool,
+    pub host: String,
+    pub port: u16,
+}
+
 /// What is on the clipboard: copied files, or an image (RGBA pixels).
 pub trait Clipboard {
     fn files(&self) -> Option<Vec<PathBuf>>;
@@ -109,6 +124,9 @@ pub struct Session {
     app_version: String,
     sync: SyncEnvironment,
     library: Mutex<Option<Arc<Library>>>,
+    /// A live Eagle connection; exclusive with `library` (docs/spec.md §8.3).
+    eagle: Mutex<Option<Arc<EagleSource>>>,
+    secrets: Arc<dyn SecretStore>,
     imports: Arc<Mutex<Imports>>,
     /// Export tasks of the open library (docs/spec.md §7.4 item 12).
     exports: Arc<Mutex<Exports>>,
@@ -214,12 +232,25 @@ impl Session {
         sync: SyncEnvironment,
         emit: Emit,
     ) -> Self {
+        Self::with_secrets(store, home, app_version, sync, emit, Arc::new(KeyringStore))
+    }
+
+    pub fn with_secrets(
+        store: AppStore,
+        home: PathBuf,
+        app_version: impl Into<String>,
+        sync: SyncEnvironment,
+        emit: Emit,
+        secrets: Arc<dyn SecretStore>,
+    ) -> Self {
         Self {
             store,
             home,
             app_version: app_version.into(),
             sync,
             library: Mutex::new(None),
+            eagle: Mutex::new(None),
+            secrets,
             imports: Arc::new(Mutex::new(Imports::default())),
             exports: Arc::new(Mutex::new(Exports::default())),
             views: Arc::new(Mutex::new(Views::default())),
@@ -297,8 +328,10 @@ impl Session {
         Ok(info)
     }
 
-    /// Close Library: imports stop, back to Welcome, and no reopen on the next start.
+    /// Close Library: imports stop, back to Welcome, and no reopen on the next start. Also
+    /// drops a live Eagle connection: for the UI both mean "back to Welcome".
     pub fn close_library(&self) -> Result<(), SourceError> {
+        lock(&self.eagle).take();
         if let Some(library) = self.take_library() {
             library.close()?;
         }
@@ -306,11 +339,89 @@ impl Session {
     }
 
     pub fn current(&self) -> Option<LibraryInfo> {
+        if let Some(source) = lock(&self.eagle).as_ref() {
+            return Some(source.info());
+        }
         self.current_library().map(|library| library.info())
     }
 
     pub fn counts(&self) -> Result<LibraryCounts, SourceError> {
+        if let Some(source) = lock(&self.eagle).as_ref() {
+            return Ok(source.counts()?);
+        }
         self.current_library().ok_or_else(no_library)?.counts()
+    }
+
+    /// The values the Connect screen starts with: the last successful connection, or Eagle
+    /// on this PC.
+    pub fn connection(&self) -> ConnectionSettings {
+        self.store.connection()
+    }
+
+    /// Connects to a running Eagle and opens the library it has open. The library that is
+    /// open stays open until the connection has succeeded; then it closes (D-024). The token:
+    /// the given one, saved to the secret store on success; otherwise the stored one; possibly
+    /// empty, which only the same PC accepts (docs/spec.md §8.3 "Auth").
+    pub fn connect_eagle(
+        &self,
+        settings: ConnectionSettings,
+        token: Option<String>,
+    ) -> Result<EagleSessionInfo, SourceError> {
+        settings.validate()?;
+        let settings = ConnectionSettings {
+            host: settings.host.trim().to_owned(),
+            ..settings
+        };
+        let name = eagle_token_name(&settings.host, settings.port);
+        let token = match token {
+            Some(token) => {
+                self.secrets.set(&name, &token)?;
+                SecretString::from(token)
+            }
+            None => SecretString::from(self.secrets.get(&name)?.unwrap_or_default()),
+        };
+        let source = Arc::new(EagleSource::connect(
+            &settings.host,
+            settings.port,
+            token,
+            settings.is_tailscale(),
+        )?);
+        let info = EagleSessionInfo {
+            library: source.info(),
+            eagle_version: source.eagle_version().to_owned(),
+            same_pc: settings.is_same_pc(),
+            host: settings.host.clone(),
+            port: settings.port,
+        };
+        // The previous source closes here, after the new one connected.
+        if let Some(library) = self.take_library() {
+            library.close()?;
+        }
+        lock(&self.eagle).replace(source);
+        self.store.save_connection(&settings)?;
+        Ok(info)
+    }
+
+    /// The live connection, so the UI can show the library again without reconnecting.
+    pub fn eagle_session(&self) -> Option<EagleSessionInfo> {
+        let eagle = lock(&self.eagle);
+        let source = eagle.as_ref()?;
+        let settings = self.store.connection();
+        Some(EagleSessionInfo {
+            library: source.info(),
+            eagle_version: source.eagle_version().to_owned(),
+            same_pc: settings.is_same_pc(),
+            host: settings.host,
+            port: settings.port,
+        })
+    }
+
+    /// Disconnect: back to Welcome.
+    pub fn disconnect_eagle(&self) -> Result<(), SourceError> {
+        lock(&self.eagle).take();
+        lock(&self.views).clear();
+        lock(&self.undo).clear();
+        Ok(())
     }
 
     /// Opens a view of the open library for `query` (docs/architecture.md §6.5).
@@ -319,9 +430,9 @@ impl Session {
         query: LibraryQuery,
         progress: Progress<'_>,
     ) -> Result<ViewOpened, SourceError> {
-        let source = self.source()?;
+        let source = self.active_source()?;
         let mut views = lock(&self.views);
-        let view = views.open(query, &Blocking(&source), progress)?;
+        let view = views.open(query, &Blocking(source.as_dyn()), progress)?;
         Ok(ViewOpened {
             view_id: view.id(),
             total: count(view.total()),
@@ -360,15 +471,15 @@ impl Session {
 
     /// The full item for the details panel.
     pub fn item_detail(&self, id: &str) -> Result<Option<Item>, SourceError> {
-        ready(self.source()?.item(&ItemId(id.to_owned())))
+        ready(self.active_source()?.as_dyn().item(&ItemId(id.to_owned())))
     }
 
     /// What the `thumb` scheme serves for a URL path: a thumbnail or an original of the open
     /// library, or nothing (404).
     pub fn image(&self, path: &str) -> Option<Thumbnail> {
         let request = ImageRequest::parse(path)?;
-        let source = self.source().ok()?;
-        match request.read(&source) {
+        let source = self.active_source().ok()?;
+        match request.read(source.as_dyn()) {
             Ok(image) => image,
             Err(error) => {
                 tracing::debug!("no image for {path}: {error}");
@@ -544,7 +655,7 @@ impl Session {
 
     /// The folder tree with counts.
     pub fn folder_tree(&self) -> Result<Vec<Folder>, SourceError> {
-        ready(self.source()?.folder_tree())
+        ready(self.active_source()?.as_dyn().folder_tree())
     }
 
     /// Creates, edits or moves a folder; returns the new tree.
@@ -917,11 +1028,11 @@ impl Session {
 
     /// The tag vocabulary with item counts (trash excluded).
     pub fn tag_vocabulary(&self) -> Result<Vec<Tag>, SourceError> {
-        ready(self.source()?.tags())
+        ready(self.active_source()?.as_dyn().tags())
     }
 
     pub fn tag_groups(&self) -> Result<Vec<TagGroup>, SourceError> {
-        ready(self.source()?.tag_groups())
+        ready(self.active_source()?.as_dyn().tag_groups())
     }
 
     /// Creates or changes a tag group; returns every group. Item tags do not change.
@@ -967,7 +1078,7 @@ impl Session {
 
     /// The smart folder tree, each with the rules this build cannot evaluate.
     pub fn smart_folders(&self) -> Result<Vec<SmartFolder>, SourceError> {
-        ready(self.source()?.smart_folders())
+        ready(self.active_source()?.as_dyn().smart_folders())
     }
 
     /// Creates or edits a smart folder; returns the tree. Open views of it follow.
@@ -989,14 +1100,14 @@ impl Session {
     /// The rules for "Save as smart folder"; refused with the reason for what rules cannot hold
     /// (search text, the trash, nothing to keep).
     pub fn smart_rules(&self, query: &LibraryQuery) -> Result<SmartDraft, SourceError> {
-        let folders = FolderIndex::new(&ready(self.source()?.folder_tree())?);
+        let folders = FolderIndex::new(&ready(self.active_source()?.as_dyn().folder_tree())?);
         let (parent, conditions) = rules_from_query(query, &folders)?;
         Ok(SmartDraft { parent, conditions })
     }
 
     /// File types with their item counts, for the Type filter.
     pub fn extensions(&self) -> Result<Vec<ExtensionCount>, SourceError> {
-        ready(self.source()?.extensions())
+        ready(self.active_source()?.as_dyn().extensions())
     }
 
     /// Manual order inside `folder`.
@@ -1329,6 +1440,7 @@ impl Session {
 
     /// Quitting: imports stop and the library closes without being marked closed explicitly.
     pub fn shutdown(&self) {
+        lock(&self.eagle).take();
         if let Some(library) = self.take_library()
             && let Err(error) = library.close()
         {
@@ -1435,6 +1547,15 @@ impl Session {
         ))
     }
 
+    /// The source the read commands talk to: a live Eagle connection wins over the open
+    /// native library (the session holds at most one of them, docs/spec.md §8.3).
+    fn active_source(&self) -> Result<ActiveSource, SourceError> {
+        if let Some(source) = lock(&self.eagle).as_ref() {
+            return Ok(ActiveSource::Eagle(Arc::clone(source)));
+        }
+        Ok(ActiveSource::Native(self.source()?))
+    }
+
     /// Stops imports and exports and takes the library out of the session.
     fn take_library(&self) -> Option<Library> {
         self.stop_imports();
@@ -1449,6 +1570,21 @@ impl Session {
 
 fn no_library() -> SourceError {
     SourceError::Invalid("Open a library first.".into())
+}
+
+/// What `active_source` returns: either kind of library, behind the one trait.
+enum ActiveSource {
+    Native(NativeSource),
+    Eagle(Arc<EagleSource>),
+}
+
+impl ActiveSource {
+    fn as_dyn(&self) -> &dyn LibrarySource {
+        match self {
+            Self::Native(source) => source,
+            Self::Eagle(source) => source.as_ref(),
+        }
+    }
 }
 
 /// How reading an Eagle folder fails, for the wizard (docs/spec.md §8.2 step 1).
@@ -1472,7 +1608,7 @@ fn now_ms() -> i64 {
 mod tests {
     use std::fs;
 
-    use library_core::TagMode;
+    use library_core::{NetworkError, TagMode};
 
     use super::*;
 
@@ -1501,6 +1637,40 @@ mod tests {
             home,
             session,
         }
+    }
+
+    #[test]
+    fn connecting_to_nothing_is_refused_and_leaves_the_session_empty() {
+        let f = fixture();
+        let settings = ConnectionSettings {
+            host: "127.0.0.1".into(),
+            port: 9, // discard: nothing listens there
+        };
+        let error = f.session.connect_eagle(settings, None).unwrap_err();
+        assert!(
+            matches!(error, SourceError::Network(NetworkError::Refused)),
+            "unexpected: {error}"
+        );
+        assert!(f.session.current().is_none());
+        assert!(f.session.eagle_session().is_none());
+    }
+
+    #[test]
+    fn an_invalid_host_is_rejected_before_any_request() {
+        let f = fixture();
+        let settings = ConnectionSettings {
+            host: "my pc".into(),
+            port: 41595,
+        };
+        let error = f.session.connect_eagle(settings, None).unwrap_err();
+        assert!(matches!(error, SourceError::Invalid(_)));
+    }
+
+    #[test]
+    fn disconnect_without_a_connection_is_fine() {
+        let f = fixture();
+        f.session.disconnect_eagle().unwrap();
+        assert!(f.session.current().is_none());
     }
 
     #[test]

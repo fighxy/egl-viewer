@@ -369,6 +369,16 @@ export const zhCN: MessageCatalog = {
     storage: "磁盘出错：{{detail}}",
     wrongPassword: "密码或恢复密钥不正确。",
     locked: "请先解锁“{{folder}}”。",
+    unauthorized: "API 令牌错误。请在 Eagle → 偏好设置 → 开发者 中核对。",
+    apiTooOld: "那台电脑上的 Eagle 早于 4.0 版本，其 API 无法为本应用提供服务。",
+    noLibraryOpen: "那台电脑上的 Eagle 已运行，但未打开图库。",
+    rejected: "Eagle 拒绝了请求：{{message}}",
+    connectTimeout:
+      "该电脑无响应。Eagle 电脑上的 Windows 防火墙可能阻止了 41595 端口：请在专用网络配置文件中放行该端口，最好仅限本电脑的 IP。",
+    refused: "该地址没有服务在监听。Eagle 是否已运行？端口是否正确？",
+    unreachable: "该地址不可达。请检查网络或 Tailscale 连接。",
+    localNetworkDenied: "Windows 已拒绝本应用的局域网访问权限。",
+    networkOther: "网络错误：{{detail}}",
     generic: "出了点问题。",
   },
   filters: {
@@ -439,6 +449,7 @@ export const zhCN: MessageCatalog = {
     port: "端口",
     token: "API 令牌",
     tokenHint: "Eagle → Preferences → Developer。若 Eagle 在本机运行则不需要。",
+    help: "在 Eagle 电脑上，将 41595 端口的 Windows 防火墙规则限制为专用网络配置文件，最好仅限本电脑的 IP。局域网之外请使用 Tailscale；切勿转发该端口。",
     connect: "连接",
     back: "返回",
   },
@@ -875,7 +886,6 @@ export const zhCN: MessageCatalog = {
     makingThumbnails_other: "正在重新生成 {{count}} 个缩略图…",
     loading: "正在加载 {{loaded}} / {{total}}…",
     nothingToPaste: "没有可粘贴的内容：请先复制图片或文件。",
-    connectSoon: "连接功能尚未提供。",
   },
   exportUi: {
     titleBackup: "备份",

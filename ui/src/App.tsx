@@ -605,6 +605,20 @@ function AppShell() {
     [libraryOpened, refreshRecent],
   );
 
+  const connectEagle = useCallback(
+    async (form: { host: string; port: string; token: string }) => {
+      if (!inTauri()) return;
+      setStatus(undefined);
+      try {
+        const session = await ipc.connectEagle(form.host, Number(form.port), form.token || null);
+        libraryOpened(session.library);
+      } catch (error) {
+        setStatus(describeError(error));
+      }
+    },
+    [libraryOpened],
+  );
+
   const savePreferences = useCallback(async (next: Preferences) => {
     setPreferences(next);
     if (inTauri()) setPreferences(await ipc.setPreferences(next));
@@ -1910,8 +1924,7 @@ function AppShell() {
                   key={`${defaults.host}:${defaults.port}`}
                   defaults={defaults}
                   status={status}
-                  // Phase 9 connects for real (docs/spec.md §9).
-                  onConnect={() => setStatus(t("status.connectSoon"))}
+                  onConnect={(form) => void connectEagle(form)}
                   onBack={() => {
                     setStatus(undefined);
                     setView({ kind: "welcome" });

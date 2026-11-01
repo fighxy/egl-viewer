@@ -1,5 +1,5 @@
 import i18n from "@/i18n";
-import type { LocationProblem, SourceError } from "@/ipc";
+import type { LocationProblem, NetworkError, SourceError } from "@/ipc";
 
 const LOCATION_KEYS: Record<LocationProblem, string> = {
   syncFolder: "errors.syncFolder",
@@ -7,6 +7,21 @@ const LOCATION_KEYS: Record<LocationProblem, string> = {
   insideLibrary: "errors.insideLibrary",
   insideEagleLibrary: "errors.insideEagleLibrary",
 };
+
+const NETWORK_KEYS: Record<NetworkErrorKind, string> = {
+  connectTimeout: "errors.connectTimeout",
+  refused: "errors.refused",
+  unreachable: "errors.unreachable",
+  localNetworkDenied: "errors.localNetworkDenied",
+  other: "errors.networkOther",
+};
+
+type NetworkErrorKind =
+  | "connectTimeout"
+  | "refused"
+  | "unreachable"
+  | "localNetworkDenied"
+  | "other";
 
 function isSourceError(error: unknown): error is SourceError {
   return typeof error === "object" && error !== null && "kind" in error;
@@ -39,7 +54,23 @@ export function describeError(error: unknown): string {
       return i18n.t("errors.wrongPassword");
     case "locked":
       return i18n.t("errors.locked", { folder: error.detail.folder });
+    case "unauthorized":
+      return i18n.t("errors.unauthorized");
+    case "apiTooOld":
+      return i18n.t("errors.apiTooOld");
+    case "noLibraryOpen":
+      return i18n.t("errors.noLibraryOpen");
+    case "rejected":
+      return i18n.t("errors.rejected", { message: error.detail.message });
+    case "network":
+      return i18n.t(NETWORK_KEYS[networkKind(error.detail)], {
+        detail: typeof error.detail === "object" ? error.detail.other : undefined,
+      });
     default:
       return i18n.t("errors.generic");
   }
+}
+
+function networkKind(detail: NetworkError): NetworkErrorKind {
+  return typeof detail === "string" ? detail : "other";
 }

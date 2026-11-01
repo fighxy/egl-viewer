@@ -72,6 +72,26 @@ impl ConnectionSettings {
     }
 }
 
+impl crate::AppStore {
+    /// Where the Connect screen starts: the last successful connection, or Eagle on this PC.
+    pub fn connection(&self) -> ConnectionSettings {
+        crate::json_file::JsonFile::new(self.dir(), CONNECTION).load()
+    }
+
+    /// Persists a successful connection (host and port only; the token goes to the secret
+    /// store, docs/spec.md §8.3 "Connect screen").
+    pub fn save_connection(&self, settings: &ConnectionSettings) -> Result<(), SourceError> {
+        let settings = settings.clone();
+        crate::json_file::JsonFile::new(self.dir(), CONNECTION).update(
+            |stored: &mut ConnectionSettings| {
+                *stored = settings;
+            },
+        )
+    }
+}
+
+const CONNECTION: &str = "connection.json";
+
 #[cfg(test)]
 mod tests {
     use super::*;
@@ -141,5 +161,19 @@ mod tests {
     fn missing_fields_fall_back_to_defaults() {
         let settings: ConnectionSettings = serde_json::from_str(r#"{ "host": "pc" }"#).unwrap();
         assert_eq!(settings.port, 41595);
+    }
+
+    #[test]
+    fn connection_round_trips_through_the_store() {
+        let dir = tempfile::tempdir().unwrap();
+        let store = crate::AppStore::new(dir.path());
+        // Nothing saved yet: Eagle on this PC.
+        assert_eq!(store.connection(), ConnectionSettings::default());
+        let settings = ConnectionSettings {
+            host: "192.168.1.20".into(),
+            port: 41595,
+        };
+        store.save_connection(&settings).unwrap();
+        assert_eq!(store.connection(), settings);
     }
 }

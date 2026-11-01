@@ -18,7 +18,8 @@ use tauri::{AppHandle, Manager, State, WebviewWindow};
 use ts_rs::TS;
 
 use crate::session::{
-    Clipboard, EagleImportRequest, EagleLibrarySummary, Session, SmartDraft, StartupResult,
+    Clipboard, EagleImportRequest, EagleLibrarySummary, EagleSessionInfo, Session, SmartDraft,
+    StartupResult,
 };
 use crate::views::{ItemsTarget, ScopeProgress, ViewOpened, count};
 
@@ -53,10 +54,36 @@ pub fn app_info() -> AppInfo {
     }
 }
 
-/// The values the Connect screen starts with: Eagle on this PC.
+/// The values the Connect screen starts with: the last successful connection, or Eagle on
+/// this PC.
 #[tauri::command]
-pub fn connection_defaults() -> ConnectionSettings {
-    ConnectionSettings::default()
+pub fn connection_defaults(session: State<'_, Session>) -> ConnectionSettings {
+    session.connection()
+}
+
+/// Connects to a running Eagle; every failure kind maps to its own copy on the Connect
+/// screen (docs/spec.md §8.3 "Connect screen").
+#[tauri::command]
+pub async fn connect_eagle(
+    app: AppHandle,
+    host: String,
+    port: u16,
+    token: Option<String>,
+) -> Result<EagleSessionInfo, SourceError> {
+    let settings = ConnectionSettings { host, port };
+    let token = token.filter(|token| !token.is_empty());
+    blocking(app, move |session| session.connect_eagle(settings, token)).await
+}
+
+/// The live Eagle connection, if any.
+#[tauri::command]
+pub fn eagle_session(session: State<'_, Session>) -> Option<EagleSessionInfo> {
+    session.eagle_session()
+}
+
+#[tauri::command]
+pub async fn disconnect_eagle(app: AppHandle) -> Result<(), SourceError> {
+    blocking(app, Session::disconnect_eagle).await
 }
 
 /// Where Create library starts: the preference, or `%USERPROFILE%\egl-library`.
@@ -902,7 +929,7 @@ mod tests {
 
     #[test]
     fn connection_defaults_point_at_this_pc() {
-        let defaults = connection_defaults();
+        let defaults = ConnectionSettings::default();
         assert_eq!(defaults.port, 41595);
         assert!(defaults.is_same_pc());
     }

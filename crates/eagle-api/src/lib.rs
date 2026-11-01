@@ -1,13 +1,28 @@
 //! A running Eagle as a `LibrarySource`, through its HTTP API (docs/architecture.md §4).
 //!
-//! Phase 0 only sets the crate up. The transport (`EagleHttp`, ASCII-escaped bodies, the
-//! JSend error model, pagination) arrives in phase 9 (docs/spec.md §8.3, §9).
+//! Transport, JSend error model, pagination and the query planner live here; the session
+//! connects in phase 9 (docs/spec.md §9).
+
+mod api;
+mod dto;
+mod error;
+mod http;
+mod page;
+mod plan;
+mod source;
 
 /// Eagle's API port.
 pub const DEFAULT_PORT: u16 = 41595;
 
 /// Prefix of the v2 API.
 pub const API_V2: &str = "api/v2/";
+
+pub use api::{EagleApi, GRID_FIELDS};
+pub use error::EagleError;
+pub use http::{EagleHttp, Endpoint, escape_non_ascii};
+pub use page::{Page, decode_page, page_all};
+pub use plan::{FetchPlan, LARGE_LIBRARY, ServerFilter, plan};
+pub use source::EagleSource;
 
 #[cfg(test)]
 mod tests {

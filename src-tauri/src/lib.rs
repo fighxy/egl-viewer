@@ -94,6 +94,9 @@ pub fn run() {
         .invoke_handler(tauri::generate_handler![
             commands::app_info,
             commands::connection_defaults,
+            commands::connect_eagle,
+            commands::eagle_session,
+            commands::disconnect_eagle,
             commands::default_library_location,
             commands::create_library,
             commands::open_library,

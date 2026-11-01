@@ -371,6 +371,16 @@ export const en = {
     storage: "Something went wrong on disk: {{detail}}",
     wrongPassword: "The password or recovery key is not right.",
     locked: "Unlock “{{folder}}” first.",
+    unauthorized: "The API token is wrong. Check it in Eagle → Preferences → Developer.",
+    apiTooOld: "Eagle on that PC is older than 4.0; its API cannot serve this app.",
+    noLibraryOpen: "Eagle is running there, but no library is open in it.",
+    rejected: "Eagle refused the call: {{message}}",
+    connectTimeout:
+      "No answer from that PC. The Windows Firewall on the Eagle PC likely blocks port 41595: allow it on the Private profile, ideally only for this computer's IP.",
+    refused: "Nothing listens there. Is Eagle running, and is the port right?",
+    unreachable: "That address is unreachable. Check the network or the Tailscale connection.",
+    localNetworkDenied: "Windows denied local network access to the app.",
+    networkOther: "Network error: {{detail}}",
     generic: "Something went wrong.",
   },
   filters: {
@@ -441,6 +451,7 @@ export const en = {
     port: "Port",
     token: "API token",
     tokenHint: "Eagle → Preferences → Developer. Not needed when Eagle runs on this PC.",
+    help: "On the Eagle PC, limit the Windows Firewall rule for port 41595 to the Private profile and, ideally, to this computer's IP. Outside the LAN use Tailscale; never forward the port.",
     connect: "Connect",
     back: "Back",
   },
@@ -887,7 +898,6 @@ export const en = {
     makingThumbnails_other: "Making {{count}} thumbnails again…",
     loading: "Loading {{loaded}} of {{total}}…",
     nothingToPaste: "Nothing to paste: copy an image or files first.",
-    connectSoon: "Connecting is not available yet.",
   },
   exportUi: {
     titleBackup: "Backup",
