@@ -29,4 +29,60 @@ describe("i18n catalogs", () => {
     setAppLocale("de");
     expect(i18n.language).toBe("en");
   });
+
+  it("translates sort field and order labels", async () => {
+    expect(i18n.t("sort.added")).toBe("Date Added");
+    expect(i18n.t("sort.ascending")).toBe("Ascending");
+    expect(i18n.t("sort.byAria", { label: i18n.t("sort.added") })).toBe("Sort by Date Added");
+
+    await i18n.changeLanguage("ru");
+    expect(i18n.t("sort.added")).toBe("Дата добавления");
+    expect(i18n.t("sort.btime")).toBe("Дата создания");
+    expect(i18n.t("sort.mtime")).toBe("Дата изменения");
+    expect(i18n.t("sort.name")).toBe("Название");
+    expect(i18n.t("sort.ext")).toBe("Расширение");
+    expect(i18n.t("sort.size")).toBe("Размер файла");
+    expect(i18n.t("sort.resolution")).toBe("Размеры");
+    expect(i18n.t("sort.star")).toBe("Оценка");
+    expect(i18n.t("sort.tag")).toBe("Теги");
+    expect(i18n.t("sort.random")).toBe("Случайно");
+    expect(i18n.t("sort.manual")).toBe("Вручную");
+    expect(i18n.t("sort.ascending")).toBe("По возрастанию");
+    expect(i18n.t("sort.descending")).toBe("По убыванию");
+    expect(i18n.t("sort.title")).toBe("Сортировка");
+    expect(i18n.t("sort.byAria", { label: i18n.t("sort.added") })).toBe(
+      "Сортировка: Дата добавления",
+    );
+
+    await i18n.changeLanguage("zh-CN");
+    expect(i18n.t("sort.added")).toBe("添加日期");
+    expect(i18n.t("sort.ascending")).toBe("升序");
+    expect(i18n.t("sort.descending")).toBe("降序");
+    expect(i18n.t("sort.byAria", { label: i18n.t("sort.name") })).toBe("按标题排序");
+
+    setAppLocale("en");
+  });
+
+  it("translates Backup / Export dialog labels", async () => {
+    expect(i18n.t("exportUi.titleBackup")).toBe("Backup");
+    expect(i18n.t("exportUi.wherePlaceholder")).toBe("A folder on this PC");
+
+    await i18n.changeLanguage("ru");
+    expect(i18n.t("exportUi.titleBackup")).toBe("Резервная копия");
+    expect(i18n.t("exportUi.what")).toBe("Что");
+    expect(i18n.t("exportUi.format")).toBe("Формат");
+    expect(i18n.t("exportUi.where")).toBe("Куда");
+    expect(i18n.t("exportUi.entireLibrary")).toBe("Вся библиотека");
+    expect(i18n.t("exportUi.mirror")).toBe("Файлы в папках");
+    expect(i18n.t("exportUi.zip")).toBe("ZIP-архив");
+    expect(i18n.t("exportUi.backUp")).toBe("Создать копию");
+    expect(i18n.t("exportUi.chooseWhat")).toBe("Выберите, что экспортировать.");
+
+    await i18n.changeLanguage("zh-CN");
+    expect(i18n.t("exportUi.titleBackup")).toBe("备份");
+    expect(i18n.t("exportUi.entireLibrary")).toBe("整个图库");
+    expect(i18n.t("exportUi.backUp")).toBe("备份");
+
+    setAppLocale("en");
+  });
 });
