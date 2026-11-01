@@ -1255,3 +1255,11 @@ linked libheif dynamically, but the installer did not ship it).
   `libde265.dll` sit beside `egl-viewer.exe`; the app starts without a missing-DLL dialog;
   importing a `.heic` produces a thumbnail. On CI, the nsis job prints `bundled-dlls.txt`
   before `pnpm build`.
+
+## D-071 Hide Add files in the trash toolbar (2026-11-01)
+
+When the open place is the trash (`place.kind === "trash"`), the toolbar does not show
+**Add files**. Empty Trash stays (via `placeActions`). Importing into the trash would be
+misleading: new files never land there. File → Add Files… / Import Folder… remain available
+from the menu and still add into the library as usual. Covered by `LibraryScreen` and Phase 7
+UI tests.

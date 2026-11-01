@@ -478,15 +478,17 @@ export function LibraryScreen({
                 />
               )}
               {placeActions}
-              <Button
-                size="sm"
-                disabled={canAdd !== true}
-                title={canAdd === true ? t("empty.addFiles") : canAddTitle}
-                onClick={onAddFiles}
-              >
-                <Plus aria-hidden />
-                {t("empty.addFiles")}
-              </Button>
+              {place.kind !== "trash" && (
+                <Button
+                  size="sm"
+                  disabled={canAdd !== true}
+                  title={canAdd === true ? t("empty.addFiles") : canAddTitle}
+                  onClick={onAddFiles}
+                >
+                  <Plus aria-hidden />
+                  {t("empty.addFiles")}
+                </Button>
+              )}
               <Button
                 variant="ghost"
                 size="icon-sm"

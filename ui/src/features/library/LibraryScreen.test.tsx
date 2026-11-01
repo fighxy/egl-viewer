@@ -152,8 +152,28 @@ describe("LibraryScreen", () => {
     expect(screen.getByRole("button", { name: /^Trash/ })).toHaveAttribute("aria-current", "page");
     expect(screen.getByRole("heading", { level: 1 })).toHaveTextContent("Trash");
     expect(screen.getByRole("main")).toHaveTextContent("The trash is empty.");
+    expect(screen.queryByRole("button", { name: /Add files/ })).not.toBeInTheDocument();
     await userEvent.setup().click(screen.getByRole("button", { name: /^Untagged/ }));
     expect(onPlaceChange).toHaveBeenCalledWith({ kind: "untagged" });
+  });
+
+  it("hides Add files in the trash toolbar and keeps Empty Trash", () => {
+    render(
+      <LibraryScreen
+        library={LIBRARY}
+        layout={DEFAULT_PREFERENCES.layout}
+        onLayoutChange={vi.fn()}
+        onOpenForEditing={vi.fn()}
+        counts={{ all: 3, uncategorized: 3, untagged: 3, trash: 2 }}
+        place={{ kind: "trash" }}
+        itemCount={2}
+        placeActions={<button type="button">Empty Trash</button>}
+        onAddFiles={vi.fn()}
+      />,
+    );
+    expect(screen.getByRole("heading", { level: 1 })).toHaveTextContent("Trash");
+    expect(screen.getByRole("button", { name: "Empty Trash" })).toBeInTheDocument();
+    expect(screen.queryByRole("button", { name: /Add files/ })).not.toBeInTheDocument();
   });
 
   it("changes the layout and the sort from the toolbar", async () => {
