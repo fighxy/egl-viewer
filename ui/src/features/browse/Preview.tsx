@@ -24,6 +24,7 @@ const MAX_ZOOM = 8;
  * The full-size preview (docs/spec.md §7.4): a layer over the window with the original at
  * window size, zoom and pan, rotate, and the previous and next items of the view. Originals the
  * WebView cannot show (TIFF, PSD) show their thumbnail. Rotation is session-only (D-058).
+ * Letterbox clicks and Space hold-vs-toggle close it (D-073).
  */
 export function Preview({ viewId, total, index, onIndexChange, onClose, onLost }: Props) {
   const at = index ?? 0;
@@ -173,15 +174,20 @@ export function Preview({ viewId, total, index, onIndexChange, onClose, onLost }
               </DialogPrimitive.Close>
             </div>
           </div>
-          {/* biome-ignore lint/a11y/noStaticElementInteractions: mouse zoom and pan; the keyboard has + − 0 on the dialog. */}
+          {/* biome-ignore lint/a11y/noStaticElementInteractions: mouse zoom, pan, and dismiss; the keyboard has + − 0 and Space on the dialog. */}
           <div
             ref={stage}
             className="relative flex min-h-0 flex-1 items-center justify-center overflow-hidden"
             onWheel={(event) => zoomTo(zoom * (event.deltaY < 0 ? 1.1 : 1 / 1.1))}
             onMouseDown={(event) => {
-              if (zoom > 1 && event.button === 0) {
+              // Empty stage (letterbox beside / above the image): left or right click closes (D-073).
+              if (
+                event.target === event.currentTarget &&
+                (event.button === 0 || event.button === 2)
+              ) {
                 event.preventDefault();
-                drag.current = { x: event.clientX - offset.x, y: event.clientY - offset.y };
+                onClose(cell?.id ?? null);
+                return;
               }
             }}
             onMouseMove={(event) => {
@@ -206,6 +212,12 @@ export function Preview({ viewId, total, index, onIndexChange, onClose, onLost }
                 alt={cell?.name ?? ""}
                 draggable={false}
                 onError={() => setFailed(true)}
+                onMouseDown={(event) => {
+                  if (zoom > 1 && event.button === 0) {
+                    event.preventDefault();
+                    drag.current = { x: event.clientX - offset.x, y: event.clientY - offset.y };
+                  }
+                }}
                 className="object-contain select-none"
                 style={{
                   maxWidth: fitW > 0 ? fitW : "100%",

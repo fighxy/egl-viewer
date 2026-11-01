@@ -318,8 +318,9 @@ full-database cipher is ever required; it is out of scope here.
   filter is active. Rejected: an always visible bar (it costs a row most of the time) and filters
   in the right bar (that belongs to the selection).
 - Grid: justified rows from item aspect ratios (D-067; phase 3 shipped squares first). List
-  unchanged. Masonry can still come later. Double-click and `Space` open the full-size preview;
-  `Enter` moves focus to the right bar (spec §7 said before that `Enter` opens the detail).
+  unchanged. Masonry can still come later. Double-click and `Space` open the full-size preview
+  (`Space` hold-vs-toggle and letterbox click-out: D-073); `Enter` moves focus to the right bar
+  (spec §7 said before that `Enter` opens the detail).
 - Right bar: fields save on `Enter` or blur, `Esc` reverts, no Save button. With several items it
   shows batch edits; with nothing selected, the open folder's properties (from phase 4).
 - Phase 1 builds the whole frame with empty zones, so later phases fill zones instead of

@@ -47,14 +47,12 @@ describe("useShortcuts", () => {
     expect(actions.paste).toHaveBeenCalledOnce();
   });
 
-  it("leaves Space to buttons and fields and opens the preview elsewhere", () => {
+  it("leaves Space to useSpacePreview instead of running the Preview command", () => {
     const actions = actionsWith();
     render(<Harness actions={actions} />);
     fireEvent.keyDown(screen.getByRole("button", { name: "Button" }), { key: " " });
-    fireEvent.keyDown(screen.getByLabelText("Field"), { key: " " });
-    expect(actions.preview).not.toHaveBeenCalled();
     fireEvent.keyDown(document.body, { key: " " });
-    expect(actions.preview).toHaveBeenCalledOnce();
+    expect(actions.preview).not.toHaveBeenCalled();
   });
 
   it("does nothing while a dialog is open", () => {

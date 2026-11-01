@@ -400,7 +400,7 @@ Each filter is a button with a dropdown panel. Later filters (size, dates, colou
 
 - The **grid** is justified (D-067): rows share one height, each cell's width follows the item's aspect ratio so the row fills the container; the size slider sets the target row height. Gutters stay small (`8px`). Missing width/height use a square. **List** shows a small thumbnail, name, type, size, dimensions, date added, rating and tags. Masonry can still come later as another View mode.
 - A cell shows the thumbnail, or the first palette colour and the extension until the thumbnail exists; stars when rated; the name under the image when View → Show Names is on (same caption density as before — name only). Selection is an outline.
-- Click, `Ctrl`, `Shift`, a rubber band and `Ctrl+A` select. Double-click or `Space` opens the full-size preview. `Enter` moves focus to the right bar and opens it if hidden. `Delete` moves the selection to the trash after a confirmation; the confirmation has a "Don't ask again" checkbox that turns the confirmation off for good, and Settings → General turns it back on.
+- Click, `Ctrl`, `Shift`, a rubber band and `Ctrl+A` select. Double-click or a short `Space` opens the full-size preview; a second short `Space` closes it. Holding `Space` peeks (opens while held, closes on release) (D-073). `Enter` moves focus to the right bar and opens it if hidden. `Delete` moves the selection to the trash after a confirmation; the confirmation has a "Don't ask again" checkbox that turns the confirmation off for good, and Settings → General turns it back on.
 - Files dragged onto the window show an overlay "Add to <scope>".
 - Empty states: a new library ("Drop images here", a big drop target and Add files), a folder without items, no results (with Clear filters), an empty trash.
 
@@ -442,7 +442,7 @@ Link     https://…  ↗
 
 ### 7.4 Other screens and dialogs
 
-1. **Full-size preview.** A layer over the whole window, not a new window. The original at window size, zoom and pan, rotate clockwise (toolbar button or `R`), previous and next in the current view; `Esc` closes it. Rotation is display-only for this preview session (D-058). It opens with a short zoom out of its cell (arch §8; in WebView2, D-040). Originals the WebView cannot show (TIFF, PSD) show their 512 px thumbnail.
+1. **Full-size preview.** A layer over the whole window, not a new window. The original at window size, zoom and pan, rotate clockwise (toolbar button or `R`), previous and next in the current view; `Esc`, a short `Space`, or a left/right click on the empty letterbox beside the image closes it; holding `Space` peeks while the key is down (D-073). Rotation is display-only for this preview session (D-058). It opens with a short zoom out of its cell (arch §8; in WebView2, D-040). Originals the WebView cannot show (TIFF, PSD) show their 512 px thumbnail.
 2. **Tags filter** (the tag sheet): the dropdown panel of the Tags filter. Search box over the vocabulary, mode segment Any / All / Exact / None, counts, recent tags, groups as sections; rename, merge and delete from a context menu.
 3. **Smart folder editor.** Name, AND/OR, the rules of the v1 subset.
 4. **Folder dialogs.** Create, rename, move, delete (with the item count and the trash option), lock and unlock. Lock and unlock, password change, and recovery are for the chosen folder. The lock dialog edits that folder's name and tag.
