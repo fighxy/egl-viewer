@@ -1,7 +1,7 @@
-// Dragging inside the window: folders in the tree, items onto folders and tag rows, items
-// into a new manual order. Built on mouse events, not HTML5 drag and drop: with the file
-// drop of the Tauri window on, Windows hands HTML5 drags to the window instead of the page
-// (D-042, D-057).
+// Dragging inside the window: folders in the tree, items onto folders, tag rows and Trash,
+// items into a new manual order. Built on mouse events, not HTML5 drag and drop: with the
+// file drop of the Tauri window on, Windows hands HTML5 drags to the window instead of the
+// page (D-042, D-057, D-073).
 import {
   createContext,
   type ReactNode,
@@ -23,9 +23,10 @@ export type DropTarget =
   | { kind: "folder"; id: string; zone: "before" | "inside" | "after" }
   | { kind: "root" }
   | { kind: "cell"; index: number; id: string; side: "before" | "after" }
-  | { kind: "tag"; name: string; row: string };
+  | { kind: "tag"; name: string; row: string }
+  | { kind: "trash" };
 
-/** How a folder's inside zone, and a tag row, show that they would take the items. */
+/** How a folder's inside zone, a tag row, and Trash show that they would take the items. */
 export const DROP_INSIDE_CLASS = "bg-primary/15 ring-1 ring-primary";
 
 type Active = { payload: DragPayload; over: DropTarget | null; x: number; y: number };
@@ -86,6 +87,8 @@ function targetAt(x: number, y: number, payload: DragPayload): DropTarget | null
       if (name === "") return null;
       return { kind: "tag", name, row: zone.dataset.row ?? name };
     }
+    case "trash":
+      return { kind: "trash" };
     default:
       return null;
   }

@@ -1279,3 +1279,17 @@ exits. Cancel dismisses the dialog and keeps the process running.
   `window.close()`, so it shares the same path as the title-bar X.
 - **i18n.** `confirm.quitTitle` / `quitBody` / `quitConfirm` in `en`, `ru`, and `zh-CN`
   (D-069); Cancel reuses `common.cancel`.
+
+## D-073 Dropping items on Trash (2026-11-01)
+
+- **The Trash row is a drop target** in the same mouse-event drag as folders and tags
+  (D-042, D-057). It carries `data-drop="trash"`. The payload is the items payload already
+  used for a folder or a tag (`ItemsTarget`). A folder dragged onto Trash is refused. A
+  read-only library refuses every drop. Items cannot be dragged out of the Trash view
+  already, so there is no drop-onto-self case.
+- **The edit is the same `trash` intent as Delete / Move to Trash.** Multi-select keeps the
+  selection when the drag starts from a selected cell (same as a folder drop). The
+  confirmation from D-060 applies: when `confirmBeforeTrash` is on, the drop opens the same
+  dialog (with "Don't ask again"); when it is off, the items go straight to the trash.
+- **The highlight** is the folder inside-zone / tag-row highlight on the Trash button under
+  the pointer. A refused target is not highlighted.

@@ -9,6 +9,7 @@ import {
   called,
   cell,
   fakeLayout,
+  folder,
   item,
   LIBRARY,
   listening,
@@ -20,7 +21,27 @@ let restoreLayout: () => void;
 beforeEach(() => {
   restoreLayout = fakeLayout(800, 600);
 });
-afterEach(() => restoreLayout());
+afterEach(() => {
+  restoreLayout();
+  Reflect.deleteProperty(document, "elementFromPoint");
+});
+
+/** Makes `element` the one under the pointer while a drag moves. */
+function pointAt(element: Element) {
+  Object.defineProperty(document, "elementFromPoint", {
+    configurable: true,
+    value: () => element,
+  });
+}
+
+/** Presses on `from`, moves past the drag threshold over `to`, and releases. */
+function drag(from: Element, to: Element) {
+  pointAt(to);
+  fireEvent.mouseDown(from, { button: 0, clientX: 10, clientY: 10 });
+  fireEvent.mouseMove(window, { clientX: 30, clientY: 30 });
+  fireEvent.mouseMove(window, { clientX: 40, clientY: 40 });
+  fireEvent.mouseUp(window);
+}
 
 type Handlers = Record<string, (args: Record<string, unknown>) => unknown>;
 
@@ -212,6 +233,72 @@ describe("Phase 7: editing, the trash and file actions", () => {
     await waitFor(() => expect(called(calls, "apply_batch_edit")).toHaveLength(1));
     expect(screen.queryByRole("dialog", { name: "Move to the trash?" })).not.toBeInTheDocument();
     expect(called(calls, "set_preferences")).toHaveLength(0);
+  });
+
+  it("drops items on Trash with the same confirmation as Delete", async () => {
+    const calls = library();
+    const user = userEvent.setup();
+    render(<App />);
+    const trash = await screen.findByRole("button", { name: /^Trash/ });
+    expect(trash).toHaveAttribute("data-drop", "trash");
+    const cell = await screen.findByRole("gridcell", { name: "image-1" });
+    pointAt(trash);
+    fireEvent.mouseDown(cell, { button: 0, clientX: 10, clientY: 10 });
+    fireEvent.mouseMove(window, { clientX: 30, clientY: 30 });
+    expect(trash).toHaveClass("bg-primary/15", "ring-primary");
+    fireEvent.mouseUp(window);
+    const dialog = await screen.findByRole("dialog", { name: "Move to the trash?" });
+    expect(dialog).toHaveTextContent("1 item go to the trash");
+    await user.click(within(dialog).getByRole("button", { name: "Move to Trash" }));
+    await waitFor(() =>
+      expect(lastEdit(calls, "apply_batch_edit")).toEqual({
+        target: { viewId: 1, all: false, ids: ["ID0001"] },
+        edit: { type: "trash" },
+      }),
+    );
+  });
+
+  it("drops a multi-selection on Trash without asking when confirmation is off", async () => {
+    const calls = library(3, {
+      get_preferences: () => ({ ...DEFAULT_PREFERENCES, confirmBeforeTrash: false }),
+    });
+    render(<App />);
+    const cell = await screen.findByRole("gridcell", { name: "image-0" });
+    fireEvent.mouseDown(cell);
+    await waitFor(() => expect(screen.getByRole("contentinfo")).toHaveTextContent("1 selected"));
+    fireEvent.mouseDown(screen.getByRole("gridcell", { name: "image-1" }), { ctrlKey: true });
+    await waitFor(() => expect(screen.getByRole("contentinfo")).toHaveTextContent("2 selected"));
+    drag(cell, await screen.findByRole("button", { name: /^Trash/ }));
+    await waitFor(() =>
+      expect(lastEdit(calls, "apply_batch_edit")).toEqual({
+        target: { viewId: 1, all: false, ids: ["ID0000", "ID0001"] },
+        edit: { type: "trash" },
+      }),
+    );
+    expect(screen.queryByRole("dialog", { name: "Move to the trash?" })).not.toBeInTheDocument();
+  });
+
+  it("a folder dragged onto Trash is not a trash edit", async () => {
+    const calls = library(3, {
+      folder_tree: () => [folder("F1", "Posters")],
+    });
+    render(<App />);
+    const trash = await screen.findByRole("button", { name: /^Trash/ });
+    drag(await screen.findByRole("treeitem", { name: "Posters" }), trash);
+    expect(trash).not.toHaveClass("ring-primary");
+    expect(called(calls, "apply_batch_edit")).toHaveLength(0);
+    expect(called(calls, "save_folder")).toHaveLength(0);
+  });
+
+  it("a read-only library refuses a drop on Trash", async () => {
+    const calls = library(3, {
+      startup: () => ({ library: { ...LIBRARY, readOnly: true }, notice: null }),
+    });
+    render(<App />);
+    const trash = await screen.findByRole("button", { name: /^Trash/ });
+    drag(await screen.findByRole("gridcell", { name: "image-0" }), trash);
+    expect(trash).not.toHaveClass("ring-primary");
+    expect(called(calls, "apply_batch_edit")).toHaveLength(0);
   });
 
   it("restores, deletes for good and empties the trash", async () => {

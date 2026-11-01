@@ -898,34 +898,44 @@ function AppShell() {
     [selection, client, failed],
   );
 
+  /**
+   * Moves items to the trash after the same confirmation as Delete (docs/spec.md §7.3,
+   * D-060, D-073). Used by Move to Trash and by dropping items on the Trash row.
+   */
+  const trashItems = useCallback(
+    (target: ItemsTarget, count: number) => {
+      const move = () => {
+        setSelection(NOTHING);
+        void editItems(target, { type: "trash" });
+      };
+      if (!preferences.confirmBeforeTrash) {
+        move();
+        return;
+      }
+      setConfirmation({
+        title: t("confirm.trashTitle"),
+        description: t("confirm.trashBody", { items: many(count, t, i18n.language) }),
+        confirm: t("confirm.trashConfirm"),
+        cancel: t("common.cancel"),
+        dontAskAgain: {
+          label: t("confirm.dontAskAgain"),
+          hint: t("confirm.dontAskHint"),
+        },
+        onConfirm: (dontAskAgain) => {
+          if (dontAskAgain) {
+            void savePreferences({ ...preferences, confirmBeforeTrash: false });
+          }
+          move();
+        },
+      });
+    },
+    [editItems, preferences, savePreferences, t, i18n.language],
+  );
+
   /** Delete in the grid: to the trash after a confirmation (docs/spec.md §7.3). */
   const trashSelection = useCallback(() => {
-    const target = selectedTarget();
-    const move = () => {
-      setSelection(NOTHING);
-      void editItems(target, { type: "trash" });
-    };
-    if (!preferences.confirmBeforeTrash) {
-      move();
-      return;
-    }
-    setConfirmation({
-      title: t("confirm.trashTitle"),
-      description: t("confirm.trashBody", { items: many(selected, t, i18n.language) }),
-      confirm: t("confirm.trashConfirm"),
-      cancel: t("common.cancel"),
-      dontAskAgain: {
-        label: t("confirm.dontAskAgain"),
-        hint: t("confirm.dontAskHint"),
-      },
-      onConfirm: (dontAskAgain) => {
-        if (dontAskAgain) {
-          void savePreferences({ ...preferences, confirmBeforeTrash: false });
-        }
-        move();
-      },
-    });
-  }, [selectedTarget, selected, editItems, preferences, savePreferences, t, i18n.language]);
+    trashItems(selectedTarget(), selected);
+  }, [trashItems, selectedTarget, selected]);
 
   /** Delete Permanently: rows and files go; there is no undo (docs/spec.md §3 Trash). */
   const deleteSelection = useCallback(() => {
@@ -1172,6 +1182,7 @@ function AppShell() {
         return !folder?.isLocked || folder.isUnlocked;
       }
       if (target.kind === "tag") return payload.kind === "items";
+      if (target.kind === "trash") return payload.kind === "items";
       if (target.kind === "cell") {
         return reorderable && !payload.target.all && !payload.target.ids.includes(target.id);
       }
@@ -1212,6 +1223,8 @@ function AppShell() {
         void editItems(payload.target, { type: "addTags", value: [name] }).then((edited) => {
           if (typeof edited === "number" && edited > 0) recentTags.use([name]);
         });
+      } else if (target.kind === "trash") {
+        trashItems(payload.target, payload.count);
       } else if (target.kind === "cell" && openFolder && opened.view) {
         const viewId = opened.view.viewId;
         const folder = openFolder.id;
@@ -1228,6 +1241,7 @@ function AppShell() {
       tree,
       moveFolder,
       editItems,
+      trashItems,
       openFolder,
       opened.view,
       total,

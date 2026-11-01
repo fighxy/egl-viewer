@@ -298,7 +298,7 @@ Changing chips or sort on the same scope does not reload the scope.
 ## 6. Editing
 
 - **One item:** name (renames the stored file too), note, link, rating, tags, folders. A change is an intent (`ItemEdit`: add or remove tags, add to or remove from folders, set the folders, set the rating, …), applied to the current state of the item in Rust (arch §7.1).
-- **Several items:** with a multi-selection in the grid, add or remove tags, add to or remove from folders, set the rating, move to the trash. Dropping items on a folder adds them to it. Dropping them on a tag row in the left bar (a tag in Tag groups or Recent tags) adds that one tag and leaves their other tags. If every dropped item already has the tag, the drop writes nothing. A read-only library refuses either drop. One transaction per batch; progress for large batches.
+- **Several items:** with a multi-selection in the grid, add or remove tags, add to or remove from folders, set the rating, move to the trash. Dropping items on a folder adds them to it. Dropping them on a tag row in the left bar (a tag in Tag groups or Recent tags) adds that one tag and leaves their other tags. If every dropped item already has the tag, the drop writes nothing. Dropping items on Trash moves them to the trash, the same edit and confirmation as Delete (D-073). A read-only library refuses these drops. One transaction per batch; progress for large batches.
 - **Optimistic UI:** the UI shows the intended state at once. On an error, Rust returns the stored state, the view is recomputed and the UI rolls back.
 - **Validation before writing:** rating 0–5, name not empty, name and note at most 10 000 UTF-16 units, no empty tags or folder ids.
 - **Undo:** the last item edits (not a permanent delete) can be undone with `Ctrl+Z`, one at a time, while the library is open: up to 50, kept in memory (D-050). Folder and tag-vocabulary changes are not undone. Later: a longer history from `change_log`.
@@ -372,7 +372,7 @@ Trash                  27
 ```
 
 - The library name, with a menu (Library Settings, Show in Explorer, Close Library) and the read-only badge.
-- All, Uncategorized, Untagged and Trash with their counts.
+- All, Uncategorized, Untagged and Trash with their counts. Items dropped on Trash go to the trash (same confirmation as Delete; D-073).
 - **Folders:** the tree with colour dots and counts (direct items with subfolders off, items including subfolders with it on). ⊕ creates a folder. ⇲ is the **Include subfolders** switch, also in the View menu; it changes the counts, so it sits next to the tree. Items dropped on a folder are added to it. Folders are dragged to move them (onto a folder: inside it; near its top or bottom edge: before or after it). The context menu has New Subfolder, Rename (`F2`), Colour, Move To… and Delete… (`Del`).
 - **Locked folders:** each locked folder with its name, its tag (label and colour) and a lock. Locked folders appear only here, not again in Folders (D-059). Choosing a row prompts for that folder only; choosing an unlocked one opens it. The section's menu has Unlock…, Lock Now, Change Password…, New Recovery Key…, Add YubiKey…, Remove YubiKey… and Remove Lock…. Folders' menu still has Lock… for an unlocked folder. Library → Lock All Folders (`Ctrl+L`) locks every open folder again.
 - **Smart folders:** their own tree.
@@ -935,10 +935,10 @@ Done when: search inside a folder never shows items from other folders; `a OR b`
 
 ### Phase 7 — Editing and trash
 
-Implemented 2026-10-29 (D-049 to D-052).
+Implemented 2026-10-29 (D-049 to D-052). Dropping items on the Trash row added 2026-11-01 (D-073).
 
 - The remaining item fields: name (renames the stored file), note, link, rating; batch edits on a selection; undo of the last edit.
-- Trash: move, restore, delete permanently, empty (files removed).
+- Trash: move, restore, delete permanently, empty (files removed). Dragging items from the grid onto the Trash row moves them to the trash with the same confirmation as Delete (D-073).
 - Open with the default app, show in Explorer, copy file, drag out of the window.
 - Library settings: backups, rebuild thumbnails, check library.
 
