@@ -49,6 +49,7 @@ import { ImportReviewDialog } from "@/features/imports/ImportReviewDialog";
 import { ImportsPanel } from "@/features/imports/ImportsPanel";
 import { importSummary } from "@/features/imports/importText";
 import { useImports } from "@/features/imports/useImports";
+import { EmptyTrashDialog, type EmptyTrashProgress } from "@/features/library/EmptyTrashDialog";
 import {
   activeFilters,
   FilterBar,
@@ -296,6 +297,9 @@ function AppShell() {
   } | null>(null);
   const [importsOpen, setImportsOpen] = useState(false);
   const [confirmation, setConfirmation] = useState<Confirmation | null>(null);
+  /** Progress dialog while Empty Trash runs; `null` means open with no tick yet (D-074). */
+  const [emptying, setEmptying] = useState<EmptyTrashProgress | null | false>(false);
+  const emptyingRefreshAt = useRef(0);
   const [updateDialog, setUpdateDialog] = useState<UpdateDialogState | null>(null);
   const launchUpdateChecked = useRef(false);
   const [dropping, setDropping] = useState(false);
@@ -953,6 +957,20 @@ function AppShell() {
     });
   }, [selectedTarget, selected, failed, t, i18n.language]);
 
+  /** Sidebar counts and trash menu info, without the 300 ms debounce (D-074). */
+  const refreshTrashCounts = useCallback(() => {
+    if (!library || !inTauri()) return;
+    void ipc
+      .libraryCounts()
+      .then(setCounts)
+      .catch(() => {});
+    void ipc
+      .trashInfo()
+      .then(setTrashInfo)
+      .catch(() => {});
+    void client.invalidateQueries({ queryKey: ["folders"] });
+  }, [library, client]);
+
   const emptyTrash = useCallback(() => {
     const items = counts?.trash ?? 0;
     setConfirmation({
@@ -962,10 +980,33 @@ function AppShell() {
       cancel: t("common.cancel"),
       onConfirm: () => {
         setSelection(NOTHING);
-        ipc.emptyTrash().catch(failed);
+        setEmptying(null);
+        emptyingRefreshAt.current = 0;
+        const onProgress = (progress: EmptyTrashProgress) => {
+          setEmptying(progress);
+          // Refresh as soon as rows are gone (halfway) and at a light throttle otherwise so
+          // the sidebar badge and trash menu stop showing stale numbers mid-run.
+          const now = Date.now();
+          const halfway = progress.total > 0 && progress.done >= Math.ceil(progress.total / 2);
+          if (halfway || now - emptyingRefreshAt.current > 150) {
+            emptyingRefreshAt.current = now;
+            refreshTrashCounts();
+          }
+        };
+        ipc
+          .emptyTrash(onProgress)
+          .then(() => {
+            setEmptying(false);
+            refreshTrashCounts();
+          })
+          .catch((error: unknown) => {
+            setEmptying(false);
+            refreshTrashCounts();
+            failed(error);
+          });
       },
     });
-  }, [counts, failed, t, i18n.language]);
+  }, [counts, failed, t, i18n.language, refreshTrashCounts]);
 
   /** Restore All of the trash context menu; one undoable edit. */
   const restoreTrashAll = useCallback(() => {
@@ -1486,6 +1527,7 @@ function AppShell() {
     smartDialog !== null ||
     importsOpen ||
     confirmation !== null ||
+    emptying !== false ||
     updateDialog !== null ||
     imports.waiting !== undefined;
   const previewOpen = previewIndex !== null;
@@ -2067,6 +2109,12 @@ function AppShell() {
           }
         />
         <ConfirmDialog confirmation={confirmation} onClose={() => setConfirmation(null)} />
+        {emptying !== false && (
+          <EmptyTrashDialog
+            progress={emptying}
+            onCancel={() => void ipc.cancelEmptyTrash().catch(() => {})}
+          />
+        )}
         <UpdateDialog
           state={updateDialog}
           onClose={() => {

@@ -274,6 +274,10 @@ export const ru: MessageCatalog = {
     emptyTrashTitle: "Очистить корзину?",
     emptyTrashBody: "{{items}} и их файлы будут удалены с диска. Отменить нельзя.",
     emptyTrashConfirm: "Очистить корзину",
+    emptyingTitle: "Очистка корзины",
+    emptyingBody: "Объекты и их файлы удаляются с диска.",
+    emptyingCounted: "{{done}} из {{total}}…",
+    emptyingPlain: "Удаление объектов…",
   },
   widgetKeys: {
     grid: "Сетка",

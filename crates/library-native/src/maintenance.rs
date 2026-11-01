@@ -115,7 +115,13 @@ impl Library {
                     .map(|row| row.id)
                     .collect()
             };
-            self.remove_items(&missing, Removable::Any)?;
+            self.remove_items(
+                &missing,
+                Removable::Any,
+                &|_, _| {},
+                &std::sync::atomic::AtomicBool::new(false),
+                &|| {},
+            )?;
         }
         let conn = self.conn();
         if options.orphans {

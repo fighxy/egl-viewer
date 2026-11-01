@@ -259,7 +259,13 @@ export const ipc = {
   undo: () => invoke<UndoStatus | null>("undo"),
   undoStatus: () => invoke<UndoStatus | null>("undo_status"),
   deletePermanently: (target: ItemsTarget) => invoke<number>("delete_permanently", { target }),
-  emptyTrash: () => invoke<number>("empty_trash"),
+  /** Empties the trash; `onProgress` hears `{ done, total }` while rows and files go (D-074). */
+  emptyTrash: (onProgress?: (progress: LockProgress) => void) => {
+    const channel = new Channel<LockProgress>();
+    if (onProgress) channel.onmessage = onProgress;
+    return invoke<number>("empty_trash", { onProgress: channel });
+  },
+  cancelEmptyTrash: () => invoke<void>("cancel_empty_trash"),
   trashInfo: () => invoke<TrashInfo>("trash_info"),
   restoreTrash: () => invoke<number>("restore_trash"),
   openOriginal: (id: string) => invoke<void>("open_original", { id }),

@@ -5,6 +5,7 @@ use std::collections::HashMap;
 use std::fs;
 use std::io::ErrorKind;
 use std::path::{Path, PathBuf};
+use std::sync::atomic::{AtomicBool, Ordering};
 
 use library_core::{ItemEdit, ItemId, ItemState, SourceError, TrashInfo};
 use rusqlite::{Connection, OptionalExtension, Transaction, named_params, params};
@@ -364,12 +365,26 @@ impl Library {
     pub fn delete_items(&self, ids: &[ItemId]) -> Result<u32> {
         self.check_writable()?;
         let ids: Vec<String> = ids.iter().map(|id| id.0.clone()).collect();
-        self.remove_items(&ids, Removable::Trashed)
+        self.remove_items(
+            &ids,
+            Removable::Trashed,
+            &|_, _| {},
+            &AtomicBool::new(false),
+            &|| {},
+        )
     }
 
     /// Empty Trash: every visible item of the trash, with its files. Items of locked folders
-    /// stay until their folder is unlocked.
-    pub fn empty_trash(&self) -> Result<u32> {
+    /// stay until their folder is unlocked. `progress` hears `(done, total)` as rows leave and
+    /// again as files go; `after_rows` runs once the delete transaction has committed (counts
+    /// are already zero) so the UI can refresh before the slower file deletes finish. `cancel`
+    /// stops between items: rows already removed stay gone, remaining files stay in the journal.
+    pub fn empty_trash(
+        &self,
+        progress: &dyn Fn(u32, u32),
+        cancel: &AtomicBool,
+        after_rows: &dyn Fn(),
+    ) -> Result<u32> {
         self.check_writable()?;
         let ids: Vec<String> = {
             let conn = self.conn();
@@ -390,7 +405,12 @@ impl Library {
                 .and_then(Iterator::collect)
                 .context("read the trash")?
         };
-        self.remove_items(&ids, Removable::Trashed)
+        let items = u32::try_from(ids.len()).unwrap_or(u32::MAX / 2);
+        progress(0, items.saturating_mul(2));
+        if cancel.load(Ordering::Relaxed) {
+            return Ok(0);
+        }
+        self.remove_items(&ids, Removable::Trashed, progress, cancel, after_rows)
     }
 
     /// Items and bytes of the trash, for the context menu of its row. Items of locked folders
@@ -444,8 +464,24 @@ impl Library {
     /// Removes visible items for good. Their rows go in one transaction that also journals the
     /// original and both preview names; the files are deleted after it commits, and a file that
     /// cannot be deleted now is deleted on the next open (docs/library-format.md §6).
-    pub(crate) fn remove_items(&self, ids: &[String], which: Removable) -> Result<u32> {
+    ///
+    /// `progress` is `(done, total)` over two equal halves: removing rows, then deleting files.
+    /// After the transaction commits, `after_rows` runs so the UI can refresh counts while
+    /// files are still going. Cancel between items commits what was already removed (and still
+    /// deletes those files); leftover journal rows go on the next open.
+    pub(crate) fn remove_items(
+        &self,
+        ids: &[String],
+        which: Removable,
+        progress: &dyn Fn(u32, u32),
+        cancel: &AtomicBool,
+        after_rows: &dyn Fn(),
+    ) -> Result<u32> {
+        // Two phases of the same length keep the bar monotonic even if cancel shortens the run.
+        let planned = u32::try_from(ids.len()).unwrap_or(u32::MAX / 2);
+        let mut total = planned.saturating_mul(2);
         let now = now_ms();
+        // Three journalled paths per item (original + two preview names); grouped for progress.
         let mut files: Vec<String> = Vec::new();
         let mut removed: Vec<String> = Vec::new();
         {
@@ -461,6 +497,9 @@ impl Library {
             );
             let mut tags: Vec<i64> = Vec::new();
             for id in ids {
+                if cancel.load(Ordering::Relaxed) {
+                    break;
+                }
                 let found: Option<(i64, String)> = tx
                     .prepare_cached(&sql)
                     .and_then(|mut statement| {
@@ -510,6 +549,7 @@ impl Library {
                 execute(&tx, "DELETE FROM item WHERE id = ?1", params![id])?;
                 log(&tx, "item", id, "delete", now)?;
                 removed.push(id.clone());
+                progress(u32::try_from(removed.len()).unwrap_or(u32::MAX), total);
             }
             drop_unused(&tx, &tags)?;
             tx.commit().context("remove items")?;
@@ -520,22 +560,37 @@ impl Library {
                 keys.forget_item(id);
             }
         }
-        for stored in &files {
-            let deleted = match journal_file(self.root(), stored) {
-                Some(path) if stored.starts_with("files/") => {
-                    remove_with_empty_parent(&path).is_ok()
-                }
-                Some(path) => match fs::remove_file(&path) {
-                    Ok(()) => true,
-                    Err(error) => error.kind() == ErrorKind::NotFound,
-                },
-                None => true,
-            };
-            if deleted {
-                self.forget_journal(stored);
+        // Rows are gone: sidebar counts can update while files are still being deleted.
+        let row_done = u32::try_from(removed.len()).unwrap_or(u32::MAX);
+        total = row_done.saturating_mul(2);
+        after_rows();
+        progress(row_done, total);
+        // `files` is three paths per removed item, in the same order as `removed`.
+        for (index, chunk) in files.chunks(3).enumerate() {
+            if cancel.load(Ordering::Relaxed) {
+                break;
             }
+            for stored in chunk {
+                let deleted = match journal_file(self.root(), stored) {
+                    Some(path) if stored.starts_with("files/") => {
+                        remove_with_empty_parent(&path).is_ok()
+                    }
+                    Some(path) => match fs::remove_file(&path) {
+                        Ok(()) => true,
+                        Err(error) => error.kind() == ErrorKind::NotFound,
+                    },
+                    None => true,
+                };
+                if deleted {
+                    self.forget_journal(stored);
+                }
+            }
+            progress(
+                row_done.saturating_add(u32::try_from(index + 1).unwrap_or(0)),
+                total,
+            );
         }
-        Ok(u32::try_from(removed.len()).unwrap_or(u32::MAX))
+        Ok(row_done)
     }
 
     /// What an edit of `ids` may change, read just before it, for undo. Hidden and unknown

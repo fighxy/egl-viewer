@@ -410,16 +410,19 @@ fields change.
 
 ### Removing items for good
 
-Delete Permanently and Empty Trash (phase 7, D-051):
+Delete Permanently and Empty Trash (phase 7, D-051; Empty Trash progress D-074):
 
 ```
 1. commit   for each item: INSERT pending_file(file_path, thumbs/<shard>/<id>.webp,
             thumbs/<shard>/<id>.age); DELETE item_fts row; DELETE item (links, tags, comments and
             key wraps cascade); change_log; tags no longer used go   -- one transaction
-2. delete   each file, and the item's folder once empty; DELETE its pending_file row
+2. notify   Empty Trash refreshes open views here so counts can update before files go
+3. delete   each file, and the item's folder once empty; DELETE its pending_file row
 ```
 
-A file that cannot be deleted in step 2 stays in the journal and goes on the next open.
+A file that cannot be deleted in step 3 stays in the journal and goes on the next open. Empty
+Trash may stop between items (cancel): rows already committed stay gone; files not yet deleted
+remain journalled.
 
 ## 7. Opening and closing
 

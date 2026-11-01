@@ -271,6 +271,10 @@ export const en = {
     emptyTrashTitle: "Empty the trash?",
     emptyTrashBody: "{{items}} and their files are removed from the disk. There is no undo.",
     emptyTrashConfirm: "Empty Trash",
+    emptyingTitle: "Emptying the trash",
+    emptyingBody: "Items and their files are being removed from the disk.",
+    emptyingCounted: "{{done}} of {{total}}…",
+    emptyingPlain: "Removing items…",
   },
   widgetKeys: {
     grid: "Grid",

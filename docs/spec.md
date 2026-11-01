@@ -148,7 +148,7 @@ The exact layout, the schema and the protocols are in [`library-format.md`](libr
 
 ### Trash
 
-Trashed items disappear from every scope except Trash. Trash shows them with the date of deletion. Restore puts an item back with its folders and tags. Delete permanently and Empty trash remove the rows and the files after a confirmation; there is no undo. Items of a locked folder stay in the trash until the folder is unlocked (D-051). The right-click menu of the Trash row shows how many items the trash holds and their size on disk, and offers Restore All and Empty Trash.
+Trashed items disappear from every scope except Trash. Trash shows them with the date of deletion. Restore puts an item back with its folders and tags. Delete permanently and Empty trash remove the rows and the files after a confirmation; there is no undo. Empty trash shows progress (done/total) and can be cancelled between items; sidebar counts and the Trash menu info refresh as soon as the rows are gone (D-074). Items of a locked folder stay in the trash until the folder is unlocked (D-051). The right-click menu of the Trash row shows how many items the trash holds and their size on disk, and offers Restore All and Empty Trash.
 
 ### Smart folders
 
@@ -935,10 +935,10 @@ Done when: search inside a folder never shows items from other folders; `a OR b`
 
 ### Phase 7 — Editing and trash
 
-Implemented 2026-10-29 (D-049 to D-052). Dropping items on the Trash row added 2026-11-01 (D-073).
+Implemented 2026-10-29 (D-049 to D-052). Dropping items on the Trash row added 2026-11-01 (D-073). Empty Trash progress added 2026-11-01 (D-074).
 
 - The remaining item fields: name (renames the stored file), note, link, rating; batch edits on a selection; undo of the last edit.
-- Trash: move, restore, delete permanently, empty (files removed). Dragging items from the grid onto the Trash row moves them to the trash with the same confirmation as Delete (D-073).
+- Trash: move, restore, delete permanently, empty (files removed, with progress and cancel — D-074). Dragging items from the grid onto the Trash row moves them to the trash with the same confirmation as Delete (D-073).
 - Open with the default app, show in Explorer, copy file, drag out of the window.
 - Library settings: backups, rebuild thumbnails, check library.
 
