@@ -1,9 +1,11 @@
 // A fake Rust side for UI tests: every command the UI may call, overridable per test.
+import { emit } from "@tauri-apps/api/event";
 import { mockIPC, mockWindows } from "@tauri-apps/api/mocks";
 import { waitFor } from "@testing-library/react";
 import { expect } from "vitest";
 import {
   DEFAULT_PREFERENCES,
+  EVENTS,
   type Folder,
   type ImportProgress,
   type Item,
@@ -151,6 +153,13 @@ export function mockBackend(overrides: Record<string, Handler> = {}): Call[] {
     (cmd, args) => {
       const payload = (args ?? {}) as Record<string, unknown>;
       calls.push({ cmd, args: payload });
+      // File → Exit calls window.close(); native CloseRequested then emits this (D-072).
+      if (cmd === "plugin:window|close") {
+        queueMicrotask(() => {
+          void emit(EVENTS.closeRequested, { busy: false });
+        });
+        return null;
+      }
       if (cmd.startsWith("plugin:window|")) return null;
       const handler = handlers[cmd];
       if (!handler) throw new Error(`unexpected command ${cmd}`);

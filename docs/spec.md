@@ -325,7 +325,7 @@ One window with client-side routing and one library per window (D-024). The layo
 | **Library** | New Folder `Ctrl+Shift+N` (4) · Lock All Folders `Ctrl+L` (4) · Library Settings… (7), Backup… (D-064), Back Up Now (7), Check Library (7), Rebuild Thumbnails (7), Show in Explorer (7) |
 | **Help** | Keyboard Shortcuts `F1` (1), Check for Updates… (12 / D-062), About egl-viewer (1), Open Log Folder (12) |
 
-- **Closing the window quits the app**: there is one window and no tray icon (arch §9). Running imports are confirmed first. **Close Library** returns to Welcome and does not quit.
+- **Closing the window quits the app**: there is one window and no tray icon (arch §9). The window close (X) and File → Exit both ask for confirmation first; Cancel keeps the app open. Running imports or exports use the stop-and-quit wording (D-072). **Close Library** returns to Welcome and does not quit.
 
 ### 7.2 Welcome
 
@@ -886,7 +886,7 @@ Done when: a library created in a chosen folder reopens from Recent after a rest
 - `media`: BLAKE3 while copying, probing (dimensions, EXIF), thumbnails (512 px WebP) for the v1 formats including PSD composites, palettes.
 - `add_files`: file dialog, drop of files and folders, paste from the clipboard; batches on top of the phase 1 `add_file` (temp copy, journal, one transaction per item); duplicates handled per batch; background thumbnails; `import-progress` events; cancel.
 - `preview_import` and Import Folder…: review one picked folder (images preselected, exclude / include) before the same `add_files` path runs (D-061).
-- The Imports panel; counts in the left bar and the toolbar; asking before quitting or closing the library while files are being added.
+- The Imports panel; counts in the left bar and the toolbar; asking before quitting or closing the library while files are being added. Quitting always confirms first (D-072).
 
 Done when: 1 000 mixed files (all v1 formats plus a few others) are added with thumbnails and palettes; killing the app during an import leaves a consistent library and adding the same files again reports them as duplicates; an undecodable file is added with a placeholder and a report line; Import Folder… previews then adds only the confirmed selection.
 

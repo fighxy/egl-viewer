@@ -662,6 +662,30 @@ function AppShell() {
     [addingFiles, t],
   );
 
+  /** Asks before quitting; `busy` means imports or exports are still running (D-072). */
+  const confirmQuit = useCallback(
+    (busy: boolean) => {
+      if (busy) {
+        setConfirmation({
+          title: t("confirm.stopQuitTitle"),
+          description: t("confirm.stopQuitBody"),
+          confirm: t("confirm.stopQuitConfirm"),
+          cancel: t("confirm.keepAdding"),
+          onConfirm: () => void ipc.quit().catch(() => {}),
+        });
+        return;
+      }
+      setConfirmation({
+        title: t("confirm.quitTitle"),
+        description: t("confirm.quitBody"),
+        confirm: t("confirm.quitConfirm"),
+        cancel: t("common.cancel"),
+        onConfirm: () => void ipc.quit().catch(() => {}),
+      });
+    },
+    [t],
+  );
+
   // Files added while a folder is open go into it (docs/spec.md §4).
   const intoFolder = openFolder?.id ?? null;
   const addPaths = useCallback(
@@ -1506,20 +1530,12 @@ function AppShell() {
     };
   }, [library, canAdd, addPaths]);
 
-  // The window's close was held back because files are being added.
+  // The window's close was held back; ask before quitting (X and File → Exit; D-072).
   useEffect(() => {
     if (!inTauri()) return;
     let unlisten: (() => void) | undefined;
     let cancelled = false;
-    listen(EVENTS.closeRequested, () =>
-      setConfirmation({
-        title: t("confirm.stopQuitTitle"),
-        description: t("confirm.stopQuitBody"),
-        confirm: t("confirm.stopQuitConfirm"),
-        cancel: t("confirm.keepAdding"),
-        onConfirm: () => void ipc.quit().catch(() => {}),
-      }),
-    )
+    listen<{ busy: boolean }>(EVENTS.closeRequested, (event) => confirmQuit(event.payload.busy))
       .then((stop) => {
         if (cancelled) stop();
         else unlisten = stop;
@@ -1529,7 +1545,7 @@ function AppShell() {
       cancelled = true;
       unlisten?.();
     };
-  }, [t]);
+  }, [confirmQuit]);
 
   const latestImport = imports.running[0] ?? imports.imports[0];
 
