@@ -1,8 +1,10 @@
 import { useQuery } from "@tanstack/react-query";
 import { listen } from "@tauri-apps/api/event";
 import { open as openDialog } from "@tauri-apps/plugin-dialog";
+import type { TFunction } from "i18next";
 import { FolderOpen, HardDrive } from "lucide-react";
 import { useEffect, useMemo, useState } from "react";
+import { useTranslation } from "react-i18next";
 import { Button } from "@/components/ui/button";
 import { Checkbox } from "@/components/ui/checkbox";
 import {
@@ -52,14 +54,59 @@ type Props = {
   onPreferences: (next: Preferences) => void;
 };
 
-const COMPRESSIONS: readonly { value: Compression; label: string; title: string }[] = [
-  { value: "none", label: "None", title: "Store the files uncompressed; fastest" },
-  { value: "fast", label: "Fast", title: "Deflate, low effort" },
-  { value: "balanced", label: "Balanced", title: "Deflate, the usual level" },
-  { value: "smallest", label: "Smallest", title: "Deflate, high effort" },
+const COMPRESSION_KEYS: readonly {
+  value: Compression;
+  labelKey:
+    | "exportUi.compressionNone"
+    | "exportUi.compressionFast"
+    | "exportUi.compressionBalanced"
+    | "exportUi.compressionSmallest";
+  hintKey:
+    | "exportUi.compressionNoneHint"
+    | "exportUi.compressionFastHint"
+    | "exportUi.compressionBalancedHint"
+    | "exportUi.compressionSmallestHint";
+}[] = [
+  {
+    value: "none",
+    labelKey: "exportUi.compressionNone",
+    hintKey: "exportUi.compressionNoneHint",
+  },
+  {
+    value: "fast",
+    labelKey: "exportUi.compressionFast",
+    hintKey: "exportUi.compressionFastHint",
+  },
+  {
+    value: "balanced",
+    labelKey: "exportUi.compressionBalanced",
+    hintKey: "exportUi.compressionBalancedHint",
+  },
+  {
+    value: "smallest",
+    labelKey: "exportUi.compressionSmallest",
+    hintKey: "exportUi.compressionSmallestHint",
+  },
 ];
 
 const TERMINAL: readonly ExportState[] = ["done", "failed", "cancelled"];
+
+function stateLabel(t: TFunction, state: ExportState): string {
+  switch (state) {
+    case "preparing":
+      return t("exportUi.preparing");
+    case "copying":
+      return t("exportUi.copying");
+    case "encrypting":
+      return t("exportUi.encrypting");
+    case "done":
+      return t("commonExtra.done");
+    case "failed":
+      return t("exportUi.failed");
+    case "cancelled":
+      return t("exportUi.cancelled");
+  }
+}
 
 /**
  * Backup (Library menu) and Export (folder and tag context menus) in one dialog: what to
@@ -75,6 +122,7 @@ export function ExportDialog({
   preferences,
   onPreferences,
 }: Props) {
+  const { t, i18n } = useTranslation();
   /** The free-choice scope; a preset target fixes the scope. */
   const [scope, setScope] = useState<"whole" | "folders" | "tags">("whole");
   const [selectedFolders, setSelectedFolders] = useState<ReadonlySet<string>>(new Set());
@@ -165,13 +213,13 @@ export function ExportDialog({
   };
 
   const problems = (): string | null => {
-    if (!chosen) return "Choose what to export.";
-    if (destination.trim() === "") return "Choose where to export.";
+    if (!chosen) return t("exportUi.chooseWhat");
+    if (destination.trim() === "") return t("exportUi.chooseWhere");
     if (formatKind === "zip" && encrypt) {
-      if (password === "") return "Type a password.";
-      if (password !== confirm) return "The passwords do not match.";
+      if (password === "") return t("exportUi.typePassword");
+      if (password !== confirm) return t("exportUi.passwordMismatch");
     }
-    if (preview.data && preview.data.items === 0) return "The selection has no items.";
+    if (preview.data && preview.data.items === 0) return t("exportUi.noItems");
     return null;
   };
 
@@ -208,7 +256,22 @@ export function ExportDialog({
   };
 
   const title =
-    target?.kind === "folder" ? "Export Folder" : target?.kind === "tag" ? "Export Tag" : "Backup";
+    target?.kind === "folder"
+      ? t("exportUi.titleExportFolder")
+      : target?.kind === "tag"
+        ? t("exportUi.titleExportTag")
+        : t("exportUi.titleBackup");
+
+  const scopes = [
+    ["whole", t("exportUi.entireLibrary")],
+    ["folders", t("exportUi.folders")],
+    ["tags", t("exportUi.tags")],
+  ] as const;
+
+  const formats = [
+    ["mirror", t("exportUi.mirror")],
+    ["zip", t("exportUi.zip")],
+  ] as const;
 
   return (
     <Dialog open={open} onOpenChange={close}>
@@ -222,15 +285,9 @@ export function ExportDialog({
           <>
             {target === null && (
               <section className="grid gap-1.5">
-                <Label>What</Label>
+                <Label>{t("exportUi.what")}</Label>
                 <div className="flex gap-1">
-                  {(
-                    [
-                      ["whole", "Entire library"],
-                      ["folders", "Folders"],
-                      ["tags", "Tags"],
-                    ] as const
-                  ).map(([value, label]) => (
+                  {scopes.map(([value, label]) => (
                     <label
                       key={value}
                       className={
@@ -272,16 +329,18 @@ export function ExportDialog({
                       checked={includeSubfolders}
                       onCheckedChange={setIncludeSubfolders}
                     />
-                    <Label htmlFor="export-subfolders">Include subfolders</Label>
+                    <Label htmlFor="export-subfolders">{t("foldersUi.includeSubfolders")}</Label>
                   </div>
                 )}
               </section>
             )}
             {target !== null && (
               <section className="grid gap-1.5">
-                <Label>What</Label>
+                <Label>{t("exportUi.what")}</Label>
                 <p className="text-[13px]">
-                  {target.kind === "folder" ? "Folder" : "Tag"} “{target.name}”
+                  {target.kind === "folder"
+                    ? t("exportUi.folderNamed", { name: target.name })
+                    : t("exportUi.tagNamed", { name: target.name })}
                   {target.kind === "folder" && (
                     <span className="ml-3 inline-flex items-center gap-2">
                       <Switch
@@ -289,7 +348,9 @@ export function ExportDialog({
                         checked={includeSubfolders}
                         onCheckedChange={setIncludeSubfolders}
                       />
-                      <Label htmlFor="export-preset-subfolders">Include subfolders</Label>
+                      <Label htmlFor="export-preset-subfolders">
+                        {t("foldersUi.includeSubfolders")}
+                      </Label>
                     </span>
                   )}
                 </p>
@@ -300,30 +361,29 @@ export function ExportDialog({
               <div aria-live="polite" className="text-[13px]">
                 {preview.data ? (
                   <>
-                    {preview.data.items.toLocaleString("en")} items ·{" "}
-                    {formatBytes(preview.data.bytes)}
+                    {t("exportUi.preview", {
+                      items: preview.data.items.toLocaleString(i18n.language),
+                      bytes: formatBytes(preview.data.bytes),
+                    })}
                     {preview.data.hidden > 0 &&
-                      ` · ${preview.data.hidden.toLocaleString("en")} hidden in locked folders`}
+                      t("exportUi.previewHidden", {
+                        hidden: preview.data.hidden.toLocaleString(i18n.language),
+                      })}
                   </>
                 ) : preview.isFetching ? (
-                  "Measuring…"
+                  t("maintenance.measuring")
                 ) : (
                   <span className="text-muted-foreground">
-                    {chosen ? "Nothing to export." : "Choose what to export."}
+                    {chosen ? t("exportUi.nothingToExport") : t("exportUi.chooseWhat")}
                   </span>
                 )}
               </div>
             </section>
 
             <section className="grid gap-1.5">
-              <Label>Format</Label>
+              <Label>{t("exportUi.format")}</Label>
               <div className="flex gap-1">
-                {(
-                  [
-                    ["mirror", "Files in folders"],
-                    ["zip", "ZIP archive"],
-                  ] as const
-                ).map(([value, label]) => (
+                {formats.map(([value, label]) => (
                   <label
                     key={value}
                     className={
@@ -346,10 +406,10 @@ export function ExportDialog({
               </div>
               {formatKind === "zip" && (
                 <div className="flex flex-wrap items-center gap-1">
-                  {COMPRESSIONS.map(({ value, label, title }) => (
+                  {COMPRESSION_KEYS.map(({ value, labelKey, hintKey }) => (
                     <label
                       key={value}
-                      title={title}
+                      title={t(hintKey)}
                       className={
                         compression === value
                           ? "rounded-md border border-primary bg-primary px-3 py-1 text-[13px] text-primary-foreground"
@@ -364,7 +424,7 @@ export function ExportDialog({
                         checked={compression === value}
                         onChange={() => setCompression(value)}
                       />
-                      {label}
+                      {t(labelKey)}
                     </label>
                   ))}
                 </div>
@@ -372,22 +432,22 @@ export function ExportDialog({
               {formatKind === "zip" && (
                 <div className="flex items-center gap-2 text-[13px]">
                   <Switch id="export-encrypt" checked={encrypt} onCheckedChange={setEncrypt} />
-                  <Label htmlFor="export-encrypt">Encrypt with a password</Label>
+                  <Label htmlFor="export-encrypt">{t("exportUi.encrypt")}</Label>
                 </div>
               )}
               {formatKind === "zip" && encrypt && (
                 <div className="grid grid-cols-2 gap-2">
                   <Input
                     type="password"
-                    placeholder="Password"
-                    aria-label="Password"
+                    placeholder={t("commonExtra.password")}
+                    aria-label={t("commonExtra.password")}
                     value={password}
                     onChange={(event) => setPassword(event.target.value)}
                   />
                   <Input
                     type="password"
-                    placeholder="Repeat the password"
-                    aria-label="Repeat the password"
+                    placeholder={t("locksUi.repeatPassword")}
+                    aria-label={t("locksUi.repeatPassword")}
                     value={confirm}
                     onChange={(event) => setConfirm(event.target.value)}
                   />
@@ -396,17 +456,17 @@ export function ExportDialog({
             </section>
 
             <section className="grid gap-1.5">
-              <Label htmlFor="export-destination">Where</Label>
+              <Label htmlFor="export-destination">{t("exportUi.where")}</Label>
               <div className="flex gap-2">
                 <Input
                   id="export-destination"
-                  placeholder="A folder on this PC"
+                  placeholder={t("exportUi.wherePlaceholder")}
                   value={destination}
                   onChange={(event) => setDestination(event.target.value)}
                 />
                 <Button variant="outline" size="sm" onClick={pickDestination}>
                   <FolderOpen aria-hidden />
-                  Browse…
+                  {t("common.browse")}
                 </Button>
               </div>
             </section>
@@ -419,7 +479,7 @@ export function ExportDialog({
 
             <div className="flex justify-end gap-2">
               <Button variant="outline" onClick={() => close(false)}>
-                Cancel
+                {t("common.cancel")}
               </Button>
               <Button
                 disabled={!inTauri() || preview.isFetching || problems() !== null}
@@ -427,7 +487,7 @@ export function ExportDialog({
                 onClick={start}
               >
                 <HardDrive aria-hidden />
-                {target === null ? "Back up" : "Export"}
+                {target === null ? t("exportUi.backUp") : t("exportUi.export")}
               </Button>
             </div>
           </>
@@ -454,13 +514,14 @@ function FolderChoice({
   selected: ReadonlySet<string>;
   onToggle: (id: string, on: boolean) => void;
 }) {
+  const { t, i18n } = useTranslation();
   const rows = allRows(withoutLockedFolders(folders));
   if (rows.length === 0) {
-    return <p className="text-xs text-muted-foreground">No folders.</p>;
+    return <p className="text-xs text-muted-foreground">{t("foldersUi.emptyRead")}</p>;
   }
   return (
     <fieldset
-      aria-label="Folders to export"
+      aria-label={t("exportUi.foldersToExport")}
       className="m-0 grid min-w-0 max-h-48 gap-px overflow-y-auto rounded-md border p-1"
     >
       {rows.map(({ folder, depth }) => {
@@ -485,7 +546,9 @@ function FolderChoice({
             ) : null}
             <span className="min-w-0 flex-1 truncate">{folder.name}</span>
             <span className="text-xs text-muted-foreground tabular-nums">
-              {(folder.descendantImageCount ?? folder.imageCount ?? 0).toLocaleString("en")}
+              {(folder.descendantImageCount ?? folder.imageCount ?? 0).toLocaleString(
+                i18n.language,
+              )}
             </span>
           </div>
         );
@@ -504,6 +567,7 @@ function TagChoice({
   selected: ReadonlySet<string>;
   onToggle: (name: string, on: boolean) => void;
 }) {
+  const { t } = useTranslation();
   const [filter, setFilter] = useState("");
   const needle = filter.trim().toLocaleLowerCase();
   const rows = vocabulary.filter(
@@ -512,19 +576,19 @@ function TagChoice({
   return (
     <div className="grid gap-1">
       <Input
-        aria-label="Find a tag"
-        placeholder="Find a tag"
+        aria-label={t("exportUi.findTag")}
+        placeholder={t("exportUi.findTag")}
         value={filter}
         onChange={(event) => setFilter(event.target.value)}
         className="h-7"
       />
       {rows.length === 0 ? (
         <p className="text-xs text-muted-foreground">
-          {vocabulary.length === 0 ? "No tags yet." : "No tag has that name."}
+          {vocabulary.length === 0 ? t("tagsUi.noTagsYet") : t("tagsUi.noTagMatch")}
         </p>
       ) : (
         <fieldset
-          aria-label="Tags to export"
+          aria-label={t("exportUi.tagsToExport")}
           className="m-0 grid min-w-0 max-h-48 gap-px overflow-y-auto rounded-md border p-1"
         >
           {rows.map((tag) => (
@@ -549,15 +613,6 @@ function TagChoice({
   );
 }
 
-const STATE_TEXT: Record<ExportState, string> = {
-  preparing: "Preparing…",
-  copying: "Copying…",
-  encrypting: "Encrypting…",
-  done: "Done",
-  failed: "Failed",
-  cancelled: "Cancelled",
-};
-
 /** The progress bar while an export runs, and the result afterwards. */
 function ExportResult({
   progress,
@@ -570,6 +625,7 @@ function ExportResult({
   onReveal: (path: string) => void;
   onClose: () => void;
 }) {
+  const { t, i18n } = useTranslation();
   if (progress === null) return null;
   const running = !TERMINAL.includes(progress.state);
   const percent = progress.total > 0 ? (progress.done / progress.total) * 100 : 0;
@@ -579,9 +635,13 @@ function ExportResult({
         <>
           <div className="grid gap-1.5">
             <p className="text-[13px]">
-              {STATE_TEXT[progress.state]} {progress.done.toLocaleString("en")} of{" "}
-              {progress.total.toLocaleString("en")} · {formatBytes(progress.bytesDone)} of{" "}
-              {formatBytes(progress.bytesTotal)}
+              {t("exportUi.progressCounted", {
+                state: stateLabel(t, progress.state),
+                done: progress.done.toLocaleString(i18n.language),
+                total: progress.total.toLocaleString(i18n.language),
+                bytesDone: formatBytes(progress.bytesDone),
+                bytesTotal: formatBytes(progress.bytesTotal),
+              })}
             </p>
             <Progress value={percent} />
             {progress.current && (
@@ -590,7 +650,7 @@ function ExportResult({
           </div>
           <div className="flex justify-end">
             <Button variant="outline" onClick={onCancel}>
-              Cancel
+              {t("common.cancel")}
             </Button>
           </div>
         </>
@@ -598,43 +658,46 @@ function ExportResult({
       {progress.state === "done" && progress.summary && (
         <div className="grid gap-2">
           <p className="text-sm">
-            Exported {progress.summary.items.toLocaleString("en")} items:{" "}
-            {progress.summary.files.toLocaleString("en")} files,{" "}
-            {formatBytes(progress.summary.bytes)}.
+            {t("exportUi.exportedSummary", {
+              items: progress.summary.items.toLocaleString(i18n.language),
+              files: progress.summary.files.toLocaleString(i18n.language),
+              bytes: formatBytes(progress.summary.bytes),
+            })}
           </p>
           {progress.summary.missing.length > 0 && (
             <p className="text-sm text-muted-foreground">
-              Skipped {progress.summary.missing.length} missing:{" "}
-              {progress.summary.missing.slice(0, 5).join(", ")}
-              {progress.summary.missing.length > 5 ? ", …" : ""}
+              {t("exportUi.skippedMissing", {
+                count: progress.summary.missing.length,
+                list: `${progress.summary.missing.slice(0, 5).join(", ")}${
+                  progress.summary.missing.length > 5 ? ", …" : ""
+                }`,
+              })}
             </p>
           )}
           <div className="flex justify-end gap-2">
             <Button variant="outline" onClick={() => onReveal(progress.summary?.path ?? "")}>
               <FolderOpen aria-hidden />
-              Show in Explorer
+              {t("details.showExplorer")}
             </Button>
-            <Button onClick={onClose}>Close</Button>
+            <Button onClick={onClose}>{t("commonExtra.close")}</Button>
           </div>
         </div>
       )}
       {progress.state === "failed" && (
         <div className="grid gap-2">
           <p role="alert" className="text-sm text-destructive">
-            {progress.error ?? "The export failed."}
+            {progress.error ?? t("exportUi.exportFailed")}
           </p>
           <div className="flex justify-end">
-            <Button onClick={onClose}>Close</Button>
+            <Button onClick={onClose}>{t("commonExtra.close")}</Button>
           </div>
         </div>
       )}
       {progress.state === "cancelled" && (
         <div className="grid gap-2">
-          <p className="text-sm text-muted-foreground">
-            The export was cancelled; the partial output was removed.
-          </p>
+          <p className="text-sm text-muted-foreground">{t("exportUi.exportCancelled")}</p>
           <div className="flex justify-end">
-            <Button onClick={onClose}>Close</Button>
+            <Button onClick={onClose}>{t("commonExtra.close")}</Button>
           </div>
         </div>
       )}

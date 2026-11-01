@@ -1209,17 +1209,20 @@ Settings → General; the choice is stored in `preferences.locale` through `app-
   (`en.ts`, `ru.ts`, `zh-CN.ts`); English is the typed source. `setAppLocale` applies
   the preference at startup and when Settings saves.
 - **Coverage.** App UI strings are translated (menus, Settings, Welcome, library chrome,
-  filters, imports, locks, details, smart folders, maintenance, updates, errors and status).
-  Native OS file dialogs stay in the OS language. New UI strings go into the English catalog
-  first.
+  filters, imports, locks, details, smart folders, maintenance, updates, errors, status,
+  sort menus, and Backup / Export). Native OS file dialogs stay in the OS language. New UI
+  strings go into the English catalog first.
 - **Sort menu.** The toolbar `SortButton`, View → Sort By submenu, and the folder-properties
   sort select all use `sort.*` (field names, ascending/descending, aria/title, composed
   folder options). `translateSortLabel` / `translateSubmenuItem` in `ui/src/i18n/labels.ts`
   keep the English `SORT_KEYS` registry as the key list only.
+- **Backup / Export.** `ExportDialog` (Library → Backup… and folder/tag Export) uses
+  `exportUi.*`, plus shared keys such as `common.cancel`, `common.browse`, and
+  `foldersUi.includeSubfolders`.
 - **IPC.** `Locale` is a `ts-rs` enum (`"en" | "ru" | "zh-CN"`) on `Preferences`; missing
   field keeps English.
 - **Tests.** Catalog key coverage for `ru` / `zh-CN` vs English; language switch; Settings
-  saves `locale`; sort labels resolve under `ru` / `zh-CN`.
+  saves `locale`; sort and Backup / Export labels resolve under `ru` / `zh-CN`.
 
 ## D-070 Bundle libheif DLLs with the Windows NSIS installer (2026-11-01)
 

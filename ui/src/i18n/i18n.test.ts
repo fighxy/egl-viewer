@@ -62,4 +62,27 @@ describe("i18n catalogs", () => {
 
     setAppLocale("en");
   });
+
+  it("translates Backup / Export dialog labels", async () => {
+    expect(i18n.t("exportUi.titleBackup")).toBe("Backup");
+    expect(i18n.t("exportUi.wherePlaceholder")).toBe("A folder on this PC");
+
+    await i18n.changeLanguage("ru");
+    expect(i18n.t("exportUi.titleBackup")).toBe("Резервная копия");
+    expect(i18n.t("exportUi.what")).toBe("Что");
+    expect(i18n.t("exportUi.format")).toBe("Формат");
+    expect(i18n.t("exportUi.where")).toBe("Куда");
+    expect(i18n.t("exportUi.entireLibrary")).toBe("Вся библиотека");
+    expect(i18n.t("exportUi.mirror")).toBe("Файлы в папках");
+    expect(i18n.t("exportUi.zip")).toBe("ZIP-архив");
+    expect(i18n.t("exportUi.backUp")).toBe("Создать копию");
+    expect(i18n.t("exportUi.chooseWhat")).toBe("Выберите, что экспортировать.");
+
+    await i18n.changeLanguage("zh-CN");
+    expect(i18n.t("exportUi.titleBackup")).toBe("备份");
+    expect(i18n.t("exportUi.entireLibrary")).toBe("整个图库");
+    expect(i18n.t("exportUi.backUp")).toBe("备份");
+
+    setAppLocale("en");
+  });
 });
