@@ -302,7 +302,10 @@ describe("Phase 7: editing, the trash and file actions", () => {
   });
 
   it("restores, deletes for good and empties the trash", async () => {
+    let trash = 2;
     const calls = library(3, {
+      library_counts: () => ({ all: 3, uncategorized: 3, untagged: 3, trash }),
+      trash_info: () => ({ items: trash, bytes: trash * 1024 }),
       view_range: (args) =>
         [0, 1, 2]
           .slice(Number(args.start), Number(args.start) + Number(args.len))
@@ -313,7 +316,10 @@ describe("Phase 7: editing, the trash and file actions", () => {
           deletedAt: Date.UTC(2026, 9, 29, 9),
         }),
       delete_permanently: () => 1,
-      empty_trash: () => 2,
+      empty_trash: () => {
+        trash = 0;
+        return 2;
+      },
     });
     const user = userEvent.setup();
     render(<App />);
@@ -351,6 +357,11 @@ describe("Phase 7: editing, the trash and file actions", () => {
     expect(empty).toHaveTextContent("2 items and their files");
     await user.click(within(empty).getByRole("button", { name: "Empty Trash" }));
     await waitFor(() => expect(called(calls, "empty_trash")).toHaveLength(1));
+    // Counts and trash info refresh as soon as empty finishes (D-074), not only after debounce.
+    await waitFor(() =>
+      expect(screen.getByRole("button", { name: /^Trash/ })).toHaveTextContent("0"),
+    );
+    await waitFor(() => expect(screen.getByRole("button", { name: "Empty Trash" })).toBeDisabled());
   });
 
   it("shows items and size and restores or empties from the Trash row menu", async () => {

@@ -87,6 +87,7 @@ export function mockBackend(overrides: Record<string, Handler> = {}): Call[] {
     undo_status: () => null,
     delete_permanently: () => 0,
     empty_trash: () => 0,
+    cancel_empty_trash: () => null,
     trash_info: () => ({ items: 0, bytes: 0 }),
     restore_trash: () => 0,
     open_original: () => null,

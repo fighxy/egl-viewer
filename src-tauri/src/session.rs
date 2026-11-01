@@ -116,6 +116,8 @@ pub struct Session {
     views: Arc<Mutex<Views>>,
     /// How to take back the last item edits of the open library (docs/spec.md §6).
     undo: Mutex<UndoStack>,
+    /// Set by `cancel_empty_trash` while Empty Trash runs (D-074).
+    empty_trash_cancel: AtomicBool,
     emit: Emit,
 }
 
@@ -222,6 +224,7 @@ impl Session {
             exports: Arc::new(Mutex::new(Exports::default())),
             views: Arc::new(Mutex::new(Views::default())),
             undo: Mutex::new(UndoStack::default()),
+            empty_trash_cancel: AtomicBool::new(false),
             emit,
         }
     }
@@ -631,11 +634,23 @@ impl Session {
         Ok(removed)
     }
 
-    /// Empty Trash, with the files. No undo.
-    pub fn empty_trash(&self) -> Result<u32, SourceError> {
-        let removed = ready(self.source()?.empty_trash())?;
+    /// Empty Trash, with the files. No undo. `progress` is `(done, total)` over removing rows
+    /// then deleting files; views refresh as soon as the rows are gone so counts update while
+    /// files are still being deleted (D-074).
+    pub fn empty_trash(&self, progress: &dyn Fn(u32, u32)) -> Result<u32, SourceError> {
+        self.empty_trash_cancel.store(false, Ordering::SeqCst);
+        let library = self.writable_library()?;
+        let removed = library.empty_trash(progress, &self.empty_trash_cancel, &|| {
+            self.refresh_views();
+        })?;
         self.refresh_views();
         Ok(removed)
+    }
+
+    /// Stops a running Empty Trash between items. Rows already removed stay gone; remaining
+    /// files stay in the journal and go on the next open.
+    pub fn cancel_empty_trash(&self) {
+        self.empty_trash_cancel.store(true, Ordering::SeqCst);
     }
 
     /// Items and bytes of the trash, for the context menu of its row.
@@ -2679,7 +2694,7 @@ mod tests {
             .unwrap();
         assert_eq!(f.session.delete_permanently(target(&ids[..1])).unwrap(), 1);
         assert!(!paths[0].exists());
-        assert_eq!(f.session.empty_trash().unwrap(), 1);
+        assert_eq!(f.session.empty_trash(&|_, _| {}).unwrap(), 1);
         assert!(!paths[1].exists() && paths[2].exists());
         assert_eq!(f.session.counts().unwrap().trash, 0);
         // The trash edit is still the last undoable one; its items are gone, so nothing returns.
@@ -2722,7 +2737,7 @@ mod tests {
         assert_eq!(f.session.trash_info().unwrap().items, 2);
         // An empty trash restores nothing and is not remembered for undo: the last undoable
         // edit is still the move to the trash, its items gone for good.
-        f.session.empty_trash().unwrap();
+        f.session.empty_trash(&|_, _| {}).unwrap();
         assert_eq!(f.session.restore_trash().unwrap(), 0);
         assert_eq!(
             f.session.undo_status().unwrap().kind,

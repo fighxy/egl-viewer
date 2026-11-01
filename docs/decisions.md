@@ -1294,3 +1294,18 @@ exits. Cancel dismisses the dialog and keeps the process running.
   dialog (with "Don't ask again"); when it is off, the items go straight to the trash.
 - **The highlight** is the folder inside-zone / tag-row highlight on the Trash button under
   the pointer. A refused target is not highlighted.
+
+## D-074 Progress while emptying the trash (2026-11-01)
+
+- **Modal Channel, like locking.** Empty Trash stays a modal wait (`empty_trash` with a
+  `Channel` of `{ done, total }`), not a background export-style task (D-066). A large trash
+  (~2000 items) was otherwise a silent hang after the confirmation. The dialog shows a bar and
+  a counted status; Cancel calls `cancel_empty_trash`, which stops between items.
+- **Two halves.** `done` / `total` cover removing rows, then deleting files (`total` is twice
+  the item count). After the delete transaction commits, views refresh immediately so the grid
+  and counts can update while files are still going; leftover journal rows still clean up on
+  the next open (library-format §6).
+- **Counts and trash info refresh without the 300 ms debounce.** On progress (throttled) and
+  when the command finishes, the UI re-fetches `library_counts` and `trash_info` and
+  invalidates the folder tree so the sidebar badge and the Trash context menu stop showing
+  stale numbers. Relying only on `views-invalidated` left the badge wrong or late.

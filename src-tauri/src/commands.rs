@@ -445,9 +445,27 @@ pub async fn delete_permanently(app: AppHandle, target: ItemsTarget) -> Result<u
     blocking(app, move |session| session.delete_permanently(target)).await
 }
 
+/// Empties the trash; `on_progress` hears `(done, total)` while rows and files go (D-074).
 #[tauri::command]
-pub async fn empty_trash(app: AppHandle) -> Result<u32, SourceError> {
-    blocking(app, Session::empty_trash).await
+pub async fn empty_trash(
+    app: AppHandle,
+    on_progress: Channel<LockProgress>,
+) -> Result<u32, SourceError> {
+    blocking(app, move |session| {
+        session.empty_trash(&|done, total| {
+            let _ = on_progress.send(LockProgress { done, total });
+        })
+    })
+    .await
+}
+
+#[tauri::command]
+pub async fn cancel_empty_trash(app: AppHandle) -> Result<(), SourceError> {
+    blocking(app, |session| {
+        session.cancel_empty_trash();
+        Ok(())
+    })
+    .await
 }
 
 /// Items and bytes of the trash, for the context menu of the Trash row.

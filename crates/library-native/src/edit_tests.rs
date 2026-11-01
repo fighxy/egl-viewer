@@ -3,7 +3,8 @@
 //! §9, phase 7).
 
 use std::fs;
-use std::sync::atomic::AtomicBool;
+use std::sync::Mutex;
+use std::sync::atomic::{AtomicBool, AtomicU32, Ordering};
 
 use library_core::{
     BackupKind, DuplicateNotice, ImportProgress, ItemEdit, ItemId, RepairOptions, Scope,
@@ -272,12 +273,88 @@ fn emptying_the_trash_removes_the_files_from_disk() {
             .all(|tag| tag.name != "Only on a")
     );
 
-    assert_eq!(library.empty_trash().unwrap(), 1);
+    assert_eq!(
+        library
+            .empty_trash(&|_, _| {}, &AtomicBool::new(false), &|| {})
+            .unwrap(),
+        1
+    );
     assert_eq!(library.counts().unwrap().trash, 0);
     assert_eq!(files_under(&root.join("files")).len(), 1);
     assert_eq!(files_under(&root.join("thumbs")).len(), 1);
     assert!(journal(&library).is_empty());
     assert_eq!(scope_ids(&library, &Scope::All), vec![c]);
+}
+
+#[test]
+fn emptying_the_trash_reports_progress_and_runs_after_rows_before_files_go() {
+    let dir = tempfile::tempdir().unwrap();
+    let root = new_library(dir.path(), "Progress");
+    let library = open(&root);
+    let a = add_png(&library, dir.path(), "a.png", 1);
+    let b = add_png(&library, dir.path(), "b.png", 2);
+    library
+        .apply_batch_edit(&ids(&[&a, &b]), &ItemEdit::Trash)
+        .unwrap();
+    let a_file = root.join(stored_path(&library, &a));
+    let ticks = Mutex::new(Vec::new());
+    let after_rows_trash = AtomicU32::new(u32::MAX);
+    let after_rows_file_still_there = AtomicBool::new(false);
+    let removed = library
+        .empty_trash(
+            &|done, total| ticks.lock().unwrap().push((done, total)),
+            &AtomicBool::new(false),
+            &|| {
+                after_rows_trash.store(library.counts().unwrap().trash, Ordering::SeqCst);
+                after_rows_file_still_there.store(a_file.exists(), Ordering::SeqCst);
+            },
+        )
+        .unwrap();
+    assert_eq!(removed, 2);
+    assert_eq!(after_rows_trash.load(Ordering::SeqCst), 0);
+    assert!(
+        after_rows_file_still_there.load(Ordering::SeqCst),
+        "files are deleted after after_rows so the UI can refresh counts first"
+    );
+    assert!(!a_file.exists());
+    let seen = ticks.lock().unwrap().clone();
+    assert!(
+        seen.first()
+            .is_some_and(|&(done, total)| done == 0 && total == 4)
+    );
+    assert!(
+        seen.iter().any(|&(done, total)| done == 2 && total == 4),
+        "halfway mark after rows: {seen:?}"
+    );
+    assert_eq!(seen.last().copied(), Some((4, 4)));
+}
+
+#[test]
+fn cancelling_empty_trash_between_items_keeps_remaining_rows() {
+    let dir = tempfile::tempdir().unwrap();
+    let root = new_library(dir.path(), "Cancel");
+    let library = open(&root);
+    let a = add_png(&library, dir.path(), "a.png", 1);
+    let b = add_png(&library, dir.path(), "b.png", 2);
+    let c = add_png(&library, dir.path(), "c.png", 3);
+    library
+        .apply_batch_edit(&ids(&[&a, &b, &c]), &ItemEdit::Trash)
+        .unwrap();
+    let cancel = AtomicBool::new(false);
+    let removed = library
+        .empty_trash(
+            &|done, _total| {
+                if done >= 1 {
+                    cancel.store(true, Ordering::SeqCst);
+                }
+            },
+            &cancel,
+            &|| {},
+        )
+        .unwrap();
+    assert!(removed >= 1);
+    assert!(removed < 3);
+    assert_eq!(library.counts().unwrap().trash, 3 - removed);
 }
 
 #[test]

@@ -783,7 +783,7 @@ Later, for phones: the WebView prepares the image (`createImageBitmap`, long edg
 | `smart_rules` | `LibraryQuery` | `SmartDraft { parent, conditions }` for Save as smart folder; refused for search text, the trash, or nothing to keep (D-048) |
 | `extensions` | — | `ExtensionCount[]` for the Type filter |
 | `save_smart_folder`, `delete_smart_folder` | `SmartFolderChange` (create under a parent, update name and rules), id | smart folder tree; open views of it are recomputed |
-| `delete_permanently`, `empty_trash` | `ItemsTarget` / — | counts; only items of the trash, files removed after the rows (restoring is the `restore` intent of `apply_batch_edit`) |
+| `delete_permanently`, `empty_trash`, `cancel_empty_trash` | `ItemsTarget` / `Channel<{done,total}>` / — | counts; only items of the trash, files removed after the rows; Empty Trash streams progress and can stop between items (D-074; restoring is the `restore` intent of `apply_batch_edit`) |
 | `add_files` | paths, the open folder or none | `ImportTicket`; dropped folders are mirrored (phase 4); tags and rating for the batch come with phases 5 and 7 |
 | `paste_files` | the open folder or none | `ImportTicket` or none: copied files, or a pasted image as a PNG |
 | `answer_import` | import id, `skip` / `addAnyway` / `addToFolder` / `cancel` | — (the batch's duplicate question) |

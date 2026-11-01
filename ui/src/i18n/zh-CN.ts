@@ -273,6 +273,10 @@ export const zhCN: MessageCatalog = {
     emptyTrashTitle: "清空废纸篓？",
     emptyTrashBody: "{{items}} 及其文件将从磁盘删除，无法撤销。",
     emptyTrashConfirm: "清空废纸篓",
+    emptyingTitle: "正在清空废纸篓",
+    emptyingBody: "正在从磁盘删除项目及其文件。",
+    emptyingCounted: "{{done}} / {{total}}…",
+    emptyingPlain: "正在删除项目…",
   },
   widgetKeys: {
     grid: "网格",

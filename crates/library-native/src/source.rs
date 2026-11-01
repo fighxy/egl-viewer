@@ -106,7 +106,11 @@ impl LibrarySource for NativeSource {
     }
 
     async fn empty_trash(&self) -> Result<u32, SourceError> {
-        self.library.empty_trash()
+        self.library.empty_trash(
+            &|_, _| {},
+            &std::sync::atomic::AtomicBool::new(false),
+            &|| {},
+        )
     }
 
     async fn trash_info(&self) -> Result<TrashInfo, SourceError> {
