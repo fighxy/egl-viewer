@@ -22,12 +22,13 @@ use library_core::{
     Thumbnail, TrashInfo, UndoStack, UndoStatus, Views, rules_from_query,
 };
 use library_native::{
-    DuplicateChoice, DuplicatePolicy, ImportFilter, ImportObserver, ImportTarget, Library,
-    NativeSource, OpenOptions, check_enrollment, create_library, export_items, export_preview,
-    import_files, make_pending_previews, utc_file_stamp,
+    DuplicateChoice, DuplicatePolicy, EagleImportOptions, ImportFilter, ImportObserver,
+    ImportTarget, Library, NativeSource, OpenOptions, check_enrollment, create_library,
+    export_items, export_preview, import_eagle, import_files, make_pending_previews,
+    utc_file_stamp,
 };
 use secrecy::SecretString;
-use serde::Serialize;
+use serde::{Deserialize, Serialize};
 use ts_rs::TS;
 
 use crate::views::{
@@ -56,6 +57,41 @@ pub struct StartupResult {
     pub library: Option<LibraryInfo>,
     /// Shown on Welcome when the last library was not reopened for a reason worth saying.
     pub notice: Option<String>,
+}
+
+/// What the import wizard shows for a picked Eagle library (docs/spec.md §8.2 step 1).
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize, TS)]
+#[serde(rename_all = "camelCase")]
+#[ts(export)]
+pub struct EagleLibrarySummary {
+    pub path: String,
+    pub name: String,
+    /// Items including the trash (`mtime.json` `all`).
+    pub item_count: u32,
+    /// Bytes of everything under `images/`.
+    pub bytes: u64,
+}
+
+/// Where the import of an Eagle library goes (docs/spec.md §8.2 step 2).
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize, TS)]
+#[serde(rename_all = "camelCase")]
+#[ts(export)]
+pub struct EagleImportRequest {
+    pub eagle_path: String,
+    /// A new native library to create and import into; `None` imports into the open library
+    /// (its Eagle folders go under a root folder named after the Eagle library).
+    pub create: Option<EagleLibraryTarget>,
+    /// Import Eagle's trash items into the trash; off by default.
+    pub import_trash: bool,
+}
+
+/// A new native library made for the import: where, and under which name.
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize, TS)]
+#[serde(rename_all = "camelCase")]
+#[ts(export)]
+pub struct EagleLibraryTarget {
+    pub parent: String,
+    pub name: String,
 }
 
 /// What is on the clipboard: copied files, or an image (RGBA pixels).
@@ -444,6 +480,50 @@ impl Session {
     pub fn preview_import(&self, path: &str) -> Result<ImportPreview, SourceError> {
         self.writable_library()?;
         ready(self.source()?.preview_import(Path::new(path)))
+    }
+
+    /// Validates a picked Eagle `.library` folder and answers what an import would take
+    /// (docs/spec.md §8.2 step 1). Reading only.
+    pub fn eagle_library_info(&self, path: &str) -> Result<EagleLibrarySummary, SourceError> {
+        let eagle = eagle_folder::EagleLibrary::open(Path::new(path)).map_err(eagle_error)?;
+        let summary = eagle.summary().map_err(eagle_error)?;
+        Ok(EagleLibrarySummary {
+            path: display_path(eagle.root()),
+            name: summary.name,
+            item_count: summary.item_count,
+            bytes: summary.bytes,
+        })
+    }
+
+    /// Imports an Eagle library folder in a background task (docs/spec.md §8.2). Into a new
+    /// native library, created and opened here, or into the open library under a root folder
+    /// named after the Eagle library. The task can be cancelled and resumed later.
+    pub fn import_eagle_library(
+        &self,
+        request: EagleImportRequest,
+    ) -> Result<ImportTicket, SourceError> {
+        let eagle = eagle_folder::EagleLibrary::open(Path::new(&request.eagle_path))
+            .map_err(eagle_error)?;
+        let root_folder = match &request.create {
+            Some(target) => {
+                self.create_library(&target.parent, &target.name)?;
+                None
+            }
+            None => Some(eagle.name().to_owned()),
+        };
+        let library = self.writable_library()?;
+        let options = EagleImportOptions {
+            import_trash: request.import_trash,
+            root_folder,
+        };
+        let id = self.start(
+            library,
+            ImportKind::Eagle,
+            move |library, id, observer, cancel| {
+                import_eagle(library, &eagle, &options, id, observer, cancel)
+            },
+        );
+        Ok(ImportTicket { id })
     }
 
     fn import_target(
@@ -1220,11 +1300,12 @@ impl Session {
         running
     }
 
-    /// Files are being added (previews made after a restart do not count: they resume later).
-    /// A task that sent its final progress counts as over even before its thread has ended.
+    /// Adding files or importing an Eagle library is running (previews made after a restart
+    /// do not count: they resume later). A task that sent its final progress counts as over
+    /// even before its thread has ended.
     pub fn has_running_imports(&self) -> bool {
         lock(&self.imports).running.values().any(|running| {
-            running.kind == ImportKind::Files
+            running.kind != ImportKind::Previews
                 && !lock(&running.latest).as_ref().is_some_and(|progress| {
                     matches!(progress.state, ImportState::Done | ImportState::Cancelled)
                 })
@@ -1353,6 +1434,15 @@ impl Session {
 
 fn no_library() -> SourceError {
     SourceError::Invalid("Open a library first.".into())
+}
+
+/// How reading an Eagle folder fails, for the wizard (docs/spec.md §8.2 step 1).
+fn eagle_error(error: eagle_folder::EagleError) -> SourceError {
+    match error {
+        eagle_folder::EagleError::NotFound(_) => SourceError::NotFound,
+        eagle_folder::EagleError::NotAnEagleLibrary(_) => SourceError::NotALibrary { eagle: true },
+        other => SourceError::Invalid(format!("reading the Eagle library: {other}")),
+    }
 }
 
 fn now_ms() -> i64 {
@@ -1532,6 +1622,110 @@ mod tests {
             f.session.default_library_location(),
             display_path(&elsewhere)
         );
+    }
+
+    /// The committed synthetic Eagle library with real images, in `root` (D-034).
+    fn eagle_fixture(root: &std::path::Path) -> std::path::PathBuf {
+        let source = std::path::Path::new(env!("CARGO_MANIFEST_DIR"))
+            .join("../fixtures/eagle-library/Synthetic.library");
+        let target = root.join("Synthetic.library");
+        copy_dir(&source, &target);
+        let images = target.join("images");
+        let jpg = |seed: u32| media::fixtures::jpeg(96, 64, seed);
+        let png = |seed: u32| media::fixtures::raster(image::ImageFormat::Png, 96, 64, seed);
+        let thumb = |seed: u32| media::fixtures::raster(image::ImageFormat::Png, 32, 32, seed);
+        fs::write(images.join("EITEMPOSTER1.info/sunset-poster.jpg"), jpg(1)).unwrap();
+        fs::write(
+            images.join("EITEMPOSTER2.info/duplicate-poster.jpg"),
+            jpg(1),
+        )
+        .unwrap();
+        fs::write(images.join("EITEMLOCKED1.info/secret-scan.png"), png(2)).unwrap();
+        fs::write(
+            images.join("EITEMLOCKED1.info/secret-scan_thumbnail.png"),
+            thumb(12),
+        )
+        .unwrap();
+        fs::write(images.join("EITEMTRASH1.info/old-draft.jpg"), jpg(3)).unwrap();
+        fs::write(
+            images.join("EITEMTRASH1.info/old-draft_thumbnail.png"),
+            thumb(13),
+        )
+        .unwrap();
+        fs::write(images.join("EITEMNOTHUMB1.info/tiny-icon.png"), png(4)).unwrap();
+        fs::write(images.join("EITEMLOOSE01.info/loose-photo.jpg"), jpg(5)).unwrap();
+        fs::write(
+            images.join("EITEMLOOSE01.info/loose-photo_thumbnail.png"),
+            thumb(15),
+        )
+        .unwrap();
+        target
+    }
+
+    fn copy_dir(source: &std::path::Path, target: &std::path::Path) {
+        fs::create_dir_all(target).unwrap();
+        for entry in fs::read_dir(source).unwrap().flatten() {
+            let to = target.join(entry.file_name());
+            if entry.file_type().unwrap().is_dir() {
+                copy_dir(&entry.path(), &to);
+            } else {
+                fs::copy(entry.path(), &to).unwrap();
+            }
+        }
+    }
+
+    #[test]
+    fn importing_an_eagle_library_creates_and_fills_the_library() {
+        let f = fixture();
+        let eagle = eagle_fixture(f.home.path());
+        let eagle_path = display_path(&eagle);
+
+        let summary = f.session.eagle_library_info(&eagle_path).unwrap();
+        assert_eq!(summary.name, "Synthetic");
+        assert_eq!(summary.item_count, 7);
+        assert!(summary.bytes > 0);
+
+        let parent = display_path(f.home.path());
+        let ticket = f
+            .session
+            .import_eagle_library(EagleImportRequest {
+                eagle_path,
+                create: Some(EagleLibraryTarget {
+                    parent,
+                    name: "Imported".into(),
+                }),
+                import_trash: false,
+            })
+            .unwrap();
+        let done = finished(&f.session, ticket.id);
+        let report = done.report.expect("the report");
+        assert_eq!(report.imported, 5, "{report:?}");
+        assert_eq!(report.duplicates, 1);
+        assert_eq!(report.locked_folders, ["Secret"]);
+
+        let info = f.session.current().expect("the new library is open");
+        assert_eq!(info.name, "Imported");
+        let counts = f.session.counts().unwrap();
+        assert_eq!(counts.all, 4, "{counts:?}");
+        let tree = f.session.folder_tree().unwrap();
+        let names: Vec<&str> = tree.iter().map(|folder| folder.name.as_str()).collect();
+        assert_eq!(names, ["Posters", "Secret", "Empty"]);
+    }
+
+    #[test]
+    fn importing_into_the_open_library_refuses_read_only() {
+        let f = fixture();
+        let eagle = eagle_fixture(f.home.path());
+        let eagle_path = display_path(&eagle);
+        let error = f
+            .session
+            .import_eagle_library(EagleImportRequest {
+                eagle_path,
+                create: None,
+                import_trash: false,
+            })
+            .unwrap_err();
+        assert!(matches!(error, SourceError::Invalid(_)), "{error:?}");
     }
 
     /// Waits until import `id` has finished, and returns its final progress.

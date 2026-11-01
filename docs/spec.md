@@ -946,8 +946,11 @@ Done when: a renamed item keeps its file readable; restore brings back folders a
 
 ### Phase 8 — Import from an Eagle library folder
 
+Implemented 2026-11-01 (D-071, D-072). The done check on Windows (a copy of a real Eagle
+library, counts compared with the desktop app) still runs by hand.
+
 - `eagle-folder`: read `metadata.json`, `mtime.json` and the item folders, with retries (correction 37) and passwords dropped while parsing.
-- The import wizard from Welcome and from the library menu (section 8.2); a resumable import in transactions of 500 items; Eagle thumbnails reused; the report.
+- The import wizard from Welcome and from the File menu (section 8.2); a resumable import in transactions of 500 items; Eagle thumbnails reused; the report.
 - Test fixture: a small synthetic Eagle library under `fixtures/eagle-library/` (made by hand, no personal data) with nested folders, tags, a smart folder, a tag group, a trashed item, a locked folder and an item without a thumbnail.
 
 Done when: a copy of a real Eagle library imports completely; the counts per folder match the desktop app; interrupting the import and starting it again finishes without duplicates; locked folders stay hidden until the user sets a password.

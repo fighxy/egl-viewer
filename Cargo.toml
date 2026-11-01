@@ -16,6 +16,7 @@ library-core = { path = "crates/library-core" }
 library-native = { path = "crates/library-native" }
 media = { path = "crates/media" }
 eagle-api = { path = "crates/eagle-api" }
+eagle-folder = { path = "crates/eagle-folder" }
 app-store = { path = "crates/app-store" }
 
 age = { version = "0.12.1", default-features = false }

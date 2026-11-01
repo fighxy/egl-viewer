@@ -17,7 +17,9 @@ use tauri::ipc::Channel;
 use tauri::{AppHandle, Manager, State, WebviewWindow};
 use ts_rs::TS;
 
-use crate::session::{Clipboard, Session, SmartDraft, StartupResult};
+use crate::session::{
+    Clipboard, EagleImportRequest, EagleLibrarySummary, Session, SmartDraft, StartupResult,
+};
 use crate::views::{ItemsTarget, ScopeProgress, ViewOpened, count};
 
 #[derive(Debug, Clone, PartialEq, Eq, Serialize, TS)]
@@ -755,6 +757,27 @@ pub async fn add_files(
 #[tauri::command]
 pub async fn preview_import(app: AppHandle, path: String) -> Result<ImportPreview, SourceError> {
     blocking(app, move |session| session.preview_import(&path)).await
+}
+
+/// Validates a picked Eagle `.library` folder for the import wizard: the library name, the
+/// item count and the bytes under `images/` (docs/spec.md §8.2 step 1).
+#[tauri::command]
+pub async fn eagle_library_info(
+    app: AppHandle,
+    path: String,
+) -> Result<EagleLibrarySummary, SourceError> {
+    blocking(app, move |session| session.eagle_library_info(&path)).await
+}
+
+/// Starts importing an Eagle library folder in the background (docs/spec.md §8.2): into a
+/// new native library, or into the open one. Its progress arrives as `import-progress`
+/// events; the final one carries the report.
+#[tauri::command]
+pub async fn import_eagle_library(
+    app: AppHandle,
+    request: EagleImportRequest,
+) -> Result<ImportTicket, SourceError> {
+    blocking(app, move |session| session.import_eagle_library(request)).await
 }
 
 /// Copied files or an image on the clipboard; `None` when there is nothing to add.

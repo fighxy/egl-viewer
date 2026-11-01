@@ -1,4 +1,4 @@
-# Native library format, version 1
+# Native library format
 
 The on-disk format of a native egl-viewer library (`Name.eglib`): the folder layout, the
 `library.db` schema, the lock, opening and closing, and how a file enters the library. It was
@@ -6,8 +6,8 @@ written before the phase 1 code (2026-10-28); the code follows it, and a change 
 changes this document in the same commit. For the on-disk format this document is the reference;
 [`architecture.md` §15.3](architecture.md) summarises it. Decisions: D-014, D-016, D-019 to D-024.
 
-Status: format version 1, implemented in `crates/library-native` (phase 1). A test keeps
-`src/schema/v1.sql` identical to the schema block in §4.
+Status: format version 5, implemented in `crates/library-native`. A test keeps a new library's
+schema identical to the schema block in §4 (`schema/v1.sql` plus the migrations of §8).
 
 ## 1. Folder layout
 
@@ -43,7 +43,7 @@ My Library.eglib/
 | Where | Value | Meaning |
 |---|---|---|
 | `PRAGMA application_id` | `1162300482` (`0x45474C42`, ASCII `EGLB`) | This SQLite file is an egl-viewer library |
-| `PRAGMA user_version` | `4` | The format version. There is no other version number. Version 2 had the schema of version 1 and marked a library with a locked folder (D-019, D-045). Version 3 rebuilt `item_fts` for substring search (D-047). Version 4 records the retired PIV slot and the touch-or-PIN policy on `folder_piv_wrap` (D-056). Every library is migrated to 4 when a writer opens it |
+| `PRAGMA user_version` | `5` | The format version. There is no other version number. Version 2 had the schema of version 1 and marked a library with a locked folder (D-019, D-045). Version 3 rebuilt `item_fts` for substring search (D-047). Version 4 records the retired PIV slot and the touch-or-PIN policy on `folder_piv_wrap` (D-056). Version 5 adds `eagle_import`, the import state of an Eagle library import (docs/spec.md §8.2). Every library is migrated to 5 when a writer opens it |
 | `meta.created_with`, `meta.last_written_with` | app version, for example `0.1.0` | Diagnostics only; never used to decide anything |
 
 Checks when a library is opened (the full order is in §7):
@@ -73,7 +73,7 @@ PRAGMA page_size = 4096;
 PRAGMA auto_vacuum = INCREMENTAL;     -- emptying the trash can give space back without a full VACUUM
 PRAGMA journal_mode = WAL;            -- stored in the file
 PRAGMA application_id = 1162300482;
-PRAGMA user_version = 1;              -- then the migrations of §8 bring a new library to 4
+PRAGMA user_version = 1;              -- then the migrations of §8 bring a new library to 5
 ```
 
 The text encoding is UTF-8 (the default). On every writer connection:
@@ -242,6 +242,14 @@ CREATE TABLE change_log (
 CREATE TABLE pending_file (                         -- the journal of adding a file (§6)
   path       TEXT PRIMARY KEY,                      -- the target file_path
   created_at INTEGER NOT NULL
+) STRICT, WITHOUT ROWID;
+
+-- the import state of an Eagle library import (docs/spec.md §8.2): one row per imported
+-- item, so an interrupted import resumes where it stopped and a later re-import can diff
+CREATE TABLE eagle_import (
+  eagle_id      TEXT PRIMARY KEY,                   -- Eagle's item id
+  last_modified INTEGER NOT NULL,                   -- Eagle's lastModified for the item, ms
+  imported_at   INTEGER NOT NULL
 ) STRICT, WITHOUT ROWID;
 
 -- reserved, phase 4: the key of an item in a locked folder, wrapped once per locked folder
@@ -471,6 +479,10 @@ app emits `library-closed` and returns to Welcome with a message.
   82–95) and `policy` (`touch` or `pin`). The table was empty, so the rebuild drops it and
   creates it again. A YubiKey wrap is optional and does not replace the password or the
   recovery secret.
+- **Version 5** (phase 8): `eagle_import` records every item imported from an Eagle library:
+  the Eagle id, its `lastModified` on the Eagle side (for a later incremental re-import) and
+  when the import stored it. An interrupted import resumes where it stopped; the table stays
+  empty for a library that never imported one.
 
 ## 9. Creating a library
 

@@ -193,6 +193,7 @@ export function progress(change: Partial<ImportProgress> = {}): ImportProgress {
     duplicate: null,
     failures: [],
     skipped: [],
+    report: null,
     startedAt: Date.UTC(2026, 9, 28, 10),
     finishedAt: null,
     ...change,

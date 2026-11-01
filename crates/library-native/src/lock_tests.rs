@@ -155,12 +155,12 @@ fn a_lock_encrypts_the_folder_and_hides_it_until_unlocked() {
     assert!(files.iter().any(|file| file.ends_with("c.png")));
     let (name, encrypted, _, _) = row(&library, &c);
     assert_eq!((name.as_str(), encrypted), ("c", false));
-    // Format version 4 already keeps older apps out of a library with locks (D-047, D-056).
+    // Format version 5 already keeps older apps out of a library with locks (D-047, D-056).
     let version: u32 = library
         .conn()
         .query_row("PRAGMA user_version", [], |row| row.get(0))
         .unwrap();
-    assert_eq!(version, 4);
+    assert_eq!(version, crate::FORMAT_VERSION);
 
     // Unlocking: everything comes back, decrypted in memory only.
     assert!(matches!(

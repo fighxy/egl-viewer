@@ -1,0 +1,50 @@
+{
+  "folders": [
+    {
+      "id": "FPOSTERS",
+      "name": "Posters",
+      "description": "Poster designs",
+      "iconColor": "red",
+      "tags": ["design"],
+      "children": [
+        {
+          "id": "FPOSTERS24",
+          "name": "2024",
+          "iconColor": "blue",
+          "children": []
+        }
+      ]
+    },
+    {
+      "id": "FSECRET",
+      "name": "Secret",
+      "password": "synthetic-password",
+      "children": []
+    },
+    {
+      "id": "FEMPTY",
+      "name": "Empty",
+      "children": []
+    }
+  ],
+  "smartFolders": [
+    {
+      "id": "SRATED",
+      "name": "Rated",
+      "conditions": [
+        [{ "key": "rating", "match": "gt", "value": 0, "type": "number" }]
+      ],
+      "children": []
+    }
+  ],
+  "tagsGroups": [
+    {
+      "id": "TGMOODS",
+      "name": "Moods",
+      "color": "red",
+      "tags": ["warm", "cold"]
+    }
+  ],
+  "quickAccess": [],
+  "modificationTime": 1794000000000
+}

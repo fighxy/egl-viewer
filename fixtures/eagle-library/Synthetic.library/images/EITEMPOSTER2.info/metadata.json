@@ -1,0 +1,17 @@
+{
+  "id": "EITEMPOSTER2",
+  "name": "duplicate-poster",
+  "size": 33,
+  "btime": 1793000100000,
+  "mtime": 1793000100000,
+  "ext": "jpg",
+  "tags": ["poster"],
+  "folders": ["FPOSTERS"],
+  "isDeleted": false,
+  "modificationTime": 1792000100000,
+  "height": 64,
+  "width": 96,
+  "noThumbnail": false,
+  "palettes": [],
+  "lastModified": 1794000002000
+}

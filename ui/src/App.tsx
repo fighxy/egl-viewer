@@ -29,6 +29,7 @@ import {
 import { fetchCell, useView } from "@/features/browse/useView";
 import { ConnectScreen } from "@/features/connect/ConnectScreen";
 import { type DragPayload, DragProvider, type DropTarget } from "@/features/dnd/drag";
+import { EagleImportDialog } from "@/features/eagle-import/EagleImportDialog";
 import { ExportDialog, type ExportTarget } from "@/features/export/ExportDialog";
 import { type FolderDialog, FolderDialogs } from "@/features/folders/FolderDialogs";
 import { FolderProperties } from "@/features/folders/FolderProperties";
@@ -133,7 +134,8 @@ type DialogKind =
   | "about"
   | "shortcuts"
   | "librarySettings"
-  | "checkLibrary";
+  | "checkLibrary"
+  | "eagleImport";
 
 async function pickFolder(title: string, defaultPath?: string): Promise<string | null> {
   const picked = await openDialog({ directory: true, multiple: false, title, defaultPath });
@@ -1260,6 +1262,7 @@ function AppShell() {
           })
           .catch((error: unknown) => setStatus(describeError(error)));
       },
+      importEagle: () => afterImports(() => setDialog("eagleImport")),
       settings: () => {
         setDialog("settings");
         if (inTauri() && builtInLocation === "") {
@@ -1812,8 +1815,10 @@ function AppShell() {
                       .then(refreshRecent)
                       .catch((error: unknown) => setStatus(describeError(error)));
                   }}
-                  // The Eagle import arrives in phase 8 (docs/spec.md §9).
-                  onImportEagleLibrary={() => setStatus(t("status.eagleImportSoon"))}
+                  onImportEagleLibrary={() => {
+                    setStatus(undefined);
+                    setDialog("eagleImport");
+                  }}
                   onConnectEagle={() => {
                     setStatus(undefined);
                     setView({ kind: "connect" });
@@ -1941,6 +1946,30 @@ function AppShell() {
               .addFiles([path], intoFolder, choice.exclude, choice.include, true)
               .catch((error: unknown) => setStatus(describeError(error)));
           }}
+        />
+        <EagleImportDialog
+          open={dialog === "eagleImport"}
+          onOpenChange={closeDialog}
+          openLibrary={library ?? null}
+          loadDefaultLocation={loadDefaultLocation}
+          browse={browseFolders}
+          info={ipc.eagleLibraryInfo}
+          start={ipc.importEagleLibrary}
+          onNewLibraryOpened={() => {
+            // The import created and opened the library: switch to it, but keep the wizard
+            // up so its progress and report stay visible.
+            ipc
+              .currentLibrary()
+              .then((info) => {
+                if (!info) return;
+                setView({ kind: "library", library: info });
+                setStatus(undefined);
+                void refreshRecent();
+              })
+              .catch(() => {});
+          }}
+          progress={imports.imports.find((progress) => progress.kind === "eagle") ?? null}
+          onCancel={(id) => void ipc.cancelImport(id).catch(() => {})}
         />
         <LockDialogs
           dialog={lockDialog}

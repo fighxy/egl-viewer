@@ -171,7 +171,8 @@ egl-viewer/
       plan.rs                plan() → FetchPlan, ServerFilter: the Eagle-specific query plan (§6.2)
       api_v2.rs              typed methods per route, FolderUpdateBody
   src-tauri/                 the app crate: thin
-    commands.rs              libraries, imports, views and items now; folders, tags, eagle later (§8)
+    commands.rs              libraries, imports (files and the Eagle folder import), views and items; the live
+                             Eagle commands arrive with phases 9–11 (§8)
     session.rs               the open library, its imports and views, the app's files, without Tauri (tested)
     views.rs                 view IPC types, the source read on a blocking thread, refreshing views after
                              writes, parsing `thumb` URLs (the scheme itself is registered in lib.rs)
@@ -1255,7 +1256,7 @@ Read-only, and Eagle may be closed. If Eagle has this library open, reading is s
 1. Check the folder: `metadata.json`, `mtime.json`, `images/`.
 2. Read `metadata.json`: folders (password fields dropped, §5), smart folders, tag groups.
 3. Read `mtime.json`: the ids and their `lastModified` values form the import manifest.
-4. For each id, in a bounded parallel pool: read `images/<id>.info/metadata.json`, find the original by extension, hash it, copy (or hard-link) it into `files/`, take `_thumbnail.png` if present, insert the rows. Retry a JSON parse error, because Eagle writes these files in place (correction 37). Never use Eagle's cache in `%APPDATA%` (correction 36).
+4. For each id of the manifest: read `images/<id>.info/metadata.json`, find the original by extension, hash it while copying it into `files/`, take `_thumbnail.png` if present, insert the rows. Items go one after another on the import thread (file copies are I/O-bound); only the previews of items without an Eagle thumbnail run on a bounded pool. Retry a JSON parse error, because Eagle writes these files in place (correction 37). Never use Eagle's cache in `%APPDATA%` (correction 36).
 5. Commit in transactions of 500 items. Record each imported `eagle_id` with its `lastModified` in an import state table, so an interrupted import resumes where it stopped.
 6. Report: imported, skipped (missing originals, unreadable metadata), duplicates by hash.
 

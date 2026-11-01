@@ -19,6 +19,7 @@ tauri-build.workspace = true
 app-store.workspace = true
 arboard.workspace = true
 drag.workspace = true
+eagle-folder.workspace = true
 library-core.workspace = true
 library-native.workspace = true
 media.workspace = true

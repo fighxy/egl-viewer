@@ -346,13 +346,15 @@ pub enum ImportState {
     Cancelled,
 }
 
-/// Files the user added, or previews that the library makes after a restart.
+/// Files the user added, previews that the library makes after a restart, or an Eagle
+/// library import.
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize, TS)]
 #[serde(rename_all = "camelCase")]
 #[ts(export)]
 pub enum ImportKind {
     Files,
     Previews,
+    Eagle,
 }
 
 #[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize, TS)]
@@ -374,6 +376,27 @@ pub struct DuplicateNotice {
     pub in_trash: bool,
     /// The folder the file was going into; the existing item can join it instead.
     pub target_folder: Option<String>,
+}
+
+/// The result of an Eagle library import (docs/spec.md §8.2 step 5); the final
+/// `import-progress` event carries it.
+#[derive(Debug, Clone, PartialEq, Eq, Default, Serialize, Deserialize, TS)]
+#[serde(rename_all = "camelCase", default)]
+#[ts(export)]
+pub struct EagleImportReport {
+    /// Items copied into the library, trash included (when the option was on).
+    pub imported: u32,
+    /// Items whose content hash another item of this import already had: imported as their
+    /// own items, like they are in Eagle, and listed here.
+    pub duplicates: u32,
+    /// Trashed Eagle items the options left out.
+    pub trash_skipped: u32,
+    /// Items that could not be imported (missing originals, unreadable metadata), at most
+    /// the first 200, with the reason.
+    pub skipped: Vec<ImportFailure>,
+    /// Names of the locked Eagle folders: imported locked, with no password and no
+    /// identity; their content stays hidden until a password is set or the lock is removed.
+    pub locked_folders: Vec<String>,
 }
 
 /// The state of one import task, sent to the UI as it changes (`import-progress` events).
@@ -401,6 +424,9 @@ pub struct ImportProgress {
     pub failures: Vec<ImportFailure>,
     /// Duplicates that were skipped, at most the first 200.
     pub skipped: Vec<DuplicateNotice>,
+    /// The report of a finished Eagle import.
+    #[serde(default)]
+    pub report: Option<EagleImportReport>,
     /// ms
     pub started_at: i64,
     pub finished_at: Option<i64>,

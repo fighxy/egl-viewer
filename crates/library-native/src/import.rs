@@ -653,7 +653,7 @@ fn build_preview(files: Vec<Source>) -> ImportPreview {
     preview
 }
 
-fn note_failure(progress: &mut ImportProgress, failure: ImportFailure) {
+pub(crate) fn note_failure(progress: &mut ImportProgress, failure: ImportFailure) {
     progress.failed += 1;
     if progress.failures.len() < LISTED {
         progress.failures.push(failure);
@@ -662,13 +662,13 @@ fn note_failure(progress: &mut ImportProgress, failure: ImportFailure) {
 
 /// The shared progress of one task, sent to the observer at most every 50 ms unless a change
 /// matters (state changes, the end).
-struct Tracker<'a> {
+pub(crate) struct Tracker<'a> {
     progress: Mutex<(ImportProgress, Instant)>,
     observer: &'a dyn ImportObserver,
 }
 
 impl<'a> Tracker<'a> {
-    fn new(id: u64, kind: ImportKind, observer: &'a dyn ImportObserver) -> Self {
+    pub(crate) fn new(id: u64, kind: ImportKind, observer: &'a dyn ImportObserver) -> Self {
         let progress = ImportProgress {
             id,
             kind,
@@ -684,6 +684,7 @@ impl<'a> Tracker<'a> {
             duplicate: None,
             failures: Vec::new(),
             skipped: Vec::new(),
+            report: None,
             started_at: now_ms(),
             finished_at: None,
         };
@@ -693,7 +694,7 @@ impl<'a> Tracker<'a> {
         }
     }
 
-    fn update(&self, force: bool, change: impl FnOnce(&mut ImportProgress)) {
+    pub(crate) fn update(&self, force: bool, change: impl FnOnce(&mut ImportProgress)) {
         let mut guard = self.progress.lock().unwrap_or_else(PoisonError::into_inner);
         let (progress, sent) = &mut *guard;
         change(progress);
@@ -703,8 +704,18 @@ impl<'a> Tracker<'a> {
         }
     }
 
-    fn finish(self, cancel: &AtomicBool) -> ImportProgress {
+    pub(crate) fn finish(self, cancel: &AtomicBool) -> ImportProgress {
+        self.finish_with(cancel, |_| {})
+    }
+
+    /// [`Tracker::finish`] with one last change (the Eagle import attaches its report).
+    pub(crate) fn finish_with(
+        self,
+        cancel: &AtomicBool,
+        change: impl FnOnce(&mut ImportProgress),
+    ) -> ImportProgress {
         self.update(true, |progress| {
+            change(progress);
             progress.current = None;
             progress.duplicate = None;
             progress.state = if cancel.load(Ordering::Relaxed) {

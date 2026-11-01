@@ -9,6 +9,8 @@ import type { Compression } from "./generated/Compression";
 import type { ConnectionSettings } from "./generated/ConnectionSettings";
 import type { DuplicateAnswer } from "./generated/DuplicateAnswer";
 import type { DuplicateNotice } from "./generated/DuplicateNotice";
+import type { EagleImportRequest } from "./generated/EagleImportRequest";
+import type { EagleLibrarySummary } from "./generated/EagleLibrarySummary";
 import type { EditKind } from "./generated/EditKind";
 import type { ExportFormat } from "./generated/ExportFormat";
 import type { ExportPreview } from "./generated/ExportPreview";
@@ -85,6 +87,8 @@ export type {
   ConnectionSettings,
   DuplicateAnswer,
   DuplicateNotice,
+  EagleImportRequest,
+  EagleLibrarySummary,
   EditKind,
   ExportFormat,
   ExportPreview,
@@ -220,6 +224,9 @@ export const ipc = {
     reviewed = false,
   ) => invoke<ImportTicket>("add_files", { paths, folder, exclude, include, reviewed }),
   previewImport: (path: string) => invoke<ImportPreview>("preview_import", { path }),
+  eagleLibraryInfo: (path: string) => invoke<EagleLibrarySummary>("eagle_library_info", { path }),
+  importEagleLibrary: (request: EagleImportRequest) =>
+    invoke<ImportTicket>("import_eagle_library", { request }),
   pasteFiles: (folder: string | null = null) =>
     invoke<ImportTicket | null>("paste_files", { folder }),
   answerImport: (id: number, answer: DuplicateAnswer) =>
