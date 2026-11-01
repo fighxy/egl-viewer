@@ -5,6 +5,7 @@ mod add;
 mod backup;
 mod create;
 mod detect;
+mod eagle_import;
 mod edits;
 mod error;
 mod export;
@@ -32,6 +33,8 @@ mod vault;
 pub use time::utc_file_stamp;
 
 #[cfg(test)]
+mod eagle_import_tests;
+#[cfg(test)]
 mod edit_tests;
 #[cfg(test)]
 mod folder_tests;
@@ -55,6 +58,7 @@ mod tests;
 pub use add::{AddOutcome, Duplicates, Placement};
 pub use create::create_library;
 pub use detect::{is_native_library, looks_like_eagle_library};
+pub use eagle_import::{EagleImportOptions, import_eagle};
 pub use export::{export_items, export_preview};
 pub use import::{
     DuplicateChoice, DuplicatePolicy, ImportFilter, ImportObserver, ImportTarget, import_files,

@@ -173,6 +173,8 @@ pub fn run() {
             commands::save_recovery_file,
             commands::add_files,
             commands::paste_files,
+            commands::eagle_library_info,
+            commands::import_eagle_library,
             commands::answer_import,
             commands::cancel_import,
             commands::imports,

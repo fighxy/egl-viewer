@@ -56,6 +56,8 @@ export type CommandActions = {
   addFiles: () => void;
   /** A reviewed import: the picked folder shows what is inside before anything is copied. */
   addFolder: () => void;
+  /** The Eagle import wizard (docs/spec.md §8.2). */
+  importEagle: () => void;
   paste: () => void;
   settings: () => void;
   exit: () => void;
@@ -274,6 +276,14 @@ export const COMMANDS: readonly Command[] = [
     group: 1,
     available: needsWritableLibrary,
     run: (actions) => actions.addFolder(),
+  },
+  {
+    id: "file.importEagle",
+    label: "Import Eagle Library…",
+    menu: "file",
+    group: 1,
+    available: needsWritableLibrary,
+    run: (actions) => actions.importEagle(),
   },
   {
     id: "file.settings",

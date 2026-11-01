@@ -24,7 +24,8 @@ React UI. Windows first; no AI features.
 | 5. Tags | Implemented (2026-10-28), waiting for the done check on Windows: the tag editor in the right bar with vocabulary suggestions, tagging a selection with tags on only some items dimmed, the Tags filter (counts, Any / All / Exact / None, recent tags, groups), the filter bar, rename, merge and delete everywhere, tag groups, Tag groups and Recent tags in the left bar (D-046). Dropping items onto a tag row there adds that tag (D-057) |
 | 6. Search, filters and smart folders | Implemented (2026-10-29), waiting for the done check on Windows: search as in Eagle (any part of a word, `OR`, `-`, parentheses) through an FTS5 trigram index (format version 3), the filter bar with Tags, Folders, Type, Rating and Shape, smart folders with their own tree, Eagle's rules evaluated locally for the v1 subset, the rule editor, Save as smart folder (D-047, D-048) |
 | 7. Editing and trash | Implemented (2026-10-29), waiting for the done check on Windows: name (the stored file is renamed too), note, link and rating edited in place, batch rating, undo of the last edits (`Ctrl+Z`), the trash with restore, delete permanently and Empty Trash (files removed), Open with the default app, Show in Explorer, Copy File, dragging originals out from the right bar, the right-click menu, Library Settings with backups and restore, Check Library with repair, Rebuild Thumbnails (D-049 to D-052). Backup… / Export… copy originals to a folder or ZIP (optional age passphrase), with progress and cancel (D-064 to D-066) |
-| 8–11. Eagle: import, live connection, export | Planned |
+| 8. Eagle: import from a library folder | Implemented (2026-11-01), the done check on Windows with a real Eagle library still open: the `eagle-folder` crate (read-only, retries on half-written JSON, passwords dropped), the resumable import in transactions of 500 with the `eagle_import` state table (format version 5, D-072), Eagle thumbnails as the first thumbnails, locked folders imported locked with no identity and plaintext files, the wizard from Welcome and the File menu, the report (imported, duplicates by hash, skipped, locked folders) (D-071) |
+| 9–11. Eagle: live connection, edits, export | Planned |
 | 12. Hardening and the Windows release | In progress: desktop auto-update through `tauri-plugin-updater` and GitHub Releases (D-062); Windows NSIS bundles libheif DLLs beside the exe (D-070). NSIS / DMG / AppImage already ship from CI; Authenticode, notarization and the clean-machine done check remain open |
 
 The full plan is in [`docs/spec.md` §9](docs/spec.md). The Project-store plan for auto-update is mirrored by **D-062** in [`docs/decisions.md`](docs/decisions.md); set GitHub secrets `TAURI_SIGNING_PRIVATE_KEY` (and optional `TAURI_SIGNING_PRIVATE_KEY_PASSWORD`) before tagging a release, and attach `latest.json` (see `scripts/write-latest-json.mjs`) to the GitHub Release. Already-installed builds without the updater need **one last manual install** of the first updater-enabled release.
@@ -71,12 +72,13 @@ crates/library-core/   models, queries and views (filters, sorter), edits, error
 crates/library-native/ the native library: create, open, the library lock, recovery, adding files, scopes in SQL, edits, backups, export of originals, checks
 crates/app-store/      settings, recent libraries, library locations, secrets
 crates/eagle-api/      a running Eagle as a LibrarySource (transport from phase 9)
+crates/eagle-folder/   read-only Eagle `.library` folder parsing (phase 8, D-071)
 crates/media/          decoding, thumbnails, palettes and EXIF for the native library
-(later crates)         eagle-folder (phase 8)
 src-tauri/             the Tauri app: commands, configuration, capabilities, icons
 ui/                    React + TypeScript + Tailwind + shadcn/ui; i18n catalogs in ui/src/i18n/ (en, ru, zh-CN; D-069)
 docs/                  spec, architecture, decisions
 fixtures/eagle-api/    real Eagle 4.0.0 request and response captures
+fixtures/eagle-library/ synthetic Eagle `.library` for the folder import (D-071)
 ```
 
 ## Tests

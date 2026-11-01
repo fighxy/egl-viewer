@@ -1,0 +1,24 @@
+{
+  "id": "EITEMPOSTER1",
+  "name": "sunset-poster",
+  "size": 33,
+  "btime": 1793000000000,
+  "mtime": 1793000000000,
+  "ext": "jpg",
+  "tags": ["poster", "warm"],
+  "folders": ["FPOSTERS", "FPOSTERS24"],
+  "isDeleted": false,
+  "url": "https://example.com/sunset",
+  "annotation": "A sunset poster",
+  "modificationTime": 1792000000000,
+  "height": 64,
+  "width": 96,
+  "noThumbnail": false,
+  "star": 3,
+  "palettes": [
+    { "color": [142, 83, 55], "ratio": 47 },
+    { "color": [251, 246, 227], "ratio": 0.74 }
+  ],
+  "order": { "FPOSTERS": 0 },
+  "lastModified": 1794000001000
+}

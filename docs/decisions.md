@@ -1248,3 +1248,34 @@ linked libheif dynamically, but the installer did not ship it).
   `libde265.dll` sit beside `egl-viewer.exe`; the app starts without a missing-DLL dialog;
   importing a `.heic` produces a thumbnail. On CI, the nsis job prints `bundled-dlls.txt`
   before `pnpm build`.
+
+## D-071 The `eagle-folder` crate and the text-only Eagle fixture (2026-11-01)
+
+Phase 8 (docs/spec.md §9). Reading an Eagle `.library` folder lives in its own crate,
+`crates/eagle-folder`: parsing `metadata.json` / `mtime.json` / per-item `metadata.json`,
+dropping folder passwords while parsing (only `is_locked` survives, and the DTO never
+serializes the flag under Eagle's `password` key), retrying JSON reads 5 times with 150 ms
+pauses (correction 37), and finding originals by extension. It has no Tauri, no network
+and no `media` dependency, so it builds anywhere and its tests run fast.
+
+- The synthetic fixture (`fixtures/eagle-library/Synthetic.library`) holds **only text**:
+  JSON metadata plus placeholder bytes for originals and thumbnails, keeping the repository
+  free of binary fixtures (D-034). Tests that need decodable pixels copy the fixture into a
+  temporary folder and overwrite the placeholders with generated images (`media::fixtures`).
+- The committed fixture covers what spec §9 phase 8 asks for: nested folders, tags, a smart
+  folder, a tag group, a trashed item, a locked folder, an item without a thumbnail — plus a
+  content-duplicate pair, an item with a comment, and an item whose original is missing.
+
+## D-072 Format version 5: the `eagle_import` table (2026-11-01)
+
+The import state of an Eagle library import is a table, not `meta` JSON, per
+docs/architecture.md §15.6 step 5: one row per imported item (`eagle_id`, Eagle's
+`last_modified`, `imported_at`). It makes an interrupted import resume where it stopped
+(the manifest ids already in the table are skipped) and leaves room for the later
+"follow Eagle" incremental re-import, which diffs `mtime.json` against `last_modified`.
+
+- The migration to version 5 is **idempotent** (`DROP TABLE IF EXISTS` then `CREATE`), the
+  same pattern version 4 uses: a test turns a new library back into version 1 (keeping the
+  new tables) and reopens it through every migration.
+- `last_modified` is written at import time and never updated afterwards; nothing reads it
+  yet (that is the later re-import).

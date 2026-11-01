@@ -1,0 +1,30 @@
+{
+  "id": "EITEMLOOSE01",
+  "name": "loose-photo",
+  "size": 31,
+  "btime": 1793000500000,
+  "mtime": 1793000500000,
+  "ext": "jpg",
+  "tags": [],
+  "folders": [],
+  "isDeleted": false,
+  "url": "",
+  "annotation": "",
+  "modificationTime": 1792000500000,
+  "height": 64,
+  "width": 96,
+  "noThumbnail": false,
+  "palettes": [],
+  "comments": [
+    {
+      "id": "CELOOSE1",
+      "annotation": "check the crop",
+      "x": 4,
+      "y": 4,
+      "w": 32,
+      "h": 24,
+      "updatedAt": 1793000501000
+    }
+  ],
+  "lastModified": 1794000006000
+}

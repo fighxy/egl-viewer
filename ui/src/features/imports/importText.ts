@@ -75,7 +75,10 @@ export function importSummary(progress: ImportProgress): string {
       );
     case "done":
       return (
-        i18n.t("imports.added", { count: progress.added, formatted: fmt(progress.added) }) + tail
+        (progress.kind === "eagle"
+          ? i18n.t("eagleImport.imported", { count: progress.added })
+          : i18n.t("imports.added", { count: progress.added, formatted: fmt(progress.added) })) +
+        tail
       );
     case "cancelled":
       return (

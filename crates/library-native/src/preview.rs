@@ -32,7 +32,7 @@ const WANTS_PREVIEW: &str = "(thumb_version = 0 OR thumb_version < -1)";
 
 /// The next thumbnail's version. A rebuilt thumbnail continues after the one it replaces, so
 /// its URL is new and the WebView's cache cannot serve the old image (docs/architecture.md §11).
-const NEXT_VERSION: &str =
+pub(crate) const NEXT_VERSION: &str =
     "CASE WHEN thumb_version < -1 THEN -thumb_version ELSE MAX(thumb_version, 0) + 1 END";
 
 /// An item that still needs its thumbnail.
@@ -224,6 +224,44 @@ impl Library {
             )
             .context("mark the item without a preview")?;
         Ok(())
+    }
+
+    /// Stores ready WebP bytes as an item's thumbnail without touching anything else, for
+    /// previews that arrived from elsewhere (an Eagle thumbnail, or a made-later preview of
+    /// an imported item: Eagle's own width, height, palette and EXIF stay authoritative).
+    pub(crate) fn store_imported_preview(&self, id: &str, webp: &[u8]) -> Result<()> {
+        self.check_writable()?;
+        let thumb = self.thumbnail_path(id)?;
+        let dir = thumb.parent().map(PathBuf::from).unwrap_or_default();
+        fs::create_dir_all(&dir).context("create the thumbnail folder")?;
+        let tmp = dir.join(format!(".{id}.webp.tmp"));
+        fs::write(&tmp, webp).context("write the thumbnail")?;
+        if let Err(error) = rename_with_retry(&tmp, &thumb) {
+            let _ = fs::remove_file(&tmp);
+            return Err(error).context("move the thumbnail into place");
+        }
+        let now = now_ms();
+        let mut conn = self.conn();
+        let tx = conn.transaction().context("store the thumbnail")?;
+        let updated = tx
+            .execute(
+                &format!(
+                    "UPDATE item SET thumb_version = {NEXT_VERSION}, updated_at = ?2 WHERE id = ?1"
+                ),
+                params![id, now],
+            )
+            .context("store the thumbnail")?;
+        if updated == 0 {
+            drop(tx);
+            let _ = fs::remove_file(&thumb);
+            return Err(SourceError::NotFound);
+        }
+        tx.execute(
+            "INSERT INTO change_log (entity, entity_id, op, at) VALUES ('item', ?1, 'update', ?2)",
+            params![id, now],
+        )
+        .context("log the change")?;
+        tx.commit().context("store the thumbnail")
     }
 
     /// Library → Rebuild Thumbnails: every visible item of a previewable type asks for its
