@@ -80,6 +80,11 @@ export const zhCN: MessageCatalog = {
     dark: "深色",
   },
   sort: {
+    title: "排序",
+    byAria: "按{{label}}排序",
+    global: "使用全局排序",
+    optionAsc: "{{label}}，升序",
+    optionDesc: "{{label}}，降序",
     added: "添加日期",
     btime: "创建日期",
     mtime: "修改日期",

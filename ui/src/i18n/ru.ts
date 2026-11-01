@@ -80,6 +80,11 @@ export const ru: MessageCatalog = {
     dark: "Тёмная",
   },
   sort: {
+    title: "Сортировка",
+    byAria: "Сортировка: {{label}}",
+    global: "Общая сортировка",
+    optionAsc: "{{label}}, по возрастанию",
+    optionDesc: "{{label}}, по убыванию",
     added: "Дата добавления",
     btime: "Дата создания",
     mtime: "Дата изменения",

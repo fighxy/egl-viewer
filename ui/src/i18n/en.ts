@@ -78,6 +78,11 @@ export const en = {
     dark: "Dark",
   },
   sort: {
+    title: "Sort",
+    byAria: "Sort by {{label}}",
+    global: "The global sort",
+    optionAsc: "{{label}}, ascending",
+    optionDesc: "{{label}}, descending",
     added: "Date Added",
     btime: "Date Created",
     mtime: "Date Modified",
