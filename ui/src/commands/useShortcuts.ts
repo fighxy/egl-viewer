@@ -39,6 +39,8 @@ export function useShortcuts(
       if (name === "Delete" && event.defaultPrevented) return;
       if (TEXT_KEYS.has(name) && isEditable(event.target)) return;
       if (ACTIVATION_KEYS.has(name) && isInteractive(event.target)) return;
+      // Space hold-vs-toggle for the preview is handled by useSpacePreview (D-073).
+      if (name === "Space") return;
       const command = commandForShortcut(name, commands);
       if (!command?.run || availability(command, state) !== true) return;
       event.preventDefault();

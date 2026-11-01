@@ -298,7 +298,7 @@ Changing chips or sort on the same scope does not reload the scope.
 ## 6. Editing
 
 - **One item:** name (renames the stored file too), note, link, rating, tags, folders. A change is an intent (`ItemEdit`: add or remove tags, add to or remove from folders, set the folders, set the rating, …), applied to the current state of the item in Rust (arch §7.1).
-- **Several items:** with a multi-selection in the grid, add or remove tags, add to or remove from folders, set the rating, move to the trash. Dropping items on a folder adds them to it. Dropping them on a tag row in the left bar (a tag in Tag groups or Recent tags) adds that one tag and leaves their other tags. If every dropped item already has the tag, the drop writes nothing. A read-only library refuses either drop. One transaction per batch; progress for large batches.
+- **Several items:** with a multi-selection in the grid, add or remove tags, add to or remove from folders, set the rating, move to the trash. Dropping items on a folder adds them to it. Dropping them on a tag row in the left bar (a tag in Tag groups or Recent tags) adds that one tag and leaves their other tags. If every dropped item already has the tag, the drop writes nothing. Dropping items on Trash moves them to the trash, the same edit and confirmation as Delete (D-073). A read-only library refuses these drops. One transaction per batch; progress for large batches.
 - **Optimistic UI:** the UI shows the intended state at once. On an error, Rust returns the stored state, the view is recomputed and the UI rolls back.
 - **Validation before writing:** rating 0–5, name not empty, name and note at most 10 000 UTF-16 units, no empty tags or folder ids.
 - **Undo:** the last item edits (not a permanent delete) can be undone with `Ctrl+Z`, one at a time, while the library is open: up to 50, kept in memory (D-050). Folder and tag-vocabulary changes are not undone. Later: a longer history from `change_log`.
@@ -372,7 +372,7 @@ Trash                  27
 ```
 
 - The library name, with a menu (Library Settings, Show in Explorer, Close Library) and the read-only badge.
-- All, Uncategorized, Untagged and Trash with their counts.
+- All, Uncategorized, Untagged and Trash with their counts. Items dropped on Trash go to the trash (same confirmation as Delete; D-073).
 - **Folders:** the tree with colour dots and counts (direct items with subfolders off, items including subfolders with it on). ⊕ creates a folder. ⇲ is the **Include subfolders** switch, also in the View menu; it changes the counts, so it sits next to the tree. Items dropped on a folder are added to it. Folders are dragged to move them (onto a folder: inside it; near its top or bottom edge: before or after it). The context menu has New Subfolder, Rename (`F2`), Colour, Move To… and Delete… (`Del`).
 - **Locked folders:** each locked folder with its name, its tag (label and colour) and a lock. Locked folders appear only here, not again in Folders (D-059). Choosing a row prompts for that folder only; choosing an unlocked one opens it. The section's menu has Unlock…, Lock Now, Change Password…, New Recovery Key…, Add YubiKey…, Remove YubiKey… and Remove Lock…. Folders' menu still has Lock… for an unlocked folder. Library → Lock All Folders (`Ctrl+L`) locks every open folder again.
 - **Smart folders:** their own tree.
@@ -400,7 +400,7 @@ Each filter is a button with a dropdown panel. Later filters (size, dates, colou
 
 - The **grid** is justified (D-067): rows share one height, each cell's width follows the item's aspect ratio so the row fills the container; the size slider sets the target row height. Gutters stay small (`8px`). Missing width/height use a square. **List** shows a small thumbnail, name, type, size, dimensions, date added, rating and tags. Masonry can still come later as another View mode.
 - A cell shows the thumbnail, or the first palette colour and the extension until the thumbnail exists; stars when rated; the name under the image when View → Show Names is on (same caption density as before — name only). Selection is an outline.
-- Click, `Ctrl`, `Shift`, a rubber band and `Ctrl+A` select. Double-click or `Space` opens the full-size preview. `Enter` moves focus to the right bar and opens it if hidden. `Delete` moves the selection to the trash after a confirmation; the confirmation has a "Don't ask again" checkbox that turns the confirmation off for good, and Settings → General turns it back on.
+- Click, `Ctrl`, `Shift`, a rubber band and `Ctrl+A` select. Double-click or a short `Space` opens the full-size preview; a second short `Space` closes it. Holding `Space` peeks (opens while held, closes on release) (D-073). `Enter` moves focus to the right bar and opens it if hidden. `Delete` moves the selection to the trash after a confirmation; the confirmation has a "Don't ask again" checkbox that turns the confirmation off for good, and Settings → General turns it back on.
 - Files dragged onto the window show an overlay "Add to <scope>".
 - Empty states: a new library ("Drop images here", a big drop target and Add files), a folder without items, no results (with Clear filters), an empty trash.
 
@@ -442,7 +442,7 @@ Link     https://…  ↗
 
 ### 7.4 Other screens and dialogs
 
-1. **Full-size preview.** A layer over the whole window, not a new window. The original at window size, zoom and pan, rotate clockwise (toolbar button or `R`), previous and next in the current view; `Esc` closes it. Rotation is display-only for this preview session (D-058). It opens with a short zoom out of its cell (arch §8; in WebView2, D-040). Originals the WebView cannot show (TIFF, PSD) show their 512 px thumbnail.
+1. **Full-size preview.** A layer over the whole window, not a new window. The original at window size, zoom and pan, rotate clockwise (toolbar button or `R`), previous and next in the current view; `Esc`, a short `Space`, or a left/right click on the empty letterbox beside the image closes it; holding `Space` peeks while the key is down (D-073). Rotation is display-only for this preview session (D-058). It opens with a short zoom out of its cell (arch §8; in WebView2, D-040). Originals the WebView cannot show (TIFF, PSD) show their 512 px thumbnail.
 2. **Tags filter** (the tag sheet): the dropdown panel of the Tags filter. Search box over the vocabulary, mode segment Any / All / Exact / None, counts, recent tags, groups as sections; rename, merge and delete from a context menu.
 3. **Smart folder editor.** Name, AND/OR, the rules of the v1 subset.
 4. **Folder dialogs.** Create, rename, move, delete (with the item count and the trash option), lock and unlock. Lock and unlock, password change, and recovery are for the chosen folder. The lock dialog edits that folder's name and tag.
@@ -935,10 +935,10 @@ Done when: search inside a folder never shows items from other folders; `a OR b`
 
 ### Phase 7 — Editing and trash
 
-Implemented 2026-10-29 (D-049 to D-052).
+Implemented 2026-10-29 (D-049 to D-052). Dropping items on the Trash row added 2026-11-01 (D-073).
 
 - The remaining item fields: name (renames the stored file), note, link, rating; batch edits on a selection; undo of the last edit.
-- Trash: move, restore, delete permanently, empty (files removed).
+- Trash: move, restore, delete permanently, empty (files removed). Dragging items from the grid onto the Trash row moves them to the trash with the same confirmation as Delete (D-073).
 - Open with the default app, show in Explorer, copy file, drag out of the window.
 - Library settings: backups, rebuild thumbnails, check library.
 
