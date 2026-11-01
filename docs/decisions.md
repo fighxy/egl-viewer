@@ -1090,7 +1090,7 @@ entry does not collide.
   libheif >= 1.17 and never requires the newest one. The pure Rust `heic` crate was rejected:
   every version is AGPL-3.0-only or commercial, which would relicense the distributed app.
   libheif itself is LGPL: it is linked dynamically and must ship next to the app with a notice
-  (phase 12, together with the libwebp DLL story).
+  (Windows packaging: D-070; libwebp stays built from source per D-036).
 - **Pipeline.** `heic`/`heif`/`hif` map to `Kind::Heic` in `media`. libheif applies the file's
   geometric transforms (irot/imir), so no EXIF-orientation pass is needed. EXIF comes from the
   HEIF `Exif` metadata item: a four-byte big-endian offset to the TIFF header (ISO/IEC
@@ -1100,9 +1100,9 @@ entry does not collide.
 - **Preview.** The WebView cannot show HEIC, so the full-size preview falls back to the 512 px
   thumbnail like TIFF and PSD (`Preview.tsx`); a converted full-size PNG endpoint is a later
   option.
-- **CI.** Windows: `vcpkg install libheif:x64-windows` (on `PATH` for tests). macOS:
-  `brew install libheif`. Linux AppImage (Ubuntu 22.04): libheif from the `strukturag/libheif`
-  PPA because Jammy ships 1.12 < 1.17.
+- **CI.** Windows: `vcpkg install libheif[core,libde265]:x64-windows` (on `PATH` for tests;
+  decode-only — see D-070). macOS: `brew install libheif`. Linux AppImage (Ubuntu 22.04):
+  libheif from the `strukturag/libheif` PPA because Jammy ships 1.12 < 1.17.
 - **Fixture exception to D-034.** `crates/media/fixtures/sample.heic.b64` (96x64, with EXIF)
   is a committed base64 file, decoded by `fixtures::heic()`: pure Rust has no HEIC encoder to
   make one in code. It does not vary with the fixture seed, so it stays out of
@@ -1216,3 +1216,31 @@ Settings → General; the choice is stored in `preferences.locale` through `app-
   field keeps English.
 - **Tests.** Catalog key coverage for `ru` / `zh-CN` vs English; language switch; Settings
   saves `locale`.
+
+## D-070 Bundle libheif DLLs with the Windows NSIS installer (2026-11-01)
+
+Fixes the Windows startup failure where `egl-viewer.exe` could not find `heif.dll` (D-063
+linked libheif dynamically, but the installer did not ship it).
+
+- **What ships.** The NSIS package installs `heif.dll`, `libde265.dll` (and any further
+  DLLs those two import from the same vcpkg `bin` directory) **next to** `egl-viewer.exe`,
+  plus `NOTICE-libheif.txt` and `NOTICE-libde265.txt` (LGPL). Windows `LoadLibrary` only
+  searches the exe directory; a `resources/` subfolder would not load.
+- **How.** CI runs `scripts/bundle-heif-dlls.ps1` after
+  `vcpkg install libheif[core,libde265]:x64-windows`. The script stages files into
+  `src-tauri/heif-runtime/` (gitignored artefacts; README kept). `tauri.windows.conf.json`
+  maps each file to the install root (`heif.dll`, `libde265.dll`, notices) — not under
+  `resources/`. `node scripts/check-heif-windows-bundle.mjs` guards those mappings in
+  `pnpm check` / CI.
+- **Decode-only features.** vcpkg's default `hevc` feature pulls **GPL** x265. The install
+  uses `[core,libde265]` so iPhone HEVC HEIC decodes without shipping x265. The staging
+  script refuses `libx265.dll` if it appears, and dumpbin fails the job if heif/libde265
+  import any further DLL that lives in the vcpkg bin (so the fixed resource map cannot
+  silently omit a sibling).
+- **Other platforms.** macOS and Linux keep system / AppImage libheif from D-063; this
+  decision is Windows packaging only. libwebp remains built from source (D-036), so there
+  is still no separate libwebp DLL to bundle.
+- **Verify.** After a Windows NSIS install (or unzip of the install dir), `heif.dll` and
+  `libde265.dll` sit beside `egl-viewer.exe`; the app starts without a missing-DLL dialog;
+  importing a `.heic` produces a thumbnail. On CI, the nsis job prints `bundled-dlls.txt`
+  before `pnpm build`.

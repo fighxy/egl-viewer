@@ -1082,7 +1082,7 @@ The full plan with done checks is in §9 of the spec. Key technical points per p
 - **Phase 9.** `EagleHttp`, `escape_non_ascii`, `EagleError`, `page_all` with `wiremock` tests; `SecretStore` on Credential Manager; `connect_eagle` and the Connect screen (404 → "update Eagle to 4.0", `{}` → "open a library on the PC"); `FolderDto` with the password dropped; `plan` + snapshot cache (§6.2, §6.3); search via `item/query`; smart folders via `smartFolder/getItems`.
 - **Phase 10.** `ItemMutator` with a re-read before writing; `FolderUpdateBody` with the full set of fields; adding files with `path` on the same PC and data URLs from another PC; Eagle thumbnails (same PC, then the helper plugin).
 - **Phase 11.** Export into Eagle through its API (§15.7).
-- **Phase 12.** Hardening and the Windows release: NSIS per-user installer, WebView2 bootstrapper, optional OS code signing. In-app auto-update through `tauri-plugin-updater` and GitHub Releases `latest.json` is in (D-062); Authenticode / notarization remain open.
+- **Phase 12.** Hardening and the Windows release: NSIS per-user installer, WebView2 bootstrapper, optional OS code signing. In-app auto-update through `tauri-plugin-updater` and GitHub Releases `latest.json` is in (D-062); Windows NSIS ships libheif DLLs beside the exe (D-070); Authenticode / notarization remain open.
 - **Later, outside the current scope.** More formats (§15.4); the Eagle offline cache (§12.3) and Syncthing mirror (§12.4); sync between devices, remote access to a native library, linked folders, `.eaglepack` (§15.8); macOS, Android and iOS (§4.6). AI features are not planned.
 
 ---

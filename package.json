@@ -13,7 +13,7 @@
     "test": "pnpm --filter egl-viewer-ui test",
     "lint": "pnpm --filter egl-viewer-ui lint",
     "typecheck": "pnpm --filter egl-viewer-ui typecheck",
-    "check": "cargo fmt --all --check && cargo clippy --workspace --all-targets -- -D warnings && cargo test --workspace && pnpm lint && pnpm typecheck && pnpm test"
+    "check": "cargo fmt --all --check && cargo clippy --workspace --all-targets -- -D warnings && cargo test --workspace && pnpm lint && pnpm typecheck && pnpm test && node scripts/check-heif-windows-bundle.mjs"
   },
   "devDependencies": {
     "@biomejs/biome": "2.6.3",

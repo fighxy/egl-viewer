@@ -25,7 +25,7 @@ React UI. Windows first; no AI features.
 | 6. Search, filters and smart folders | Implemented (2026-10-29), waiting for the done check on Windows: search as in Eagle (any part of a word, `OR`, `-`, parentheses) through an FTS5 trigram index (format version 3), the filter bar with Tags, Folders, Type, Rating and Shape, smart folders with their own tree, Eagle's rules evaluated locally for the v1 subset, the rule editor, Save as smart folder (D-047, D-048) |
 | 7. Editing and trash | Implemented (2026-10-29), waiting for the done check on Windows: name (the stored file is renamed too), note, link and rating edited in place, batch rating, undo of the last edits (`Ctrl+Z`), the trash with restore, delete permanently and Empty Trash (files removed), Open with the default app, Show in Explorer, Copy File, dragging originals out from the right bar, the right-click menu, Library Settings with backups and restore, Check Library with repair, Rebuild Thumbnails (D-049 to D-052). Backup… / Export… copy originals to a folder or ZIP (optional age passphrase), with progress and cancel (D-064 to D-066) |
 | 8–11. Eagle: import, live connection, export | Planned |
-| 12. Hardening and the Windows release | In progress: desktop auto-update through `tauri-plugin-updater` and GitHub Releases (D-062). NSIS / DMG / AppImage already ship from CI; Authenticode, notarization and the clean-machine done check remain open |
+| 12. Hardening and the Windows release | In progress: desktop auto-update through `tauri-plugin-updater` and GitHub Releases (D-062); Windows NSIS bundles libheif DLLs beside the exe (D-070). NSIS / DMG / AppImage already ship from CI; Authenticode, notarization and the clean-machine done check remain open |
 
 The full plan is in [`docs/spec.md` §9](docs/spec.md). The Project-store plan for auto-update is mirrored by **D-062** in [`docs/decisions.md`](docs/decisions.md); set GitHub secrets `TAURI_SIGNING_PRIVATE_KEY` (and optional `TAURI_SIGNING_PRIVATE_KEY_PASSWORD`) before tagging a release, and attach `latest.json` (see `scripts/write-latest-json.mjs`) to the GitHub Release. Already-installed builds without the updater need **one last manual install** of the first updater-enabled release.
 
@@ -35,6 +35,10 @@ The full plan is in [`docs/spec.md` §9](docs/spec.md). The Project-store plan f
 - Visual Studio Build Tools 2022 with "Desktop development with C++"
 - WebView2 Runtime (part of Windows 11)
 - Node.js 24 LTS and pnpm 12 (`npm install --global pnpm`)
+- [vcpkg](https://vcpkg.io) with `libheif[core,libde265]:x64-windows` for HEIC/HEIF (D-063);
+  set `VCPKG_ROOT` and `VCPKGRS_DYNAMIC=1`, and put `installed/x64-windows/bin` on `PATH` for
+  tests. A release / NSIS build also runs `pwsh scripts/bundle-heif-dlls.ps1` so the installer
+  ships `heif.dll` and `libde265.dll` beside the exe (D-070)
 - Eagle 4.0 or newer, only for the Eagle phases (9–11)
 
 ## Getting started

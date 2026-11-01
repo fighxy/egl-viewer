@@ -28,8 +28,9 @@ jobs:
       - name: Rust toolchain (from rust-toolchain.toml)
         run: rustup toolchain install
 
+      # Decode-only features: default `hevc` pulls GPL x265, which we do not ship (D-070).
       - name: libheif (HEIC/HEIF previews, D-063)
-        run: vcpkg install libheif:x64-windows
+        run: vcpkg install "libheif[core,libde265]:x64-windows"
 
       # libheif-sys finds the vcpkg tree only through VCPKG_ROOT; the runner image
       # exports VCPKG_INSTALLATION_ROOT instead. VCPKGRS_DYNAMIC=1 selects the
@@ -74,6 +75,15 @@ jobs:
       - name: UI tests
         run: pnpm test
 
+      - name: Windows libheif bundle config (D-070)
+        run: node scripts/check-heif-windows-bundle.mjs
+
+      # Stage heif.dll (+ libde265, notices) so tauri.windows.conf.json paths resolve
+      # even for --no-bundle (D-070). Runtime for this job still uses PATH above.
+      - name: Stage libheif DLLs for the Windows bundle config
+        shell: pwsh
+        run: ./scripts/bundle-heif-dlls.ps1
+
       - name: Build the app
         run: pnpm tauri build --no-bundle
 
@@ -95,8 +105,9 @@ jobs:
       - name: Rust toolchain (from rust-toolchain.toml)
         run: rustup toolchain install
 
+      # Decode-only features: default `hevc` pulls GPL x265, which we do not ship (D-070).
       - name: libheif (HEIC/HEIF previews, D-063)
-        run: vcpkg install libheif:x64-windows
+        run: vcpkg install "libheif[core,libde265]:x64-windows"
 
       # libheif-sys finds the vcpkg tree only through VCPKG_ROOT; the runner image
       # exports VCPKG_INSTALLATION_ROOT instead. VCPKGRS_DYNAMIC=1 selects the
@@ -128,6 +139,20 @@ jobs:
             echo "put the public key in src-tauri/tauri.conf.json, and store the private key as that secret."
             exit 1
           fi
+
+      # Copy heif.dll / libde265.dll (+ LGPL notices) into src-tauri/heif-runtime/
+      # so NSIS installs them beside egl-viewer.exe (D-070).
+      - name: Stage libheif DLLs beside the app
+        shell: pwsh
+        run: |
+          ./scripts/bundle-heif-dlls.ps1
+          if (-not (Test-Path -LiteralPath src-tauri/heif-runtime/heif.dll)) {
+            throw "heif.dll was not staged"
+          }
+          if (-not (Test-Path -LiteralPath src-tauri/heif-runtime/libde265.dll)) {
+            throw "libde265.dll was not staged"
+          }
+          Get-Content src-tauri/heif-runtime/bundled-dlls.txt
 
       - name: Build the NSIS installer
         env:
