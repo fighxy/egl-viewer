@@ -458,6 +458,7 @@ export const zhCN: MessageCatalog = {
     nothingYet: "尚未添加任何内容。",
     progress: "进度",
     sessionHint: "本次会话中添加的文件。",
+    importing: "导入中…",
     kindAdding: "正在添加文件",
     kindPreviews: "预览",
     importLabel: "导入 {{id}}",
@@ -652,6 +653,8 @@ export const zhCN: MessageCatalog = {
     wrongYubiPin: "YubiKey PIN 不正确。",
     yubiFailed: "YubiKey 未能打开该文件夹。",
     unlockHint: "文件夹将保持解锁，直到你再次锁定或关闭图库。其他锁定文件夹仍保持锁定。",
+    eagleUnlockWarning:
+      "该文件夹在 Eagle 电脑上也同样解锁，直到 Eagle 重启。那台电脑旁的任何人都能看到其内容。",
     recoveryHint: "输入恢复密钥或其 12 个单词，然后设置新密码。旧密码将失效。",
     yubiPinHint: "输入 YubiKey PIN。它可代替触摸，并且只打开此文件夹。",
     yubiTouchHint: "触摸 YubiKey。它只打开此文件夹。没有密钥时，密码和恢复密钥仍然可用。",

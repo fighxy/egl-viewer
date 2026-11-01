@@ -1092,6 +1092,7 @@ function AppShell() {
     [client, failed, recentTags],
   );
 
+  const eagle = library?.kind === "eagleApi";
   const tagActions = useMemo<TagActions>(
     () => ({
       onExport: (name) => setExportDialog({ target: { kind: "tag", name } }),
@@ -1099,11 +1100,14 @@ function AppShell() {
         ? {
             onRename: (name: string) => setTagDialog({ kind: "rename", name }),
             onMerge: (name: string) => setTagDialog({ kind: "merge", name }),
-            onDelete: (name: string) => setTagDialog({ kind: "delete", name }),
+            // Eagle's API cannot delete a tag globally (docs/spec.md §8.3 "Writes").
+            ...(eagle
+              ? {}
+              : { onDelete: (name: string) => setTagDialog({ kind: "delete", name }) }),
           }
         : {}),
     }),
-    [writable],
+    [writable, eagle],
   );
 
   const writeGroups = useCallback(
@@ -1700,6 +1704,7 @@ function AppShell() {
                 selectedId={openFolder?.id ?? null}
                 includeSubfolders={browse.includeSubfolders}
                 writable={writable}
+                eagle={eagle}
                 expanded={expanded}
                 onExpandedChange={setExpanded}
                 onSelect={openOrUnlock}
@@ -1718,6 +1723,7 @@ function AppShell() {
                 folders={tree}
                 selectedId={openFolder?.id ?? null}
                 writable={writable}
+                eagle={eagle}
                 onUnlock={(id) => setLockDialog({ kind: "unlock", id })}
                 onOpen={(id) => setPlace({ kind: "folder", id })}
                 onLock={lockAction}
@@ -2068,6 +2074,7 @@ function AppShell() {
         <LockDialogs
           dialog={lockDialog}
           folders={tree}
+          eagle={eagle}
           onClose={() => setLockDialog(null)}
           onChanged={(opened) => {
             // Items appeared or went: the selection may name hidden ones.

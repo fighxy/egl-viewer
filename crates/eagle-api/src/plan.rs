@@ -2,6 +2,7 @@
 //! what goes into `item/get`, so it is the snapshot cache key.
 
 use library_core::query::{Scope, ScopeHints, TagMode};
+use library_core::{ItemLite, type_matches};
 use serde::Serialize;
 
 /// Above this, "All" uses safe server prefilters instead of loading everything.
@@ -26,6 +27,45 @@ pub struct ServerFilter {
     pub rating: Option<u8>,
     #[serde(skip_serializing_if = "Option::is_none")]
     pub shape: Option<String>,
+}
+
+impl ServerFilter {
+    /// Whether `item` still belongs to a snapshot with this filter, checked locally after
+    /// a write (docs/architecture.md §6.3). Supports `folders`, `tags`, `isUnfiled`,
+    /// `isUntagged` and `ext`.
+    pub fn matches_locally(&self, item: &ItemLite) -> bool {
+        let folders = item.folders.as_deref().unwrap_or_default();
+        if let Some(wanted) = &self.folders
+            && !wanted.iter().any(|id| folders.contains(id))
+        {
+            return false;
+        }
+        if let Some(wanted) = &self.tags
+            && !wanted
+                .iter()
+                .all(|tag| item.tags.iter().any(|own| **own == **tag))
+        {
+            return false;
+        }
+        if self.is_unfiled && !folders.is_empty() {
+            return false;
+        }
+        if self.is_untagged && !item.tags.is_empty() {
+            return false;
+        }
+        if let Some(ext) = &self.ext
+            && !type_matches(&item.ext, ext)
+        {
+            return false;
+        }
+        true
+    }
+
+    /// `rating` and `shape` cannot be re-evaluated locally without extra fields: a snapshot
+    /// carrying them is dropped after a write instead of patched.
+    pub fn has_unpatchable_filter(&self) -> bool {
+        self.rating.is_some() || self.shape.is_some()
+    }
 }
 
 #[derive(Debug, Clone, PartialEq, Eq, Hash)]
@@ -222,6 +262,101 @@ mod tests {
         assert_ne!(
             plan(&Scope::All, &none, LARGE_LIBRARY + 1),
             plan(&Scope::All, &tagged, LARGE_LIBRARY + 1)
+        );
+    }
+
+    #[test]
+    fn matches_locally_supports_the_patchable_filters() {
+        use library_core::ItemId;
+        let item = || ItemLite {
+            id: ItemId::from("A1"),
+            ext: "jpg".into(),
+            tags: ["a".into(), "b".into()].into(),
+            folders: Some(vec!["F1".into()]),
+            ..ItemLite::default()
+        };
+        let filter = ServerFilter::default();
+        assert!(filter.matches_locally(&item()));
+        assert!(
+            ServerFilter {
+                folders: Some(vec!["F1".into()]),
+                ..ServerFilter::default()
+            }
+            .matches_locally(&item())
+        );
+        assert!(
+            !ServerFilter {
+                folders: Some(vec!["F9".into()]),
+                ..ServerFilter::default()
+            }
+            .matches_locally(&item())
+        );
+        assert!(
+            ServerFilter {
+                tags: Some(vec!["a".into(), "b".into()]),
+                ..ServerFilter::default()
+            }
+            .matches_locally(&item())
+        );
+        assert!(
+            !ServerFilter {
+                tags: Some(vec!["a".into(), "z".into()]),
+                ..ServerFilter::default()
+            }
+            .matches_locally(&item())
+        );
+        assert!(
+            !ServerFilter {
+                is_unfiled: true,
+                ..ServerFilter::default()
+            }
+            .matches_locally(&item())
+        );
+        assert!(
+            ServerFilter {
+                ext: Some("jpg".into()),
+                ..ServerFilter::default()
+            }
+            .matches_locally(&item())
+        );
+        assert!(
+            !ServerFilter {
+                ext: Some("png".into()),
+                ..ServerFilter::default()
+            }
+            .matches_locally(&item())
+        );
+        // Missing folders (not []) is unfiled for Eagle's API-added items.
+        let mut no_folders = item();
+        no_folders.folders = None;
+        assert!(
+            ServerFilter {
+                is_unfiled: true,
+                ..ServerFilter::default()
+            }
+            .matches_locally(&no_folders)
+        );
+        // Untagged and unpatched filters.
+        assert!(
+            ServerFilter {
+                is_untagged: true,
+                ..ServerFilter::default()
+            }
+            .matches_locally(&ItemLite::default())
+        );
+        assert!(
+            ServerFilter {
+                rating: Some(0),
+                ..ServerFilter::default()
+            }
+            .has_unpatchable_filter()
+        );
+        assert!(
+            !ServerFilter {
+                tags: Some(vec!["a".into()]),
+                ..ServerFilter::default()
+            }
+            .has_unpatchable_filter()
         );
     }
 }

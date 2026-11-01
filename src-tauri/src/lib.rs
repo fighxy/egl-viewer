@@ -49,11 +49,17 @@ pub fn run() {
         .register_asynchronous_uri_scheme_protocol("thumb", |ctx, request, responder| {
             let app = ctx.app_handle().clone();
             let path = request.uri().path().to_owned();
+            let version = request.uri().query().and_then(|query| {
+                query
+                    .split('&')
+                    .find_map(|pair| pair.strip_prefix("v="))
+                    .and_then(|value| value.parse::<i64>().ok())
+            });
             tauri::async_runtime::spawn_blocking(move || {
                 // Before `setup` has made the session there is no library to serve.
                 let image = app
                     .try_state::<Session>()
-                    .and_then(|session| session.image(&path));
+                    .and_then(|session| session.image(&path, version));
                 responder.respond(image_response(image));
             });
         })

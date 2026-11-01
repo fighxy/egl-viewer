@@ -55,7 +55,7 @@ export function mockBackend(overrides: Record<string, Handler> = {}): Call[] {
     app_info: () => ({ name: "egl-viewer", version: "9.9.9", commit: "abc1234", webview: "141.0" }),
     connection_defaults: () => ({ host: "127.0.0.1", port: 41595 }),
     connect_eagle: (args) => ({
-      library: { ...LIBRARY, kind: "eagleApi", readOnly: true, name: String(args.host) },
+      library: { ...LIBRARY, kind: "eagleApi", readOnly: false, name: String(args.host) },
       eagleVersion: "4.0.0",
       samePc: true,
       host: String(args.host),
@@ -262,6 +262,7 @@ export function cell(n: number, change: Partial<ItemCell> = {}): ItemCell {
     addedAt: Date.UTC(2026, 9, 28, 10) + n,
     deletedAt: null,
     tags: [],
+    pending: false,
     ...change,
   };
 }

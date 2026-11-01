@@ -26,6 +26,8 @@ type Props = {
   selectedId: string | null;
   /** `true`, or why the lock cannot change (read-only library). */
   writable: true | string;
+  /** A running Eagle: the API can unlock but never set, change or remove a lock. */
+  eagle?: boolean;
   /** A locked row was chosen: ask for that folder's password. */
   onUnlock: (id: string) => void;
   /** An unlocked row was chosen: open the folder. */
@@ -40,7 +42,15 @@ type Props = {
  * folder's password only. Unlock, Lock Now, password and YubiKey commands live here, not in
  * the Folders tree.
  */
-export function LockedFolders({ folders, selectedId, writable, onUnlock, onOpen, onLock }: Props) {
+export function LockedFolders({
+  folders,
+  selectedId,
+  writable,
+  eagle = false,
+  onUnlock,
+  onOpen,
+  onLock,
+}: Props) {
   const { t } = useTranslation();
   const [open, setOpen] = useState(true);
   const locked = lockedFolders(folders);
@@ -107,47 +117,51 @@ export function LockedFolders({ folders, selectedId, writable, onUnlock, onOpen,
                         Unlock…
                       </ContextMenuItem>
                     )}
-                    {folder.isUnlocked && (
-                      <ContextMenuItem onSelect={() => onLock(folder.id, "relock")}>
-                        Lock Now
-                      </ContextMenuItem>
+                    {eagle ? null : (
+                      <>
+                        {folder.isUnlocked && (
+                          <ContextMenuItem onSelect={() => onLock(folder.id, "relock")}>
+                            Lock Now
+                          </ContextMenuItem>
+                        )}
+                        <ContextMenuSeparator />
+                        <ContextMenuItem
+                          disabled={!canWrite}
+                          title={canWrite ? undefined : writable}
+                          onSelect={() => onLock(folder.id, "change")}
+                        >
+                          Change Password…
+                        </ContextMenuItem>
+                        <ContextMenuItem
+                          disabled={!canWrite}
+                          title={canWrite ? undefined : writable}
+                          onSelect={() => onLock(folder.id, "renew")}
+                        >
+                          New Recovery Key…
+                        </ContextMenuItem>
+                        <ContextMenuItem
+                          disabled={!canWrite}
+                          title={canWrite ? undefined : writable}
+                          onSelect={() => onLock(folder.id, "yubikey")}
+                        >
+                          Add YubiKey…
+                        </ContextMenuItem>
+                        <ContextMenuItem
+                          disabled={!canWrite}
+                          title={canWrite ? undefined : writable}
+                          onSelect={() => onLock(folder.id, "unyubikey")}
+                        >
+                          Remove YubiKey…
+                        </ContextMenuItem>
+                        <ContextMenuItem
+                          disabled={!canWrite}
+                          title={canWrite ? undefined : writable}
+                          onSelect={() => onLock(folder.id, "remove")}
+                        >
+                          Remove Lock…
+                        </ContextMenuItem>
+                      </>
                     )}
-                    <ContextMenuSeparator />
-                    <ContextMenuItem
-                      disabled={!canWrite}
-                      title={canWrite ? undefined : writable}
-                      onSelect={() => onLock(folder.id, "change")}
-                    >
-                      Change Password…
-                    </ContextMenuItem>
-                    <ContextMenuItem
-                      disabled={!canWrite}
-                      title={canWrite ? undefined : writable}
-                      onSelect={() => onLock(folder.id, "renew")}
-                    >
-                      New Recovery Key…
-                    </ContextMenuItem>
-                    <ContextMenuItem
-                      disabled={!canWrite}
-                      title={canWrite ? undefined : writable}
-                      onSelect={() => onLock(folder.id, "yubikey")}
-                    >
-                      Add YubiKey…
-                    </ContextMenuItem>
-                    <ContextMenuItem
-                      disabled={!canWrite}
-                      title={canWrite ? undefined : writable}
-                      onSelect={() => onLock(folder.id, "unyubikey")}
-                    >
-                      Remove YubiKey…
-                    </ContextMenuItem>
-                    <ContextMenuItem
-                      disabled={!canWrite}
-                      title={canWrite ? undefined : writable}
-                      onSelect={() => onLock(folder.id, "remove")}
-                    >
-                      Remove Lock…
-                    </ContextMenuItem>
                   </ContextMenuContent>
                 </ContextMenu>
               </li>

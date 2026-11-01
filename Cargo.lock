@@ -1511,11 +1511,14 @@ name = "eagle-api"
 version = "0.1.9"
 dependencies = [
  "async-trait",
+ "base64 0.22.1",
  "library-core",
+ "media",
  "reqwest 0.12.28",
  "secrecy 0.10.3",
  "serde",
  "serde_json",
+ "tempfile",
  "thiserror 2.0.21",
  "tokio",
  "tracing",

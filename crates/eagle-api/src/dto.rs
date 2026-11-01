@@ -42,8 +42,7 @@ impl LibraryInfoDto {
             name: self.name.clone(),
             path: (!self.path.is_empty()).then(|| self.path.clone()),
             modification_time: self.modification_time,
-            // Phase 9 is browse-only; phase 10 turns writes on (docs/spec.md §9, §10).
-            read_only: true,
+            read_only: false,
             read_only_reason: None,
             holder: None,
         })
@@ -386,8 +385,7 @@ mod tests {
         assert_eq!(info.kind, LibraryKind::EagleApi);
         assert_eq!(info.name, "ggwp");
         assert_eq!(info.modification_time, Some(1793113651878));
-        // Phase 9 is browse-only: the UI disables every write for a read-only library.
-        assert!(info.read_only);
+        assert!(!info.read_only);
     }
 
     #[test]

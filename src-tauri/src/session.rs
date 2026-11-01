@@ -15,13 +15,13 @@ use app_store::{
 };
 use eagle_api::EagleSource;
 use library_core::{
-    Backup, DuplicateNotice, ExportPreview, ExportProgress, ExportRequest, ExportSelection,
-    ExportState, ExtensionCount, Folder, FolderChange, FolderIndex, ImportKind, ImportPreview,
-    ImportProgress, ImportState, ImportTicket, Item, ItemCell, ItemEdit, ItemId, LibraryCheck,
-    LibraryCounts, LibraryInfo, LibraryQuery, LibrarySource, LibraryStats, LocationProblem,
-    PivPolicy, PivPrompt, PivWrap, Progress, ReadOnlyReason, RecoveryKey, RepairOptions,
-    SelectionTags, SmartFolder, SmartFolderChange, SourceError, Tag, TagGroup, TagGroupChange,
-    Thumbnail, TrashInfo, UndoStack, UndoStatus, Views, rules_from_query,
+    AddTarget, Backup, DuplicateNotice, ExportPreview, ExportProgress, ExportRequest,
+    ExportSelection, ExportState, ExtensionCount, Folder, FolderChange, FolderIndex, ImportFailure,
+    ImportKind, ImportPreview, ImportProgress, ImportState, ImportTicket, Item, ItemCell, ItemEdit,
+    ItemId, LibraryCheck, LibraryCounts, LibraryInfo, LibraryQuery, LibrarySource, LibraryStats,
+    LocationProblem, NewFile, PivPolicy, PivPrompt, PivWrap, Progress, ReadOnlyReason, RecoveryKey,
+    RepairOptions, SelectionTags, SmartFolder, SmartFolderChange, SourceError, Tag, TagGroup,
+    TagGroupChange, Thumbnail, TrashInfo, UndoStack, UndoStatus, Views, rules_from_query,
 };
 use library_native::{
     DuplicateChoice, DuplicatePolicy, EagleImportOptions, ImportFilter, ImportObserver,
@@ -127,6 +127,9 @@ pub struct Session {
     /// A live Eagle connection; exclusive with `library` (docs/spec.md §8.3).
     eagle: Mutex<Option<Arc<EagleSource>>>,
     secrets: Arc<dyn SecretStore>,
+    /// "Importing…" cells of files on their way to a running Eagle (docs/spec.md §8.3);
+    /// appended to every open view until the items exist. `Arc`: the add thread holds it.
+    pending: Arc<Mutex<Vec<ItemCell>>>,
     imports: Arc<Mutex<Imports>>,
     /// Export tasks of the open library (docs/spec.md §7.4 item 12).
     exports: Arc<Mutex<Exports>>,
@@ -251,6 +254,7 @@ impl Session {
             library: Mutex::new(None),
             eagle: Mutex::new(None),
             secrets,
+            pending: Arc::new(Mutex::new(Vec::new())),
             imports: Arc::new(Mutex::new(Imports::default())),
             exports: Arc::new(Mutex::new(Exports::default())),
             views: Arc::new(Mutex::new(Views::default())),
@@ -332,6 +336,7 @@ impl Session {
     /// drops a live Eagle connection: for the UI both mean "back to Welcome".
     pub fn close_library(&self) -> Result<(), SourceError> {
         lock(&self.eagle).take();
+        lock(&self.pending).clear();
         if let Some(library) = self.take_library() {
             library.close()?;
         }
@@ -419,12 +424,14 @@ impl Session {
     /// Disconnect: back to Welcome.
     pub fn disconnect_eagle(&self) -> Result<(), SourceError> {
         lock(&self.eagle).take();
+        lock(&self.pending).clear();
         lock(&self.views).clear();
         lock(&self.undo).clear();
         Ok(())
     }
 
-    /// Opens a view of the open library for `query` (docs/architecture.md §6.5).
+    /// Opens a view of the open library for `query` (docs/architecture.md §6.5). The total
+    /// includes the "Importing…" cells of a running-Eagle add.
     pub fn open_view(
         &self,
         query: LibraryQuery,
@@ -435,11 +442,11 @@ impl Session {
         let view = views.open(query, &Blocking(source.as_dyn()), progress)?;
         Ok(ViewOpened {
             view_id: view.id(),
-            total: count(view.total()),
+            total: count(view.total()) + count(lock(&self.pending).len()),
         })
     }
 
-    /// At most `MAX_WINDOW` cells of view `view_id`, from `start`.
+    /// At most `MAX_WINDOW` cells of view `view_id`, from `start`, then the pending cells.
     pub fn view_range(
         &self,
         view_id: u64,
@@ -448,21 +455,43 @@ impl Session {
     ) -> Result<Vec<ItemCell>, SourceError> {
         let mut views = lock(&self.views);
         let view = views.get(view_id).ok_or(SourceError::NotFound)?;
-        Ok(view.range(start as usize, len as usize))
+        let pending = lock(&self.pending).clone();
+        Ok(combined(
+            start as usize,
+            len as usize,
+            view.total(),
+            &pending,
+            |at, take| view.range(at, take),
+        ))
     }
 
-    /// The ids of positions `start..start + len` of a view, for selections.
+    /// The ids of positions `start..start + len` of a view, for selections, then the
+    /// pending cells' ids.
     pub fn view_ids(&self, view_id: u64, start: u32, len: u32) -> Result<Vec<ItemId>, SourceError> {
         let mut views = lock(&self.views);
         let view = views.get(view_id).ok_or(SourceError::NotFound)?;
-        Ok(view.ids(start as usize, len as usize))
+        let pending: Vec<ItemId> = lock(&self.pending)
+            .iter()
+            .map(|cell| cell.id.clone())
+            .collect();
+        Ok(combined(
+            start as usize,
+            len as usize,
+            view.total(),
+            &pending,
+            |at, take| view.ids(at, take),
+        ))
     }
 
-    /// Width and height of every position in the view, for justified packing (D-067).
+    /// Width and height of every position in the view, for justified packing (D-067);
+    /// pending cells are squares (zeros).
     pub fn view_dimensions(&self, view_id: u64) -> Result<Vec<[u32; 2]>, SourceError> {
         let mut views = lock(&self.views);
         let view = views.get(view_id).ok_or(SourceError::NotFound)?;
-        Ok(view.dimensions())
+        let pending = lock(&self.pending);
+        let mut dimensions = view.dimensions();
+        dimensions.extend(std::iter::repeat_n([0, 0], pending.len()));
+        Ok(dimensions)
     }
 
     pub fn close_view(&self, view_id: u64) {
@@ -475,11 +504,21 @@ impl Session {
     }
 
     /// What the `thumb` scheme serves for a URL path: a thumbnail or an original of the open
-    /// library, or nothing (404).
-    pub fn image(&self, path: &str) -> Option<Thumbnail> {
+    /// library, or nothing (404). `version` is the cell's `thumbVersion` from the URL's
+    /// `?v=`; a running Eagle keys its thumbnail cache by it.
+    pub fn image(&self, path: &str, version: Option<i64>) -> Option<Thumbnail> {
         let request = ImageRequest::parse(path)?;
-        let source = self.active_source().ok()?;
-        match request.read(source.as_dyn()) {
+        if let Some(source) = lock(&self.eagle).as_ref().map(Arc::clone) {
+            return match request {
+                ImageRequest::Thumbnail(id) => source
+                    .thumbnail_versioned(&id, version.unwrap_or(i64::MIN))
+                    .ok()
+                    .flatten(),
+                ImageRequest::Original(id) => source.original_file(&id).ok().flatten(),
+            };
+        }
+        let source = self.source().ok()?;
+        match request.read(&source) {
             Ok(image) => image,
             Err(error) => {
                 tracing::debug!("no image for {path}: {error}");
@@ -567,6 +606,9 @@ impl Session {
         folder: Option<String>,
         filter: ImportFilter,
     ) -> Result<ImportTicket, SourceError> {
+        if let Some(source) = lock(&self.eagle).as_ref().map(Arc::clone) {
+            return self.start_eagle_add(source, paths, folder, filter);
+        }
         let library = self.writable_library()?;
         let target = self.import_target(&library, folder)?;
         let sources: Vec<PathBuf> = paths.into_iter().map(PathBuf::from).collect();
@@ -589,9 +631,165 @@ impl Session {
         Ok(ImportTicket { id })
     }
 
+    /// Adding files to a running Eagle: one `item/add` per accepted file, an "Importing…"
+    /// cell until the item exists, then the snapshots drop and the views reload
+    /// (docs/spec.md §8.3 "Adding files to a running Eagle").
+    fn start_eagle_add(
+        &self,
+        source: Arc<EagleSource>,
+        paths: Vec<String>,
+        folder: Option<String>,
+        filter: ImportFilter,
+    ) -> Result<ImportTicket, SourceError> {
+        let mut files: Vec<NewFile> = Vec::new();
+        for path in &paths {
+            collect_eagle_files(Path::new(path), "", &filter, &mut files);
+        }
+        let target = AddTarget {
+            folders: folder.into_iter().collect(),
+            ..AddTarget::default()
+        };
+        let mut imports = lock(&self.imports);
+        imports.next_id += 1;
+        let id = imports.next_id;
+        let cancel = Arc::new(AtomicBool::new(false));
+        let decision = Arc::new(Decision::default());
+        let latest = Arc::new(Mutex::new(None));
+        let registry = Arc::clone(&self.imports);
+        let emit = Arc::clone(&self.emit);
+        let views = Arc::clone(&self.views);
+        let pending = Arc::clone(&self.pending);
+        let task_cancel = Arc::clone(&cancel);
+        let thread_latest = Arc::clone(&latest);
+        let accepted = Arc::new(Mutex::new(Vec::new()));
+        // The thread waits for the registry lock that is held here, so it is registered
+        // before it can remove itself.
+        let thread = std::thread::Builder::new()
+            .name(format!("import-{id}"))
+            .spawn(move || {
+                let latest = thread_latest;
+                let mut progress = ImportProgress {
+                    id,
+                    kind: ImportKind::Files,
+                    state: ImportState::Adding,
+                    total: count(files.len()),
+                    processed: 0,
+                    added: 0,
+                    duplicates: 0,
+                    failed: 0,
+                    previews_total: 0,
+                    previews_done: 0,
+                    current: None,
+                    duplicate: None,
+                    failures: Vec::new(),
+                    skipped: Vec::new(),
+                    report: None,
+                    started_at: now_ms(),
+                    finished_at: None,
+                };
+                let report = |latest: &Arc<Mutex<Option<ImportProgress>>>,
+                              emit: &Emit,
+                              progress: &ImportProgress| {
+                    *lock(latest) = Some(progress.clone());
+                    emit(Event::ImportProgress(progress.clone()));
+                };
+                report(&latest, &emit, &progress);
+                let result = {
+                    let pending = Arc::clone(&pending);
+                    let emit = Arc::clone(&emit);
+                    let views = Arc::clone(&views);
+                    let accepted = Arc::clone(&accepted);
+                    source.start_add(files, &target, move |added| {
+                        if let Ok(mut ids) = accepted.lock() {
+                            ids.push(added.id.clone());
+                        }
+                        lock(&pending).push(EagleSource::pending_cell(&added));
+                        // The grid picks the new cell up: same views, bigger totals.
+                        let extra = lock(&pending).len();
+                        let totals = lock(&views).totals();
+                        let totals = totals
+                            .into_iter()
+                            .map(|(view_id, total)| (view_id, total + extra))
+                            .collect();
+                        if let Some(event) = invalidated(totals) {
+                            emit(event);
+                        }
+                    })
+                };
+                match result {
+                    Ok(pendings) => {
+                        for added in pendings {
+                            progress.processed += 1;
+                            progress.added += 1;
+                            progress.current = Some(added.name.clone());
+                            report(&latest, &emit, &progress);
+                            let appeared = source
+                                .wait_for_item(&added.id, &task_cancel)
+                                .unwrap_or(None);
+                            // The single data-URL form ignores `star` (correction 11).
+                            if appeared.is_some()
+                                && !source.same_pc()
+                                && let Some(star) = target.star
+                            {
+                                let _ = source.finish_add_star(&added.id, star);
+                            }
+                            if task_cancel.load(Ordering::Relaxed) {
+                                progress.state = ImportState::Cancelled;
+                                break;
+                            }
+                        }
+                        if !matches!(progress.state, ImportState::Cancelled) {
+                            progress.state = ImportState::Done;
+                        }
+                    }
+                    Err(error) => {
+                        progress.failed = progress.total - progress.processed;
+                        progress.failures.push(ImportFailure {
+                            path: progress.current.clone().unwrap_or_default(),
+                            reason: error.to_string(),
+                        });
+                        progress.state = ImportState::Cancelled;
+                    }
+                }
+                progress.current = None;
+                // The placeholders leave the grid; the views reload with the real items.
+                let accepted = lock(&accepted);
+                lock(&pending).retain(|cell| !accepted.contains(&cell.id.0));
+                drop(accepted);
+                if let Err(error) = source.invalidate_all() {
+                    tracing::warn!("cannot drop the Eagle cache after an add: {error}");
+                }
+                let source = Blocking(source.as_ref());
+                match lock(&views).refresh(&source).map(invalidated) {
+                    Ok(Some(event)) => emit(event),
+                    Ok(None) => {}
+                    Err(error) => tracing::warn!("cannot refresh the views: {error}"),
+                }
+                progress.finished_at = Some(now_ms());
+                report(&latest, &emit, &progress);
+                let mut imports = lock(&registry);
+                imports.running.remove(&id);
+                imports.finished.insert(0, progress);
+                imports.finished.truncate(FINISHED_KEPT);
+            })
+            .map_err(|error| SourceError::Storage(format!("spawn the add task: {error}")))?;
+        imports.running.insert(
+            id,
+            Running {
+                kind: ImportKind::Files,
+                cancel,
+                decision,
+                latest,
+                thread: Some(thread),
+            },
+        );
+        Ok(ImportTicket { id })
+    }
+
     /// Walks `path` for a reviewed import and answers what is there; refuses like the import
-    /// (a read-only library, or a folder already inside this one).
+    /// (a read-only library, or a folder already inside this one). Native libraries only.
     pub fn preview_import(&self, path: &str) -> Result<ImportPreview, SourceError> {
+        self.require_native("preview a folder import")?;
         self.writable_library()?;
         ready(self.source()?.preview_import(Path::new(path)))
     }
@@ -660,20 +858,28 @@ impl Session {
 
     /// Creates, edits or moves a folder; returns the new tree.
     pub fn save_folder(&self, change: FolderChange) -> Result<Vec<Folder>, SourceError> {
-        let tree = ready(self.source()?.save_folder(change))?;
+        let tree = ready(self.active_source()?.as_dyn().save_folder(change))?;
         self.refresh_views();
         Ok(tree)
     }
 
-    /// Deletes a folder and its subfolders; returns the new tree.
+    /// Deletes a folder and its subfolders; returns the new tree. Native libraries only:
+    /// Eagle's API cannot delete folders (docs/spec.md §8.3 "Writes").
     pub fn delete_folder(&self, id: &str, trash_items: bool) -> Result<Vec<Folder>, SourceError> {
+        self.require_native("delete a folder")?;
         let tree = ready(self.source()?.delete_folder(id, trash_items))?;
         self.refresh_views();
         Ok(tree)
     }
 
-    /// Edits one item; `Ctrl+Z` can take the edit back.
+    /// Edits one item; `Ctrl+Z` can take the edit back (native library; a running Eagle
+    /// cannot give the previous states back through its API).
     pub fn apply_item_edit(&self, id: &str, edit: ItemEdit) -> Result<Item, SourceError> {
+        if let Some(source) = lock(&self.eagle).as_ref().map(Arc::clone) {
+            let item = ready(source.apply_item_edit(&ItemId(id.to_owned()), edit))?;
+            self.refresh_views();
+            return Ok(item);
+        }
         let ids = [ItemId(id.to_owned())];
         let before = self.writable_library()?.item_states(&ids)?;
         let item = ready(self.source()?.apply_item_edit(&ids[0], edit.clone()))?;
@@ -682,13 +888,23 @@ impl Session {
         Ok(item)
     }
 
-    /// One edit for a selection; returns how many items changed. `Ctrl+Z` can take it back.
+    /// One edit for a selection; returns how many items changed. `Ctrl+Z` can take it back
+    /// (native library only, like [`Session::apply_item_edit`]).
     pub fn apply_batch_edit(
         &self,
         target: ItemsTarget,
         edit: ItemEdit,
     ) -> Result<u32, SourceError> {
         let ids = self.target_ids(target)?;
+        if let Some(source) = lock(&self.eagle).as_ref().map(Arc::clone) {
+            return match ready(source.apply_batch_edit(&ids, edit)) {
+                Ok(edited) => {
+                    self.refresh_views();
+                    Ok(edited)
+                }
+                Err(error) => Err(error),
+            };
+        }
         let before = self.writable_library()?.item_states(&ids)?;
         let edited = ready(self.source()?.apply_batch_edit(&ids, edit.clone()))?;
         lock(&self.undo).push(&edit, &before);
@@ -715,8 +931,10 @@ impl Session {
     }
 
     /// `Ctrl+Z`: applies the inverse of the last item edit as new edits. Returns what was taken
-    /// back, or `None` when there is nothing to undo.
+    /// back, or `None` when there is nothing to undo. Native libraries only: a running Eagle
+    /// never pushes onto the undo stack (docs/spec.md §8.3 "Writes").
     pub fn undo(&self) -> Result<Option<UndoStatus>, SourceError> {
+        self.require_native("undo item edits")?;
         let source = self.source()?;
         let Some(entry) = lock(&self.undo).pop() else {
             return Ok(None);
@@ -738,7 +956,9 @@ impl Session {
     }
 
     /// Delete Permanently: the selected items of the trash, with their files. No undo.
+    /// Native libraries only: Eagle's API cannot empty or purge the trash.
     pub fn delete_permanently(&self, target: ItemsTarget) -> Result<u32, SourceError> {
+        self.require_native("delete permanently")?;
         let ids = self.target_ids(target)?;
         let removed = ready(self.source()?.delete_items(&ids))?;
         self.refresh_views();
@@ -747,8 +967,9 @@ impl Session {
 
     /// Empty Trash, with the files. No undo. `progress` is `(done, total)` over removing rows
     /// then deleting files; views refresh as soon as the rows are gone so counts update while
-    /// files are still being deleted (D-074).
+    /// files are still being deleted (D-074). Native libraries only.
     pub fn empty_trash(&self, progress: &dyn Fn(u32, u32)) -> Result<u32, SourceError> {
+        self.require_native("empty the trash")?;
         self.empty_trash_cancel.store(false, Ordering::SeqCst);
         let library = self.writable_library()?;
         let removed = library.empty_trash(progress, &self.empty_trash_cancel, &|| {
@@ -764,14 +985,17 @@ impl Session {
         self.empty_trash_cancel.store(true, Ordering::SeqCst);
     }
 
-    /// Items and bytes of the trash, for the context menu of its row.
+    /// Items and bytes of the trash, for the context menu of its row. Native libraries only:
+    /// Eagle's API lists no trashed items.
     pub fn trash_info(&self) -> Result<TrashInfo, SourceError> {
+        self.require_native("read trash info")?;
         ready(self.source()?.trash_info())
     }
 
     /// Restore All of the trash context menu: every visible trash item comes back with its
-    /// folders and tags. `Ctrl+Z` can take it back.
+    /// folders and tags. `Ctrl+Z` can take it back. Native libraries only.
     pub fn restore_trash(&self) -> Result<u32, SourceError> {
+        self.require_native("restore from the trash")?;
         let source = self.source()?;
         let ids = ready(source.trash_ids())?;
         if ids.is_empty() {
@@ -1036,30 +1260,33 @@ impl Session {
     }
 
     /// Creates or changes a tag group; returns every group. Item tags do not change.
+    /// Native libraries only: Eagle's API has no tag-group writes.
     pub fn save_tag_group(&self, change: TagGroupChange) -> Result<Vec<TagGroup>, SourceError> {
+        self.require_native("edit tag groups")?;
         ready(self.source()?.save_tag_group(change))
     }
 
     pub fn delete_tag_group(&self, id: &str) -> Result<Vec<TagGroup>, SourceError> {
+        self.require_native("delete a tag group")?;
         ready(self.source()?.delete_tag_group(id))
     }
 
     /// Renames a tag everywhere; onto an existing name, the two merge.
     pub fn rename_tag(&self, from: &str, to: &str) -> Result<(), SourceError> {
-        ready(self.source()?.rename_tag(from, to))?;
+        ready(self.active_source()?.as_dyn().rename_tag(from, to))?;
         self.refresh_views();
         Ok(())
     }
 
     pub fn merge_tags(&self, source: &str, target: &str) -> Result<(), SourceError> {
-        ready(self.source()?.merge_tags(source, target))?;
+        ready(self.active_source()?.as_dyn().merge_tags(source, target))?;
         self.refresh_views();
         Ok(())
     }
 
     /// Removes a tag from every item.
     pub fn delete_tag(&self, name: &str) -> Result<(), SourceError> {
-        ready(self.source()?.delete_tag(name))?;
+        ready(self.active_source()?.as_dyn().delete_tag(name))?;
         self.refresh_views();
         Ok(())
     }
@@ -1082,16 +1309,19 @@ impl Session {
     }
 
     /// Creates or edits a smart folder; returns the tree. Open views of it follow.
+    /// Native libraries only: Eagle's API has no smart-folder writes.
     pub fn save_smart_folder(
         &self,
         change: SmartFolderChange,
     ) -> Result<Vec<SmartFolder>, SourceError> {
+        self.require_native("edit smart folders")?;
         let tree = ready(self.source()?.save_smart_folder(change))?;
         self.refresh_views();
         Ok(tree)
     }
 
     pub fn delete_smart_folder(&self, id: &str) -> Result<Vec<SmartFolder>, SourceError> {
+        self.require_native("delete a smart folder")?;
         let tree = ready(self.source()?.delete_smart_folder(id))?;
         self.refresh_views();
         Ok(tree)
@@ -1117,7 +1347,11 @@ impl Session {
         ids: Vec<ItemId>,
         before: Option<ItemId>,
     ) -> Result<(), SourceError> {
-        ready(self.source()?.reorder_items(folder, &ids, before.as_ref()))?;
+        ready(
+            self.active_source()?
+                .as_dyn()
+                .reorder_items(folder, &ids, before.as_ref()),
+        )?;
         self.refresh_views();
         Ok(())
     }
@@ -1132,14 +1366,26 @@ impl Session {
         label_color: Option<String>,
         progress: &dyn Fn(u32, u32),
     ) -> Result<RecoveryKey, SourceError> {
+        if lock(&self.eagle).is_some() {
+            return Err(SourceError::NotSupported(
+                "Eagle's API cannot set a password on a folder".into(),
+            ));
+        }
         let library = self.writable_library()?;
         let key = library.lock_folder(id, password, label, label_color, progress);
         self.refresh_views();
         key
     }
 
-    /// Opens a locked folder for this session; read-only instances may too.
+    /// Opens a locked folder for this session; read-only instances may too. For a running
+    /// Eagle this goes through the v1 API and also unlocks the folder in the Eagle desktop
+    /// until Eagle restarts (docs/spec.md §8.3 "Writes").
     pub fn unlock_folder(&self, id: &str, password: String) -> Result<(), SourceError> {
+        if let Some(source) = lock(&self.eagle).as_ref().map(Arc::clone) {
+            source.unlock_folder(id, &password)?;
+            self.refresh_views();
+            return Ok(());
+        }
         let library = self.current_library().ok_or_else(no_library)?;
         library.unlock_folder(id, password)?;
         self.after_unlock(library);
@@ -1336,10 +1582,10 @@ impl Session {
 
     /// Recomputes the open views after a write and tells the UI.
     fn refresh_views(&self) {
-        let Ok(source) = self.source() else {
+        let Ok(source) = self.active_source() else {
             return;
         };
-        let totals = lock(&self.views).refresh(&Blocking(&source));
+        let totals = lock(&self.views).refresh(&Blocking(source.as_dyn()));
         match totals.map(invalidated) {
             Ok(Some(event)) => (self.emit)(event),
             Ok(None) => {}
@@ -1547,6 +1793,17 @@ impl Session {
         ))
     }
 
+    /// Native-only writes: a live Eagle session answers `NotSupported` instead of the
+    /// misleading "Open a library first" from [`Session::source`].
+    fn require_native(&self, what: &str) -> Result<(), SourceError> {
+        if lock(&self.eagle).is_some() {
+            return Err(SourceError::NotSupported(format!(
+                "Eagle's API cannot {what}"
+            )));
+        }
+        Ok(())
+    }
+
     /// The source the read commands talk to: a live Eagle connection wins over the open
     /// native library (the session holds at most one of them, docs/spec.md §8.3).
     fn active_source(&self) -> Result<ActiveSource, SourceError> {
@@ -1570,6 +1827,64 @@ impl Session {
 
 fn no_library() -> SourceError {
     SourceError::Invalid("Open a library first.".into())
+}
+
+/// Walks a picked file or folder into `files`, applying the reviewed import's filter the
+/// same way the native import does (Eagle accepts every file type it can store).
+fn collect_eagle_files(path: &Path, rel: &str, filter: &ImportFilter, files: &mut Vec<NewFile>) {
+    if filter.exclude.contains(rel) {
+        return;
+    }
+    if path.is_dir() {
+        if let Ok(entries) = std::fs::read_dir(path) {
+            for entry in entries.flatten() {
+                let name = entry.file_name().to_string_lossy().into_owned();
+                let child = if rel.is_empty() {
+                    name
+                } else {
+                    format!("{rel}/{name}")
+                };
+                collect_eagle_files(&entry.path(), &child, filter, files);
+            }
+        }
+    } else if path.is_file() {
+        let ext = path
+            .extension()
+            .map(|ext| ext.to_string_lossy().to_ascii_lowercase())
+            .unwrap_or_default();
+        let image = media::has_preview(&ext);
+        if !filter.reviewed || image || filter.include.contains(rel) {
+            files.push(NewFile {
+                path: display_path(path),
+                name: None,
+            });
+        }
+    }
+}
+
+/// The positions `start..start + len` of a view of `total` items followed by `pending`
+/// entries: the view part through `view_part`, the rest straight from `pending`.
+fn combined<T: Clone>(
+    start: usize,
+    len: usize,
+    total: usize,
+    pending: &[T],
+    view_part: impl FnOnce(usize, usize) -> Vec<T>,
+) -> Vec<T> {
+    let end = (start + len).min(total + pending.len());
+    if start >= end {
+        return Vec::new();
+    }
+    let mut out = Vec::with_capacity(end - start);
+    if start < total {
+        out.extend(view_part(start, end.min(total) - start));
+    }
+    let from_pending = end.saturating_sub(start.max(total));
+    if from_pending > 0 {
+        let at = start.saturating_sub(total);
+        out.extend(pending[at..at + from_pending].iter().cloned());
+    }
+    out
 }
 
 /// What `active_source` returns: either kind of library, behind the one trait.
@@ -2259,7 +2574,7 @@ mod tests {
     #[test]
     fn the_thumb_scheme_serves_only_items_of_the_open_library() {
         let f = fixture();
-        assert_eq!(f.session.image("/01ANYTHING"), None, "no library");
+        assert_eq!(f.session.image("/01ANYTHING", None), None, "no library");
         f.session
             .create_library(&f.home.path().to_string_lossy(), "Thumbs")
             .unwrap();
@@ -2273,9 +2588,9 @@ mod tests {
             .0
             .clone();
 
-        let thumbnail = f.session.image(&format!("/{id}")).unwrap();
+        let thumbnail = f.session.image(&format!("/{id}"), None).unwrap();
         assert_eq!(thumbnail.content_type, "image/webp");
-        let original = f.session.image(&format!("/{id}/original")).unwrap();
+        let original = f.session.image(&format!("/{id}/original"), None).unwrap();
         assert_eq!(original.content_type, "image/png");
         assert_eq!(
             original.bytes,
@@ -2288,7 +2603,7 @@ mod tests {
             "/01NOTANITEM",
             "/a%2Fb",
         ] {
-            assert_eq!(f.session.image(path), None, "{path}");
+            assert_eq!(f.session.image(path, None), None, "{path}");
         }
     }
 
@@ -2333,7 +2648,7 @@ mod tests {
             .unwrap();
         assert!(
             f.session
-                .image(&format!("/{}", first[0].0))
+                .image(&format!("/{}", first[0].0), None)
                 .is_some_and(|image| !image.private)
         );
 
@@ -2356,7 +2671,7 @@ mod tests {
             total: 2
         }));
         assert_eq!(f.session.counts().unwrap().all, 2);
-        assert!(f.session.image(&format!("/{}", first[0].0)).is_none());
+        assert!(f.session.image(&format!("/{}", first[0].0), None).is_none());
         assert_eq!(f.session.item_detail(&first[0].0).unwrap(), None);
 
         assert_eq!(
@@ -2369,7 +2684,7 @@ mod tests {
             total: 3
         }));
         // Decrypted images are marked private: the WebView must not cache them.
-        let image = f.session.image(&format!("/{}", first[0].0)).unwrap();
+        let image = f.session.image(&format!("/{}", first[0].0), None).unwrap();
         assert!(image.private);
         f.session.relock_folder(&folder).unwrap();
         assert!(last_totals(&events).contains(&ViewOpened {

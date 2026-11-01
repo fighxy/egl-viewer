@@ -46,6 +46,10 @@ pub struct ItemCell {
     /// In the trash since, ms (the Trash list shows it).
     pub deleted_at: Option<i64>,
     pub tags: Vec<String>,
+    /// An "Importing…" placeholder: the file is on its way to a running Eagle and has no
+    /// item yet (docs/spec.md §8.3 "Adding files").
+    #[serde(default)]
+    pub pending: bool,
 }
 
 impl From<&ItemLite> for ItemCell {
@@ -64,6 +68,7 @@ impl From<&ItemLite> for ItemCell {
             added_at: item.added_at,
             deleted_at: item.deleted_at,
             tags: item.tags.iter().map(|tag| tag.to_string()).collect(),
+            pending: false,
         }
     }
 }
@@ -221,6 +226,14 @@ impl Views {
     pub fn clear(&mut self) {
         self.views.clear();
         self.snapshots.clear();
+    }
+
+    /// Every open view's id and total, least recently used first.
+    pub fn totals(&self) -> Vec<(u64, usize)> {
+        self.views
+            .iter()
+            .map(|view| (view.id, view.total()))
+            .collect()
     }
 
     /// After a write: loads the scopes of the open views again and recomputes the views under

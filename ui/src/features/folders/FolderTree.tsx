@@ -42,6 +42,8 @@ type Props = {
   onDelete: (id: string) => void;
   /** Export the folder (and its subfolders) to a folder tree or an archive. */
   onExport: (id: string, name: string) => void;
+  /** A running Eagle: the API has no folder delete and cannot set a password. */
+  eagle?: boolean;
   /** Lock… on an unlocked folder (other lock commands live under Locked folders, D-059). */
   onLock?: (id: string, action: LockAction) => void;
 };
@@ -78,6 +80,7 @@ export function FolderTree({
   onMoveTo,
   onDelete,
   onExport,
+  eagle = false,
   onLock,
 }: Props) {
   const { begin, active } = useDrag();
@@ -134,7 +137,8 @@ export function FolderTree({
         if (canWrite) setRenaming(row.folder.id);
         break;
       case "Delete":
-        if (canWrite) onDelete(row.folder.id);
+        // Eagle's API cannot delete folders (docs/spec.md §8.3 "Writes").
+        if (canWrite && !eagle) onDelete(row.folder.id);
         break;
       default:
         return;
@@ -306,7 +310,7 @@ export function FolderTree({
                   <ContextMenuItem onSelect={() => onExport(folder.id, folder.name)}>
                     Export…
                   </ContextMenuItem>
-                  {onLock && (
+                  {onLock && !eagle && (
                     <>
                       <ContextMenuSeparator />
                       <ContextMenuItem
@@ -317,15 +321,19 @@ export function FolderTree({
                       </ContextMenuItem>
                     </>
                   )}
-                  <ContextMenuSeparator />
-                  <ContextMenuItem
-                    disabled={!canWrite}
-                    className="text-destructive focus:text-destructive"
-                    onSelect={() => onDelete(folder.id)}
-                  >
-                    Delete…
-                    <ContextMenuShortcut>Del</ContextMenuShortcut>
-                  </ContextMenuItem>
+                  {!eagle && (
+                    <>
+                      <ContextMenuSeparator />
+                      <ContextMenuItem
+                        disabled={!canWrite}
+                        className="text-destructive focus:text-destructive"
+                        onSelect={() => onDelete(folder.id)}
+                      >
+                        Delete…
+                        <ContextMenuShortcut>Del</ContextMenuShortcut>
+                      </ContextMenuItem>
+                    </>
+                  )}
                 </ContextMenuContent>
               </ContextMenu>
             );

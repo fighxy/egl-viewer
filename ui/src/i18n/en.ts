@@ -459,6 +459,7 @@ export const en = {
     title: "Imports",
     nothingYet: "Nothing added yet.",
     progress: "Progress",
+    importing: "Importing…",
     sessionHint: "Files added in this session.",
     kindAdding: "Adding files",
     kindPreviews: "Previews",
@@ -655,6 +656,8 @@ export const en = {
     yubiFailed: "The YubiKey did not open the folder.",
     unlockHint:
       "The folder opens until you lock it again or close the library. Other locked folders stay locked.",
+    eagleUnlockWarning:
+      "This also unlocks the folder in Eagle on that PC, until Eagle restarts. Anyone at that computer will see its content.",
     recoveryHint:
       "Enter the recovery key or its 12 words, then a new password. The old password stops working.",
     yubiPinHint: "Enter the YubiKey PIN. It replaces the touch, and it opens only this folder.",

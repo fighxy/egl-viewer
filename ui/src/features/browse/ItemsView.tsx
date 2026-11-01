@@ -13,6 +13,7 @@ import {
   useRef,
   useState,
 } from "react";
+import { useTranslation } from "react-i18next";
 import { ContextMenu, ContextMenuContent, ContextMenuTrigger } from "@/components/ui/context-menu";
 import { type DragPayload, dropHint, useDrag } from "@/features/dnd/drag";
 import { type ItemCell, ipc, type ViewMode } from "@/ipc";
@@ -719,6 +720,7 @@ function Thumb({
   transition: boolean;
   small?: boolean;
 }) {
+  const { t } = useTranslation();
   const [state, setState] = useState<"loading" | "loaded" | "failed">(
     cell.hasThumbnail ? "loading" : "failed",
   );
@@ -728,6 +730,7 @@ function Thumb({
       {state !== "loaded" && (
         <div
           data-testid="placeholder"
+          data-pending={cell.pending || undefined}
           className={cn(
             "absolute inset-0 grid place-items-center font-medium uppercase",
             small ? "text-[8px]" : "text-xs",
@@ -739,7 +742,7 @@ function Thumb({
               : undefined
           }
         >
-          {cell.ext}
+          {cell.pending ? t("imports.importing") : cell.ext}
         </div>
       )}
       {cell.hasThumbnail && state !== "failed" && (
