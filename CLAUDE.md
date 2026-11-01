@@ -64,6 +64,14 @@ Eagle:
 - Reading an Eagle `.library` folder (import): retry on JSON parse errors (correction 37); never
   touch Eagle's caches in `%APPDATA%\Eagle` (correction 36).
 
+Forge / releases:
+
+- Never mention Cursor or put Cursor links in commits, PR titles/bodies, comments, release
+  notes, or branch names. Forbidden: `cursor.com` URLs, Agent Store / Try Live badges,
+  `cursor/` branch prefixes, `CURSOR_AGENT` HTML markers, and “Open in Cursor” / “Open in Web”
+  footers. Prefer `feat/…` (and other conventional) branch names. Commits and PRs stay
+  authored as Ivan K (`fighxy@users.noreply.github.com`).
+
 ## Commands
 
 ```bash
