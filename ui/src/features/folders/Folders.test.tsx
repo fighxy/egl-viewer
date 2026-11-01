@@ -127,6 +127,18 @@ describe("The folder tree", () => {
     );
   });
 
+  it("jumps to the first and last folder with Home and End", async () => {
+    library();
+    render(<App />);
+    const posters = await treeItem("Posters");
+    posters.focus();
+    fireEvent.keyDown(posters, { key: "End" });
+    const fonts = await treeItem("Fonts");
+    await waitFor(() => expect(fonts).toHaveFocus());
+    fireEvent.keyDown(fonts, { key: "Home" });
+    await waitFor(() => expect(posters).toHaveFocus());
+  });
+
   it("creates a folder and opens it", async () => {
     const created = [...TREE, folder("F9", "Moodboards")];
     const calls = library(TREE, { save_folder: () => created });

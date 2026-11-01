@@ -91,7 +91,9 @@ impl AppStore {
             if file.last_library.as_deref() == Some(path) {
                 file.last_library = None;
             }
-        })
+        })?;
+        // The last place for that path is useless once it leaves Recent.
+        self.forget_library_session(path)
     }
 
     /// Close Library sets it; opening a library clears it. Quitting is not an explicit close.

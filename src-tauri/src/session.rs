@@ -9,9 +9,9 @@ use std::thread::JoinHandle;
 use std::time::{Duration, SystemTime, UNIX_EPOCH};
 
 use app_store::{
-    AppStore, ConnectionSettings, KeyringStore, LoginProof, LoginStatus, Preferences,
-    RecentLibrary, SecretStore, SyncEnvironment, check_location, default_library_parent,
-    display_path, eagle_token_name,
+    AppStore, ConnectionSettings, KeyringStore, LibrarySession, LoginProof, LoginStatus,
+    Preferences, RecentLibrary, SecretStore, SyncEnvironment, check_location,
+    default_library_parent, display_path, eagle_token_name,
 };
 use eagle_api::EagleSource;
 use library_core::{
@@ -29,7 +29,7 @@ use library_native::{
     export_items, export_preview, import_eagle, import_files, make_pending_previews,
     utc_file_stamp,
 };
-use secrecy::SecretString;
+use secrecy::{ExposeSecret, SecretString};
 use serde::{Deserialize, Serialize};
 use ts_rs::TS;
 
@@ -378,10 +378,13 @@ impl Session {
             ..settings
         };
         let name = eagle_token_name(&settings.host, settings.port);
+        // Move the plaintext into SecretString at once so a later panic cannot leave it in a
+        // plain String; the Connect form also clears its field after send (D-080).
         let token = match token {
             Some(token) => {
-                self.secrets.set(&name, &token)?;
-                SecretString::from(token)
+                let secret = SecretString::from(token);
+                self.secrets.set(&name, secret.expose_secret())?;
+                secret
             }
             None => SecretString::from(self.secrets.get(&name)?.unwrap_or_default()),
         };
@@ -533,6 +536,19 @@ impl Session {
 
     pub fn forget_recent_library(&self, path: &str) -> Result<(), SourceError> {
         self.store.forget_recent(path)
+    }
+
+    /// The last place, filters and selection for a library path (phase 12 / D-078).
+    pub fn library_session(&self, path: &str) -> Option<LibrarySession> {
+        self.store.library_session(path)
+    }
+
+    pub fn save_library_session(
+        &self,
+        path: &str,
+        session: LibrarySession,
+    ) -> Result<(), SourceError> {
+        self.store.save_library_session(path, session)
     }
 
     pub fn preferences(&self) -> Preferences {
@@ -1955,12 +1971,15 @@ mod tests {
     fn fixture_with(sync: SyncEnvironment) -> Fixture {
         let data = tempfile::tempdir().unwrap();
         let home = tempfile::tempdir().unwrap();
-        let session = Session::new(
+        // Tests never touch the OS keyring (D-080); a missing default store on Linux
+        // would otherwise fail when Connect looks up a saved token.
+        let session = Session::with_secrets(
             AppStore::new(data.path()),
             home.path().to_path_buf(),
             "0.1.0-test",
             sync,
             Arc::new(|_: Event| {}),
+            Arc::new(app_store::MemoryStore::default()),
         );
         Fixture {
             _data: data,

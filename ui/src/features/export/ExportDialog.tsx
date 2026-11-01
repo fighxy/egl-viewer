@@ -269,6 +269,8 @@ export function ExportDialog({
       .then((first) => {
         setProgress(first);
         setRunId(first.id);
+        // Drop the token from the dialog once Rust has it (D-080).
+        if (intoEagle) setEagleToken("");
         if (!intoEagle && destination.trim() !== preferences.exportDestination) {
           onPreferences({ ...preferences, exportDestination: destination.trim() });
         }

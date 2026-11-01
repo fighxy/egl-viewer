@@ -3,7 +3,9 @@
 use std::path::PathBuf;
 use std::sync::{Mutex, PoisonError};
 
-use app_store::{ConnectionSettings, LoginProof, LoginStatus, Preferences, RecentLibrary};
+use app_store::{
+    ConnectionSettings, LibrarySession, LoginProof, LoginStatus, Preferences, RecentLibrary,
+};
 use library_core::{
     Backup, ExportPreview, ExportProgress, ExportRequest, ExportSelection, ExtensionCount, Folder,
     FolderChange, ImportPreview, ImportProgress, ImportTicket, Item, ItemCell, ItemEdit, ItemId,
@@ -124,6 +126,30 @@ pub async fn recent_libraries(app: AppHandle) -> Result<Vec<RecentLibrary>, Sour
 #[tauri::command]
 pub fn forget_recent_library(session: State<'_, Session>, path: String) -> Result<(), SourceError> {
     session.forget_recent_library(&path)
+}
+
+/// The last place, filters and selection for `path` (phase 12).
+#[tauri::command]
+pub fn library_session(session: State<'_, Session>, path: String) -> Option<LibrarySession> {
+    session.library_session(&path)
+}
+
+#[tauri::command]
+pub fn save_library_session(
+    session: State<'_, Session>,
+    path: String,
+    state: LibrarySession,
+) -> Result<(), SourceError> {
+    session.save_library_session(&path, state)
+}
+
+/// Opens the folder where the app writes its log file (Help → Open Log Folder, D-079).
+#[tauri::command]
+pub fn open_log_folder(app: AppHandle) -> Result<(), SourceError> {
+    let dir = crate::logs::log_dir(&app)?;
+    std::fs::create_dir_all(&dir)
+        .map_err(|error| SourceError::Storage(format!("create the log folder: {error}")))?;
+    tauri_plugin_opener::open_path(&dir, None::<&str>).map_err(opener_error)
 }
 
 #[tauri::command]

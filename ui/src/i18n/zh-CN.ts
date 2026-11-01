@@ -73,6 +73,7 @@ export const zhCN: MessageCatalog = {
       shortcuts: "键盘快捷键",
       checkForUpdates: "检查更新…",
       about: "关于 egl-viewer",
+      openLogFolder: "打开日志文件夹",
     },
   },
   themes: {

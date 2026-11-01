@@ -8,6 +8,7 @@ mod json_file;
 pub mod location;
 pub mod login;
 pub mod preferences;
+pub mod query;
 pub mod recent;
 pub mod secret;
 pub mod settings;
@@ -22,6 +23,7 @@ pub use login::{
 pub use preferences::{
     BrowsePreferences, Locale, Preferences, Theme, UiLayout, ViewMode, WindowState,
 };
+pub use query::{LibrarySession, SavedFilters, SavedPlace, SavedSelection};
 pub use recent::RecentLibrary;
 pub use secret::{KeyringStore, MemoryStore, SecretStore, eagle_token_name};
 pub use settings::ConnectionSettings;

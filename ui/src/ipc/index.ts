@@ -39,6 +39,7 @@ import type { LibraryCounts } from "./generated/LibraryCounts";
 import type { LibraryHolder } from "./generated/LibraryHolder";
 import type { LibraryInfo } from "./generated/LibraryInfo";
 import type { LibraryQuery } from "./generated/LibraryQuery";
+import type { LibrarySession } from "./generated/LibrarySession";
 import type { LibraryStats } from "./generated/LibraryStats";
 import type { Locale } from "./generated/Locale";
 import type { LocationProblem } from "./generated/LocationProblem";
@@ -58,6 +59,9 @@ import type { ReadOnlyReason } from "./generated/ReadOnlyReason";
 import type { RecentLibrary } from "./generated/RecentLibrary";
 import type { RecoveryKey } from "./generated/RecoveryKey";
 import type { RepairOptions } from "./generated/RepairOptions";
+import type { SavedFilters } from "./generated/SavedFilters";
+import type { SavedPlace } from "./generated/SavedPlace";
+import type { SavedSelection } from "./generated/SavedSelection";
 import type { Scope } from "./generated/Scope";
 import type { ScopeProgress } from "./generated/ScopeProgress";
 import type { SelectionTags } from "./generated/SelectionTags";
@@ -120,6 +124,7 @@ export type {
   LibraryHolder,
   LibraryInfo,
   LibraryQuery,
+  LibrarySession,
   LibraryStats,
   Locale,
   LocationProblem,
@@ -139,6 +144,9 @@ export type {
   RecentLibrary,
   RecoveryKey,
   RepairOptions,
+  SavedFilters,
+  SavedPlace,
+  SavedSelection,
   Scope,
   ScopeProgress,
   SelectionTags,
@@ -219,6 +227,10 @@ export const ipc = {
   currentLibrary: () => invoke<LibraryInfo | null>("current_library"),
   recentLibraries: () => invoke<RecentLibrary[]>("recent_libraries"),
   forgetRecentLibrary: (path: string) => invoke<void>("forget_recent_library", { path }),
+  librarySession: (path: string) => invoke<LibrarySession | null>("library_session", { path }),
+  saveLibrarySession: (path: string, state: LibrarySession) =>
+    invoke<void>("save_library_session", { path, state }),
+  openLogFolder: () => invoke<void>("open_log_folder"),
   preferences: () => invoke<Preferences>("get_preferences"),
   setPreferences: (preferences: Preferences) =>
     invoke<Preferences>("set_preferences", { preferences }),

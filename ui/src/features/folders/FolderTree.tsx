@@ -133,6 +133,12 @@ export function FolderTree({
       case "Enter":
         onSelect(row.folder.id);
         break;
+      case "Home":
+        move(0);
+        break;
+      case "End":
+        move(rows.length - 1);
+        break;
       case "F2":
         if (canWrite) setRenaming(row.folder.id);
         break;
