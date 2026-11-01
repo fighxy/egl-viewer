@@ -28,9 +28,31 @@ jobs:
       - name: Rust toolchain (from rust-toolchain.toml)
         run: rustup toolchain install
 
-      # Decode-only features: default `hevc` pulls GPL x265, which we do not ship (D-070).
+      # Decode-only: default `hevc` pulls GPL x265 (D-070). Remove any prior
+      # default-feature install on the runner before installing [core,libde265],
+      # otherwise vcpkg may leave an x265-linked heif that breaks the link line.
       - name: libheif (HEIC/HEIF previews, D-063)
-        run: vcpkg install "libheif[core,libde265]:x64-windows"
+        shell: pwsh
+        run: |
+          $ErrorActionPreference = "Continue"
+          vcpkg remove "libheif:x64-windows" --recurse 2>$null
+          vcpkg remove "x265:x64-windows" --recurse 2>$null
+          $ErrorActionPreference = "Stop"
+          vcpkg install "libheif[core,libde265]:x64-windows"
+          $root = if ($env:VCPKG_ROOT) { $env:VCPKG_ROOT } elseif ($env:VCPKG_INSTALLATION_ROOT) { $env:VCPKG_INSTALLATION_ROOT } else { "C:\vcpkg" }
+          $lib = Join-Path $root "installed\x64-windows\lib"
+          $bin = Join-Path $root "installed\x64-windows\bin"
+          foreach ($name in @("libx265.lib", "x265.lib", "libx265.dll", "x265.dll")) {
+            foreach ($dir in @($lib, $bin)) {
+              $path = Join-Path $dir $name
+              if (Test-Path -LiteralPath $path) {
+                throw "Unexpected GPL x265 artefact after decode-only install: $path"
+              }
+            }
+          }
+          if (-not (Test-Path -LiteralPath (Join-Path $bin "heif.dll"))) { throw "heif.dll missing under $bin" }
+          if (-not (Test-Path -LiteralPath (Join-Path $bin "libde265.dll"))) { throw "libde265.dll missing under $bin" }
+          Write-Host "Decode-only libheif OK (no x265) under $root"
 
       # libheif-sys finds the vcpkg tree only through VCPKG_ROOT; the runner image
       # exports VCPKG_INSTALLATION_ROOT instead. VCPKGRS_DYNAMIC=1 selects the
@@ -60,7 +82,11 @@ jobs:
           }
           Get-Content src-tauri/heif-runtime/bundled-dlls.txt
 
+      # Bust caches that still emit cargo:rustc-link-lib=x265 from an older
+      # default-feature libheif install (LNK1181 libx265.lib).
       - uses: Swatinem/rust-cache@v2
+        with:
+          prefix-key: heif-core-libde265-v1
 
       - name: Install JavaScript dependencies
         run: pnpm install --frozen-lockfile
@@ -113,9 +139,29 @@ jobs:
       - name: Rust toolchain (from rust-toolchain.toml)
         run: rustup toolchain install
 
-      # Decode-only features: default `hevc` pulls GPL x265, which we do not ship (D-070).
+      # Same decode-only install as the check job (D-070).
       - name: libheif (HEIC/HEIF previews, D-063)
-        run: vcpkg install "libheif[core,libde265]:x64-windows"
+        shell: pwsh
+        run: |
+          $ErrorActionPreference = "Continue"
+          vcpkg remove "libheif:x64-windows" --recurse 2>$null
+          vcpkg remove "x265:x64-windows" --recurse 2>$null
+          $ErrorActionPreference = "Stop"
+          vcpkg install "libheif[core,libde265]:x64-windows"
+          $root = if ($env:VCPKG_ROOT) { $env:VCPKG_ROOT } elseif ($env:VCPKG_INSTALLATION_ROOT) { $env:VCPKG_INSTALLATION_ROOT } else { "C:\vcpkg" }
+          $lib = Join-Path $root "installed\x64-windows\lib"
+          $bin = Join-Path $root "installed\x64-windows\bin"
+          foreach ($name in @("libx265.lib", "x265.lib", "libx265.dll", "x265.dll")) {
+            foreach ($dir in @($lib, $bin)) {
+              $path = Join-Path $dir $name
+              if (Test-Path -LiteralPath $path) {
+                throw "Unexpected GPL x265 artefact after decode-only install: $path"
+              }
+            }
+          }
+          if (-not (Test-Path -LiteralPath (Join-Path $bin "heif.dll"))) { throw "heif.dll missing under $bin" }
+          if (-not (Test-Path -LiteralPath (Join-Path $bin "libde265.dll"))) { throw "libde265.dll missing under $bin" }
+          Write-Host "Decode-only libheif OK (no x265) under $root"
 
       # libheif-sys finds the vcpkg tree only through VCPKG_ROOT; the runner image
       # exports VCPKG_INSTALLATION_ROOT instead. VCPKGRS_DYNAMIC=1 selects the
@@ -132,6 +178,8 @@ jobs:
         run: echo "$VCPKG_ROOT/installed/x64-windows/bin" >> "$GITHUB_PATH"
 
       - uses: Swatinem/rust-cache@v2
+        with:
+          prefix-key: heif-core-libde265-v1
 
       - name: Install JavaScript dependencies
         run: pnpm install --frozen-lockfile
