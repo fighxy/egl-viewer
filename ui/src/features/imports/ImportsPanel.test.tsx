@@ -1,7 +1,7 @@
-import { render, screen } from "@testing-library/react";
+import { render, screen, within } from "@testing-library/react";
 import userEvent from "@testing-library/user-event";
 import { describe, expect, it, vi } from "vitest";
-import { progress } from "@/test/backend";
+import { folder, progress } from "@/test/backend";
 import { DuplicateDialog } from "./DuplicateDialog";
 import { ImportsPanel } from "./ImportsPanel";
 
@@ -68,6 +68,38 @@ describe("DuplicateDialog", () => {
     expect(screen.getByRole("dialog")).toHaveTextContent("“poster.png” is already in the library");
     await userEvent.setup().click(screen.getByRole("button", { name: "Add anyway" }));
     expect(onAnswer).toHaveBeenCalledWith(7, "addAnyway");
+  });
+
+  it("keeps all four folder-target actions inside a wrapping footer", async () => {
+    const onAnswer = vi.fn();
+    const folders = [folder("fold1", "Refs")];
+    render(
+      <DuplicateDialog
+        folders={folders}
+        onAnswer={onAnswer}
+        waiting={progress({
+          id: 9,
+          state: "waitingForDecision",
+          duplicate: {
+            path: "D:\\refs\\poster.png",
+            existing: "01J",
+            inTrash: false,
+            targetFolder: "fold1",
+          },
+        })}
+      />,
+    );
+    const dialog = screen.getByRole("dialog");
+    expect(dialog.className).toMatch(/sm:max-w-xl/);
+    const footer = dialog.querySelector('[data-slot="dialog-footer"]');
+    expect(footer).not.toBeNull();
+    expect(footer?.className).toMatch(/sm:flex-wrap/);
+    const actions = within(dialog);
+    expect(actions.getByRole("button", { name: "Cancel import" })).toBeInTheDocument();
+    expect(actions.getByRole("button", { name: "Add anyway" })).toBeInTheDocument();
+    expect(actions.getByRole("button", { name: "Skip duplicates" })).toBeInTheDocument();
+    await userEvent.setup().click(actions.getByRole("button", { name: "Add to Refs" }));
+    expect(onAnswer).toHaveBeenCalledWith(9, "addToFolder");
   });
 
   it("stays closed without a waiting import", () => {

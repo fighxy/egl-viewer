@@ -35,6 +35,7 @@ export function DuplicateDialog({ waiting, folders = [], onAnswer }: Props) {
   return (
     <Dialog open={duplicate !== undefined && duplicate !== null}>
       <DialogContent
+        className="sm:max-w-xl"
         showCloseButton={false}
         onEscapeKeyDown={(event) => event.preventDefault()}
         onInteractOutside={(event) => event.preventDefault()}
@@ -53,7 +54,7 @@ export function DuplicateDialog({ waiting, folders = [], onAnswer }: Props) {
             {target && ` ${t("imports.dupeFolderHint", { name: target.name })}`}
           </DialogDescription>
         </DialogHeader>
-        <DialogFooter>
+        <DialogFooter className="sm:flex-wrap">
           <Button variant="outline" onClick={() => answer("cancel")}>
             {t("imports.cancelImport")}
           </Button>
