@@ -3,6 +3,7 @@ import { act, fireEvent, render, screen, waitFor, within } from "@testing-librar
 import userEvent from "@testing-library/user-event";
 import { afterEach, beforeEach, describe, expect, it } from "vitest";
 import { App } from "@/App";
+import { SPACE_HOLD_MS } from "@/commands/spacePreview";
 import { DEFAULT_PREFERENCES, type LibraryQuery } from "@/ipc";
 import { called, fakeLayout, item, LIBRARY, listening, mockBackend, viewOf } from "@/test/backend";
 
@@ -191,8 +192,55 @@ describe("Browsing a library", () => {
 
     fireEvent.mouseDown(await cellNamed("image-2"));
     await waitFor(() => expect(screen.getByRole("contentinfo")).toHaveTextContent("1 selected"));
-    fireEvent.keyDown(grid(), { key: " " });
+    fireEvent.keyDown(window, { key: " " });
+    fireEvent.keyUp(window, { key: " " });
     expect(await screen.findByRole("dialog", { name: "image-2" })).toHaveTextContent("3 of 3");
+  });
+
+  it("toggles the preview with a short Space and peeks while Space is held", async () => {
+    browse(3);
+    render(<App />);
+    fireEvent.mouseDown(await cellNamed("image-0"));
+    await waitFor(() => expect(screen.getByRole("contentinfo")).toHaveTextContent("1 selected"));
+
+    fireEvent.keyDown(window, { key: " " });
+    fireEvent.keyUp(window, { key: " " });
+    expect(await screen.findByRole("dialog", { name: "image-0" })).toBeInTheDocument();
+
+    fireEvent.keyDown(window, { key: " " });
+    fireEvent.keyUp(window, { key: " " });
+    await waitFor(() => expect(screen.queryByRole("dialog")).not.toBeInTheDocument());
+
+    fireEvent.keyDown(window, { key: " " });
+    expect(await screen.findByRole("dialog", { name: "image-0" })).toBeInTheDocument();
+    await act(async () => {
+      await new Promise((resolve) => setTimeout(resolve, SPACE_HOLD_MS + 20));
+    });
+    fireEvent.keyUp(window, { key: " " });
+    await waitFor(() => expect(screen.queryByRole("dialog")).not.toBeInTheDocument());
+  });
+
+  it("closes the preview on a left or right click in the letterbox beside the image", async () => {
+    browse(3);
+    render(<App />);
+    fireEvent.doubleClick(await cellNamed("image-0"));
+    const preview = await screen.findByRole("dialog", { name: "image-0" });
+    const image = within(preview).getByRole("img", { name: "image-0" });
+    const stage = image.parentElement;
+    if (!stage) throw new Error("preview stage missing");
+
+    fireEvent.mouseDown(stage, { button: 0 });
+    await waitFor(() => expect(screen.queryByRole("dialog")).not.toBeInTheDocument());
+
+    fireEvent.doubleClick(await cellNamed("image-0"));
+    const again = await screen.findByRole("dialog", { name: "image-0" });
+    const imageAgain = within(again).getByRole("img", { name: "image-0" });
+    fireEvent.mouseDown(imageAgain, { button: 0 });
+    expect(screen.getByRole("dialog", { name: "image-0" })).toBeInTheDocument();
+    const stageAgain = imageAgain.parentElement;
+    if (!stageAgain) throw new Error("preview stage missing");
+    fireEvent.mouseDown(stageAgain, { button: 2 });
+    await waitFor(() => expect(screen.queryByRole("dialog")).not.toBeInTheDocument());
   });
 
   it("rotates the preview with the toolbar button and R, without breaking arrows", async () => {

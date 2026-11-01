@@ -318,8 +318,9 @@ full-database cipher is ever required; it is out of scope here.
   filter is active. Rejected: an always visible bar (it costs a row most of the time) and filters
   in the right bar (that belongs to the selection).
 - Grid: justified rows from item aspect ratios (D-067; phase 3 shipped squares first). List
-  unchanged. Masonry can still come later. Double-click and `Space` open the full-size preview;
-  `Enter` moves focus to the right bar (spec §7 said before that `Enter` opens the detail).
+  unchanged. Masonry can still come later. Double-click and `Space` open the full-size preview
+  (`Space` hold-vs-toggle and letterbox click-out: D-073); `Enter` moves focus to the right bar
+  (spec §7 said before that `Enter` opens the detail).
 - Right bar: fields save on `Enter` or blur, `Esc` reverts, no Save button. With several items it
   shows batch edits; with nothing selected, the open folder's properties (from phase 4).
 - Phase 1 builds the whole frame with empty zones, so later phases fill zones instead of
@@ -1279,3 +1280,22 @@ exits. Cancel dismisses the dialog and keeps the process running.
   `window.close()`, so it shares the same path as the title-bar X.
 - **i18n.** `confirm.quitTitle` / `quitBody` / `quitConfirm` in `en`, `ru`, and `zh-CN`
   (D-069); Cancel reuses `common.cancel`.
+
+## D-073 Space hold-vs-toggle and click-out for the preview (2026-11-01)
+
+The full-size preview answers Space like a desktop image browser: a short press toggles it,
+a hold peeks while the key is down. Empty letterbox clicks also dismiss it.
+
+- **Short press.** Keydown opens when closed; keyup within 250 ms (`SPACE_HOLD_MS`) leaves it
+  open. A second short press while open closes on keyup.
+- **Hold.** Keydown opens when closed; after 250 ms the press is a hold; keyup always closes.
+  Holding while already open also closes on release. Key repeats are ignored; a window blur
+  while held closes and clears the stuck key state.
+- **Wiring.** `useSpacePreview` owns Space. `useShortcuts` skips Space so the Preview menu
+  command stays open-only (View → Preview). Other dialogs still disable Space; the preview
+  itself does not, so toggle and hold-close work while it is open.
+- **Click out.** A left or right mouse button on the empty stage beside / above / below the
+  image (not on the image, toolbar, or previous/next controls) closes the preview. Pan when
+  zoomed starts on the image, not on the letterbox.
+- **Help.** The Keyboard Shortcuts dialog lists Space peek/toggle and the outside click.
+- **Covered by** `spacePreview` unit tests, `useSpacePreview` tests, and Browse UI tests.

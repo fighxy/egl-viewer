@@ -13,6 +13,7 @@ import {
   needsWritableLibrary,
 } from "@/commands/registry";
 import { useShortcuts } from "@/commands/useShortcuts";
+import { useSpacePreview } from "@/commands/useSpacePreview";
 import { Button } from "@/components/ui/button";
 import { AboutDialog } from "@/features/about/AboutDialog";
 import { DetailsPanel, type ItemActions } from "@/features/browse/DetailsPanel";
@@ -1462,7 +1463,8 @@ function AppShell() {
     ],
   );
 
-  const modalOpen =
+  // The full-size preview blocks other shortcuts, but Space still toggles / peeks (D-073).
+  const otherModalOpen =
     dialog !== null ||
     folderDialog !== null ||
     lockDialog !== null ||
@@ -1471,9 +1473,16 @@ function AppShell() {
     importsOpen ||
     confirmation !== null ||
     updateDialog !== null ||
-    imports.waiting !== undefined ||
-    previewIndex !== null;
-  useShortcuts(commandState, actions, !modalOpen);
+    imports.waiting !== undefined;
+  const previewOpen = previewIndex !== null;
+  useShortcuts(commandState, actions, !otherModalOpen && !previewOpen);
+  useSpacePreview({
+    enabled: !otherModalOpen && library !== null && gate === "open",
+    isOpen: previewOpen,
+    canOpen: selected > 0,
+    open: () => openPreview(selection.focus ?? 0, singleId(selection)),
+    close: () => closePreview(singleId(selection)),
+  });
 
   // Silent update check once the login gate is open (production builds only; D-062).
   useEffect(() => {
