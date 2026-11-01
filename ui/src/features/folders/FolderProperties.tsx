@@ -1,7 +1,9 @@
 import { cn } from "cn";
 import { X } from "lucide-react";
 import { useId, useState } from "react";
+import { useTranslation } from "react-i18next";
 import { MANUAL, SORT_KEYS } from "@/commands/registry";
+import { translateSortLabel } from "@/i18n/labels";
 import type { Folder, FolderChange, SortKey } from "@/ipc";
 import { FOLDER_COLORS } from "./tree";
 
@@ -28,6 +30,7 @@ export function FolderProperties({
   onSave,
   onLockLabel,
 }: Props) {
+  const { t } = useTranslation();
   const disabled = writable !== true;
   const id = useId();
   const save = (change: Partial<Extract<FolderChange, { type: "update" }>>) =>
@@ -147,7 +150,7 @@ export function FolderProperties({
         )}
       </div>
       <label className="grid gap-1">
-        <span className="text-xs text-muted-foreground">Sort</span>
+        <span className="text-xs text-muted-foreground">{t("sort.title")}</span>
         <select
           value={sortValue}
           disabled={disabled}
@@ -158,13 +161,13 @@ export function FolderProperties({
             else save({ orderBy: key as SortKey, sortAscending: direction === "asc" });
           }}
         >
-          <option value="">The global sort</option>
-          {[...SORT_KEYS, MANUAL].flatMap(({ key, label }) => [
+          <option value="">{t("sort.global")}</option>
+          {[...SORT_KEYS, MANUAL].flatMap(({ key }) => [
             <option key={`${key}:asc`} value={`${key}:asc`}>
-              {label}, ascending
+              {t("sort.optionAsc", { label: translateSortLabel(t, key) })}
             </option>,
             <option key={`${key}:desc`} value={`${key}:desc`}>
-              {label}, descending
+              {t("sort.optionDesc", { label: translateSortLabel(t, key) })}
             </option>,
           ])}
         </select>

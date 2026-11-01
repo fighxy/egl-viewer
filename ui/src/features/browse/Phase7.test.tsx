@@ -235,6 +235,7 @@ describe("Phase 7: editing, the trash and file actions", () => {
       const query = called(calls, "open_view").at(-1)?.args.query as LibraryQuery | undefined;
       expect(query?.scope).toEqual({ kind: "trash" });
     });
+    expect(screen.queryByRole("button", { name: /Add files/ })).not.toBeInTheDocument();
     await pick("image-1");
     expect(await within(details()).findByText(/In the trash since/)).toBeTruthy();
     await user.click(within(details()).getByRole("button", { name: "Restore" }));

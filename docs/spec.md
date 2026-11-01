@@ -386,7 +386,7 @@ Posters › 2024   88 items          Search…          Filter (2) │ Date adde
 ```
 
 - Where the user is (a nested folder shows its path) and the item count.
-- Search (`Ctrl+F`, section 5), centered in the free space between the title and Filter. The field is about 24rem wide and shrinks when that space is narrower, so it does not cover Filter, sort or Add files and does not stretch across the row. **Filter** with the number of active filters; sort (key and direction); grid or list; the thumbnail size slider (also `Ctrl` + mouse wheel); **Add files** as the primary button, disabled with a tooltip in a read-only library; the right bar toggle.
+- Search (`Ctrl+F`, section 5), centered in the free space between the title and Filter. The field is about 24rem wide and shrinks when that space is narrower, so it does not cover Filter, sort or Add files and does not stretch across the row. **Filter** with the number of active filters; sort (key and direction); grid or list; the thumbnail size slider (also `Ctrl` + mouse wheel); **Add files** as the primary button, disabled with a tooltip in a read-only library (hidden in the trash; Empty Trash takes its place — D-071); the right bar toggle.
 
 **Filter bar**, under the toolbar. The Filter button shows and hides it, and it appears on its own while a filter is active:
 
