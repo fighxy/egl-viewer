@@ -99,4 +99,11 @@ describe("command registry", () => {
       ["Dark", true],
     ]);
   });
+
+  it("opens the log folder from Help", () => {
+    const openLogFolder = vi.fn();
+    const actions = { openLogFolder } as unknown as CommandActions;
+    command("help.openLogFolder").run?.(actions);
+    expect(openLogFolder).toHaveBeenCalledOnce();
+  });
 });

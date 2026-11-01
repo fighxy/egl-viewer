@@ -40,9 +40,11 @@ export function ConnectScreen({ defaults, onConnect, onBack, status }: Props) {
 
   const submit = (event: FormEvent) => {
     event.preventDefault();
-    if (valid) {
-      onConnect({ ...form, host: form.host.trim(), port: form.port.trim() });
-    }
+    if (!valid) return;
+    // Clear the token from the WebView as soon as it is sent to Rust (D-080).
+    const payload = { ...form, host: form.host.trim(), port: form.port.trim() };
+    setForm((current) => ({ ...current, token: "" }));
+    onConnect(payload);
   };
 
   return (

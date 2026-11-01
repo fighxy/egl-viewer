@@ -71,6 +71,7 @@ export const en = {
       shortcuts: "Keyboard Shortcuts",
       checkForUpdates: "Check for Updates…",
       about: "About egl-viewer",
+      openLogFolder: "Open Log Folder",
     },
   },
   themes: {

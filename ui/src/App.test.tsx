@@ -4,7 +4,7 @@ import { act, fireEvent, render, screen, waitFor, within } from "@testing-librar
 import userEvent from "@testing-library/user-event";
 import { describe, expect, it } from "vitest";
 import { DEFAULT_PREFERENCES } from "@/ipc";
-import { called, LIBRARY, listening, mockBackend, progress } from "@/test/backend";
+import { called, LIBRARY, listening, mockBackend, progress, viewOf } from "@/test/backend";
 import { App } from "./App";
 
 async function openConnect() {
@@ -88,6 +88,47 @@ describe("App inside Tauri", () => {
     render(<App />);
     expect(await screen.findByRole("navigation", { name: "Library" })).toHaveTextContent("Refs");
     await waitFor(() => expect(document.title).toBe("Refs — egl-viewer"));
+  });
+
+  it("restores the last place, filters and selection after reopen", async () => {
+    const calls = mockBackend({
+      startup: () => ({ library: LIBRARY, notice: null }),
+      library_session: () => ({
+        place: { kind: "untagged" },
+        filters: {
+          tags: ["Poster"],
+          tagMode: "any",
+          folders: [],
+          folderMode: "any",
+          ext: null,
+          rating: 4,
+          shape: null,
+        },
+        searchText: "sky",
+        selection: { all: false, ids: ["id-1"] },
+        screenSort: null,
+        screenAscending: null,
+      }),
+      ...viewOf(5),
+    });
+    render(<App />);
+    expect(await screen.findByRole("navigation", { name: "Library" })).toHaveTextContent("Refs");
+    await waitFor(() => {
+      expect(screen.getByRole("heading", { level: 1 })).toHaveTextContent("Untagged");
+    });
+    await waitFor(() => {
+      const query = called(calls, "open_view").at(-1)?.args.query as {
+        scope: { kind: string };
+        tags: string[];
+        rating: number | null;
+        text: string | null;
+      };
+      expect(query.scope.kind).toBe("untagged");
+      expect(query.tags).toEqual(["Poster"]);
+      expect(query.rating).toBe(4);
+      expect(query.text).toBe("sky");
+    });
+    expect(called(calls, "library_session")[0]?.args).toEqual({ path: LIBRARY.path });
   });
 
   it("says why the last library was not reopened", async () => {

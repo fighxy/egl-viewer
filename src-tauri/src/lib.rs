@@ -3,6 +3,7 @@
 mod commands;
 mod drag_out;
 mod export_eagle;
+mod logs;
 mod session;
 mod views;
 #[cfg(windows)]
@@ -19,7 +20,6 @@ use app_store::{AppStore, SyncEnvironment};
 use library_core::Thumbnail;
 use tauri::http::{Response, StatusCode, header};
 use tauri::{Emitter, Manager, RunEvent, WindowEvent};
-use tracing_subscriber::EnvFilter;
 
 use crate::session::Session;
 use crate::views::Event;
@@ -41,7 +41,6 @@ struct CloseRequested {
 }
 
 pub fn run() {
-    init_logging();
     let app = tauri::Builder::default()
         .plugin(tauri_plugin_dialog::init())
         .plugin(tauri_plugin_process::init())
@@ -65,6 +64,11 @@ pub fn run() {
             });
         })
         .setup(|app| {
+            // File + stderr after the local-data path is known (Help → Open Log Folder, D-079).
+            match logs::log_dir(app.handle()) {
+                Ok(dir) => logs::init(&dir),
+                Err(_) => logs::init_stderr_only(),
+            }
             let store = AppStore::new(app.path().app_local_data_dir()?);
             let handle = app.handle().clone();
             let emit = Arc::new(move |event: Event| {
@@ -111,6 +115,9 @@ pub fn run() {
             commands::current_library,
             commands::recent_libraries,
             commands::forget_recent_library,
+            commands::library_session,
+            commands::save_library_session,
+            commands::open_log_folder,
             commands::get_preferences,
             commands::set_preferences,
             commands::startup,
@@ -242,11 +249,4 @@ fn image_response(image: Option<Thumbnail>) -> Response<Vec<u8>> {
             response
         })
         .unwrap_or_default()
-}
-
-/// `RUST_LOG` controls the level (default `info`). Never log the token or raw bodies of
-/// Eagle's `library/info` and `folder/get`: they contain folder passwords (§10).
-fn init_logging() {
-    let filter = EnvFilter::try_from_default_env().unwrap_or_else(|_| EnvFilter::new("info"));
-    let _ = tracing_subscriber::fmt().with_env_filter(filter).try_init();
 }

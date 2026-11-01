@@ -68,6 +68,8 @@ export type CommandActions = {
   shortcuts: () => void;
   about: () => void;
   checkForUpdates: () => void;
+  /** Opens the folder with the app log file (phase 12 / D-079). */
+  openLogFolder: () => void;
   selectAll: () => void;
   preview: () => void;
   setViewMode: (mode: ViewMode) => void;
@@ -580,6 +582,13 @@ export const COMMANDS: readonly Command[] = [
     group: 1,
     run: (actions) => actions.about(),
   },
+  {
+    id: "help.openLogFolder",
+    label: "Open Log Folder",
+    menu: "help",
+    group: 1,
+    run: (actions) => actions.openLogFolder(),
+  },
 ];
 
 /**
@@ -594,6 +603,7 @@ export const WIDGET_KEYS: readonly { area: string; keys: string; label: string }
   { area: "Details", keys: "Enter / Esc", label: "Save / revert a field" },
   { area: "Grid", keys: "Ctrl+Wheel", label: "Thumbnail size" },
   { area: "Folders", keys: "Arrow keys / Enter", label: "Move through folders / open one" },
+  { area: "Folders", keys: "Home / End", label: "First / last folder" },
   { area: "Folders", keys: "F2 / Delete", label: "Rename / delete the folder" },
   { area: "Preview", keys: "← / →", label: "Previous / next item" },
   { area: "Preview", keys: "+ / − / 0", label: "Zoom in / out / fit" },

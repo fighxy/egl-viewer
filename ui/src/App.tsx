@@ -59,6 +59,14 @@ import {
 } from "@/features/library/FilterBar";
 import { LibraryScreen, type Place, scopeOf } from "@/features/library/LibraryScreen";
 import { SearchField } from "@/features/library/SearchField";
+import {
+  filtersFromSaved,
+  placeFromSaved,
+  savedFilters,
+  savedPlace,
+  savedSelection,
+  selectionFromSaved,
+} from "@/features/library/session";
 import { type LockDialog, LockDialogs } from "@/features/locks/LockDialogs";
 import { LockedFolders, lockedFolders } from "@/features/locks/LockedFolders";
 import { LoginScreen } from "@/features/login/LoginScreen";
@@ -101,6 +109,7 @@ import {
   ipc,
   type LibraryCounts,
   type LibraryInfo,
+  type LibrarySession,
   type LoginMethod,
   type Preferences,
   queryFor,
@@ -323,6 +332,10 @@ function AppShell() {
   const [previewIndex, setPreviewIndex] = useState<number | null>(null);
   const [transitionId, setTransitionId] = useState<string | null>(null);
   const detailsRef = useRef<HTMLDivElement>(null);
+  /** Skip the default clear when a saved place/filters/selection is being applied (D-078). */
+  const skipFilterReset = useRef(false);
+  const skipSelectionReset = useRef(false);
+  const pendingSelection = useRef<LibrarySession["selection"] | null>(null);
 
   useEffect(() => installDesktopBehaviour(), []);
 
@@ -431,15 +444,29 @@ function AppShell() {
     ascending;
 
   // A new library or place starts with nothing selected; a new sort keeps the selected items.
+  // Restoring a saved session sets the skip flags so the first change is not wiped (D-078).
   const filterKey = JSON.stringify([filters, searchText]);
   // biome-ignore lint/correctness/useExhaustiveDependencies: reset when the screen changes.
   useEffect(() => {
+    if (skipSelectionReset.current) {
+      skipSelectionReset.current = false;
+      const pending = pendingSelection.current;
+      pendingSelection.current = null;
+      if (pending) setSelection(selectionFromSaved(pending));
+      else setSelection(NOTHING);
+      setPreviewIndex(null);
+      return;
+    }
     setSelection(NOTHING);
     setPreviewIndex(null);
   }, [library?.path, key, filterKey]);
-  // Another library starts without filters.
+  // Another library starts without filters unless a saved session was applied.
   // biome-ignore lint/correctness/useExhaustiveDependencies: reset when the library changes.
   useEffect(() => {
+    if (skipFilterReset.current) {
+      skipFilterReset.current = false;
+      return;
+    }
     setFilters(NO_FILTERS);
     setSearchText("");
     setFilterOpen(false);
@@ -460,6 +487,25 @@ function AppShell() {
     const folder = findFolder(folders.data, place.id);
     if (!folder || (folder.isLocked && !folder.isUnlocked)) setPlace({ kind: "all" });
   }, [place, folders.data]);
+
+  // Remember the screen so the next open restores place, filters and selection (D-078).
+  useEffect(() => {
+    const path = library?.path;
+    if (!path || !inTauri()) return;
+    const timer = window.setTimeout(() => {
+      const session: LibrarySession = {
+        place: savedPlace(place),
+        filters: savedFilters(filters),
+        searchText,
+        selection: savedSelection(selection),
+        screenSort: picked?.sort ?? null,
+        screenAscending: picked?.ascending ?? null,
+      };
+      void ipc.saveLibrarySession(path, session).catch(() => {});
+    }, 400);
+    return () => window.clearTimeout(timer);
+  }, [library, place, filters, searchText, selection, picked]);
+
   const addingFiles = imports.running.some((progress) => progress.kind === "files");
 
   // Writes recompute the open views; counts of the left bar follow.
@@ -563,6 +609,54 @@ function AppShell() {
     };
   }, []);
 
+  /** Apply a library and restore its last place, filters and selection when known (D-078). */
+  const libraryOpened = useCallback(
+    async (next: LibraryInfo) => {
+      setView({ kind: "library", library: next });
+      setStatus(undefined);
+      setDialog(null);
+      void refreshRecent();
+      if (!inTauri() || !next.path) {
+        setPlace({ kind: "all" });
+        setFilters(NO_FILTERS);
+        setSearchText("");
+        setFilterOpen(false);
+        setSelection(NOTHING);
+        setScreenSort(null);
+        return;
+      }
+      const saved = await ipc.librarySession(next.path).catch(() => null);
+      if (!saved) {
+        setPlace({ kind: "all" });
+        setFilters(NO_FILTERS);
+        setSearchText("");
+        setFilterOpen(false);
+        setSelection(NOTHING);
+        setScreenSort(null);
+        return;
+      }
+      const restoredPlace = placeFromSaved(saved.place);
+      const restoredFilters = filtersFromSaved(saved.filters);
+      skipFilterReset.current = true;
+      skipSelectionReset.current = true;
+      pendingSelection.current = saved.selection;
+      setPlace(restoredPlace);
+      setFilters(restoredFilters);
+      setSearchText(saved.searchText);
+      setFilterOpen(activeFilters(restoredFilters) > 0 || saved.searchText.trim().length > 0);
+      if (saved.screenSort !== null && saved.screenAscending !== null) {
+        setScreenSort({
+          place: placeKey(restoredPlace),
+          sort: saved.screenSort,
+          ascending: saved.screenAscending,
+        });
+      } else {
+        setScreenSort(null);
+      }
+    },
+    [refreshRecent],
+  );
+
   useEffect(() => {
     if (gate !== "open" || started.current || !inTauri()) return;
     started.current = true;
@@ -572,31 +666,20 @@ function AppShell() {
         .startup()
         .catch((error: unknown) => ({ library: null, notice: describeError(error) }));
       if (cancelled) return;
-      if (result.library) setView({ kind: "library", library: result.library });
+      if (result.library) await libraryOpened(result.library);
+      else await refreshRecent();
       if (result.notice) setStatus(result.notice);
-      await refreshRecent();
     };
     void start();
     return () => {
       cancelled = true;
     };
-  }, [gate, refreshRecent]);
-
-  const libraryOpened = useCallback(
-    (next: LibraryInfo) => {
-      setView({ kind: "library", library: next });
-      setPlace({ kind: "all" });
-      setStatus(undefined);
-      setDialog(null);
-      void refreshRecent();
-    },
-    [refreshRecent],
-  );
+  }, [gate, libraryOpened, refreshRecent]);
 
   const openPath = useCallback(
     async (path: string) => {
       try {
-        libraryOpened(await ipc.openLibrary(path));
+        await libraryOpened(await ipc.openLibrary(path));
       } catch (error) {
         setStatus(describeError(error));
         void refreshRecent();
@@ -611,7 +694,7 @@ function AppShell() {
       setStatus(undefined);
       try {
         const session = await ipc.connectEagle(form.host, Number(form.port), form.token || null);
-        libraryOpened(session.library);
+        await libraryOpened(session.library);
       } catch (error) {
         setStatus(describeError(error));
       }
@@ -1404,6 +1487,10 @@ function AppShell() {
             setUpdateDialog({ kind: "error", message: describeError(error) });
           }
         })();
+      },
+      openLogFolder: () => {
+        if (!inTauri()) return;
+        void ipc.openLogFolder().catch((error: unknown) => setStatus(describeError(error)));
       },
       selectAll: () => setSelection((current) => everything(current)),
       preview: () => openPreview(selection.focus ?? 0, singleId(selection)),

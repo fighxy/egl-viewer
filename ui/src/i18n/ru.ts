@@ -73,6 +73,7 @@ export const ru: MessageCatalog = {
       shortcuts: "Сочетания клавиш",
       checkForUpdates: "Проверить обновления…",
       about: "О egl-viewer",
+      openLogFolder: "Открыть папку журналов",
     },
   },
   themes: {

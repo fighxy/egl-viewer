@@ -993,10 +993,22 @@ Done when: a native library exported into an empty Eagle library shows the same 
 ### Phase 12 — Hardening and the Windows release
 
 - Restore the last library, view and selection after a restart.
+  **Code:** last library via D-022; place / filters / search / selection via
+  `queries.json` (D-078). Browse layout (grid/list, thumbnail size, global sort)
+  stays in preferences (D-041).
 - Large libraries: 100 000 items open, scroll, search and filter without blocking the UI.
+  **Code:** windowed views + virtualized grid already ship; the 100 000 Windows
+  done check stays manual.
 - Accessibility labels on folder rows, tag chips and the grid; full keyboard navigation.
+  **Code:** roles/labels on the tree, tag chips and grid; folder Home/End and
+  filter `aria-*` (D-081). Custom title bar / Alt menu still postponed (D-025 /
+  D-081).
 - The Eagle token never reaches logs, the WebView or crash reports.
-- The rest of the tests from section 10.
+  **Code:** SecretStore + clear Connect/Export fields after send (D-080); file
+  logs without the token (D-079). No crash-report pipeline yet.
+- Help → Open Log Folder opens `{app_local_data_dir}/logs` (D-079).
+- The rest of the tests from section 10 (many earlier-phase Windows / live Eagle
+  done checks remain manual).
 - Release build: NSIS per-user installer (no admin rights), WebView2 bootstrapper for machines without it. Optional: Authenticode code signing (otherwise SmartScreen warns on first launch).
 - **libheif runtime on Windows** (D-070): the NSIS package ships `heif.dll` and `libde265.dll`
   (LGPL, with notices) beside `egl-viewer.exe`, staged from vcpkg by CI. Without them the

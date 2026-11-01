@@ -41,6 +41,15 @@ describe("ConnectScreen", () => {
     expect(onConnect).toHaveBeenCalledWith({ host: "desktop-pc", port: "41595", token: "secret" });
   });
 
+  it("clears the token from the form after Connect", async () => {
+    const user = userEvent.setup();
+    render(<ConnectScreen defaults={defaults} onConnect={() => {}} />);
+    const token = screen.getByLabelText("API token");
+    await user.type(token, "secret");
+    await user.click(screen.getByRole("button", { name: "Connect" }));
+    expect(token).toHaveValue("");
+  });
+
   it("has no Back button without a handler", () => {
     render(<ConnectScreen defaults={defaults} onConnect={() => {}} />);
     expect(screen.queryByRole("button", { name: "Back" })).not.toBeInTheDocument();

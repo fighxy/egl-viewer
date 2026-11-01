@@ -1369,3 +1369,55 @@ its library.
 - **Engine.** `src-tauri/export_eagle.rs` runs on the export thread via
   `start_export`; progress and cancel reuse D-066. Live done check against a
   real Eagle stays manual.
+
+## D-078 Persist place, filters and selection per library (2026-11-01)
+
+Phase 12 (docs/spec.md §9): after reopen (D-022), restore where the user was
+inside that library.
+
+- **File.** `queries.json` next to `preferences.json` / `recent.json` (same
+  atomic JSON write as D-022). One entry per library path (newest first, cap 40).
+- **Payload.** Place (All / Uncategorized / Untagged / Trash / folder / smart),
+  filters (tags, folders, type, rating, shape and their modes), search text,
+  selection (`all` flag plus up to 500 ids — Select All stays a flag), and an
+  optional per-screen sort when a folder overrides the global browse sort.
+- **Not in this file.** Global browse preferences (grid/list, thumbnail size,
+  global sort, include-subfolders) stay in `preferences.json` (D-041). Window
+  geometry stays in `window.json`.
+- **Lifecycle.** The UI debounces writes while browsing; forgetting a recent
+  library also drops its entry. Missing or unknown folder/smart ids fall back
+  to All once the trees load (existing place guards).
+
+## D-079 File logs and Help → Open Log Folder (2026-11-01)
+
+- **Folder.** `{app_local_data_dir}/logs/egl-viewer.log`, created on start.
+- **Subscriber.** `tracing` writes to stderr (dev / CI) and appends to that file.
+  Same rules as before: never log the Eagle token or raw bodies of
+  `library/info` / `folder/get` (§10).
+- **Menu.** Help → Open Log Folder runs `open_log_folder`, which creates the
+  folder if needed and opens it with the system file manager.
+- **No new crate.** The file writer is a small `Mutex<File>` MakeWriter; no
+  `tracing-appender` dependency.
+
+## D-080 Clear the Eagle token from the WebView after send (2026-11-01)
+
+Tightens phase 12’s “token never reaches the WebView longer than needed”.
+
+- **Connect.** On submit, the Connect form copies the token into the IPC payload
+  and clears the password field immediately. Rust wraps it in `SecretString`
+  before storing in the keyring (D-010 / D-075).
+- **Export into Eagle.** The Export dialog clears its token field once
+  `start_export` accepts the request.
+- **Still true.** `EagleSessionInfo` has no token field; POST bodies keep the
+  token in JSON only; there is still no crash-report pipeline to scrub. Logs
+  follow D-079.
+
+## D-081 Phase 12 accessibility polish; custom title bar still postponed (2026-11-01)
+
+- **Landed.** Folder tree Home / End; filter-bar chips expose `aria-label` /
+  `aria-pressed`; existing tree / tag / grid roles and keyboard remain.
+- **Still postponed (D-025).** A custom title bar that merges the native caption
+  with the menu (and Alt to reach the menu) needs `decorations: false`, drag
+  regions, and Snap Layouts restoration (e.g. `tauri-plugin-decorum`). That is a
+  large redesign and stays out of this hardening pass; the native frame plus the
+  app Menubar keep working.

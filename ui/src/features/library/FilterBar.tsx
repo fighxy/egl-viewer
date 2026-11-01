@@ -320,10 +320,14 @@ function FilterButton({
       size="sm"
       className="max-w-72"
       title={label}
+      aria-label={label}
+      aria-pressed={active}
       {...props}
     >
       {icon}
-      <span className="truncate">{label}</span>
+      <span className="truncate" aria-hidden>
+        {label}
+      </span>
       <ChevronDown aria-hidden />
     </Button>
   );
