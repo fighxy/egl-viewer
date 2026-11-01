@@ -303,7 +303,7 @@ full-database cipher is ever required; it is out of scope here.
   disabled; a menu without items is hidden; write commands in a read-only library are disabled
   with the reason as a tooltip.
 - The menu (spec §7.1): File, Edit, View, Library, Help. Closing the window quits the app: one
-  window, no tray icon. Close Library returns to Welcome.
+  window, no tray icon (quit confirmation: D-072). Close Library returns to Welcome.
 
 ## D-026 Library screen: left bar, grid, right bar with metadata (2026-10-28)
 
@@ -454,7 +454,8 @@ gigabytes. Thumbnails are encoded at quality 80 by the `webp` crate, which build
   be decoded, so it is not tried again; previews that a crash or a cancel left undone are made the
   next time the library opens, as a "Previews" task that does not hold back quitting.
 - **Quitting or closing while adding:** the window's close is held back and the UI asks
-  (`close-requested`); closing or switching the library asks the same in the UI.
+  (`close-requested`); closing or switching the library asks the same in the UI. D-072 extends
+  that confirmation to every quit, not only while imports or exports are running.
 - **Counts** of the left bar and the toolbar arrive in phase 2 (D-032 expected them in phase 3):
   with files going in, the screen needs to show that they did.
 - **Checks:** 1 020 files (1 000 previews, 20 PDF placeholders) in 2.6 s in a release build on Linux
@@ -1263,3 +1264,18 @@ When the open place is the trash (`place.kind === "trash"`), the toolbar does no
 misleading: new files never land there. File → Add Files… / Import Folder… remain available
 from the menu and still add into the library as usual. Covered by `LibraryScreen` and Phase 7
 UI tests.
+
+## D-072 Confirm before quitting (2026-11-01)
+
+Closing the only window (title-bar X) or choosing File → Exit always asks before the app
+exits. Cancel dismisses the dialog and keeps the process running.
+
+- **Rust.** Every `CloseRequested` calls `prevent_close` and emits `close-requested` with
+  `{ busy }` (`true` when imports or exports are still running). The window geometry is no
+  longer saved on a cancelled close; `quit` still remembers it, then stops imports and exits
+  (arch §8, §9).
+- **UI.** The existing `ConfirmDialog` shows either the stop-and-quit wording (`busy`) or a
+  simple quit prompt. Confirm calls `quit`; Cancel clears the dialog. File → Exit goes through
+  `window.close()`, so it shares the same path as the title-bar X.
+- **i18n.** `confirm.quitTitle` / `quitBody` / `quitConfirm` in `en`, `ru`, and `zh-CN`
+  (D-069); Cancel reuses `common.cancel`.

@@ -826,7 +826,7 @@ pub fn imports(session: State<'_, Session>) -> Vec<ImportProgress> {
     session.imports()
 }
 
-/// Quits after the user agreed to stop running imports (the window's close was held back).
+/// Quits after the user confirmed in the UI (the window's close was held back; D-072).
 #[tauri::command]
 pub async fn quit(app: AppHandle) -> Result<(), SourceError> {
     if let Some(window) = app.get_webview_window("main") {

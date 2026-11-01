@@ -386,9 +386,37 @@ describe("Adding files", () => {
     const user = userEvent.setup();
     render(<App />);
     await listening("close-requested");
-    await act(() => emit("close-requested"));
+    await act(() => emit("close-requested", { busy: true }));
     await user.click(await screen.findByRole("button", { name: "Stop and quit" }));
     await waitFor(() => expect(called(calls, "quit")).toHaveLength(1));
+  });
+
+  it("asks before quitting and Cancel keeps the app open", async () => {
+    const calls = mockBackend(opened());
+    const user = userEvent.setup();
+    render(<App />);
+    await listening("close-requested");
+    await act(() => emit("close-requested", { busy: false }));
+    expect(await screen.findByRole("heading", { name: "Quit egl-viewer?" })).toBeInTheDocument();
+    await user.click(await screen.findByRole("button", { name: "Cancel" }));
+    expect(called(calls, "quit")).toHaveLength(0);
+    expect(screen.queryByRole("heading", { name: "Quit egl-viewer?" })).not.toBeInTheDocument();
+    await act(() => emit("close-requested", { busy: false }));
+    await user.click(await screen.findByRole("button", { name: "Quit" }));
+    await waitFor(() => expect(called(calls, "quit")).toHaveLength(1));
+  });
+
+  it("asks before quitting from File → Exit", async () => {
+    const calls = mockBackend(opened());
+    const user = userEvent.setup();
+    render(<App />);
+    await listening("close-requested");
+    await user.click(screen.getByRole("menuitem", { name: "File" }));
+    // Accessible name includes the Alt+F4 shortcut label.
+    await user.click(await screen.findByRole("menuitem", { name: /^Exit/ }));
+    expect(await screen.findByRole("heading", { name: "Quit egl-viewer?" })).toBeInTheDocument();
+    await user.click(await screen.findByRole("button", { name: "Cancel" }));
+    expect(called(calls, "quit")).toHaveLength(0);
   });
 
   it("asks before closing the library while files are being added", async () => {

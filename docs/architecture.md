@@ -790,7 +790,7 @@ Later, for phones: the WebView prepares the image (`createImageBitmap`, long edg
 | `cancel_import` | import id | — |
 | `imports` | — | `ImportProgress[]`: running, then finished, newest first |
 | `library_counts` | — | `LibraryCounts` for the left bar |
-| `quit` | — | — (after the user agreed to stop running imports) |
+| `quit` | — | — (after the user confirmed quitting; stops running imports, D-072) |
 | `open_original`, `reveal_originals`, `copy_originals`, `start_drag` | id / ids | — / count; Rust finds the files and refuses items of locked folders (D-052) |
 | `open_link` | url | — (`http` and `https` only) |
 | `backups`, `back_up_now`, `restore_backup` | —, —, file name | `Backup[]`, `Backup`, `LibraryInfo` (D-051) |
@@ -808,7 +808,7 @@ Later, for phones: the WebView prepares the image (`createImageBitmap`, long edg
 
 Every command that works on a library goes through the open `LibrarySource`; a source that cannot do something returns `ReadOnly` or `NotSupported`, and the UI hides the control using `capabilities`.
 
-**Events** from Rust: `views-invalidated` (`{ views: [{ viewId, total }] }`, recomputed at most every 500 ms while an import writes and once at its end, before its final progress), `import-progress`, `export-progress` (`ExportProgress` of a running Backup / Export, D-064; the final one carries the summary or the error), `close-requested` (the window's close was held back because files are being added or exported; the UI asks, then calls `quit`), `library-closed` (the library folder disappeared or the lock was lost), and for Eagle `connection-state` and `library-changed` (another library was opened on the PC).
+**Events** from Rust: `views-invalidated` (`{ views: [{ viewId, total }] }`, recomputed at most every 500 ms while an import writes and once at its end, before its final progress), `import-progress`, `export-progress` (`ExportProgress` of a running Backup / Export, D-064; the final one carries the summary or the error), `close-requested` (`{ busy }` — every window close is held back; the UI asks before quitting, with the stop-and-quit wording when imports or exports are running, then calls `quit`; D-072), `library-closed` (the library folder disappeared or the lock was lost), and for Eagle `connection-state` and `library-changed` (another library was opened on the PC).
 
 **UI structure.** Routes: `/welcome`, `/library` with the scope and the filters in typed search parameters, `/item/$id` as a side panel or a dialog, `/eagle/connect`, `/eagle/import`, `/eagle/export`. The tag, filter and sort sheets are components of the library screen, not routes. Server state lives in TanStack Query (keys per view window, per item, for the tree and the vocabulary); local UI state stays in components. The last `LibraryQuery` per library is saved by `app-store` so that the app reopens where it was.
 

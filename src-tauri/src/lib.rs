@@ -29,8 +29,15 @@ const IMPORT_PROGRESS: &str = "import-progress";
 const EXPORT_PROGRESS: &str = "export-progress";
 /// Views recomputed after a write; the UI refetches their visible windows.
 const VIEWS_INVALIDATED: &str = "views-invalidated";
-/// The window's close was held back because files are being added; the UI asks the user.
+/// The window's close was held back; the UI asks before quitting (D-072).
 const CLOSE_REQUESTED: &str = "close-requested";
+
+/// Payload of `close-requested`: whether imports or exports are still running.
+#[derive(Clone, Copy, serde::Serialize)]
+#[serde(rename_all = "camelCase")]
+struct CloseRequested {
+    busy: bool,
+}
 
 pub fn run() {
     init_logging();
@@ -76,14 +83,12 @@ pub fn run() {
         })
         .on_window_event(|window, event| {
             if let WindowEvent::CloseRequested { api, .. } = event {
+                // Always ask in the UI (window X and File → Exit both hit this). Confirm calls
+                // `quit`, which remembers the window and exits (D-072, arch §9).
                 let session = window.state::<Session>();
-                if session.has_running_imports() || session.has_running_exports() {
-                    // Files are being added or exported: the UI asks, then calls `quit` (arch §9).
-                    api.prevent_close();
-                    let _ = window.emit(CLOSE_REQUESTED, ());
-                } else {
-                    window::remember(window, session.store());
-                }
+                let busy = session.has_running_imports() || session.has_running_exports();
+                api.prevent_close();
+                let _ = window.emit(CLOSE_REQUESTED, CloseRequested { busy });
             }
         })
         .invoke_handler(tauri::generate_handler![
