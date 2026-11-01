@@ -146,7 +146,7 @@ checksum = "330a5ed07fa54e4702c9d6c4174f74427fc0ef6e214bbd677ae50a5099946470"
 
 [[package]]
 name = "app-store"
-version = "0.1.9"
+version = "0.2.1"
 dependencies = [
  "argon2",
  "base64 0.22.1",
@@ -1508,7 +1508,7 @@ checksum = "d0881ea181b1df73ff77ffaaf9c7544ecc11e82fba9b5f27b262a3c73a332555"
 
 [[package]]
 name = "eagle-api"
-version = "0.1.9"
+version = "0.2.1"
 dependencies = [
  "async-trait",
  "base64 0.22.1",
@@ -1529,7 +1529,7 @@ dependencies = [
 
 [[package]]
 name = "eagle-folder"
-version = "0.1.9"
+version = "0.2.1"
 dependencies = [
  "serde",
  "serde_json",
@@ -1553,7 +1553,7 @@ dependencies = [
 
 [[package]]
 name = "egl-viewer"
-version = "0.1.9"
+version = "0.2.1"
 dependencies = [
  "app-store",
  "arboard",
@@ -3471,7 +3471,7 @@ checksum = "b6d2cec3eae94f9f509c767b45932f1ada8350c4bdb85af2fcab4a3c14807981"
 
 [[package]]
 name = "library-core"
-version = "0.1.9"
+version = "0.2.1"
 dependencies = [
  "async-trait",
  "icu_collator",
@@ -3484,7 +3484,7 @@ dependencies = [
 
 [[package]]
 name = "library-native"
-version = "0.1.9"
+version = "0.2.1"
 dependencies = [
  "age",
  "age-core",
@@ -3607,7 +3607,7 @@ dependencies = [
 
 [[package]]
 name = "media"
-version = "0.1.9"
+version = "0.2.1"
 dependencies = [
  "base64 0.22.1",
  "fast_image_resize",
