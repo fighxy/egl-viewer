@@ -1226,12 +1226,13 @@ linked libheif dynamically, but the installer did not ship it).
   DLLs those two import from the same vcpkg `bin` directory) **next to** `egl-viewer.exe`,
   plus `NOTICE-libheif.txt` and `NOTICE-libde265.txt` (LGPL). Windows `LoadLibrary` only
   searches the exe directory; a `resources/` subfolder would not load.
-- **How.** CI runs `scripts/bundle-heif-dlls.ps1` after
-  `vcpkg install libheif[core,libde265]:x64-windows`. The script stages files into
-  `src-tauri/heif-runtime/` (gitignored artefacts; README kept). `tauri.windows.conf.json`
-  maps each file to the install root (`heif.dll`, `libde265.dll`, notices) — not under
-  `resources/`. `node scripts/check-heif-windows-bundle.mjs` guards those mappings in
-  `pnpm check` / CI.
+- **How.** CI (`check` and `nsis`) installs the same vcpkg package, then runs
+  `scripts/bundle-heif-dlls.ps1` **before** any cargo/tauri step that compiles
+  `src-tauri` — `tauri-build` reads `tauri.windows.conf.json` during clippy and fails if
+  the listed paths are missing. The script stages files into `src-tauri/heif-runtime/`
+  (gitignored artefacts; README kept). `tauri.windows.conf.json` maps each file to the
+  install root (`heif.dll`, `libde265.dll`, notices) — not under `resources/`.
+  `node scripts/check-heif-windows-bundle.mjs` guards those mappings in `pnpm check` / CI.
 - **Decode-only features.** vcpkg's default `hevc` feature pulls **GPL** x265. The install
   uses `[core,libde265]` so iPhone HEVC HEIC decodes without shipping x265. The staging
   script refuses `libx265.dll` if it appears, and dumpbin fails the job if heif/libde265

@@ -46,10 +46,27 @@ jobs:
         shell: bash
         run: echo "$VCPKG_ROOT/installed/x64-windows/bin" >> "$GITHUB_PATH"
 
+      # Stage before any cargo/tauri step: tauri-build reads tauri.windows.conf.json
+      # during clippy/test/build and requires the listed DLL paths to exist (D-070).
+      - name: Stage libheif DLLs for the Windows bundle config
+        shell: pwsh
+        run: |
+          ./scripts/bundle-heif-dlls.ps1
+          if (-not (Test-Path -LiteralPath src-tauri/heif-runtime/heif.dll)) {
+            throw "heif.dll was not staged"
+          }
+          if (-not (Test-Path -LiteralPath src-tauri/heif-runtime/libde265.dll)) {
+            throw "libde265.dll was not staged"
+          }
+          Get-Content src-tauri/heif-runtime/bundled-dlls.txt
+
       - uses: Swatinem/rust-cache@v2
 
       - name: Install JavaScript dependencies
         run: pnpm install --frozen-lockfile
+
+      - name: Windows libheif bundle config (D-070)
+        run: node scripts/check-heif-windows-bundle.mjs
 
       - name: Rust format
         run: cargo fmt --all --check
@@ -74,15 +91,6 @@ jobs:
 
       - name: UI tests
         run: pnpm test
-
-      - name: Windows libheif bundle config (D-070)
-        run: node scripts/check-heif-windows-bundle.mjs
-
-      # Stage heif.dll (+ libde265, notices) so tauri.windows.conf.json paths resolve
-      # even for --no-bundle (D-070). Runtime for this job still uses PATH above.
-      - name: Stage libheif DLLs for the Windows bundle config
-        shell: pwsh
-        run: ./scripts/bundle-heif-dlls.ps1
 
       - name: Build the app
         run: pnpm tauri build --no-bundle
