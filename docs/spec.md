@@ -983,14 +983,18 @@ Done when: a native library exported into an empty Eagle library shows the same 
 - The Eagle token never reaches logs, the WebView or crash reports.
 - The rest of the tests from section 10.
 - Release build: NSIS per-user installer (no admin rights), WebView2 bootstrapper for machines without it. Optional: Authenticode code signing (otherwise SmartScreen warns on first launch).
+- **libheif runtime on Windows** (D-070): the NSIS package ships `heif.dll` and `libde265.dll`
+  (LGPL, with notices) beside `egl-viewer.exe`, staged from vcpkg by CI. Without them the
+  process fails to start after HEIC support (D-063).
 - **Auto-update** (D-062): `tauri-plugin-updater` checks
   `https://github.com/fighxy/egl-viewer/releases/latest/download/latest.json`, verifies a
   minisign signature, and installs through Help → Check for Updates… or a confirm prompt after
   launch. Windows NSIS, macOS updater archive, and Linux AppImage are covered; OS code
   signing / notarization stay optional.
 
-Done when the installer from CI installs and runs on a clean Windows 10 and Windows 11 machine,
-and a signed newer release is offered and installed through Check for Updates….
+Done when the installer from CI installs and runs on a clean Windows 10 and Windows 11 machine
+(including HEIC-capable starts with the bundled libheif DLLs), and a signed newer release is
+offered and installed through Check for Updates….
 
 ### Later, outside the current scope
 

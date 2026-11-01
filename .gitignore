@@ -6,6 +6,11 @@ target/
 # Tauri generated schemas and capabilities
 /src-tauri/gen/
 
+# Staged Windows libheif runtime (scripts/bundle-heif-dlls.ps1, D-070)
+/src-tauri/heif-runtime/*.dll
+/src-tauri/heif-runtime/NOTICE-*.txt
+/src-tauri/heif-runtime/bundled-dlls.txt
+
 # Node
 node_modules/
 dist/
