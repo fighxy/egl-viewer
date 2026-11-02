@@ -1,29 +1,29 @@
 package app.eglviewer.screens
 
 import androidx.compose.foundation.background
+import androidx.compose.foundation.gestures.detectDragGestures
 import androidx.compose.foundation.gestures.detectTapGestures
 import androidx.compose.foundation.gestures.detectTransformGestures
 import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Box
 import androidx.compose.foundation.layout.Column
 import androidx.compose.foundation.layout.Row
-import androidx.compose.foundation.layout.Spacer
 import androidx.compose.foundation.layout.aspectRatio
 import androidx.compose.foundation.layout.fillMaxSize
 import androidx.compose.foundation.layout.fillMaxWidth
 import androidx.compose.foundation.layout.padding
+import androidx.compose.foundation.layout.size
 import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.material.icons.Icons
+import androidx.compose.material.icons.automirrored.filled.KeyboardArrowLeft
+import androidx.compose.material.icons.automirrored.filled.KeyboardArrowRight
+import androidx.compose.material.icons.automirrored.filled.RotateRight
 import androidx.compose.material.icons.filled.Add
 import androidx.compose.material.icons.filled.Close
 import androidx.compose.material.icons.filled.Info
-import androidx.compose.material.icons.filled.KeyboardArrowLeft
-import androidx.compose.material.icons.filled.KeyboardArrowRight
 import androidx.compose.material.icons.filled.Remove
-import androidx.compose.material.icons.filled.RotateRight
 import androidx.compose.material3.ExperimentalMaterial3Api
 import androidx.compose.material3.Icon
-import androidx.compose.material3.IconButton
 import androidx.compose.material3.ModalBottomSheet
 import androidx.compose.material3.Text
 import androidx.compose.material3.rememberModalBottomSheetState
@@ -39,9 +39,12 @@ import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.graphics.graphicsLayer
 import androidx.compose.ui.input.pointer.pointerInput
 import androidx.compose.ui.text.font.FontWeight
+import androidx.compose.ui.text.style.TextAlign
+import androidx.compose.ui.text.style.TextOverflow
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
 import app.eglviewer.bridge.LibraryBridge
+import app.eglviewer.components.GhostIconButton
 import app.eglviewer.theme.EglTokens
 
 @OptIn(ExperimentalMaterial3Api::class)
@@ -55,10 +58,15 @@ fun PreviewScreen(
 ) {
     val item = bridge.items.firstOrNull { it.id == itemId }
     val index = bridge.items.indexOfFirst { it.id == itemId }
-    val indexLabel = if (index >= 0) "${index + 1} / ${bridge.total}" else item?.name ?: itemId
+    val indexLabel = if (index >= 0) {
+        "${index + 1} / %,d".format(bridge.total.coerceAtLeast(bridge.items.size))
+    } else {
+        item?.name ?: itemId
+    }
     var showEdit by remember { mutableStateOf(false) }
-    var scale by remember { mutableFloatStateOf(1f) }
-    var rotation by remember { mutableFloatStateOf(0f) }
+    var scale by remember(itemId) { mutableFloatStateOf(1f) }
+    var rotation by remember(itemId) { mutableFloatStateOf(0f) }
+    var dragAccum by remember { mutableFloatStateOf(0f) }
     val sheetState = rememberModalBottomSheetState(skipPartiallyExpanded = false)
 
     val aspect = run {
@@ -70,27 +78,51 @@ fun PreviewScreen(
     Box(
         modifier = Modifier
             .fillMaxSize()
-            .background(EglTokens.PreviewStage),
+            .background(EglTokens.PreviewStage)
+            .pointerInput(Unit) {
+                detectDragGestures(
+                    onDragEnd = {
+                        if (dragAccum < -80f) showEdit = true
+                        dragAccum = 0f
+                    },
+                    onDragCancel = { dragAccum = 0f },
+                    onDrag = { _, amount -> dragAccum += amount.y },
+                )
+            },
     ) {
         Column(modifier = Modifier.fillMaxSize()) {
             Row(
                 modifier = Modifier
                     .fillMaxWidth()
-                    .padding(horizontal = 8.dp, vertical = 8.dp),
+                    .padding(horizontal = 8.dp, vertical = 4.dp),
                 verticalAlignment = Alignment.CenterVertically,
             ) {
-                IconButton(onClick = onClose) {
-                    Icon(Icons.Default.Close, contentDescription = "Close", tint = Color.White)
+                GhostIconButton(
+                    onClick = onClose,
+                    size = 36.dp,
+                    radius = 10.dp,
+                    fill = EglTokens.GhostFillSoft,
+                ) {
+                    Icon(Icons.Default.Close, contentDescription = "Close", tint = Color.White, modifier = Modifier.size(18.dp))
                 }
-                Spacer(modifier = Modifier.weight(1f))
                 Text(
-                    text = item?.name ?: "Item",
-                    color = Color.White.copy(alpha = 0.9f),
+                    text = "${item?.name ?: "Item"} · $indexLabel",
+                    color = Color.White.copy(alpha = 0.7f),
                     fontSize = EglTokens.ChromeSp,
+                    textAlign = TextAlign.Center,
+                    maxLines = 1,
+                    overflow = TextOverflow.Ellipsis,
+                    modifier = Modifier
+                        .weight(1f)
+                        .padding(horizontal = 8.dp),
                 )
-                Spacer(modifier = Modifier.weight(1f))
-                IconButton(onClick = { showEdit = true }) {
-                    Icon(Icons.Default.Info, contentDescription = "Info", tint = Color.White)
+                GhostIconButton(
+                    onClick = { showEdit = true },
+                    size = 36.dp,
+                    radius = 10.dp,
+                    fill = EglTokens.GhostFillSoft,
+                ) {
+                    Icon(Icons.Default.Info, contentDescription = "Info", tint = Color.White, modifier = Modifier.size(18.dp))
                 }
             }
 
@@ -98,13 +130,13 @@ fun PreviewScreen(
                 modifier = Modifier
                     .weight(1f)
                     .fillMaxWidth()
-                    .padding(horizontal = 20.dp)
-                    .pointerInput(Unit) {
+                    .padding(horizontal = 0.dp)
+                    .pointerInput(itemId) {
                         detectTransformGestures { _, _, zoom, _ ->
                             scale = (scale * zoom).coerceIn(1f, 4f)
                         }
                     }
-                    .pointerInput(Unit) {
+                    .pointerInput(itemId) {
                         detectTapGestures(
                             onDoubleTap = { scale = if (scale > 1f) 1f else 2f },
                         )
@@ -120,7 +152,7 @@ fun PreviewScreen(
                             scaleY = scale
                             rotationZ = rotation
                         }
-                        .background(Color.White.copy(alpha = 0.12f), RoundedCornerShape(2.dp)),
+                        .background(Color.White.copy(alpha = 0.12f)),
                     contentAlignment = Alignment.Center,
                 ) {
                     Text(
@@ -135,37 +167,30 @@ fun PreviewScreen(
             Row(
                 modifier = Modifier
                     .fillMaxWidth()
-                    .padding(bottom = 8.dp),
-                horizontalArrangement = Arrangement.SpaceEvenly,
+                    .padding(horizontal = 16.dp)
+                    .padding(bottom = 28.dp),
+                horizontalArrangement = Arrangement.spacedBy(10.dp, Alignment.CenterHorizontally),
             ) {
-                IconButton(onClick = {
+                GhostIconButton(onClick = {
                     if (index > 0) onStep(bridge.items[index - 1].id)
                 }) {
-                    Icon(Icons.Default.KeyboardArrowLeft, null, tint = Color.White)
+                    Icon(Icons.AutoMirrored.Filled.KeyboardArrowLeft, null, tint = Color.White)
                 }
-                IconButton(onClick = { scale = (scale - 0.25f).coerceAtLeast(1f) }) {
+                GhostIconButton(onClick = { scale = (scale - 0.25f).coerceAtLeast(1f) }) {
                     Icon(Icons.Default.Remove, null, tint = Color.White)
                 }
-                IconButton(onClick = { scale = (scale + 0.25f).coerceAtMost(4f) }) {
+                GhostIconButton(onClick = { scale = (scale + 0.25f).coerceAtMost(4f) }) {
                     Icon(Icons.Default.Add, null, tint = Color.White)
                 }
-                IconButton(onClick = { rotation += 90f }) {
-                    Icon(Icons.Default.RotateRight, null, tint = Color.White)
+                GhostIconButton(onClick = { rotation += 90f }) {
+                    Icon(Icons.AutoMirrored.Filled.RotateRight, null, tint = Color.White)
                 }
-                IconButton(onClick = {
+                GhostIconButton(onClick = {
                     if (index in 0 until bridge.items.lastIndex) onStep(bridge.items[index + 1].id)
                 }) {
-                    Icon(Icons.Default.KeyboardArrowRight, null, tint = Color.White)
+                    Icon(Icons.AutoMirrored.Filled.KeyboardArrowRight, null, tint = Color.White)
                 }
             }
-            Text(
-                text = indexLabel,
-                color = Color.White.copy(alpha = 0.7f),
-                fontSize = EglTokens.ChromeSp,
-                modifier = Modifier
-                    .align(Alignment.CenterHorizontally)
-                    .padding(bottom = 20.dp),
-            )
         }
     }
 
@@ -174,6 +199,7 @@ fun PreviewScreen(
             onDismissRequest = { showEdit = false },
             sheetState = sheetState,
             containerColor = EglTokens.Background,
+            shape = RoundedCornerShape(topStart = 16.dp, topEnd = 16.dp),
         ) {
             editContent(itemId) { showEdit = false }
         }

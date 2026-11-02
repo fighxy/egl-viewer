@@ -10,7 +10,7 @@ Concept screens: Project-store `docs/ios-ui-concept.md`.
 | Layer | State |
 |---|---|
 | `crates/library-ffi` C ABI | Compiles and is tested on host (`cargo test -p library-ffi`): create/open/close, library info, windowed scope, folders, tags, thumbnail path/bytes, `ItemEdit` |
-| SwiftUI screens | Welcome → Browse → Preview → Folders/tags edit sheet, with desktop-aligned tokens |
+| SwiftUI screens | Welcome → Browse (places / search / filters / grid / tabs) → Preview → Details/Tags/Folders sheet; desktop-aligned tokens shared with Android (D-085) |
 | Document picker / iCloud bookmarks | Stubbed — Open/Create use mock paths or in-memory samples |
 | Linking Rust into the app | Documented below; not required to browse the UI with mock data |
 | Media pipeline on device | Out of scope for this draft (thumbs by path/bytes are exposed in FFI only) |

@@ -4,8 +4,10 @@ Jetpack Compose phone shell over the native `.eglib` core. **No Eagle. No Canvas
 Desktop Tauri remains the default product (D-083). Shares the same C ABI as iOS
 (`crates/library-ffi`, D-082).
 
-UI flow matches the iOS concept: Welcome → Browse (places / filters / grid) →
-Preview → folders/tags sheet. Visual language tracks desktop tokens (D-028).
+UI flow matches the iOS SwiftUI shell and MVP concept (D-085): Welcome → Browse
+(places / search / filters / dense grid / tabs) → Preview → Details / Tags /
+Folders sheet. Visual language tracks desktop tokens (D-028) — same density as
+iOS, not stock Photos.
 
 ## Size (why this draft exists)
 
@@ -46,6 +48,7 @@ android/
       java/app/eglviewer/
         MainActivity.kt
         screens/        Welcome, Browse, Preview, EditSheet
+        components/     PlaceChip, FilterPill, SegmentedControl, GhostIconButton
         theme/          Tokens (not under a `ui` package — clashes with
                         `androidx.compose.ui` and breaks `Modifier` imports)
         bridge/         LibraryBridge, models, NativeFfiSession / EglNative
