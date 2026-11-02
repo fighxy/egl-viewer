@@ -219,16 +219,20 @@ struct MockLibraryStore {
     static func sample(named name: String) -> MockLibraryStore {
         let clean = name.replacingOccurrences(of: ".eglib", with: "")
         let cells: [ItemCellDTO] = (1 ... 12).map { index in
-            ItemCellDTO(
+            let isEven: Bool = index % 2 == 0
+            let ext: String = index % 3 == 0 ? "png" : "jpg"
+            let height: UInt32 = isEven ? 900 : 1200
+            let tags: [String] = isEven ? ["Ref"] : ["Mood"]
+            return ItemCellDTO(
                 id: String(format: "mock%02d", index),
                 name: "Reference \(index)",
-                ext: index % 3 == 0 ? "png" : "jpg",
+                ext: ext,
                 width: 1600,
-                height: index % 2 == 0 ? 900 : 1200,
+                height: height,
                 star: UInt8(index % 6),
                 hasThumbnail: false,
                 thumbVersion: 1,
-                tags: index % 2 == 0 ? ["Ref"] : ["Mood"],
+                tags: tags,
                 pending: false
             )
         }

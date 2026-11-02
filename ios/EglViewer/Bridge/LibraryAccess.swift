@@ -55,6 +55,15 @@ final class LibraryAccess: ObservableObject {
         recents = next
     }
 
+    #if os(macOS)
+    private static let resolveOptions: URL.BookmarkResolutionOptions = [.withoutUI, .withSecurityScope]
+    private static let createOptions: URL.BookmarkCreationOptions = .withSecurityScope
+    #else
+    // iOS bookmarks to picked files carry their scope implicitly.
+    private static let resolveOptions: URL.BookmarkResolutionOptions = [.withoutUI]
+    private static let createOptions: URL.BookmarkCreationOptions = []
+    #endif
+
     /// Starts security-scoped access when a bookmark exists; returns the path to open.
     func resolveForOpen(path: String) -> String {
         guard let data = bookmarkByPath[path] else { return path }
@@ -62,7 +71,7 @@ final class LibraryAccess: ObservableObject {
         do {
             let url = try URL(
                 resolvingBookmarkData: data,
-                options: [.withoutUI, .withSecurityScope],
+                options: Self.resolveOptions,
                 relativeTo: nil,
                 bookmarkDataIsStale: &stale
             )
@@ -91,7 +100,7 @@ final class LibraryAccess: ObservableObject {
         var bookmark: Data?
         do {
             bookmark = try url.bookmarkData(
-                options: .withSecurityScope,
+                options: Self.createOptions,
                 includingResourceValuesForKeys: nil,
                 relativeTo: nil
             )
