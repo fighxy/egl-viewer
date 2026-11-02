@@ -17,7 +17,7 @@ import androidx.compose.material3.ButtonDefaults
 import androidx.compose.material3.OutlinedButton
 import androidx.compose.material3.Text
 import androidx.compose.runtime.Composable
-import androidx.compose.ui.Modifier
+import androidx.compose.ui.Modifier.Modifier
 import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.unit.dp
 import app.eglviewer.bridge.LibraryBridge
@@ -111,9 +111,9 @@ fun WelcomeScreen(
             }
         }
 
-        Spacer(Modifier = Modifier.height(8.dp))
+        Spacer(modifier = Modifier.height(8.dp))
         Text(
-            text = "Native .eglib only — no Eagle on this client.",
+            text = "Native .eglib only - no Eagle on this client.",
             color = EglTokens.MutedForeground,
             fontSize = EglTokens.ChromeSp,
         )
