@@ -13,7 +13,8 @@ struct PreviewScreen: View {
         guard let index = bridge.items.firstIndex(where: { $0.id == itemId }) else {
             return item?.name ?? itemId
         }
-        return "\(index + 1) / \(bridge.total)"
+        let total = max(bridge.total, bridge.items.count)
+        return "\(index + 1) / \(total)"
     }
 
     private var item: ItemCellDTO? {
@@ -26,30 +27,24 @@ struct PreviewScreen: View {
 
             VStack(spacing: 0) {
                 HStack {
-                    Button {
+                    ghostButton(systemImage: "xmark") {
                         path.removeLast()
-                    } label: {
-                        Image(systemName: "xmark")
-                            .foregroundStyle(.white)
                     }
-                    Spacer()
-                    Text(item?.name ?? "Item")
+                    Text("\(item?.name ?? "Item") · \(indexLabel)")
                         .font(EglTokens.chromeFont)
-                        .foregroundStyle(.white.opacity(0.9))
-                    Spacer()
-                    Button {
+                        .foregroundStyle(.white.opacity(0.7))
+                        .lineLimit(1)
+                        .frame(maxWidth: .infinity)
+                    ghostButton(systemImage: "info.circle") {
                         showEdit = true
-                    } label: {
-                        Image(systemName: "info.circle")
-                            .foregroundStyle(.white)
                     }
                 }
-                .padding(.horizontal, 16)
-                .padding(.vertical, 12)
+                .padding(.horizontal, 8)
+                .padding(.vertical, 4)
 
                 Spacer()
 
-                RoundedRectangle(cornerRadius: 2)
+                Rectangle()
                     .fill(Color.white.opacity(0.12))
                     .aspectRatio(itemAspect, contentMode: .fit)
                     .overlay {
@@ -57,7 +52,6 @@ struct PreviewScreen: View {
                             .font(.system(size: 28, weight: .semibold))
                             .foregroundStyle(.white.opacity(0.55))
                     }
-                    .padding(.horizontal, 20)
                     .scaleEffect(scale)
                     .rotationEffect(.degrees(rotation))
                     .gesture(
@@ -73,39 +67,23 @@ struct PreviewScreen: View {
 
                 Spacer()
 
-                HStack(spacing: 28) {
-                    Button { step(-1) } label: {
-                        Image(systemName: "chevron.left")
-                    }
-                    Button {
+                HStack(spacing: 10) {
+                    ghostTool("chevron.left") { step(-1) }
+                    ghostTool("minus.magnifyingglass") {
                         withAnimation { scale = max(scale - 0.25, 1) }
-                    } label: {
-                        Image(systemName: "minus.magnifyingglass")
                     }
-                    Button {
+                    ghostTool("plus.magnifyingglass") {
                         withAnimation { scale = min(scale + 0.25, 4) }
-                    } label: {
-                        Image(systemName: "plus.magnifyingglass")
                     }
-                    Button {
+                    ghostTool("rotate.right") {
                         withAnimation(.easeInOut(duration: 0.2)) {
                             rotation += 90
                         }
-                    } label: {
-                        Image(systemName: "rotate.right")
                     }
-                    Button { step(1) } label: {
-                        Image(systemName: "chevron.right")
-                    }
+                    ghostTool("chevron.right") { step(1) }
                 }
-                .font(.system(size: 18, weight: .medium))
-                .foregroundStyle(.white)
-                .padding(.bottom, 8)
-
-                Text(indexLabel)
-                    .font(EglTokens.chromeFont)
-                    .foregroundStyle(.white.opacity(0.7))
-                    .padding(.bottom, 20)
+                .padding(.horizontal, 16)
+                .padding(.bottom, 28)
             }
         }
         .navigationBarHidden(true)
@@ -121,12 +99,39 @@ struct PreviewScreen: View {
                 }
             }
         )
+        .onChange(of: itemId) { _, _ in
+            scale = 1
+            rotation = 0
+        }
     }
 
     private var itemAspect: CGFloat {
         let width = CGFloat(item?.width ?? 3)
         let height = CGFloat(item?.height ?? 2)
         return width / max(height, 1)
+    }
+
+    private func ghostButton(systemImage: String, action: @escaping () -> Void) -> some View {
+        Button(action: action) {
+            Image(systemName: systemImage)
+                .foregroundStyle(.white)
+                .frame(width: 36, height: 36)
+                .background(Color.white.opacity(0.08))
+                .clipShape(RoundedRectangle(cornerRadius: 10))
+        }
+        .buttonStyle(.plain)
+    }
+
+    private func ghostTool(_ systemImage: String, action: @escaping () -> Void) -> some View {
+        Button(action: action) {
+            Image(systemName: systemImage)
+                .font(.system(size: 18, weight: .medium))
+                .foregroundStyle(.white)
+                .frame(width: 44, height: 44)
+                .background(Color.white.opacity(0.1))
+                .clipShape(RoundedRectangle(cornerRadius: 12))
+        }
+        .buttonStyle(.plain)
     }
 
     private func step(_ delta: Int) {

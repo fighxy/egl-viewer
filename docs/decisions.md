@@ -1469,6 +1469,22 @@ only (no Eagle, no Canvas). Desktop Tauri stays the default.
   Store, signing, SAF end-to-end, and on-device media pipeline stay out of scope.
 - **Docs.** `android/README.md` covers NDK / `cargo-ndk` build and CMake wiring.
 
+## D-085 Mobile UI parity (Compose ↔ SwiftUI) (2026-11-02)
+
+Bring the experimental Android Compose shell and iOS SwiftUI shell to the same
+visual/UX language as the iPhone MVP concept (desktop DNA, D-028 tokens):
+
+- **Shared chrome.** Welcome (brand hero, Create / Open, recent rows with tile +
+  location hint), Browse (places strip with counts, search + filter/sort
+  toolbar, applied filter pills, dense grid on `--grid`, Grid/Places/Tags/More
+  tab bar), Preview (near-black stage, ghost close/info + tool buttons, swipe-up
+  / info → edit sheet), Edit sheet (filename + meta, Details / Tags sheet /
+  Folders segmented control at the bottom, tag chips, folder check rows).
+- **UI-only.** No FFI / JNI / bridge contract changes — stays compatible with
+  mock data and a future live `.eglib` wire-up.
+- **Not production polish.** SAF / document picker, real thumbs, and justified
+  row packing remain stubs; density and tokens match the concept board.
+
 ## D-084 CI for experimental mobile shells (2026-11-02)
 
 Separate GitHub Actions workflow [`.github/workflows/mobile.yml`](../.github/workflows/mobile.yml)
