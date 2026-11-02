@@ -169,5 +169,7 @@ pub(crate) fn heic_bytes(bytes: &[u8]) -> Result<Decoded, MediaError> {
 /// iOS builds carry no libheif; HEIC keeps the extension placeholder.
 #[cfg(target_os = "ios")]
 pub(crate) fn heic_bytes(_bytes: &[u8]) -> Result<Decoded, MediaError> {
-    Err(MediaError::Decode("HEIC decoding is not available on this platform".into()))
+    Err(MediaError::Decode(
+        "HEIC decoding is not available on this platform".into(),
+    ))
 }

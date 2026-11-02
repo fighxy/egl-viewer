@@ -9,3 +9,4 @@ HEADER_SEARCH_PATHS = $(inherited) $(SRCROOT)/EglViewer/Bridge
 SWIFT_INCLUDE_PATHS = $(inherited) $(SRCROOT)/EglViewer/Bridge
 LIBRARY_SEARCH_PATHS = $(inherited) $(SRCROOT)/../target/aarch64-apple-ios/release $(SRCROOT)/../target/aarch64-apple-ios-sim/release $(SRCROOT)/../target/x86_64-apple-ios/release
 OTHER_LDFLAGS = $(inherited) -legl_library -lc++ -framework SystemConfiguration -framework Security
+SWIFT_OBJC_BRIDGING_HEADER = $(SRCROOT)/EglViewer/Bridge/egl_library.h
