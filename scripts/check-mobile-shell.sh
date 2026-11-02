@@ -36,6 +36,8 @@ need android/app/src/main/java/app/eglviewer/screens/BrowseScreen.kt
 need android/app/src/main/java/app/eglviewer/screens/PreviewScreen.kt
 need android/app/src/main/java/app/eglviewer/screens/EditSheet.kt
 need android/app/src/main/java/app/eglviewer/bridge/LibraryAccess.kt
+need android/app/src/main/java/app/eglviewer/theme/Tokens.kt
+need android/app/src/main/java/app/eglviewer/components/Chrome.kt
 need android/app/src/main/cpp/egl_jni.cpp
 need android/app/src/main/cpp/egl_library.h
 
