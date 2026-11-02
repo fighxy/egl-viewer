@@ -9,8 +9,8 @@ publish.workspace = true
 
 [lib]
 name = "egl_library"
-# rlib for host tests; staticlib for linking from Xcode / Swift (D-082).
-crate-type = ["rlib", "staticlib"]
+# rlib for host tests; staticlib for iOS (D-082); cdylib for Android .so (D-083).
+crate-type = ["rlib", "staticlib", "cdylib"]
 
 [dependencies]
 library-core.workspace = true

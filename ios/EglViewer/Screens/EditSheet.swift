@@ -19,34 +19,38 @@ struct EditSheet: View {
     }
 
     var body: some View {
-        NavigationStack {
-            VStack(spacing: 0) {
-                Picker("Section", selection: $segment) {
-                    ForEach(Segment.allCases, id: \.self) { segment in
-                        Text(segment.rawValue).tag(segment)
-                    }
-                }
-                .pickerStyle(.segmented)
-                .padding(12)
+        // Plain VStack (not NavigationStack): avoids opaque-type recursion with
+        // nested folder rows under newer Swift / Xcode CI toolchains.
+        VStack(spacing: 0) {
+            Text("Edit")
+                .font(EglTokens.titleFont)
+                .frame(maxWidth: .infinity, alignment: .leading)
+                .padding(.horizontal, 16)
+                .padding(.top, 12)
 
-                Group {
-                    switch segment {
-                    case .details:
-                        detailsForm
-                    case .tags:
-                        tagsForm
-                    case .folders:
-                        foldersForm
-                    }
+            Picker("Section", selection: $segment) {
+                ForEach(Segment.allCases, id: \.self) { segment in
+                    Text(segment.rawValue).tag(segment)
                 }
-                Spacer(minLength: 0)
             }
-            .background(EglTokens.background)
-            .navigationTitle("Edit")
-            .navigationBarTitleDisplayMode(.inline)
-            .onAppear {
-                draftName = detail?.name ?? ""
+            .pickerStyle(.segmented)
+            .padding(12)
+
+            Group {
+                switch segment {
+                case .details:
+                    detailsForm
+                case .tags:
+                    tagsForm
+                case .folders:
+                    foldersForm
+                }
             }
+            Spacer(minLength: 0)
+        }
+        .background(EglTokens.background)
+        .onAppear {
+            draftName = detail?.name ?? ""
         }
     }
 
@@ -116,26 +120,32 @@ struct EditSheet: View {
     }
 
     private var foldersForm: some View {
-        List {
-            ForEach(bridge.folders) { folder in
-                folderRow(folder, depth: 0)
+        let selected = Set(detail?.folders ?? [])
+        return List {
+            ForEach(Self.flattenFolders(bridge.folders), id: \.id) { row in
+                HStack {
+                    Text(String(repeating: "  ", count: row.depth) + row.name)
+                        .font(EglTokens.chromeFont)
+                    Spacer()
+                    Image(systemName: selected.contains(row.id) ? "checkmark.square.fill" : "square")
+                        .foregroundStyle(EglTokens.foreground)
+                }
             }
         }
         .listStyle(.plain)
     }
 
-    @ViewBuilder
-    private func folderRow(_ folder: FolderDTO, depth: Int) -> some View {
-        let checked = detail?.folders.contains(folder.id) == true
-        HStack {
-            Text(String(repeating: "  ", count: depth) + folder.name)
-                .font(EglTokens.chromeFont)
-            Spacer()
-            Image(systemName: checked ? "checkmark.square.fill" : "square")
-                .foregroundStyle(EglTokens.foreground)
-        }
-        ForEach(folder.children) { child in
-            folderRow(child, depth: depth + 1)
+    /// Flattened rows avoid recursive `some View` (opaque type self-reference on CI).
+    private struct FlatFolder {
+        let id: String
+        let name: String
+        let depth: Int
+    }
+
+    private static func flattenFolders(_ nodes: [FolderDTO], depth: Int = 0) -> [FlatFolder] {
+        nodes.flatMap { node in
+            [FlatFolder(id: node.id, name: node.name, depth: depth)]
+                + flattenFolders(node.children, depth: depth + 1)
         }
     }
 

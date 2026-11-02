@@ -4,10 +4,12 @@
  * Native `.eglib` only — no Eagle. Strings and JSON buffers are UTF-8,
  * heap-allocated by Rust; free them with egl_string_free / egl_bytes_free.
  *
- * Build the static library on a Mac:
- *   rustup target add aarch64-apple-ios x86_64-apple-ios aarch64-apple-ios-sim
- *   cargo build -p library-ffi --release --target aarch64-apple-ios
- * Then link libegl_library.a from the Xcode target (see ios/README.md).
+ * Build:
+ *   iOS (Mac):  cargo build -p library-ffi --release --target aarch64-apple-ios
+ *               → libegl_library.a (see ios/README.md)
+ *   Android:    cargo ndk -t arm64-v8a -o android/app/src/main/jniLibs \
+ *                 build -p library-ffi --release
+ *               → libegl_library.so (see android/README.md)
  */
 
 #ifndef EGL_LIBRARY_H
