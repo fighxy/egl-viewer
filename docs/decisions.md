@@ -1444,3 +1444,49 @@ unchanged.
   scoped bookmarks end-to-end, on-device media pipeline, Eagle, production polish.
 - **D-011.** Mobile `staticlib` lives in `library-ffi`, not in `src-tauri` (desktop
   remains `rlib`-only).
+
+## D-083 Experimental Android Compose shell over the same C ABI (2026-11-02)
+
+Companion draft to D-082: a **Jetpack Compose** phone client for native `.eglib`
+only (no Eagle, no Canvas). Desktop Tauri stays the default.
+
+- **Size check.** The iOS SwiftUI shell is ~1.1k LOC of product Swift. The Android
+  mirror is ~1.2k Kotlin (screens + bridge) plus ~200 C++ JNI forwarders — well
+  under a multi‑kLOC balloon, so the scaffold was worth landing. Gradle /
+  manifests are scaffolding, not product logic.
+- **Same FFI.** Reuses `library-ffi` / `egl_*`. `crate-type` now also includes
+  `cdylib` so `cargo ndk` can emit `libegl_library.so` for `arm64-v8a`. A tiny
+  JNI shim (`android/app/src/main/cpp/egl_jni.cpp`) forwards to the C ABI; without
+  the `.so`, Compose runs on **mock data** (same idea as iOS `EGL_HAS_FFI`).
+- **UI.** Welcome → Browse (places strip, filters, dense grid, tab bar) → Preview
+  → Details / Tags / Folders sheet, aligned with `ios/` and the iOS UI concept
+  (desktop DNA, D-028 tokens). Kotlin packages live under `app.eglviewer.screens`
+  / `app.eglviewer.theme` — **not** `app.eglviewer.ui`, which shadows
+  `androidx.compose.ui` and makes `import androidx.compose.ui.Modifier` fail
+  (and `…Modifier.Modifier` resolve the nested `modifier` package instead of
+  the class).
+- **Not Tauri Android.** This is a native Compose shell, not the WebView UI. Play
+  Store, signing, SAF end-to-end, and on-device media pipeline stay out of scope.
+- **Docs.** `android/README.md` covers NDK / `cargo-ndk` build and CMake wiring.
+
+## D-084 CI for experimental mobile shells (2026-11-02)
+
+Separate GitHub Actions workflow [`.github/workflows/mobile.yml`](../.github/workflows/mobile.yml)
+runs next to the Windows desktop `CI` workflow and does not change it.
+
+- **Triggers.** Path-filtered on `android/`, `ios/`, `crates/library-ffi` (+ core
+  native/media deps), and the workflow itself — so desktop-only PRs skip mobile
+  jobs. `workflow_dispatch` stays available.
+- **`library-ffi` (ubuntu).** `scripts/check-mobile-shell.sh` (layout + header
+  sync), `cargo fmt` / clippy / `cargo test -p library-ffi` with `libheif-dev`.
+  The Windows workspace job still covers the crate via `cargo test --workspace`.
+- **Android (ubuntu).** Temurin 17, Gradle wrapper cache, the runner’s preinstalled
+  Android SDK (not `android-actions/setup-android`, whose default `tools` package
+  is gone from `sdkmanager`), platform 35, `./gradlew :app:assembleDebug`.
+  **No NDK / no `.so`** — CMake `externalNativeBuild` stays commented so the
+  mock-FFI scaffold builds on CI without secrets.
+- **iOS (`macos-latest`).** Shared scheme `EglViewer`, unsigned
+  `xcodebuild … -sdk iphonesimulator` with `CODE_SIGNING_ALLOWED=NO` (mock FFI,
+  no `libegl_library.a`). No Apple Developer certs or secrets.
+- **Not required.** Linking Rust into either app, Play/App Store signing, or
+  building `libegl_library` for device ABIs in CI.

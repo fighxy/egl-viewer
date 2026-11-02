@@ -37,6 +37,13 @@ ios/**/DerivedData/
 ios/*.xcworkspace/xcuserdata/
 *.xcuserstate
 
+# Android local build products (D-083)
+android/.gradle/
+android/**/build/
+android/local.properties
+android/app/src/main/jniLibs/**/*.so
+android/**/.cxx/
+
 # Logs and test coverage
 *.log
 coverage/

@@ -1,0 +1,153 @@
+name: Mobile
+
+# Experimental iOS / Android shells + library-ffi (D-082–D-084).
+# Parallel to the Windows desktop `CI` workflow; does not replace it.
+on:
+  pull_request:
+    paths:
+      - "android/**"
+      - "ios/**"
+      - "crates/library-ffi/**"
+      - "crates/library-native/**"
+      - "crates/library-core/**"
+      - "crates/media/**"
+      - "scripts/check-mobile-shell.sh"
+      - ".github/workflows/mobile.yml"
+      - "rust-toolchain.toml"
+      - "Cargo.toml"
+      - "Cargo.lock"
+  push:
+    branches: [main]
+    paths:
+      - "android/**"
+      - "ios/**"
+      - "crates/library-ffi/**"
+      - "crates/library-native/**"
+      - "crates/library-core/**"
+      - "crates/media/**"
+      - "scripts/check-mobile-shell.sh"
+      - ".github/workflows/mobile.yml"
+      - "rust-toolchain.toml"
+      - "Cargo.toml"
+      - "Cargo.lock"
+  workflow_dispatch:
+
+concurrency:
+  group: mobile-${{ github.workflow }}-${{ github.event_name }}-${{ github.ref }}
+  cancel-in-progress: true
+
+jobs:
+  # Host FFI + layout. Windows `CI` already runs cargo test --workspace (includes
+  # library-ffi); this job is a fast Linux gate for mobile PRs.
+  library-ffi:
+    runs-on: ubuntu-24.04
+    steps:
+      - uses: actions/checkout@v7
+
+      - name: Install libheif (HEIC/HEIF, D-063)
+        run: |
+          sudo apt-get update
+          sudo apt-get install -y libheif-dev pkg-config
+
+      - name: Rust toolchain (from rust-toolchain.toml)
+        run: |
+          if ! command -v rustup >/dev/null 2>&1; then
+            curl --proto '=https' --tlsv1.2 -fsSL https://sh.rustup.rs | sh -s -- -y --default-toolchain none
+            echo "$HOME/.cargo/bin" >> "$GITHUB_PATH"
+            export PATH="$HOME/.cargo/bin:$PATH"
+          fi
+          rustup toolchain install
+          rustup component add clippy rustfmt
+
+      - uses: Swatinem/rust-cache@v2
+        with:
+          prefix-key: mobile-library-ffi-v1
+          workspaces: ". -> target"
+
+      - name: Mobile shell layout + header sync
+        run: bash scripts/check-mobile-shell.sh
+
+      - name: library-ffi fmt
+        run: cargo fmt -p library-ffi -- --check
+
+      - name: library-ffi clippy
+        run: cargo clippy -p library-ffi --all-targets -- -D warnings
+
+      - name: library-ffi tests
+        run: cargo test -p library-ffi
+
+  android:
+    runs-on: ubuntu-24.04
+    steps:
+      - uses: actions/checkout@v7
+
+      - uses: actions/setup-java@v4
+        with:
+          distribution: temurin
+          java-version: "17"
+          cache: gradle
+
+      # Hosted ubuntu runners already ship an Android SDK. Avoid
+      # android-actions/setup-android's default `sdkmanager tools` install —
+      # the legacy `tools` package was removed from the repository.
+      - name: Android SDK env + platform 35
+        run: |
+          set -euo pipefail
+          SDK="${ANDROID_HOME:-${ANDROID_SDK_ROOT:-/usr/local/lib/android/sdk}}"
+          if [[ ! -d "$SDK" ]]; then
+            echo "Android SDK not found at $SDK" >&2
+            exit 1
+          fi
+          echo "ANDROID_HOME=$SDK" >> "$GITHUB_ENV"
+          echo "ANDROID_SDK_ROOT=$SDK" >> "$GITHUB_ENV"
+          echo "$SDK/cmdline-tools/latest/bin" >> "$GITHUB_PATH"
+          echo "$SDK/cmdline-tools/16.0/bin" >> "$GITHUB_PATH"
+          echo "$SDK/platform-tools" >> "$GITHUB_PATH"
+          # Prefer cmdline-tools/*/bin/sdkmanager when present.
+          SDKMANAGER="$(find "$SDK/cmdline-tools" -type f -name sdkmanager 2>/dev/null | head -n1 || true)"
+          if [[ -z "$SDKMANAGER" && -x "$SDK/tools/bin/sdkmanager" ]]; then
+            SDKMANAGER="$SDK/tools/bin/sdkmanager"
+          fi
+          if [[ -z "$SDKMANAGER" ]]; then
+            echo "sdkmanager not found under $SDK" >&2
+            exit 1
+          fi
+          yes | "$SDKMANAGER" --licenses >/dev/null || true
+          "$SDKMANAGER" "platforms;android-35" "build-tools;35.0.0" "platform-tools"
+
+      - name: Gradle assembleDebug (mock FFI, no NDK)
+        working-directory: android
+        run: |
+          chmod +x gradlew
+          ./gradlew :app:assembleDebug --no-daemon --stacktrace
+
+      - name: Upload debug APK
+        uses: actions/upload-artifact@v4
+        with:
+          name: android-debug-apk
+          path: android/app/build/outputs/apk/debug/*.apk
+          if-no-files-found: error
+
+  # Shared scheme + unsigned iphonesimulator build (mock FFI, no libegl_library.a).
+  ios:
+    runs-on: macos-latest
+    steps:
+      - uses: actions/checkout@v7
+
+      - name: Show Xcode
+        run: xcodebuild -version && xcrun simctl list runtimes | head -20
+
+      - name: xcodebuild (iphonesimulator, no signing)
+        working-directory: ios
+        run: |
+          set -euo pipefail
+          xcodebuild \
+            -project EglViewer.xcodeproj \
+            -scheme EglViewer \
+            -configuration Debug \
+            -sdk iphonesimulator \
+            -destination 'generic/platform=iOS Simulator' \
+            CODE_SIGNING_ALLOWED=NO \
+            CODE_SIGNING_REQUIRED=NO \
+            CODE_SIGN_IDENTITY= \
+            build

@@ -144,59 +144,75 @@ struct MockLibraryStore {
 
     static func sample(named name: String) -> MockLibraryStore {
         let clean = name.replacingOccurrences(of: ".eglib", with: "")
-        let cells: [ItemCellDTO] = (1 ... 12).map { index in
-            ItemCellDTO(
+        var cells: [ItemCellDTO] = []
+        cells.reserveCapacity(12)
+        for index in 1 ... 12 {
+            let cell = ItemCellDTO(
                 id: String(format: "mock%02d", index),
                 name: "Reference \(index)",
-                ext: index % 3 == 0 ? "png" : "jpg",
+                ext: index.isMultiple(of: 3) ? "png" : "jpg",
                 width: 1600,
-                height: index % 2 == 0 ? 900 : 1200,
+                height: index.isMultiple(of: 2) ? 900 : 1200,
                 star: UInt8(index % 6),
                 hasThumbnail: false,
                 thumbVersion: 1,
-                tags: index % 2 == 0 ? ["Ref"] : ["Mood"],
+                tags: index.isMultiple(of: 2) ? ["Ref"] : ["Mood"],
                 pending: false
             )
+            cells.append(cell)
         }
-        let folders = [
-            FolderDTO(
-                id: "fld-clients",
-                name: "Clients",
-                children: [
-                    FolderDTO(id: "fld-acme", name: "Acme", children: [], imageCount: 4, isLocked: false),
-                ],
-                imageCount: 4,
-                isLocked: false
-            ),
-            FolderDTO(id: "fld-mood", name: "Moodboards", children: [], imageCount: 8, isLocked: false),
-        ]
+        let acme = FolderDTO(
+            id: "fld-acme",
+            name: "Acme",
+            children: [],
+            imageCount: 4,
+            isLocked: false
+        )
+        let clients = FolderDTO(
+            id: "fld-clients",
+            name: "Clients",
+            children: [acme],
+            imageCount: 4,
+            isLocked: false
+        )
+        let mood = FolderDTO(
+            id: "fld-mood",
+            name: "Moodboards",
+            children: [],
+            imageCount: 8,
+            isLocked: false
+        )
         let tags = [
             TagDTO(name: "Ref", imageCount: 6),
             TagDTO(name: "Mood", imageCount: 6),
         ]
         var details: [String: ItemDTO] = [:]
+        details.reserveCapacity(cells.count)
         for cell in cells {
+            let folderIds = cell.tags.contains("Ref") ? ["fld-clients"] : ["fld-mood"]
             details[cell.id] = ItemDTO(
                 id: cell.id,
                 name: cell.name,
                 ext: cell.ext,
                 star: cell.star,
                 tags: cell.tags,
-                folders: cell.tags.contains("Ref") ? ["fld-clients"] : ["fld-mood"],
+                folders: folderIds,
                 annotation: "",
                 isDeleted: false
             )
         }
+        let title = clean.isEmpty ? "Demo" : clean
+        let info = LibraryInfoDTO(
+            kind: "native",
+            id: "mock-library",
+            name: title,
+            path: nil,
+            readOnly: false
+        )
         return MockLibraryStore(
-            info: LibraryInfoDTO(
-                kind: "native",
-                id: "mock-library",
-                name: clean.isEmpty ? "Demo" : clean,
-                path: nil,
-                readOnly: false
-            ),
+            info: info,
             cells: cells,
-            folders: folders,
+            folders: [clients, mood],
             tags: tags,
             details: details
         )

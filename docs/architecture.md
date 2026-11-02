@@ -2,7 +2,7 @@
 
 Companion to [`spec.md`](spec.md). The spec describes behaviour. This document describes **how the app is built**, and records the corrections to the original spec that came out of reverse engineering Eagle.
 
-The app is a Tauri 2 application with a Rust core and a React UI. **It is a standalone asset manager with its own library format** (§15.3); compatibility with Eagle (import, a live connection to a running Eagle, export) is a secondary feature (D-013). **The current priority is the Windows desktop app, without AI features.** An **experimental iOS draft** (`ios/`, `crates/library-ffi`, D-082) scaffolds a SwiftUI shell over the same native `.eglib` core (no Eagle, no Canvas); it does not change the desktop default. Other mobile / macOS targets stay possible later: the core stays portable, and platform shells stay thin.
+The app is a Tauri 2 application with a Rust core and a React UI. **It is a standalone asset manager with its own library format** (§15.3); compatibility with Eagle (import, a live connection to a running Eagle, export) is a secondary feature (D-013). **The current priority is the Windows desktop app, without AI features.** **Experimental mobile drafts** (`ios/` SwiftUI, D-082; `android/` Jetpack Compose, D-083) scaffold thin shells over the same native `.eglib` core via `crates/library-ffi` (no Eagle, no Canvas); they do not change the desktop default. CI for those shells is a separate path-filtered workflow (D-084). Other targets stay possible later: the core stays portable, and platform shells stay thin.
 
 The core talks to every kind of library through one `LibrarySource` trait (§15.2): the native library, an Eagle library folder (read only, for the import) and a running Eagle. Sections 4, 5, 7.2 and 12 describe the Eagle parts; everything else applies to every source, and the native library is the one built first.
 
@@ -19,9 +19,9 @@ Live verification (2026-10-27): two test JPEGs were added to the open library th
 | Question | Decision |
 |---|---|
 | Product | **A standalone asset manager** with its own library; Eagle compatibility is secondary (D-013) |
-| Targets | **Windows 10/11 now** (desktop default). Experimental iOS SwiftUI draft over native `.eglib` only (D-082). Nothing in the core may depend on Windows |
-| Shell | **Tauri 2.12** (stable) on desktop. Not Tauri 3, which is in alpha (§2). iOS draft: SwiftUI + C ABI (`library-ffi`) |
-| Core | Rust workspace: `library-core` (no IO), `library-native` (the native library), `media` (thumbnails, palettes, hashes), `app-store` (settings, recent libraries, secrets), `library-ffi` (C ABI for iOS, D-082), and for Eagle `eagle-folder` and `eagle-api`; the Tauri app crate is a thin layer of commands |
+| Targets | **Windows 10/11 now** (desktop default). Experimental iOS (D-082) and Android (D-083) drafts over native `.eglib` only. Nothing in the core may depend on Windows |
+| Shell | **Tauri 2.12** (stable) on desktop. Not Tauri 3, which is in alpha (§2). Mobile drafts: SwiftUI / Compose + C ABI (`library-ffi`), not Tauri Mobile |
+| Core | Rust workspace: `library-core` (no IO), `library-native` (the native library), `media` (thumbnails, palettes, hashes), `app-store` (settings, recent libraries, secrets), `library-ffi` (C ABI for iOS/Android, D-082 / D-083), and for Eagle `eagle-folder` and `eagle-api`; the Tauri app crate is a thin layer of commands |
 | Library sources | One `LibrarySource` trait in `library-core`. Implementations: the native library, an Eagle library folder on disk (read only), a running Eagle (API) (§15.2) |
 | Library format | A folder `Name.eglib` (D-016): SQLite (`library.db`) as the single source of truth, the original files copied in (D-014), regenerable thumbnails; documented in `library-format.md` and versioned (§15.3) |
 | Media | v1 previews for JPEG, PNG, GIF, WebP, SVG, TIFF, BMP, PSD composites and HEIC/HEIF; AVIF and other files are stored with a placeholder (D-015, D-035, D-063, §15.4) |
@@ -170,8 +170,9 @@ egl-viewer/
       dto/                   ItemDto, FolderDto (passwords dropped here), TagDto, … → model
       plan.rs                plan() → FetchPlan, ServerFilter: the Eagle-specific query plan (§6.2)
       api_v2.rs              typed methods per route, FolderUpdateBody
-    library-ffi/             C ABI over library-native for the experimental iOS shell (D-082); no Eagle, no Tauri
+    library-ffi/             C ABI over library-native for experimental mobile shells (D-082 / D-083); no Eagle, no Tauri
   ios/                       SwiftUI iPhone draft (Welcome / Browse / Preview / edit); see ios/README.md
+  android/                   Jetpack Compose draft (same flow); see android/README.md
   src-tauri/                 the app crate: thin
     commands.rs              libraries, imports (files and the Eagle folder import), views and items; the live
                              Eagle commands arrive with phases 9–11 (§8)
