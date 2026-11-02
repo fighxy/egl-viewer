@@ -67,8 +67,18 @@ Header: `crates/library-ffi/include/egl_library.h` (also under `ios/EglViewer/Br
 6. Run on a device or Simulator. `LibraryBridge` then opens real `.eglib` folders
    through the C ABI.
 
-Linux / CI: run `cargo test -p library-ffi` (or the workspace check). The Xcode
-project is not built on Linux.
+## CI (D-084)
+
+Workflow: [`.github/workflows/mobile.yml`](../.github/workflows/mobile.yml) (path-filtered).
+
+| Job | Runner | What it runs |
+|---|---|---|
+| `library-ffi` | ubuntu | Layout/header sync (`scripts/check-mobile-shell.sh`), `cargo test` / clippy for `library-ffi` |
+| `ios` | `macos-latest` | `xcodebuild -scheme EglViewer -sdk iphonesimulator` with `CODE_SIGNING_ALLOWED=NO` (mock FFI, no signing secrets) |
+| `android` | ubuntu | `./gradlew :app:assembleDebug` (sibling shell) |
+
+Desktop Windows `CI` is unchanged and still runs `cargo test --workspace` (includes
+`library-ffi`). Local Linux can run the layout script + FFI tests; full Xcode needs a Mac.
 
 ## Product constraints
 

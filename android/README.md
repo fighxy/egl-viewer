@@ -45,8 +45,9 @@ android/
       AndroidManifest.xml
       java/app/eglviewer/
         MainActivity.kt
-        ui/screens/     Welcome, Browse, Preview, EditSheet
-        ui/theme/       Tokens
+        screens/        Welcome, Browse, Preview, EditSheet
+        theme/          Tokens (not under a `ui` package — clashes with
+                        `androidx.compose.ui` and breaks `Modifier` imports)
         bridge/         LibraryBridge, models, NativeFfiSession / EglNative
       cpp/              egl_jni.cpp + CMakeLists.txt + egl_library.h
 crates/library-ffi/     C ABI (staticlib iOS, cdylib Android)
@@ -74,13 +75,28 @@ Header: `crates/library-ffi/include/egl_library.h` (also under `android/app/src/
 
 1. Open the `android/` folder in Android Studio (Giraffe+ / AGP 8.7).
 2. Drop `libegl_library.so` into `app/src/main/jniLibs/arm64-v8a/` as above.
-3. In `app/build.gradle.kts`, uncomment the `externalNativeBuild { cmake { … } }`
-   block so `egl_jni` links against the Rust `.so`.
+3. In `app/build.gradle.kts`, uncomment the `ndk { … }` block and the
+   `externalNativeBuild { cmake { … } }` block so `egl_jni` links against the
+   Rust `.so`.
 4. Run on an arm64 device/emulator. `LibraryBridge` loads `libegl_jni.so` and
    opens real `.eglib` folders when present; otherwise it keeps mock data.
 
-Linux / CI: Rust FFI stays covered by `cargo test -p library-ffi`. This Gradle
-project is not built on the Windows desktop CI job.
+## CI (D-084)
+
+Workflow: [`.github/workflows/mobile.yml`](../.github/workflows/mobile.yml) (path-filtered).
+
+| Job | Runner | What it runs |
+|---|---|---|
+| `library-ffi` | ubuntu | Layout/header sync, `cargo test` / clippy for `library-ffi` (needs `libheif-dev` on the runner — apt, no secrets) |
+| `android` | ubuntu | JDK 17 + runner Android SDK (platform 35 via `sdkmanager`), `./gradlew :app:assembleDebug` **without NDK** (CMake stays commented; mock FFI) |
+| `ios` | `macos-latest` | Unsigned simulator `xcodebuild` for the sibling shell |
+
+No repository secrets. Gradle uses the committed wrapper (`gradlew`) and the
+actions Gradle cache. Desktop Windows `CI` is unchanged.
+
+Local without an SDK: `bash scripts/check-mobile-shell.sh` and
+`cargo test -p library-ffi`. With Android Studio / SDK:
+`cd android && ./gradlew :app:assembleDebug`.
 
 ## vs Tauri Android
 

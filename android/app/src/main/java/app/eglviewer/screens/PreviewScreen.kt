@@ -1,4 +1,4 @@
-package app.eglviewer.ui.screens
+package app.eglviewer.screens
 
 import androidx.compose.foundation.background
 import androidx.compose.foundation.gestures.detectTapGestures
@@ -42,7 +42,7 @@ import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
 import app.eglviewer.bridge.LibraryBridge
-import app.eglviewer.ui.theme.EglTokens
+import app.eglviewer.theme.EglTokens
 
 @OptIn(ExperimentalMaterial3Api::class)
 @Composable

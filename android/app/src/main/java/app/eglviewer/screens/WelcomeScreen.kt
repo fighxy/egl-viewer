@@ -1,4 +1,4 @@
-package app.eglviewer.ui.screens
+package app.eglviewer.screens
 
 import androidx.compose.foundation.border
 import androidx.compose.foundation.clickable
@@ -22,7 +22,7 @@ import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.unit.dp
 import app.eglviewer.bridge.LibraryBridge
 import app.eglviewer.bridge.RecentLibrary
-import app.eglviewer.ui.theme.EglTokens
+import app.eglviewer.theme.EglTokens
 
 @Composable
 fun WelcomeScreen(
@@ -111,9 +111,9 @@ fun WelcomeScreen(
             }
         }
 
-        Spacer(Modifier = Modifier.height(8.dp))
+        Spacer(modifier = Modifier.height(8.dp))
         Text(
-            text = "Native .eglib only — no Eagle on this client.",
+            text = "Native .eglib only - no Eagle on this client.",
             color = EglTokens.MutedForeground,
             fontSize = EglTokens.ChromeSp,
         )

@@ -15,11 +15,11 @@ import androidx.navigation.compose.composable
 import androidx.navigation.compose.rememberNavController
 import androidx.navigation.navArgument
 import app.eglviewer.bridge.LibraryBridge
-import app.eglviewer.ui.screens.BrowseScreen
-import app.eglviewer.ui.screens.EditSheet
-import app.eglviewer.ui.screens.PreviewScreen
-import app.eglviewer.ui.screens.WelcomeScreen
-import app.eglviewer.ui.theme.EglTokens
+import app.eglviewer.screens.BrowseScreen
+import app.eglviewer.screens.EditSheet
+import app.eglviewer.screens.PreviewScreen
+import app.eglviewer.screens.WelcomeScreen
+import app.eglviewer.theme.EglTokens
 
 class MainActivity : ComponentActivity() {
     override fun onCreate(savedInstanceState: Bundle?) {
