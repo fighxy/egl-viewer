@@ -123,7 +123,11 @@ fun BrowseScreen(
         }
         if (bridge.usingMockData) {
             Text(
-                text = "Mock data — drop libegl_library.so to use a real .eglib",
+                text = if (bridge.ffiLinked) {
+                    "Mock fallback — could not open via FFI"
+                } else {
+                    "Mock data — drop libegl_library.so to use a real .eglib"
+                },
                 color = EglTokens.MutedForeground,
                 fontSize = EglTokens.ChromeSp,
                 modifier = Modifier

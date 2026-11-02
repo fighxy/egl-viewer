@@ -220,5 +220,8 @@ private fun RecentRow(
                 overflow = TextOverflow.Ellipsis,
             )
         }
+        if (recent.missing) {
+            Text("Missing", color = EglTokens.MutedForeground, fontSize = EglTokens.CaptionSp)
+        }
     }
 }
