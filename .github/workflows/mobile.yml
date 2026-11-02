@@ -87,13 +87,33 @@ jobs:
           java-version: "17"
           cache: gradle
 
-      - name: Setup Android SDK
-        uses: android-actions/setup-android@v3
-
-      - name: Accept licenses + platform 35
+      # Hosted ubuntu runners already ship an Android SDK. Avoid
+      # android-actions/setup-android's default `sdkmanager tools` install —
+      # the legacy `tools` package was removed from the repository.
+      - name: Android SDK env + platform 35
         run: |
-          yes | sdkmanager --licenses >/dev/null || true
-          sdkmanager "platforms;android-35" "build-tools;35.0.0"
+          set -euo pipefail
+          SDK="${ANDROID_HOME:-${ANDROID_SDK_ROOT:-/usr/local/lib/android/sdk}}"
+          if [[ ! -d "$SDK" ]]; then
+            echo "Android SDK not found at $SDK" >&2
+            exit 1
+          fi
+          echo "ANDROID_HOME=$SDK" >> "$GITHUB_ENV"
+          echo "ANDROID_SDK_ROOT=$SDK" >> "$GITHUB_ENV"
+          echo "$SDK/cmdline-tools/latest/bin" >> "$GITHUB_PATH"
+          echo "$SDK/cmdline-tools/16.0/bin" >> "$GITHUB_PATH"
+          echo "$SDK/platform-tools" >> "$GITHUB_PATH"
+          # Prefer cmdline-tools/*/bin/sdkmanager when present.
+          SDKMANAGER="$(find "$SDK/cmdline-tools" -type f -name sdkmanager 2>/dev/null | head -n1 || true)"
+          if [[ -z "$SDKMANAGER" && -x "$SDK/tools/bin/sdkmanager" ]]; then
+            SDKMANAGER="$SDK/tools/bin/sdkmanager"
+          fi
+          if [[ -z "$SDKMANAGER" ]]; then
+            echo "sdkmanager not found under $SDK" >&2
+            exit 1
+          fi
+          yes | "$SDKMANAGER" --licenses >/dev/null || true
+          "$SDKMANAGER" "platforms;android-35" "build-tools;35.0.0" "platform-tools"
 
       - name: Gradle assembleDebug (mock FFI, no NDK)
         working-directory: android
