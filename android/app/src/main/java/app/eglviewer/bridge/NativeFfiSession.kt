@@ -56,6 +56,8 @@ class NativeFfiSession {
         }
     }
 
+    fun thumbnailBytes(id: String): ByteArray? = EglNative.thumbnailBytes(handle, id)
+
     fun applyAddTag(itemId: String, tag: String) {
         val escaped = tag.replace("\\", "\\\\").replace("\"", "\\\"")
         val edit = """{"type":"addTags","value":["$escaped"]}"""
@@ -72,6 +74,14 @@ class NativeFfiSession {
 
     companion object {
         const val APP_VERSION = "0.2.1-android"
+
+        fun createLibrary(parent: String, name: String): String {
+            val path = EglNative.createLibrary(parent, name, APP_VERSION)
+            if (path.isNullOrEmpty()) {
+                throw IllegalStateException(EglNative.lastErrorGlobal().ifEmpty { "create failed" })
+            }
+            return path
+        }
     }
 }
 
@@ -89,6 +99,7 @@ object EglNative {
         }
     }
 
+    external fun createLibrary(parent: String, name: String, appVersion: String): String?
     external fun open(path: String, appVersion: String, syncFolder: Boolean): Long
     external fun close(handle: Long)
     external fun libraryInfo(handle: Long): String?
@@ -97,6 +108,7 @@ object EglNative {
     external fun folderTree(handle: Long): String?
     external fun tags(handle: Long): String?
     external fun applyItemEdit(handle: Long, id: String, editJson: String): String?
+    external fun thumbnailBytes(handle: Long, id: String): ByteArray?
     external fun lastError(handle: Long): String
     external fun lastErrorGlobal(): String
 }

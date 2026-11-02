@@ -1,15 +1,20 @@
 package app.eglviewer.bridge
 
+import android.content.Context
+import android.graphics.Bitmap
+import android.graphics.BitmapFactory
+import android.net.Uri
 import androidx.compose.runtime.getValue
 import androidx.compose.runtime.mutableIntStateOf
 import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.setValue
+import java.io.File
 
 /**
  * Thin façade used by Compose screens.
  *
  * Mock data by default (no `.so`). When `libegl_jni.so` + `libegl_library.so` are
- * packaged, [EglNative.isAvailable] flips and open/create talk to Rust (D-083).
+ * packaged, [EglNative.isAvailable] flips and open/create/thumbs talk to Rust (D-085).
  */
 class LibraryBridge {
     var info: LibraryInfoDto? by mutableStateOf(null)
@@ -25,15 +30,54 @@ class LibraryBridge {
     var usingMockData: Boolean by mutableStateOf(true)
         private set
     var lastError: String? by mutableStateOf(null)
+    var recents: List<RecentLibrary> by mutableStateOf(emptyList())
+        private set
 
     private var mockStore: MockLibraryStore? = null
     private var ffi: NativeFfiSession? = null
+    private var access: LibraryAccess? = null
+    private val thumbCache = mutableMapOf<String, Bitmap>()
 
     val isOpen: Boolean get() = info != null
     val libraryName: String get() = info?.name ?: "Library"
+    val ffiLinked: Boolean get() = EglNative.isAvailable
+
+    fun attach(context: Context) {
+        if (access == null) {
+            access = LibraryAccess(context)
+            refreshRecents()
+        }
+    }
+
+    fun refreshRecents() {
+        recents = access?.loadRecents().orEmpty()
+    }
 
     fun openRecent(recent: RecentLibrary) {
-        open(path = recent.path, syncFolder = recent.locationHint.contains("cloud", ignoreCase = true))
+        val uri = recent.uri?.let(Uri::parse)
+        if (uri != null) {
+            openUri(uri)
+            return
+        }
+        open(path = recent.path, syncFolder = access?.isSyncFolder(recent.locationHint) == true)
+    }
+
+    fun openUri(uri: Uri) {
+        lastError = null
+        val path = access?.resolveFilesystemPath(uri)
+        if (path == null) {
+            lastError =
+                "SAF URI has no filesystem path for Rust (pick a local primary-storage .eglib folder)"
+            mockStore = MockLibraryStore.sample(uri.lastPathSegment ?: "Library")
+            usingMockData = true
+            publishMock()
+            return
+        }
+        val hint = access?.locationHint(uri, path) ?: "Storage"
+        val name = File(path).name
+        access?.remember(name = name, path = path, locationHint = hint, uri = uri)
+        refreshRecents()
+        open(path = path, syncFolder = access?.isSyncFolder(hint) == true)
     }
 
     fun open(path: String, syncFolder: Boolean) {
@@ -46,6 +90,7 @@ class LibraryBridge {
                 ffi = session
                 usingMockData = false
                 reloadFromFfi()
+                thumbCache.clear()
                 return
             } catch (error: Exception) {
                 lastError = error.message
@@ -55,13 +100,36 @@ class LibraryBridge {
         usingMockData = true
         publishMock()
         if (lastError == null) {
-            lastError = "Rust FFI not linked — mock library"
+            lastError = if (ffiLinked) {
+                "Could not open library — mock fallback"
+            } else {
+                "Rust FFI not linked — mock library"
+            }
         }
     }
 
-    fun createLibrary(named: String) {
+    fun createLibrary(named: String, parentPath: String? = null) {
         close()
         lastError = null
+        if (EglNative.isAvailable) {
+            try {
+                val parent = parentPath ?: access?.defaultCreateParent()?.absolutePath
+                    ?: throw IllegalStateException("no create parent")
+                val created = NativeFfiSession.createLibrary(parent, named)
+                val hint = access?.locationHint(null, created) ?: "App storage"
+                access?.remember(
+                    name = named,
+                    path = created,
+                    locationHint = hint,
+                    uri = null,
+                )
+                refreshRecents()
+                open(path = created, syncFolder = false)
+                return
+            } catch (error: Exception) {
+                lastError = error.message
+            }
+        }
         mockStore = MockLibraryStore.sample(named)
         usingMockData = true
         publishMock()
@@ -76,6 +144,7 @@ class LibraryBridge {
         total = 0
         folders = emptyList()
         tags = emptyList()
+        thumbCache.clear()
         usingMockData = true
     }
 
@@ -94,6 +163,14 @@ class LibraryBridge {
         }
         mockStore?.addTag(itemId, tag)
         publishMock()
+    }
+
+    fun thumbnailBitmap(id: String): Bitmap? {
+        thumbCache[id]?.let { return it }
+        val bytes = ffi?.thumbnailBytes(id) ?: return null
+        val bitmap = BitmapFactory.decodeByteArray(bytes, 0, bytes.size) ?: return null
+        thumbCache[id] = bitmap
+        return bitmap
     }
 
     private fun publishMock() {

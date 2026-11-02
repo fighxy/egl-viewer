@@ -12,13 +12,16 @@ base64.workspace = true
 fast_image_resize.workspace = true
 image.workspace = true
 kamadak-exif.workspace = true
-libheif-rs.workspace = true
 library-core.workspace = true
 psd.workspace = true
 resvg.workspace = true
 serde_json.workspace = true
 thiserror.workspace = true
 webp.workspace = true
+
+# No system libheif on iOS; HEIC there keeps the placeholder (D-086).
+[target.'cfg(not(target_os = "ios"))'.dependencies]
+libheif-rs.workspace = true
 
 [dev-dependencies]
 tempfile.workspace = true

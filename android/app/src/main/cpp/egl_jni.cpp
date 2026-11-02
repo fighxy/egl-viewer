@@ -1,5 +1,5 @@
 /**
- * Thin JNI forwarder to the library-ffi C ABI (D-083).
+ * Thin JNI forwarder to the library-ffi C ABI (D-083 / D-085).
  * Mirrors ios NativeFfiSession / egl_library.h — no Eagle.
  */
 
@@ -25,6 +25,33 @@ static jstring take_c_string(JNIEnv *env, char *owned) {
   free(owned);
 #endif
   return out;
+}
+
+extern "C" JNIEXPORT jstring JNICALL
+Java_app_eglviewer_bridge_EglNative_createLibrary(JNIEnv *env, jclass,
+                                                  jstring parent, jstring name,
+                                                  jstring version) {
+#if defined(EGL_HAS_RUST)
+  const char *parent_utf = env->GetStringUTFChars(parent, nullptr);
+  const char *name_utf = env->GetStringUTFChars(name, nullptr);
+  const char *ver_utf = env->GetStringUTFChars(version, nullptr);
+  char *out_path = nullptr;
+  EglStatus status =
+      egl_create_library(parent_utf, name_utf, ver_utf, &out_path);
+  env->ReleaseStringUTFChars(parent, parent_utf);
+  env->ReleaseStringUTFChars(name, name_utf);
+  env->ReleaseStringUTFChars(version, ver_utf);
+  if (status != EGL_OK || out_path == nullptr) {
+    return nullptr;
+  }
+  return take_c_string(env, out_path);
+#else
+  (void)env;
+  (void)parent;
+  (void)name;
+  (void)version;
+  return nullptr;
+#endif
 }
 
 extern "C" JNIEXPORT jlong JNICALL
@@ -168,6 +195,38 @@ Java_app_eglviewer_bridge_EglNative_applyItemEdit(JNIEnv *env, jclass,
   (void)handle;
   (void)id;
   (void)editJson;
+  return nullptr;
+#endif
+}
+
+extern "C" JNIEXPORT jbyteArray JNICALL
+Java_app_eglviewer_bridge_EglNative_thumbnailBytes(JNIEnv *env, jclass,
+                                                   jlong handle, jstring id) {
+#if defined(EGL_HAS_RUST)
+  const char *id_utf = env->GetStringUTFChars(id, nullptr);
+  uint8_t *bytes = nullptr;
+  size_t len = 0;
+  char *content_type = nullptr;
+  EglStatus status = egl_thumbnail_bytes(
+      reinterpret_cast<EglLibrary *>(handle), id_utf, &bytes, &len, &content_type);
+  env->ReleaseStringUTFChars(id, id_utf);
+  if (content_type != nullptr) {
+    egl_string_free(content_type);
+  }
+  if (status != EGL_OK || bytes == nullptr || len == 0) {
+    return nullptr;
+  }
+  jbyteArray out = env->NewByteArray(static_cast<jsize>(len));
+  if (out != nullptr) {
+    env->SetByteArrayRegion(out, 0, static_cast<jsize>(len),
+                            reinterpret_cast<const jbyte *>(bytes));
+  }
+  egl_bytes_free(bytes, len);
+  return out;
+#else
+  (void)env;
+  (void)handle;
+  (void)id;
   return nullptr;
 #endif
 }

@@ -8,17 +8,23 @@ android {
     namespace = "app.eglviewer"
     compileSdk = 35
 
+    // Enable CMake / NDK only when the Rust cdylib is present (or -Pegl.ffi=true).
+    // CI assembleDebug stays mock-only without NDK (D-084 / D-085).
+    val rustSo = file("src/main/jniLibs/arm64-v8a/libegl_library.so")
+    val enableNativeFfi =
+        rustSo.exists() || (findProperty("egl.ffi")?.toString() == "true")
+
     defaultConfig {
         applicationId = "app.eglviewer"
         minSdk = 26
         targetSdk = 35
         versionCode = 1
         versionName = "0.2.1"
-        // Native/NDK wiring stays off until libegl_library.so is packaged
-        // (see android/README.md). Uncomment ndk + externalNativeBuild together.
-        // ndk {
-        //     abiFilters += listOf("arm64-v8a")
-        // }
+        if (enableNativeFfi) {
+            ndk {
+                abiFilters += listOf("arm64-v8a")
+            }
+        }
     }
 
     buildTypes {
@@ -38,14 +44,13 @@ android {
         compose = true
         buildConfig = true
     }
-    // Native CMake is present as a draft; disable automatic NDK link until
-    // libegl_library.so is dropped into jniLibs (see android/README.md).
-    // Uncomment externalNativeBuild when wiring FFI:
-    // externalNativeBuild {
-    //     cmake {
-    //         path = file("src/main/cpp/CMakeLists.txt")
-    //     }
-    // }
+    if (enableNativeFfi) {
+        externalNativeBuild {
+            cmake {
+                path = file("src/main/cpp/CMakeLists.txt")
+            }
+        }
+    }
     packaging {
         resources.excludes += "/META-INF/{AL2.0,LGPL2.1}"
     }

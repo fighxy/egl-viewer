@@ -57,4 +57,5 @@ data class RecentLibrary(
     val path: String,
     val locationHint: String,
     val missing: Boolean,
+    val uri: String? = null,
 )

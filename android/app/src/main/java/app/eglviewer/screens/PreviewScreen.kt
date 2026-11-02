@@ -1,5 +1,6 @@
 package app.eglviewer.screens
 
+import androidx.compose.foundation.Image
 import androidx.compose.foundation.background
 import androidx.compose.foundation.gestures.detectDragGestures
 import androidx.compose.foundation.gestures.detectTapGestures
@@ -36,8 +37,10 @@ import androidx.compose.runtime.setValue
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.graphics.Color
+import androidx.compose.ui.graphics.asImageBitmap
 import androidx.compose.ui.graphics.graphicsLayer
 import androidx.compose.ui.input.pointer.pointerInput
+import androidx.compose.ui.layout.ContentScale
 import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.text.style.TextAlign
 import androidx.compose.ui.text.style.TextOverflow
@@ -126,6 +129,10 @@ fun PreviewScreen(
                 }
             }
 
+            val thumb = remember(itemId, bridge.usingMockData) {
+                bridge.thumbnailBitmap(itemId)
+            }
+
             Box(
                 modifier = Modifier
                     .weight(1f)
@@ -155,12 +162,21 @@ fun PreviewScreen(
                         .background(Color.White.copy(alpha = 0.12f)),
                     contentAlignment = Alignment.Center,
                 ) {
-                    Text(
-                        text = (item?.ext ?: "img").uppercase(),
-                        color = Color.White.copy(alpha = 0.55f),
-                        fontSize = 28.sp,
-                        fontWeight = FontWeight.SemiBold,
-                    )
+                    if (thumb != null) {
+                        Image(
+                            bitmap = thumb.asImageBitmap(),
+                            contentDescription = item?.name,
+                            contentScale = ContentScale.Fit,
+                            modifier = Modifier.fillMaxSize(),
+                        )
+                    } else {
+                        Text(
+                            text = (item?.ext ?: "img").uppercase(),
+                            color = Color.White.copy(alpha = 0.55f),
+                            fontSize = 28.sp,
+                            fontWeight = FontWeight.SemiBold,
+                        )
+                    }
                 }
             }
 

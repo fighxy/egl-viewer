@@ -3486,8 +3486,10 @@ dependencies = [
 name = "library-ffi"
 version = "0.2.1"
 dependencies = [
+ "image",
  "library-core",
  "library-native",
+ "media",
  "serde",
  "serde_json",
  "tempfile",

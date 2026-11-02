@@ -5,6 +5,7 @@ use std::io::{BufRead, BufReader, Cursor, Seek};
 use std::path::Path;
 
 use exif::{In, Tag, Value};
+#[cfg(not(target_os = "ios"))]
 use libheif_rs::HeifContext;
 use serde_json::{Map, Value as Json};
 
@@ -17,6 +18,7 @@ pub(crate) fn exif_bytes(bytes: &[u8]) -> Option<Json> {
 }
 
 /// EXIF of a HEIC/HEIF file: the `Exif` metadata item of the primary image (D-063).
+#[cfg(not(target_os = "ios"))]
 pub(crate) fn exif_heic_bytes(bytes: &[u8]) -> Option<Json> {
     let context = HeifContext::read_from_bytes(bytes).ok()?;
     let handle = context.primary_image_handle().ok()?;
@@ -28,9 +30,15 @@ pub(crate) fn exif_heic_bytes(bytes: &[u8]) -> Option<Json> {
     exif_from(&mut Cursor::new(tiff_in_heif_exif(&block)?))
 }
 
+#[cfg(target_os = "ios")]
+pub(crate) fn exif_heic_bytes(_bytes: &[u8]) -> Option<Json> {
+    None
+}
+
 /// The HEIF `Exif` item starts with a big-endian offset, counted from the byte after it,
 /// to the TIFF header (ISO/IEC 23008-12 §6.2). The offset may point past an `Exif\0\0`
 /// prefix, so it is followed rather than the first bytes checked.
+#[cfg_attr(target_os = "ios", allow(dead_code))]
 fn tiff_in_heif_exif(block: &[u8]) -> Option<&[u8]> {
     let (prefix, rest) = block.split_at_checked(4)?;
     let offset = u32::from_be_bytes(prefix.try_into().ok()?) as usize;

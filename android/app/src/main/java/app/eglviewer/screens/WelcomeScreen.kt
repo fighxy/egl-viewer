@@ -1,5 +1,8 @@
 package app.eglviewer.screens
 
+import android.net.Uri
+import androidx.activity.compose.rememberLauncherForActivityResult
+import androidx.activity.result.contract.ActivityResultContracts
 import androidx.compose.foundation.BorderStroke
 import androidx.compose.foundation.background
 import androidx.compose.foundation.border
@@ -27,8 +30,10 @@ import androidx.compose.material3.Icon
 import androidx.compose.material3.OutlinedButton
 import androidx.compose.material3.Text
 import androidx.compose.runtime.Composable
-import androidx.compose.ui.Alignment
+import androidx.compose.runtime.LaunchedEffect
 import androidx.compose.ui.Modifier
+import androidx.compose.ui.platform.LocalContext
+import androidx.compose.ui.Alignment
 import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.text.SpanStyle
 import androidx.compose.ui.text.buildAnnotatedString
@@ -47,11 +52,19 @@ fun WelcomeScreen(
     bridge: LibraryBridge,
     onOpenBrowse: () -> Unit,
 ) {
-    val recents = listOf(
-        RecentLibrary("Studio Refs", "/storage/emulated/0/Studio Refs.eglib", "Internal storage · Yesterday 18:12", false),
-        RecentLibrary("Travel 2025", "/storage/emulated/0/Travel 2025.eglib", "On device · Oct 28", false),
-        RecentLibrary("Archive.eglib", "/storage/emulated/0/Archive.eglib", "Files · missing", true),
-    )
+    val context = LocalContext.current
+    LaunchedEffect(Unit) {
+        bridge.attach(context)
+    }
+
+    val openTree = rememberLauncherForActivityResult(
+        contract = ActivityResultContracts.OpenDocumentTree(),
+    ) { uri: Uri? ->
+        if (uri != null) {
+            bridge.openUri(uri)
+            onOpenBrowse()
+        }
+    }
 
     Column(
         modifier = Modifier
@@ -104,10 +117,7 @@ fun WelcomeScreen(
                 Text("Create library", fontSize = 15.sp, fontWeight = FontWeight.SemiBold)
             }
             OutlinedButton(
-                onClick = {
-                    bridge.open("/storage/emulated/0/Refs.eglib", syncFolder = false)
-                    onOpenBrowse()
-                },
+                onClick = { openTree.launch(null) },
                 modifier = Modifier
                     .fillMaxWidth()
                     .height(EglTokens.ButtonHeight),
@@ -129,8 +139,11 @@ fun WelcomeScreen(
                 fontWeight = FontWeight.SemiBold,
                 modifier = Modifier.padding(bottom = 8.dp, top = 4.dp),
             )
+            if (bridge.recents.isEmpty()) {
+                Text("No recent libraries yet.", color = EglTokens.MutedForeground, fontSize = EglTokens.ChromeSp)
+            }
             Column(verticalArrangement = Arrangement.spacedBy(2.dp)) {
-                recents.forEachIndexed { index, recent ->
+                bridge.recents.forEachIndexed { index, recent ->
                     RecentRow(
                         recent = recent,
                         active = index == 0 && !recent.missing,
@@ -141,6 +154,10 @@ fun WelcomeScreen(
                     )
                 }
             }
+        }
+
+        bridge.lastError?.let { error ->
+            Text(error, color = EglTokens.MutedForeground, fontSize = EglTokens.ChromeSp)
         }
 
         Spacer(modifier = Modifier.height(24.dp))
@@ -202,6 +219,9 @@ private fun RecentRow(
                 maxLines = 1,
                 overflow = TextOverflow.Ellipsis,
             )
+        }
+        if (recent.missing) {
+            Text("Missing", color = EglTokens.MutedForeground, fontSize = EglTokens.CaptionSp)
         }
     }
 }

@@ -1,0 +1,12 @@
+// Include this xcconfig (or copy its settings) after building libegl_library.a
+// for the active destination. See ios/README.md (D-085).
+//
+// Example: set the target's based-on configuration to this file, or merge:
+//   #include "WithFfi.xcconfig"
+
+SWIFT_ACTIVE_COMPILATION_CONDITIONS = $(inherited) EGL_HAS_FFI
+HEADER_SEARCH_PATHS = $(inherited) $(SRCROOT)/EglViewer/Bridge
+SWIFT_INCLUDE_PATHS = $(inherited) $(SRCROOT)/EglViewer/Bridge
+LIBRARY_SEARCH_PATHS = $(inherited) $(SRCROOT)/../target/aarch64-apple-ios/release $(SRCROOT)/../target/aarch64-apple-ios-sim/release $(SRCROOT)/../target/x86_64-apple-ios/release
+OTHER_LDFLAGS = $(inherited) -legl_library -lc++ -framework SystemConfiguration -framework Security
+SWIFT_OBJC_BRIDGING_HEADER = $(SRCROOT)/EglViewer/Bridge/egl_library.h

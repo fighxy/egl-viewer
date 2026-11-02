@@ -1,5 +1,6 @@
 package app.eglviewer.screens
 
+import androidx.compose.foundation.Image
 import androidx.compose.foundation.background
 import androidx.compose.foundation.clickable
 import androidx.compose.foundation.horizontalScroll
@@ -42,7 +43,9 @@ import androidx.compose.runtime.setValue
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.graphics.Color
+import androidx.compose.ui.graphics.asImageBitmap
 import androidx.compose.ui.graphics.vector.ImageVector
+import androidx.compose.ui.layout.ContentScale
 import androidx.compose.ui.text.TextStyle
 import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.text.style.TextOverflow
@@ -104,13 +107,14 @@ fun BrowseScreen(
         }
         Box(modifier = Modifier.weight(1f)) {
             when (tab) {
-                LibraryTab.Grid -> ItemGrid(items = bridge.items, onOpen = onOpenPreview)
+                LibraryTab.Grid -> ItemGrid(bridge = bridge, items = bridge.items, onOpen = onOpenPreview)
                 LibraryTab.Places -> SimpleList("Places", bridge.folders.map { it.name })
                 LibraryTab.Tags -> SimpleList("Tags", bridge.tags.map { it.name })
                 LibraryTab.More -> SimpleList(
                     "More",
                     listOf(
                         if (bridge.info?.readOnly == true) "Read-only" else "Writable",
+                        if (bridge.ffiLinked) "FFI linked" else "FFI mock",
                         "Library info",
                         "Settings",
                     ),
@@ -119,7 +123,11 @@ fun BrowseScreen(
         }
         if (bridge.usingMockData) {
             Text(
-                text = "Mock data — drop libegl_library.so to use a real .eglib",
+                text = if (bridge.ffiLinked) {
+                    "Mock fallback — could not open via FFI"
+                } else {
+                    "Mock data — drop libegl_library.so to use a real .eglib"
+                },
                 color = EglTokens.MutedForeground,
                 fontSize = EglTokens.ChromeSp,
                 modifier = Modifier
@@ -329,7 +337,11 @@ private fun FilterBar() {
 }
 
 @Composable
-private fun ItemGrid(items: List<ItemCellDto>, onOpen: (String) -> Unit) {
+private fun ItemGrid(
+    bridge: LibraryBridge,
+    items: List<ItemCellDto>,
+    onOpen: (String) -> Unit,
+) {
     LazyVerticalGrid(
         columns = GridCells.Adaptive(96.dp),
         modifier = Modifier
@@ -345,6 +357,9 @@ private fun ItemGrid(items: List<ItemCellDto>, onOpen: (String) -> Unit) {
                 val h = (item.height ?: 1).toFloat().coerceAtLeast(1f)
                 (w / h).coerceAtLeast(0.55f)
             }
+            val bitmap = remember(item.id, item.thumbVersion, bridge.usingMockData) {
+                bridge.thumbnailBitmap(item.id)
+            }
             Box(
                 modifier = Modifier
                     .aspectRatio(ratio)
@@ -352,13 +367,22 @@ private fun ItemGrid(items: List<ItemCellDto>, onOpen: (String) -> Unit) {
                     .clickable { onOpen(item.id) },
                 contentAlignment = Alignment.BottomStart,
             ) {
-                Text(
-                    text = item.ext.uppercase(),
-                    color = EglTokens.MutedForeground,
-                    fontSize = 11.sp,
-                    fontWeight = FontWeight.SemiBold,
-                    modifier = Modifier.padding(6.dp),
-                )
+                if (bitmap != null) {
+                    Image(
+                        bitmap = bitmap.asImageBitmap(),
+                        contentDescription = item.name,
+                        contentScale = ContentScale.Crop,
+                        modifier = Modifier.fillMaxSize(),
+                    )
+                } else {
+                    Text(
+                        text = item.ext.uppercase(),
+                        color = EglTokens.MutedForeground,
+                        fontSize = 11.sp,
+                        fontWeight = FontWeight.SemiBold,
+                        modifier = Modifier.padding(6.dp),
+                    )
+                }
             }
         }
     }

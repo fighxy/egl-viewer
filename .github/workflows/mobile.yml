@@ -151,3 +151,76 @@ jobs:
             CODE_SIGNING_REQUIRED=NO \
             CODE_SIGN_IDENTITY= \
             build
+
+  # Device build with the real Rust core (EGL_HAS_FFI), unsigned, packed as an
+  # .ipa for sideloading (D-086). Published to the rolling `ios-latest`
+  # pre-release on main pushes and manual runs.
+  ios-ipa:
+    runs-on: macos-latest
+    permissions:
+      contents: write
+    steps:
+      - uses: actions/checkout@v7
+
+      - name: Rust toolchain + iOS target
+        run: |
+          rustup toolchain install
+          rustup target add aarch64-apple-ios
+
+      - uses: Swatinem/rust-cache@v2
+        with:
+          prefix-key: mobile-ios-device-v1
+          workspaces: ". -> target"
+
+      - name: Build libegl_library.a (aarch64-apple-ios)
+        env:
+          IPHONEOS_DEPLOYMENT_TARGET: "17.0"
+        run: cargo build -p library-ffi --release --target aarch64-apple-ios
+
+      - name: xcodebuild archive (iphoneos, no signing, FFI linked)
+        working-directory: ios
+        run: |
+          set -euo pipefail
+          xcodebuild \
+            -project EglViewer.xcodeproj \
+            -scheme EglViewer \
+            -configuration Release \
+            -sdk iphoneos \
+            -destination 'generic/platform=iOS' \
+            -xcconfig EglViewer/Config/WithFfi.xcconfig \
+            -archivePath "$RUNNER_TEMP/EglViewer.xcarchive" \
+            CODE_SIGNING_ALLOWED=NO \
+            CODE_SIGNING_REQUIRED=NO \
+            CODE_SIGN_IDENTITY= \
+            archive
+
+      - name: Pack unsigned .ipa
+        run: |
+          set -euo pipefail
+          APP="$(find "$RUNNER_TEMP/EglViewer.xcarchive/Products/Applications" -maxdepth 1 -name '*.app' | head -n1)"
+          test -n "$APP"
+          mkdir -p "$RUNNER_TEMP/ipa/Payload"
+          cp -R "$APP" "$RUNNER_TEMP/ipa/Payload/"
+          (cd "$RUNNER_TEMP/ipa" && zip -qry "$GITHUB_WORKSPACE/EglViewer.ipa" Payload)
+          ls -lh EglViewer.ipa
+
+      - name: Upload IPA artifact
+        uses: actions/upload-artifact@v4
+        with:
+          name: ios-unsigned-ipa
+          path: EglViewer.ipa
+          if-no-files-found: error
+
+      - name: Publish ios-latest pre-release
+        if: github.event_name == 'workflow_dispatch' || (github.event_name == 'push' && github.ref == 'refs/heads/main')
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: |
+          set -euo pipefail
+          NOTES="Unsigned iOS build from ${GITHUB_SHA::7} (${GITHUB_REF_NAME}). Sideload only."
+          if gh release view ios-latest >/dev/null 2>&1; then
+            gh release upload ios-latest EglViewer.ipa --clobber
+            gh release edit ios-latest --notes "$NOTES" --prerelease
+          else
+            gh release create ios-latest EglViewer.ipa --prerelease --title "iOS latest (unsigned)" --notes "$NOTES" --target "$GITHUB_SHA"
+          fi

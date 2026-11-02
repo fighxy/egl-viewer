@@ -1,7 +1,7 @@
 # egl-viewer iOS (experimental draft)
 
 SwiftUI iPhone shell over the native `.eglib` core. **No Eagle. No Canvas.** Desktop
-Tauri remains the default product (D-082).
+Tauri remains the default product (D-082, D-085).
 
 Concept screens: Project-store `docs/ios-ui-concept.md`.
 
@@ -10,13 +10,14 @@ Concept screens: Project-store `docs/ios-ui-concept.md`.
 | Layer | State |
 |---|---|
 | `crates/library-ffi` C ABI | Compiles and is tested on host (`cargo test -p library-ffi`): create/open/close, library info, windowed scope, folders, tags, thumbnail path/bytes, `ItemEdit` |
-| SwiftUI screens | Welcome → Browse (places / search / filters / grid / tabs) → Preview → Details/Tags/Folders sheet; desktop-aligned tokens shared with Android (D-085) |
-| Document picker / iCloud bookmarks | Stubbed — Open/Create use mock paths or in-memory samples |
-| Linking Rust into the app | Documented below; not required to browse the UI with mock data |
-| Media pipeline on device | Out of scope for this draft (thumbs by path/bytes are exposed in FFI only) |
+| SwiftUI screens | Welcome → Browse → Preview → Folders/tags edit sheet, with desktop-aligned tokens |
+| Document picker / bookmarks | **Live:** `fileImporter` for `.eglib` / folders; security-scoped bookmarks in `UserDefaults` (`LibraryAccess`); recents resume access |
+| Linking Rust into the app | Optional via `Config/WithFfi.xcconfig` (`EGL_HAS_FFI` + `libegl_library.a`) |
+| Thumbnails | FFI WebP bytes into grid / preview when linked; extension placeholder otherwise |
+| Media pipeline on device | Out of scope (thumbs only; no full decode pipeline) |
 
 Without `libegl_library.a`, the app runs on **mock items** so the four screens can be
-reviewed in Xcode / Simulator.
+reviewed in Xcode / Simulator. Open/Create still run the pickers; open falls back to mock.
 
 ## Layout
 
@@ -28,8 +29,10 @@ ios/
     EglViewerApp.swift
     Screens/               Welcome, Browse, Preview, EditSheet
     Theme/Tokens.swift     desktop light tokens (D-028)
+    Config/WithFfi.xcconfig  opt-in EGL_HAS_FFI + link flags
     Bridge/
       LibraryBridge.swift  UI façade (mock by default)
+      LibraryAccess.swift  bookmarks / recents
       NativeFfiSession.swift  gated by EGL_HAS_FFI
       egl_library.h        copy of crates/library-ffi/include/
 crates/library-ffi/        C ABI over library-native (no Eagle)
@@ -57,33 +60,23 @@ Header: `crates/library-ffi/include/egl_library.h` (also under `ios/EglViewer/Br
 ## Wire FFI into Xcode
 
 1. Open `ios/EglViewer.xcodeproj`.
-2. Add `libegl_library.a` for the active destination (device or simulator).
-3. Set **Header Search Paths** to `$(SRCROOT)/EglViewer/Bridge` (or the crate `include/`).
-4. Set **Swift Compiler – Custom Flags → Active Compilation Conditions** to include
-   `EGL_HAS_FFI` for Debug/Release.
-5. Link system libs SQLite needs if the linker asks (`libsqlite3` is bundled via
-   rusqlite’s `bundled` feature; still add `-lc++` / Security / SystemConfiguration
-   if Apple’s linker reports missing symbols from transitive crates).
+2. Build `libegl_library.a` for the active destination (device or simulator).
+3. Apply `EglViewer/Config/WithFfi.xcconfig` to the target (or copy its settings):
+   - `SWIFT_ACTIVE_COMPILATION_CONDITIONS` includes `EGL_HAS_FFI`
+   - `LIBRARY_SEARCH_PATHS` / `OTHER_LDFLAGS` link `-legl_library`
+4. Header / Swift include paths already point at `EglViewer/Bridge` (modulemap).
+5. If the linker asks, keep `-lc++` / Security / SystemConfiguration from the xcconfig
+   (rusqlite is bundled; other crates may still need system frameworks).
 6. Run on a device or Simulator. `LibraryBridge` then opens real `.eglib` folders
-   through the C ABI.
+   through the C ABI and shows WebP thumbs.
 
-## CI (D-084)
-
-Workflow: [`.github/workflows/mobile.yml`](../.github/workflows/mobile.yml) (path-filtered).
-
-| Job | Runner | What it runs |
-|---|---|---|
-| `library-ffi` | ubuntu | Layout/header sync (`scripts/check-mobile-shell.sh`), `cargo test` / clippy for `library-ffi` |
-| `ios` | `macos-latest` | `xcodebuild -scheme EglViewer -sdk iphonesimulator` with `CODE_SIGNING_ALLOWED=NO` (mock FFI, no signing secrets) |
-| `android` | ubuntu | `./gradlew :app:assembleDebug` (sibling shell) |
-
-Desktop Windows `CI` is unchanged and still runs `cargo test --workspace` (includes
-`library-ffi`). Local Linux can run the layout script + FFI tests; full Xcode needs a Mac.
+Linux / CI: run `cargo test -p library-ffi` (or the workspace check). The default
+Xcode configuration stays mock so unsigned simulator CI does not need the `.a`.
 
 ## Product constraints
 
 - Native `.eglib` only.
 - Writer lock and sync-folder read-only rules still apply (`sync_folder` on
-  `egl_open`, D-021).
+  `egl_open`, D-021). iCloud / Files picks open read-only via `syncFolder`.
 - Tags stay case-sensitive.
 - UI stays thin; logic lives in Rust.
