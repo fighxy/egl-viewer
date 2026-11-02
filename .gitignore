@@ -31,6 +31,12 @@ dist/
 Thumbs.db
 Desktop.ini
 
+# Xcode / iOS local build products (D-082)
+ios/**/xcuserdata/
+ios/**/DerivedData/
+ios/*.xcworkspace/xcuserdata/
+*.xcuserstate
+
 # Logs and test coverage
 *.log
 coverage/

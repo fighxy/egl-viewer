@@ -3483,6 +3483,17 @@ dependencies = [
 ]
 
 [[package]]
+name = "library-ffi"
+version = "0.2.1"
+dependencies = [
+ "library-core",
+ "library-native",
+ "serde",
+ "serde_json",
+ "tempfile",
+]
+
+[[package]]
 name = "library-native"
 version = "0.2.1"
 dependencies = [
