@@ -1,6 +1,10 @@
 /**
  * Thin JNI forwarder to the library-ffi C ABI (D-083 / D-085).
  * Mirrors ios NativeFfiSession / egl_library.h — no Eagle.
+ *
+ * Management exports (egl_add_files … egl_delete_smart_folder) are not
+ * forwarded here yet; see the "JNI notes" block in egl_library.h for the
+ * mapping (handle/import id as jlong, JSON as jstring, counts as jint).
  */
 
 #include <jni.h>

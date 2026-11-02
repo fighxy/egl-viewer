@@ -10,16 +10,23 @@ use std::ffi::{CStr, CString};
 use std::os::raw::{c_char, c_int};
 use std::path::Path;
 use std::ptr;
-use std::sync::Mutex;
+use std::sync::{Arc, Mutex};
 
 use library_core::{ItemCell, ItemEdit, MAX_WINDOW, Scope, SourceError};
 use library_native::{Library, OpenOptions, create_library};
 use serde::Serialize;
 
+mod manage;
+
+pub use manage::*;
+
 /// Opaque handle for Swift / C callers.
 pub struct EglLibrary {
-    library: Library,
+    /// Shared with background import / preview threads.
+    library: Arc<Library>,
     last_error: Mutex<String>,
+    /// Imports, undo stack and Empty Trash cancel flag (management exports).
+    state: manage::State,
 }
 
 #[repr(C)]
@@ -51,13 +58,13 @@ fn set_global_error(message: impl Into<String>) {
     }
 }
 
-fn set_error(lib: &EglLibrary, message: impl Into<String>) {
+pub(crate) fn set_error(lib: &EglLibrary, message: impl Into<String>) {
     if let Ok(mut slot) = lib.last_error.lock() {
         *slot = message.into();
     }
 }
 
-fn map_error(err: &SourceError) -> EglStatus {
+pub(crate) fn map_error(err: &SourceError) -> EglStatus {
     match err {
         SourceError::Invalid(_) | SourceError::BadRequest => EglStatus::Invalid,
         SourceError::NotFound => EglStatus::NotFound,
@@ -71,18 +78,18 @@ fn map_error(err: &SourceError) -> EglStatus {
     }
 }
 
-fn fail(lib: &EglLibrary, status: EglStatus, message: impl Into<String>) -> EglStatus {
+pub(crate) fn fail(lib: &EglLibrary, status: EglStatus, message: impl Into<String>) -> EglStatus {
     set_error(lib, message);
     status
 }
 
-fn fail_source(lib: &EglLibrary, err: SourceError) -> EglStatus {
+pub(crate) fn fail_source(lib: &EglLibrary, err: SourceError) -> EglStatus {
     let status = map_error(&err);
     set_error(lib, err.to_string());
     status
 }
 
-fn c_str<'a>(ptr: *const c_char) -> Result<&'a str, EglStatus> {
+pub(crate) fn c_str<'a>(ptr: *const c_char) -> Result<&'a str, EglStatus> {
     if ptr.is_null() {
         return Err(EglStatus::Invalid);
     }
@@ -96,7 +103,10 @@ fn alloc_string(value: impl Into<String>) -> Result<*mut c_char, EglStatus> {
     Ok(c.into_raw())
 }
 
-fn write_string(out: *mut *mut c_char, value: impl Into<String>) -> Result<(), EglStatus> {
+pub(crate) fn write_string(
+    out: *mut *mut c_char,
+    value: impl Into<String>,
+) -> Result<(), EglStatus> {
     if out.is_null() {
         return Err(EglStatus::Invalid);
     }
@@ -108,7 +118,7 @@ fn write_string(out: *mut *mut c_char, value: impl Into<String>) -> Result<(), E
     Ok(())
 }
 
-fn write_json<T: Serialize>(out: *mut *mut c_char, value: &T) -> Result<(), EglStatus> {
+pub(crate) fn write_json<T: Serialize>(out: *mut *mut c_char, value: &T) -> Result<(), EglStatus> {
     let json = serde_json::to_string(value).map_err(|_| EglStatus::Other)?;
     write_string(out, json)
 }
@@ -182,8 +192,9 @@ pub unsafe extern "C" fn egl_open(
     options.sync_folder = sync_folder != 0;
     match Library::open(Path::new(path), &options) {
         Ok(library) => Box::into_raw(Box::new(EglLibrary {
-            library,
+            library: Arc::new(library),
             last_error: Mutex::new(String::new()),
+            state: manage::State::default(),
         })),
         Err(err) => {
             set_global_error(err.to_string());
@@ -192,7 +203,8 @@ pub unsafe extern "C" fn egl_open(
     }
 }
 
-/// Closes the library and frees the handle.
+/// Closes the library and frees the handle. Running imports are cancelled and joined first;
+/// files already added stay.
 #[unsafe(no_mangle)]
 pub unsafe extern "C" fn egl_close(lib: *mut EglLibrary) {
     if lib.is_null() {
@@ -200,7 +212,11 @@ pub unsafe extern "C" fn egl_close(lib: *mut EglLibrary) {
     }
     // SAFETY: lib was produced by egl_open and not closed yet.
     let handle = unsafe { Box::from_raw(lib) };
-    let _ = handle.library.close();
+    handle.state.stop_imports();
+    let EglLibrary { library, .. } = *handle;
+    if let Ok(library) = Arc::try_unwrap(library) {
+        let _ = library.close();
+    }
 }
 
 #[unsafe(no_mangle)]
@@ -457,7 +473,10 @@ pub unsafe extern "C" fn egl_last_error_global() -> *const c_char {
     tls_cstr(message)
 }
 
-fn with_lib(lib: *mut EglLibrary, body: impl FnOnce(&EglLibrary) -> EglStatus) -> EglStatus {
+pub(crate) fn with_lib(
+    lib: *mut EglLibrary,
+    body: impl FnOnce(&EglLibrary) -> EglStatus,
+) -> EglStatus {
     if lib.is_null() {
         set_global_error("library handle is null");
         return EglStatus::Invalid;
