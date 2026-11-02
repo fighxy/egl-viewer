@@ -1444,3 +1444,23 @@ unchanged.
   scoped bookmarks end-to-end, on-device media pipeline, Eagle, production polish.
 - **D-011.** Mobile `staticlib` lives in `library-ffi`, not in `src-tauri` (desktop
   remains `rlib`-only).
+
+## D-083 Experimental Android Compose shell over the same C ABI (2026-11-02)
+
+Companion draft to D-082: a **Jetpack Compose** phone client for native `.eglib`
+only (no Eagle, no Canvas). Desktop Tauri stays the default.
+
+- **Size check.** The iOS SwiftUI shell is ~1.1k LOC of product Swift. The Android
+  mirror is ~1.2k Kotlin (screens + bridge) plus ~200 C++ JNI forwarders — well
+  under a multi‑kLOC balloon, so the scaffold was worth landing. Gradle /
+  manifests are scaffolding, not product logic.
+- **Same FFI.** Reuses `library-ffi` / `egl_*`. `crate-type` now also includes
+  `cdylib` so `cargo ndk` can emit `libegl_library.so` for `arm64-v8a`. A tiny
+  JNI shim (`android/app/src/main/cpp/egl_jni.cpp`) forwards to the C ABI; without
+  the `.so`, Compose runs on **mock data** (same idea as iOS `EGL_HAS_FFI`).
+- **UI.** Welcome → Browse (places strip, filters, dense grid, tab bar) → Preview
+  → Details / Tags / Folders sheet, aligned with `ios/` and the iOS UI concept
+  (desktop DNA, D-028 tokens).
+- **Not Tauri Android.** This is a native Compose shell, not the WebView UI. Play
+  Store, signing, SAF end-to-end, and on-device media pipeline stay out of scope.
+- **Docs.** `android/README.md` covers NDK / `cargo-ndk` build and CMake wiring.
