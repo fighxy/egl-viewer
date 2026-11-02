@@ -17,6 +17,7 @@
 		A10000000000000000000008 /* BrowseScreen.swift in Sources */ = {isa = PBXBuildFile; fileRef = B10000000000000000000008 /* BrowseScreen.swift */; };
 		A10000000000000000000009 /* PreviewScreen.swift in Sources */ = {isa = PBXBuildFile; fileRef = B10000000000000000000009 /* PreviewScreen.swift */; };
 		A1000000000000000000000A /* EditSheet.swift in Sources */ = {isa = PBXBuildFile; fileRef = B1000000000000000000000A /* EditSheet.swift */; };
+		A1000000000000000000000E /* LibraryAccess.swift in Sources */ = {isa = PBXBuildFile; fileRef = B1000000000000000000000E /* LibraryAccess.swift */; };
 /* End PBXBuildFile section */
 
 /* Begin PBXFileReference section */
@@ -33,6 +34,8 @@
 		B1000000000000000000000B /* Info.plist */ = {isa = PBXFileReference; lastKnownFileType = text.plist.xml; path = Info.plist; sourceTree = "<group>"; };
 		B1000000000000000000000C /* egl_library.h */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.c.h; path = egl_library.h; sourceTree = "<group>"; };
 		B1000000000000000000000D /* module.modulemap */ = {isa = PBXFileReference; lastKnownFileType = "sourcecode.module-map"; path = module.modulemap; sourceTree = "<group>"; };
+		B1000000000000000000000E /* LibraryAccess.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = LibraryAccess.swift; sourceTree = "<group>"; };
+		B1000000000000000000000F /* WithFfi.xcconfig */ = {isa = PBXFileReference; lastKnownFileType = text.xcconfig; path = WithFfi.xcconfig; sourceTree = "<group>"; };
 		C10000000000000000000001 /* EglViewer.app */ = {isa = PBXFileReference; explicitFileType = wrapper.application; includeInIndex = 0; path = EglViewer.app; sourceTree = BUILT_PRODUCTS_DIR; };
 /* End PBXFileReference section */
 
@@ -64,6 +67,7 @@
 				E10000000000000000000005 /* Bridge */,
 				E10000000000000000000006 /* Screens */,
 				E10000000000000000000007 /* Resources */,
+				E10000000000000000000008 /* Config */,
 			);
 			path = EglViewer;
 			sourceTree = "<group>";
@@ -89,11 +93,20 @@
 			children = (
 				B10000000000000000000004 /* LibraryModels.swift */,
 				B10000000000000000000005 /* LibraryBridge.swift */,
+				B1000000000000000000000E /* LibraryAccess.swift */,
 				B10000000000000000000006 /* NativeFfiSession.swift */,
 				B1000000000000000000000C /* egl_library.h */,
 				B1000000000000000000000D /* module.modulemap */,
 			);
 			path = Bridge;
+			sourceTree = "<group>";
+		};
+		E10000000000000000000008 /* Config */ = {
+			isa = PBXGroup;
+			children = (
+				B1000000000000000000000F /* WithFfi.xcconfig */,
+			);
+			path = Config;
 			sourceTree = "<group>";
 		};
 		E10000000000000000000006 /* Screens */ = {
@@ -188,6 +201,7 @@
 				A10000000000000000000003 /* Tokens.swift in Sources */,
 				A10000000000000000000004 /* LibraryModels.swift in Sources */,
 				A10000000000000000000005 /* LibraryBridge.swift in Sources */,
+				A1000000000000000000000E /* LibraryAccess.swift in Sources */,
 				A10000000000000000000006 /* NativeFfiSession.swift in Sources */,
 				A10000000000000000000007 /* WelcomeScreen.swift in Sources */,
 				A10000000000000000000008 /* BrowseScreen.swift in Sources */,
@@ -240,10 +254,20 @@
 				DEVELOPMENT_TEAM = "";
 				ENABLE_PREVIEWS = YES;
 				GENERATE_INFOPLIST_FILE = NO;
+				HEADER_SEARCH_PATHS = (
+					"$(inherited)",
+					"$(SRCROOT)/EglViewer/Bridge",
+				);
 				INFOPLIST_FILE = EglViewer/Resources/Info.plist;
 				LD_RUNPATH_SEARCH_PATHS = (
 					"$(inherited)",
 					"@executable_path/Frameworks",
+				);
+				LIBRARY_SEARCH_PATHS = (
+					"$(inherited)",
+					"$(SRCROOT)/../target/aarch64-apple-ios/release",
+					"$(SRCROOT)/../target/aarch64-apple-ios-sim/release",
+					"$(SRCROOT)/../target/x86_64-apple-ios/release",
 				);
 				MARKETING_VERSION = 0.2.1;
 				PRODUCT_BUNDLE_IDENTIFIER = app.eglviewer.ios;
@@ -251,6 +275,10 @@
 				SUPPORTED_PLATFORMS = "iphoneos iphonesimulator";
 				SUPPORTS_MACCATALYST = NO;
 				SWIFT_EMIT_LOC_STRINGS = YES;
+				SWIFT_INCLUDE_PATHS = (
+					"$(inherited)",
+					"$(SRCROOT)/EglViewer/Bridge",
+				);
 				SWIFT_VERSION = 5.0;
 				TARGETED_DEVICE_FAMILY = 1;
 			};
@@ -264,10 +292,20 @@
 				DEVELOPMENT_TEAM = "";
 				ENABLE_PREVIEWS = YES;
 				GENERATE_INFOPLIST_FILE = NO;
+				HEADER_SEARCH_PATHS = (
+					"$(inherited)",
+					"$(SRCROOT)/EglViewer/Bridge",
+				);
 				INFOPLIST_FILE = EglViewer/Resources/Info.plist;
 				LD_RUNPATH_SEARCH_PATHS = (
 					"$(inherited)",
 					"@executable_path/Frameworks",
+				);
+				LIBRARY_SEARCH_PATHS = (
+					"$(inherited)",
+					"$(SRCROOT)/../target/aarch64-apple-ios/release",
+					"$(SRCROOT)/../target/aarch64-apple-ios-sim/release",
+					"$(SRCROOT)/../target/x86_64-apple-ios/release",
 				);
 				MARKETING_VERSION = 0.2.1;
 				PRODUCT_BUNDLE_IDENTIFIER = app.eglviewer.ios;
@@ -275,6 +313,10 @@
 				SUPPORTED_PLATFORMS = "iphoneos iphonesimulator";
 				SUPPORTS_MACCATALYST = NO;
 				SWIFT_EMIT_LOC_STRINGS = YES;
+				SWIFT_INCLUDE_PATHS = (
+					"$(inherited)",
+					"$(SRCROOT)/EglViewer/Bridge",
+				);
 				SWIFT_VERSION = 5.0;
 				TARGETED_DEVICE_FAMILY = 1;
 			};

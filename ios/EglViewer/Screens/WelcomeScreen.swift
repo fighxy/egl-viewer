@@ -1,29 +1,15 @@
 import SwiftUI
+import UniformTypeIdentifiers
 
 struct WelcomeScreen: View {
     @EnvironmentObject private var bridge: LibraryBridge
+    @ObservedObject private var access = LibraryAccess.shared
     @Binding var path: NavigationPath
 
-    private let recents: [RecentLibrary] = [
-        RecentLibrary(
-            name: "Refs",
-            path: "/On My iPhone/Refs.eglib",
-            locationHint: "On My iPhone",
-            missing: false
-        ),
-        RecentLibrary(
-            name: "Moodboard",
-            path: "/iCloud Drive/Moodboard.eglib",
-            locationHint: "iCloud",
-            missing: false
-        ),
-        RecentLibrary(
-            name: "Archive",
-            path: "/Files/Archive.eglib",
-            locationHint: "Files",
-            missing: true
-        ),
-    ]
+    @State private var showOpenPicker = false
+    @State private var showCreateParentPicker = false
+    @State private var pendingCreateName = "Demo"
+    @State private var showCreateNameAlert = false
 
     var body: some View {
         ScrollView {
@@ -40,8 +26,7 @@ struct WelcomeScreen: View {
 
                 VStack(spacing: 10) {
                     Button {
-                        bridge.createLibrary(named: "Demo")
-                        path.append(AppRoute.browse)
+                        showCreateNameAlert = true
                     } label: {
                         Text("Create library")
                             .font(EglTokens.titleFont)
@@ -52,9 +37,7 @@ struct WelcomeScreen: View {
                     .tint(EglTokens.foreground)
 
                     Button {
-                        // Document picker is stubbed in this draft.
-                        bridge.open(path: "/On My iPhone/Refs.eglib", syncFolder: false)
-                        path.append(AppRoute.browse)
+                        showOpenPicker = true
                     } label: {
                         Text("Open .eglib…")
                             .font(EglTokens.titleFont)
@@ -69,7 +52,14 @@ struct WelcomeScreen: View {
                         .font(EglTokens.chromeFont)
                         .foregroundStyle(EglTokens.mutedForeground)
 
-                    ForEach(recents) { recent in
+                    if access.recents.isEmpty {
+                        Text("No recent libraries yet.")
+                            .font(EglTokens.chromeFont)
+                            .foregroundStyle(EglTokens.mutedForeground)
+                            .padding(.vertical, 8)
+                    }
+
+                    ForEach(access.recents) { recent in
                         Button {
                             guard !recent.missing else { return }
                             bridge.openRecent(recent)
@@ -103,7 +93,18 @@ struct WelcomeScreen: View {
                             )
                         }
                         .disabled(recent.missing)
+                        .contextMenu {
+                            Button("Forget", role: .destructive) {
+                                access.forget(path: recent.path)
+                            }
+                        }
                     }
+                }
+
+                if let error = bridge.lastError {
+                    Text(error)
+                        .font(EglTokens.chromeFont)
+                        .foregroundStyle(EglTokens.mutedForeground)
                 }
 
                 Text("Native .eglib only — no Eagle on this client.")
@@ -116,5 +117,64 @@ struct WelcomeScreen: View {
         }
         .background(EglTokens.background.ignoresSafeArea())
         .navigationBarHidden(true)
+        .fileImporter(
+            isPresented: $showOpenPicker,
+            allowedContentTypes: LibraryAccess.openContentTypes,
+            allowsMultipleSelection: false
+        ) { result in
+            handleOpen(result)
+        }
+        .fileImporter(
+            isPresented: $showCreateParentPicker,
+            allowedContentTypes: [.folder, .directory],
+            allowsMultipleSelection: false
+        ) { result in
+            handleCreateParent(result)
+        }
+        .alert("Library name", isPresented: $showCreateNameAlert) {
+            TextField("Name", text: $pendingCreateName)
+            Button("Choose folder…") {
+                showCreateParentPicker = true
+            }
+            Button("Mock only", role: .cancel) {
+                bridge.createLibrary(named: pendingCreateName, parentURL: nil)
+                path.append(AppRoute.browse)
+            }
+        } message: {
+            Text(
+                bridge.ffiLinked
+                    ? "Pick a parent folder for Name.eglib (security-scoped)."
+                    : "FFI not linked — Create uses mock data unless you link libegl_library.a."
+            )
+        }
+        .onAppear {
+            access.reloadFromDefaults()
+        }
+    }
+
+    private func handleOpen(_ result: Result<[URL], Error>) {
+        switch result {
+        case let .success(urls):
+            guard let url = urls.first else { return }
+            bridge.openPickedLibrary(url: url)
+            path.append(AppRoute.browse)
+        case let .failure(error):
+            bridge.lastError = error.localizedDescription
+        }
+    }
+
+    private func handleCreateParent(_ result: Result<[URL], Error>) {
+        switch result {
+        case let .success(urls):
+            guard let url = urls.first else { return }
+            let accessed = url.startAccessingSecurityScopedResource()
+            bridge.createLibrary(named: pendingCreateName, parentURL: url)
+            if accessed {
+                url.stopAccessingSecurityScopedResource()
+            }
+            path.append(AppRoute.browse)
+        case let .failure(error):
+            bridge.lastError = error.localizedDescription
+        }
     }
 }

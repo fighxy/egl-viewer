@@ -1,7 +1,7 @@
 # egl-viewer Android (experimental draft)
 
 Jetpack Compose phone shell over the native `.eglib` core. **No Eagle. No Canvas.**
-Desktop Tauri remains the default product (D-083). Shares the same C ABI as iOS
+Desktop Tauri remains the default product (D-083, D-085). Shares the same C ABI as iOS
 (`crates/library-ffi`, D-082).
 
 UI flow matches the iOS concept: Welcome → Browse (places / filters / grid) →
@@ -25,13 +25,17 @@ needed multi‑kLOC of Android-only logic, we would have stopped at an estimate.
 |---|---|
 | `library-ffi` C ABI | Shared with iOS; host-tested. `cdylib` produces `libegl_library.so` |
 | Compose screens | Welcome → Browse → Preview → Edit sheet (desktop-aligned tokens) |
-| SAF / document picker | Stubbed — Open/Create use mock paths or in-memory samples |
-| JNI | `app/src/main/cpp/egl_jni.cpp` forwards to `egl_*`; CMake optional |
-| Linking Rust | Documented below; **not required** to browse UI with mock data |
+| SAF / bookmarks | **Live:** `OpenDocumentTree`, persistable URI permissions, recent list; path resolver for primary-storage trees |
+| JNI | `egl_jni.cpp` forwards create/open/window/tags/thumbs; CMake auto-enables when `.so` is present |
+| Thumbnails | FFI WebP bytes → `BitmapFactory` in grid/preview; placeholder when missing / mock |
 | On-device media pipeline | Out of scope |
 
 Without the `.so`, the app runs on **mock items** so the four screens can be
-reviewed in Android Studio / an emulator.
+reviewed in Android Studio / an emulator. SAF still runs; unresolved URIs fall back
+to mock with an error string.
+
+**SAF limit:** Rust needs a real filesystem path for SQLite. Cloud / provider URIs
+without a resolvable path cannot open live yet.
 
 ## Layout
 
@@ -40,7 +44,7 @@ android/
   README.md
   settings.gradle.kts / build.gradle.kts
   app/
-    build.gradle.kts
+    build.gradle.kts          CMake gated on jniLibs .so (or -Pegl.ffi=true)
     src/main/
       AndroidManifest.xml
       java/app/eglviewer/
@@ -48,7 +52,7 @@ android/
         screens/        Welcome, Browse, Preview, EditSheet
         theme/          Tokens (not under a `ui` package — clashes with
                         `androidx.compose.ui` and breaks `Modifier` imports)
-        bridge/         LibraryBridge, models, NativeFfiSession / EglNative
+        bridge/         LibraryBridge, LibraryAccess, models, NativeFfiSession
       cpp/              egl_jni.cpp + CMakeLists.txt + egl_library.h
 crates/library-ffi/     C ABI (staticlib iOS, cdylib Android)
 ```
@@ -75,11 +79,10 @@ Header: `crates/library-ffi/include/egl_library.h` (also under `android/app/src/
 
 1. Open the `android/` folder in Android Studio (Giraffe+ / AGP 8.7).
 2. Drop `libegl_library.so` into `app/src/main/jniLibs/arm64-v8a/` as above.
-3. In `app/build.gradle.kts`, uncomment the `ndk { … }` block and the
-   `externalNativeBuild { cmake { … } }` block so `egl_jni` links against the
-   Rust `.so`.
+3. Gradle detects the `.so` and enables `ndk` + `externalNativeBuild` (CMake) so
+   `egl_jni` links against the Rust library. Force with `./gradlew :app:assembleDebug -Pegl.ffi=true`.
 4. Run on an arm64 device/emulator. `LibraryBridge` loads `libegl_jni.so` and
-   opens real `.eglib` folders when present; otherwise it keeps mock data.
+   opens real `.eglib` folders when a filesystem path is available; otherwise mock.
 
 ## CI (D-084)
 
@@ -88,7 +91,7 @@ Workflow: [`.github/workflows/mobile.yml`](../.github/workflows/mobile.yml) (pat
 | Job | Runner | What it runs |
 |---|---|---|
 | `library-ffi` | ubuntu | Layout/header sync, `cargo test` / clippy for `library-ffi` (needs `libheif-dev` on the runner — apt, no secrets) |
-| `android` | ubuntu | JDK 17 + runner Android SDK (platform 35 via `sdkmanager`), `./gradlew :app:assembleDebug` **without NDK** (CMake stays commented; mock FFI) |
+| `android` | ubuntu | JDK 17 + runner Android SDK (platform 35 via `sdkmanager`), `./gradlew :app:assembleDebug` **without NDK** (no `.so` → CMake off; mock FFI) |
 | `ios` | `macos-latest` | Unsigned simulator `xcodebuild` for the sibling shell |
 
 No repository secrets. Gradle uses the committed wrapper (`gradlew`) and the

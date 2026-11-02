@@ -1,5 +1,8 @@
 package app.eglviewer.screens
 
+import android.net.Uri
+import androidx.activity.compose.rememberLauncherForActivityResult
+import androidx.activity.result.contract.ActivityResultContracts
 import androidx.compose.foundation.border
 import androidx.compose.foundation.clickable
 import androidx.compose.foundation.layout.Arrangement
@@ -17,11 +20,12 @@ import androidx.compose.material3.ButtonDefaults
 import androidx.compose.material3.OutlinedButton
 import androidx.compose.material3.Text
 import androidx.compose.runtime.Composable
+import androidx.compose.runtime.LaunchedEffect
 import androidx.compose.ui.Modifier
+import androidx.compose.ui.platform.LocalContext
 import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.unit.dp
 import app.eglviewer.bridge.LibraryBridge
-import app.eglviewer.bridge.RecentLibrary
 import app.eglviewer.theme.EglTokens
 
 @Composable
@@ -29,11 +33,19 @@ fun WelcomeScreen(
     bridge: LibraryBridge,
     onOpenBrowse: () -> Unit,
 ) {
-    val recents = listOf(
-        RecentLibrary("Refs", "/storage/emulated/0/Refs.eglib", "Internal storage", false),
-        RecentLibrary("Moodboard", "/cloud/Moodboard.eglib", "Cloud", false),
-        RecentLibrary("Archive", "/storage/emulated/0/Archive.eglib", "Files", true),
-    )
+    val context = LocalContext.current
+    LaunchedEffect(Unit) {
+        bridge.attach(context)
+    }
+
+    val openTree = rememberLauncherForActivityResult(
+        contract = ActivityResultContracts.OpenDocumentTree(),
+    ) { uri: Uri? ->
+        if (uri != null) {
+            bridge.openUri(uri)
+            onOpenBrowse()
+        }
+    }
 
     Column(
         modifier = Modifier
@@ -71,10 +83,7 @@ fun WelcomeScreen(
                 Text("Create library", fontSize = EglTokens.TitleSp, fontWeight = FontWeight.SemiBold)
             }
             OutlinedButton(
-                onClick = {
-                    bridge.open("/storage/emulated/0/Refs.eglib", syncFolder = false)
-                    onOpenBrowse()
-                },
+                onClick = { openTree.launch(null) },
                 modifier = Modifier.fillMaxWidth(),
             ) {
                 Text("Open .eglib…", fontSize = EglTokens.TitleSp, fontWeight = FontWeight.SemiBold)
@@ -83,7 +92,14 @@ fun WelcomeScreen(
 
         Column(verticalArrangement = Arrangement.spacedBy(8.dp)) {
             Text("Recent", color = EglTokens.MutedForeground, fontSize = EglTokens.ChromeSp)
-            recents.forEach { recent ->
+            if (bridge.recents.isEmpty()) {
+                Text(
+                    "No recent libraries yet.",
+                    color = EglTokens.MutedForeground,
+                    fontSize = EglTokens.ChromeSp,
+                )
+            }
+            bridge.recents.forEach { recent ->
                 Row(
                     modifier = Modifier
                         .fillMaxWidth()
@@ -109,6 +125,10 @@ fun WelcomeScreen(
                     }
                 }
             }
+        }
+
+        bridge.lastError?.let { error ->
+            Text(error, color = EglTokens.MutedForeground, fontSize = EglTokens.ChromeSp)
         }
 
         Spacer(modifier = Modifier.height(8.dp))

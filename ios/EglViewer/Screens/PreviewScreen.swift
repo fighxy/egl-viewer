@@ -49,27 +49,35 @@ struct PreviewScreen: View {
 
                 Spacer()
 
-                RoundedRectangle(cornerRadius: 2)
-                    .fill(Color.white.opacity(0.12))
-                    .aspectRatio(itemAspect, contentMode: .fit)
-                    .overlay {
-                        Text((item?.ext ?? "img").uppercased())
-                            .font(.system(size: 28, weight: .semibold))
-                            .foregroundStyle(.white.opacity(0.55))
+                Group {
+                    if let image = bridge.thumbnailImage(id: itemId) {
+                        Image(uiImage: image)
+                            .resizable()
+                            .scaledToFit()
+                    } else {
+                        RoundedRectangle(cornerRadius: 2)
+                            .fill(Color.white.opacity(0.12))
+                            .overlay {
+                                Text((item?.ext ?? "img").uppercased())
+                                    .font(.system(size: 28, weight: .semibold))
+                                    .foregroundStyle(.white.opacity(0.55))
+                            }
                     }
-                    .padding(.horizontal, 20)
-                    .scaleEffect(scale)
-                    .rotationEffect(.degrees(rotation))
-                    .gesture(
-                        MagnificationGesture().onChanged { value in
-                            scale = min(max(value, 1), 4)
-                        }
-                    )
-                    .onTapGesture(count: 2) {
-                        withAnimation(.easeInOut(duration: 0.2)) {
-                            scale = scale > 1 ? 1 : 2
-                        }
+                }
+                .aspectRatio(itemAspect, contentMode: .fit)
+                .padding(.horizontal, 20)
+                .scaleEffect(scale)
+                .rotationEffect(.degrees(rotation))
+                .gesture(
+                    MagnificationGesture().onChanged { value in
+                        scale = min(max(value, 1), 4)
                     }
+                )
+                .onTapGesture(count: 2) {
+                    withAnimation(.easeInOut(duration: 0.2)) {
+                        scale = scale > 1 ? 1 : 2
+                    }
+                }
 
                 Spacer()
 

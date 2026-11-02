@@ -1483,10 +1483,37 @@ runs next to the Windows desktop `CI` workflow and does not change it.
 - **Android (ubuntu).** Temurin 17, Gradle wrapper cache, the runner’s preinstalled
   Android SDK (not `android-actions/setup-android`, whose default `tools` package
   is gone from `sdkmanager`), platform 35, `./gradlew :app:assembleDebug`.
-  **No NDK / no `.so`** — CMake `externalNativeBuild` stays commented so the
-  mock-FFI scaffold builds on CI without secrets.
+  **No NDK / no `.so`** — CMake `externalNativeBuild` is gated on
+  `jniLibs/.../libegl_library.so` (or `-Pegl.ffi=true`) so the mock-FFI scaffold
+  builds on CI without secrets (D-085).
 - **iOS (`macos-latest`).** Shared scheme `EglViewer`, unsigned
   `xcodebuild … -sdk iphonesimulator` with `CODE_SIGNING_ALLOWED=NO` (mock FFI,
   no `libegl_library.a`). No Apple Developer certs or secrets.
 - **Not required.** Linking Rust into either app, Play/App Store signing, or
   building `libegl_library` for device ABIs in CI.
+
+## D-085 Mobile live `.eglib` open and thumbnails (2026-11-02)
+
+Turns the D-082 / D-083 shells from mock-only UI into **live native library**
+clients when the Rust artifact is present. Desktop Tauri is unchanged; still no
+Eagle, App Store, or Play polish.
+
+- **Open.** iOS: `fileImporter` for the `.eglib` package / folder, with
+  **security-scoped bookmarks** persisted in `UserDefaults` (`LibraryAccess`)
+  and resumed on recent open. Android: `OpenDocumentTree` SAF picker, persistable
+  URI permissions, and a filesystem-path resolver for primary-storage trees so
+  `egl_open` can see `library.db`. Create on Android defaults to app-specific
+  external files when FFI is linked; iOS create picks a parent folder then calls
+  `egl_create_library`.
+- **Thumbs.** `egl_thumbnail_bytes` (and path) feed the browse grid and preview
+  stage on both shells; WebP decoded by `UIImage` / `BitmapFactory`. Missing
+  thumbs keep the extension placeholder. Host tests cover path/bytes after a
+  seeded preview (`cargo test -p library-ffi`).
+- **Linking.** iOS: `Config/WithFfi.xcconfig` sets `EGL_HAS_FFI` +
+  `-legl_library` search paths (CI / default builds stay mock). Android: Gradle
+  enables CMake/NDK only when `libegl_library.so` exists under `jniLibs` (or
+  `-Pegl.ffi=true`); JNI gains `createLibrary` and `thumbnailBytes`.
+- **SAF limit.** Android still needs a resolvable local path for SQLite; cloud
+  provider URIs without a path fall back to mock with an explanatory error.
+- **Out of scope.** On-device media pipeline, full-size original preview beyond
+  thumb bytes, iCloud File Provider packaging polish, Play/App Store signing.

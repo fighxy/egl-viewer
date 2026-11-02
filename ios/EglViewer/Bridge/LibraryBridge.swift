@@ -1,11 +1,11 @@
 import Foundation
+import UIKit
 
 /// Thin façade used by the SwiftUI screens.
 ///
-/// On this draft branch the UI runs on **mock data** so Xcode can open the
-/// project without linking `libegl_library.a`. When the Rust static library is
-/// linked, set the Swift active compilation condition `EGL_HAS_FFI` and the
-/// same methods call the C ABI in `NativeFfiSession` (see ios/README.md).
+/// Without `libegl_library.a` the UI runs on **mock data**. When the Rust static
+/// library is linked and `EGL_HAS_FFI` is set (Config/WithFfi.xcconfig), open /
+/// create / thumbs call the C ABI (D-085).
 @MainActor
 final class LibraryBridge: ObservableObject {
     static let appVersion = "0.2.1-ios"
@@ -19,19 +19,28 @@ final class LibraryBridge: ObservableObject {
     @Published var lastError: String?
 
     private var mockStore: MockLibraryStore?
+    private var thumbCache: [String: UIImage] = [:]
     #if EGL_HAS_FFI
     private var ffi = NativeFfiSession()
     #endif
 
     var isOpen: Bool { info != nil }
     var libraryName: String { info?.name ?? "Library" }
+    var ffiLinked: Bool {
+        #if EGL_HAS_FFI
+        true
+        #else
+        false
+        #endif
+    }
 
     func openRecent(_ recent: RecentLibrary) {
-        open(path: recent.path, syncFolder: recent.locationHint.contains("iCloud"))
+        let path = LibraryAccess.shared.resolveForOpen(path: recent.path)
+        open(path: path, syncFolder: recent.locationHint.contains("iCloud") || recent.locationHint == "Files")
     }
 
     func open(path: String, syncFolder: Bool) {
-        close()
+        close(keepScoped: true)
         lastError = nil
 
         #if EGL_HAS_FFI
@@ -39,6 +48,7 @@ final class LibraryBridge: ObservableObject {
             try ffi.open(path: path, syncFolder: syncFolder)
             usingMockData = false
             try reloadFromFfi()
+            thumbCache.removeAll()
             return
         } catch {
             lastError = error.localizedDescription
@@ -50,17 +60,57 @@ final class LibraryBridge: ObservableObject {
         usingMockData = true
         publishMock()
         if lastError == nil {
-            lastError = "Rust FFI not linked — mock library"
+            lastError = ffiLinked
+                ? "Could not open library — mock fallback"
+                : "Rust FFI not linked — mock library"
         }
     }
 
-    func createLibrary(named name: String) {
+    func openPickedLibrary(url: URL) {
+        let accessed = url.startAccessingSecurityScopedResource()
+        defer {
+            // Bookmark retains access for later; stop the picker grant after remember.
+            if accessed {
+                // Keep access via LibraryAccess bookmark resolve on next open.
+            }
+        }
+        let hint = LibraryAccess.shared.locationHint(for: url)
+        LibraryAccess.shared.remember(url: url, locationHint: hint)
+        let path = LibraryAccess.shared.resolveForOpen(path: url.path)
+        open(path: path, syncFolder: LibraryAccess.shared.isSyncFolder(url))
+        if accessed {
+            url.stopAccessingSecurityScopedResource()
+        }
+    }
+
+    func createLibrary(named name: String, parentURL: URL?) {
         close()
         lastError = nil
 
         #if EGL_HAS_FFI
-        // Create still needs a parent directory from the document picker; until
-        // that is wired, fall through to mock so the Welcome CTA works.
+        if let parentURL {
+            let accessed = parentURL.startAccessingSecurityScopedResource()
+            defer {
+                if accessed {
+                    parentURL.stopAccessingSecurityScopedResource()
+                }
+            }
+            do {
+                let created = try NativeFfiSession.createLibrary(
+                    parent: parentURL.path,
+                    name: name
+                )
+                let url = URL(fileURLWithPath: created, isDirectory: true)
+                LibraryAccess.shared.remember(
+                    url: url,
+                    locationHint: LibraryAccess.shared.locationHint(for: parentURL)
+                )
+                open(path: created, syncFolder: LibraryAccess.shared.isSyncFolder(parentURL))
+                return
+            } catch {
+                lastError = error.localizedDescription
+            }
+        }
         #endif
 
         mockStore = MockLibraryStore.sample(named: name)
@@ -69,15 +119,23 @@ final class LibraryBridge: ObservableObject {
     }
 
     func close() {
+        close(keepScoped: false)
+    }
+
+    private func close(keepScoped: Bool) {
         #if EGL_HAS_FFI
         ffi.close()
         #endif
+        if !keepScoped {
+            LibraryAccess.shared.stopScopedAccess()
+        }
         mockStore = nil
         info = nil
         items = []
         total = 0
         folders = []
         tags = []
+        thumbCache.removeAll()
         usingMockData = true
     }
 
@@ -114,6 +172,22 @@ final class LibraryBridge: ObservableObject {
         publishMock()
     }
 
+    /// WebP thumbnail bytes decoded to a UIImage when FFI is live; nil for mock / missing.
+    func thumbnailImage(id: String) -> UIImage? {
+        if let cached = thumbCache[id] {
+            return cached
+        }
+        #if EGL_HAS_FFI
+        if !usingMockData, let payload = try? ffi.thumbnailBytes(id: id) {
+            if let image = UIImage(data: payload.bytes) {
+                thumbCache[id] = image
+                return image
+            }
+        }
+        #endif
+        return nil
+    }
+
     private func publishMock() {
         guard let mock = mockStore else { return }
         info = mock.info
@@ -144,75 +218,59 @@ struct MockLibraryStore {
 
     static func sample(named name: String) -> MockLibraryStore {
         let clean = name.replacingOccurrences(of: ".eglib", with: "")
-        var cells: [ItemCellDTO] = []
-        cells.reserveCapacity(12)
-        for index in 1 ... 12 {
-            let cell = ItemCellDTO(
+        let cells: [ItemCellDTO] = (1 ... 12).map { index in
+            ItemCellDTO(
                 id: String(format: "mock%02d", index),
                 name: "Reference \(index)",
-                ext: index.isMultiple(of: 3) ? "png" : "jpg",
+                ext: index % 3 == 0 ? "png" : "jpg",
                 width: 1600,
-                height: index.isMultiple(of: 2) ? 900 : 1200,
+                height: index % 2 == 0 ? 900 : 1200,
                 star: UInt8(index % 6),
                 hasThumbnail: false,
                 thumbVersion: 1,
-                tags: index.isMultiple(of: 2) ? ["Ref"] : ["Mood"],
+                tags: index % 2 == 0 ? ["Ref"] : ["Mood"],
                 pending: false
             )
-            cells.append(cell)
         }
-        let acme = FolderDTO(
-            id: "fld-acme",
-            name: "Acme",
-            children: [],
-            imageCount: 4,
-            isLocked: false
-        )
-        let clients = FolderDTO(
-            id: "fld-clients",
-            name: "Clients",
-            children: [acme],
-            imageCount: 4,
-            isLocked: false
-        )
-        let mood = FolderDTO(
-            id: "fld-mood",
-            name: "Moodboards",
-            children: [],
-            imageCount: 8,
-            isLocked: false
-        )
+        let folders = [
+            FolderDTO(
+                id: "fld-clients",
+                name: "Clients",
+                children: [
+                    FolderDTO(id: "fld-acme", name: "Acme", children: [], imageCount: 4, isLocked: false),
+                ],
+                imageCount: 4,
+                isLocked: false
+            ),
+            FolderDTO(id: "fld-mood", name: "Moodboards", children: [], imageCount: 8, isLocked: false),
+        ]
         let tags = [
             TagDTO(name: "Ref", imageCount: 6),
             TagDTO(name: "Mood", imageCount: 6),
         ]
         var details: [String: ItemDTO] = [:]
-        details.reserveCapacity(cells.count)
         for cell in cells {
-            let folderIds = cell.tags.contains("Ref") ? ["fld-clients"] : ["fld-mood"]
             details[cell.id] = ItemDTO(
                 id: cell.id,
                 name: cell.name,
                 ext: cell.ext,
                 star: cell.star,
                 tags: cell.tags,
-                folders: folderIds,
+                folders: cell.tags.contains("Ref") ? ["fld-clients"] : ["fld-mood"],
                 annotation: "",
                 isDeleted: false
             )
         }
-        let title = clean.isEmpty ? "Demo" : clean
-        let info = LibraryInfoDTO(
-            kind: "native",
-            id: "mock-library",
-            name: title,
-            path: nil,
-            readOnly: false
-        )
         return MockLibraryStore(
-            info: info,
+            info: LibraryInfoDTO(
+                kind: "native",
+                id: "mock-library",
+                name: clean.isEmpty ? "Demo" : clean,
+                path: nil,
+                readOnly: false
+            ),
             cells: cells,
-            folders: [clients, mood],
+            folders: folders,
             tags: tags,
             details: details
         )

@@ -1,5 +1,5 @@
 #!/usr/bin/env bash
-# Lightweight validation for the experimental mobile shells (D-084).
+# Lightweight validation for the experimental mobile shells (D-084 / D-085).
 # Runs on Linux: layout + header copies stay in sync with library-ffi.
 set -euo pipefail
 
@@ -25,6 +25,8 @@ need ios/EglViewer/Screens/BrowseScreen.swift
 need ios/EglViewer/Screens/PreviewScreen.swift
 need ios/EglViewer/Screens/EditSheet.swift
 need ios/EglViewer/Bridge/egl_library.h
+need ios/EglViewer/Bridge/LibraryAccess.swift
+need ios/EglViewer/Config/WithFfi.xcconfig
 need android/README.md
 need android/gradlew
 need android/app/build.gradle.kts
@@ -33,6 +35,7 @@ need android/app/src/main/java/app/eglviewer/screens/WelcomeScreen.kt
 need android/app/src/main/java/app/eglviewer/screens/BrowseScreen.kt
 need android/app/src/main/java/app/eglviewer/screens/PreviewScreen.kt
 need android/app/src/main/java/app/eglviewer/screens/EditSheet.kt
+need android/app/src/main/java/app/eglviewer/bridge/LibraryAccess.kt
 need android/app/src/main/cpp/egl_jni.cpp
 need android/app/src/main/cpp/egl_library.h
 
@@ -44,9 +47,20 @@ for copy in ios/EglViewer/Bridge/egl_library.h android/app/src/main/cpp/egl_libr
   fi
 done
 
-# CMake path must stay commented so assembleDebug needs no NDK/.so (D-084).
-if grep -E '^[[:space:]]*externalNativeBuild[[:space:]]*\{' "$root/android/app/build.gradle.kts" >/dev/null; then
-  echo "android/app/build.gradle.kts: active externalNativeBuild — keep it commented for CI mock builds" >&2
+# CMake must stay gated on libegl_library.so / -Pegl.ffi so CI mock builds need no NDK.
+gradle="$root/android/app/build.gradle.kts"
+if ! grep -q 'libegl_library.so' "$gradle"; then
+  echo "android/app/build.gradle.kts: expected libegl_library.so gate for native FFI" >&2
+  fail=1
+fi
+if ! grep -q 'enableNativeFfi' "$gradle"; then
+  echo "android/app/build.gradle.kts: expected enableNativeFfi guard around externalNativeBuild" >&2
+  fail=1
+fi
+# Reject always-on (ungated) externalNativeBuild at the android { } top level.
+if grep -E '^[[:space:]]*externalNativeBuild[[:space:]]*\{' "$gradle" >/dev/null \
+  && ! grep -q 'if (enableNativeFfi)' "$gradle"; then
+  echo "android/app/build.gradle.kts: ungated externalNativeBuild — wrap with enableNativeFfi" >&2
   fail=1
 fi
 

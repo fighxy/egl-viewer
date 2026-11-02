@@ -58,12 +58,16 @@ struct BrowseScreen: View {
         }
         .safeAreaInset(edge: .bottom) {
             if bridge.usingMockData {
-                Text("Mock data — link libegl_library.a for a real .eglib")
-                    .font(EglTokens.chromeFont)
-                    .foregroundStyle(EglTokens.mutedForeground)
-                    .frame(maxWidth: .infinity)
-                    .padding(.vertical, 6)
-                    .background(EglTokens.muted)
+                Text(
+                    bridge.ffiLinked
+                        ? "Mock fallback — could not open via FFI"
+                        : "Mock data — link libegl_library.a for a real .eglib"
+                )
+                .font(EglTokens.chromeFont)
+                .foregroundStyle(EglTokens.mutedForeground)
+                .frame(maxWidth: .infinity)
+                .padding(.vertical, 6)
+                .background(EglTokens.muted)
             }
         }
     }
@@ -118,6 +122,7 @@ struct BrowseScreen: View {
                     title: "More",
                     rows: [
                         bridge.info?.readOnly == true ? "Read-only" : "Writable",
+                        bridge.ffiLinked ? "FFI linked" : "FFI mock",
                         "Library info",
                         "Settings",
                     ]
@@ -133,15 +138,7 @@ struct BrowseScreen: View {
                     Button {
                         path.append(AppRoute.preview(itemId: item.id))
                     } label: {
-                        ZStack(alignment: .bottomLeading) {
-                            Rectangle()
-                                .fill(EglTokens.muted)
-                            Text(item.ext.uppercased())
-                                .font(.system(size: 11, weight: .semibold))
-                                .foregroundStyle(EglTokens.mutedForeground)
-                                .padding(6)
-                        }
-                        .aspectRatio(itemAspect(item), contentMode: .fit)
+                        ItemThumbCell(item: item)
                     }
                     .buttonStyle(.plain)
                 }
@@ -212,6 +209,30 @@ struct BrowseScreen: View {
         default:
             return place.rawValue
         }
+    }
+}
+
+struct ItemThumbCell: View {
+    @EnvironmentObject private var bridge: LibraryBridge
+    let item: ItemCellDTO
+
+    var body: some View {
+        ZStack(alignment: .bottomLeading) {
+            if let image = bridge.thumbnailImage(id: item.id) {
+                Image(uiImage: image)
+                    .resizable()
+                    .scaledToFill()
+            } else {
+                Rectangle()
+                    .fill(EglTokens.muted)
+                Text(item.ext.uppercased())
+                    .font(.system(size: 11, weight: .semibold))
+                    .foregroundStyle(EglTokens.mutedForeground)
+                    .padding(6)
+            }
+        }
+        .aspectRatio(itemAspect(item), contentMode: .fit)
+        .clipped()
     }
 
     private func itemAspect(_ item: ItemCellDTO) -> CGFloat {

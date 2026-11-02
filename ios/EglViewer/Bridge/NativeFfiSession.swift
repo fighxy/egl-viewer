@@ -2,7 +2,7 @@ import Foundation
 
 #if EGL_HAS_FFI
 /// Live session over `crates/library-ffi` (C ABI). Enabled only when the Xcode
-/// target defines `EGL_HAS_FFI` and links `libegl_library.a`.
+/// target defines `EGL_HAS_FFI` and links `libegl_library.a` (see Config/WithFfi.xcconfig).
 final class NativeFfiSession {
     enum SessionError: LocalizedError {
         case openFailed(String)
@@ -16,10 +16,36 @@ final class NativeFfiSession {
         }
     }
 
+    struct ThumbnailPayload {
+        var bytes: Data
+        var contentType: String
+    }
+
     private var handle: OpaquePointer?
 
     deinit {
         close()
+    }
+
+    static func createLibrary(parent: String, name: String) throws -> String {
+        var out: UnsafeMutablePointer<CChar>?
+        let status = parent.withCString { parentPtr in
+            name.withCString { namePtr in
+                LibraryBridge.appVersion.withCString { versionPtr in
+                    egl_create_library(parentPtr, namePtr, versionPtr, &out)
+                }
+            }
+        }
+        defer {
+            if let out {
+                egl_string_free(out)
+            }
+        }
+        guard status == EGL_OK, let out else {
+            let message = egl_last_error_global().map { String(cString: $0) } ?? "create failed"
+            throw SessionError.openFailed(message)
+        }
+        return String(cString: out)
     }
 
     func open(path: String, syncFolder: Bool) throws {
@@ -68,6 +94,49 @@ final class NativeFfiSession {
 
     func tags() throws -> [TagDTO] {
         try decode([TagDTO].self) { out in egl_tags(requireHandle(), out) }
+    }
+
+    func thumbnailPath(id: String) throws -> String {
+        var out: UnsafeMutablePointer<CChar>?
+        let status = id.withCString { idPtr in
+            withUnsafeMutablePointer(to: &out) { outPtr in
+                egl_thumbnail_path(requireHandle(), idPtr, outPtr)
+            }
+        }
+        defer {
+            if let out {
+                egl_string_free(out)
+            }
+        }
+        guard status == EGL_OK, let out else {
+            let message = egl_last_error(handle).map { String(cString: $0) } ?? "thumbnail path failed"
+            throw SessionError.status(message)
+        }
+        return String(cString: out)
+    }
+
+    func thumbnailBytes(id: String) throws -> ThumbnailPayload {
+        var bytes: UnsafeMutablePointer<UInt8>?
+        var len: Int = 0
+        var contentType: UnsafeMutablePointer<CChar>?
+        let status = id.withCString { idPtr in
+            egl_thumbnail_bytes(requireHandle(), idPtr, &bytes, &len, &contentType)
+        }
+        defer {
+            if let contentType {
+                egl_string_free(contentType)
+            }
+            if let bytes, len > 0 {
+                egl_bytes_free(bytes, len)
+            }
+        }
+        guard status == EGL_OK, let bytes, len > 0 else {
+            let message = egl_last_error(handle).map { String(cString: $0) } ?? "thumbnail missing"
+            throw SessionError.status(message)
+        }
+        let data = Data(bytes: bytes, count: len)
+        let type = contentType.map { String(cString: $0) } ?? "image/webp"
+        return ThumbnailPayload(bytes: data, contentType: type)
     }
 
     func applyAddTag(itemId: String, tag: String) throws {
