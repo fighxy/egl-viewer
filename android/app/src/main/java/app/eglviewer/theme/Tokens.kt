@@ -1,4 +1,4 @@
-package app.eglviewer.ui.theme
+package app.eglviewer.theme
 
 import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.unit.sp

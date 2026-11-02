@@ -1460,7 +1460,11 @@ only (no Eagle, no Canvas). Desktop Tauri stays the default.
   the `.so`, Compose runs on **mock data** (same idea as iOS `EGL_HAS_FFI`).
 - **UI.** Welcome → Browse (places strip, filters, dense grid, tab bar) → Preview
   → Details / Tags / Folders sheet, aligned with `ios/` and the iOS UI concept
-  (desktop DNA, D-028 tokens).
+  (desktop DNA, D-028 tokens). Kotlin packages live under `app.eglviewer.screens`
+  / `app.eglviewer.theme` — **not** `app.eglviewer.ui`, which shadows
+  `androidx.compose.ui` and makes `import androidx.compose.ui.Modifier` fail
+  (and `…Modifier.Modifier` resolve the nested `modifier` package instead of
+  the class).
 - **Not Tauri Android.** This is a native Compose shell, not the WebView UI. Play
   Store, signing, SAF end-to-end, and on-device media pipeline stay out of scope.
 - **Docs.** `android/README.md` covers NDK / `cargo-ndk` build and CMake wiring.

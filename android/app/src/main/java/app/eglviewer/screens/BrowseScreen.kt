@@ -1,4 +1,4 @@
-package app.eglviewer.ui.screens
+package app.eglviewer.screens
 
 import androidx.compose.foundation.background
 import androidx.compose.foundation.border
@@ -39,7 +39,7 @@ import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.remember
 import androidx.compose.runtime.setValue
 import androidx.compose.ui.Alignment
-import androidx.compose.ui.Modifier.Modifier
+import androidx.compose.ui.Modifier
 import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.graphics.vector.ImageVector
 import androidx.compose.ui.text.font.FontWeight
@@ -47,7 +47,7 @@ import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
 import app.eglviewer.bridge.ItemCellDto
 import app.eglviewer.bridge.LibraryBridge
-import app.eglviewer.ui.theme.EglTokens
+import app.eglviewer.theme.EglTokens
 
 private enum class Place(val label: String) {
     All("All"),

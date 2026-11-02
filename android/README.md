@@ -45,8 +45,9 @@ android/
       AndroidManifest.xml
       java/app/eglviewer/
         MainActivity.kt
-        ui/screens/     Welcome, Browse, Preview, EditSheet
-        ui/theme/       Tokens
+        screens/        Welcome, Browse, Preview, EditSheet
+        theme/          Tokens (not under a `ui` package — clashes with
+                        `androidx.compose.ui` and breaks `Modifier` imports)
         bridge/         LibraryBridge, models, NativeFfiSession / EglNative
       cpp/              egl_jni.cpp + CMakeLists.txt + egl_library.h
 crates/library-ffi/     C ABI (staticlib iOS, cdylib Android)

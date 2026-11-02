@@ -29,10 +29,10 @@ need android/README.md
 need android/gradlew
 need android/app/build.gradle.kts
 need android/app/src/main/java/app/eglviewer/MainActivity.kt
-need android/app/src/main/java/app/eglviewer/ui/screens/WelcomeScreen.kt
-need android/app/src/main/java/app/eglviewer/ui/screens/BrowseScreen.kt
-need android/app/src/main/java/app/eglviewer/ui/screens/PreviewScreen.kt
-need android/app/src/main/java/app/eglviewer/ui/screens/EditSheet.kt
+need android/app/src/main/java/app/eglviewer/screens/WelcomeScreen.kt
+need android/app/src/main/java/app/eglviewer/screens/BrowseScreen.kt
+need android/app/src/main/java/app/eglviewer/screens/PreviewScreen.kt
+need android/app/src/main/java/app/eglviewer/screens/EditSheet.kt
 need android/app/src/main/cpp/egl_jni.cpp
 need android/app/src/main/cpp/egl_library.h
 
