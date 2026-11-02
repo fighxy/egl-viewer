@@ -1464,3 +1464,24 @@ only (no Eagle, no Canvas). Desktop Tauri stays the default.
 - **Not Tauri Android.** This is a native Compose shell, not the WebView UI. Play
   Store, signing, SAF end-to-end, and on-device media pipeline stay out of scope.
 - **Docs.** `android/README.md` covers NDK / `cargo-ndk` build and CMake wiring.
+
+## D-084 CI for experimental mobile shells (2026-11-02)
+
+Separate GitHub Actions workflow [`.github/workflows/mobile.yml`](../.github/workflows/mobile.yml)
+runs next to the Windows desktop `CI` workflow and does not change it.
+
+- **Triggers.** Path-filtered on `android/`, `ios/`, `crates/library-ffi` (+ core
+  native/media deps), and the workflow itself — so desktop-only PRs skip mobile
+  jobs. `workflow_dispatch` stays available.
+- **`library-ffi` (ubuntu).** `scripts/check-mobile-shell.sh` (layout + header
+  sync), `cargo fmt` / clippy / `cargo test -p library-ffi` with `libheif-dev`.
+  The Windows workspace job still covers the crate via `cargo test --workspace`.
+- **Android (ubuntu).** Temurin 17, Gradle wrapper cache, `android-actions/setup-android`,
+  platform 35, `./gradlew :app:assembleDebug`. **No NDK / no `.so`** — CMake
+  `externalNativeBuild` stays commented so the mock-FFI scaffold builds on CI
+  without secrets.
+- **iOS (`macos-latest`).** Shared scheme `EglViewer`, unsigned
+  `xcodebuild … -sdk iphonesimulator` with `CODE_SIGNING_ALLOWED=NO` (mock FFI,
+  no `libegl_library.a`). No Apple Developer certs or secrets.
+- **Not required.** Linking Rust into either app, Play/App Store signing, or
+  building `libegl_library` for device ABIs in CI.

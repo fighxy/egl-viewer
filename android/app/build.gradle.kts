@@ -14,15 +14,11 @@ android {
         targetSdk = 35
         versionCode = 1
         versionName = "0.2.1"
-        // JNI bridge is optional: omit native build when the Rust .so is absent.
-        externalNativeBuild {
-            cmake {
-                cppFlags += "-std=c++17"
-            }
-        }
-        ndk {
-            abiFilters += listOf("arm64-v8a")
-        }
+        // Native/NDK wiring stays off until libegl_library.so is packaged
+        // (see android/README.md). Uncomment ndk + externalNativeBuild together.
+        // ndk {
+        //     abiFilters += listOf("arm64-v8a")
+        // }
     }
 
     buildTypes {
