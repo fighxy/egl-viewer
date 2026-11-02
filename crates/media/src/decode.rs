@@ -7,6 +7,7 @@ use std::path::Path;
 use std::sync::{Arc, OnceLock};
 
 use image::{DynamicImage, ImageDecoder, ImageReader, Limits, Rgba, RgbaImage};
+#[cfg(not(target_os = "ios"))]
 use libheif_rs::{ColorSpace, HeifContext, LibHeif, RgbChroma};
 use resvg::{tiny_skia, usvg};
 
@@ -135,6 +136,7 @@ pub(crate) fn psd_bytes(bytes: &[u8]) -> Result<Decoded, MediaError> {
 /// HEIC/HEIF through `libheif`: iPhone photos and modern camera files (HEVC, AVIF in HEIF).
 /// libheif applies the file's geometric transforms (irot/imir), so the pixels come out
 /// display-oriented, like EXIF orientation for raster files.
+#[cfg(not(target_os = "ios"))]
 pub(crate) fn heic_bytes(bytes: &[u8]) -> Result<Decoded, MediaError> {
     if bytes.len() as u64 > MAX_WHOLE_FILE {
         return Err(MediaError::TooLarge);
@@ -162,4 +164,10 @@ pub(crate) fn heic_bytes(bytes: &[u8]) -> Result<Decoded, MediaError> {
         height,
         pixels,
     })
+}
+
+/// iOS builds carry no libheif; HEIC keeps the extension placeholder.
+#[cfg(target_os = "ios")]
+pub(crate) fn heic_bytes(_bytes: &[u8]) -> Result<Decoded, MediaError> {
+    Err(MediaError::Decode("HEIC decoding is not available on this platform".into()))
 }
