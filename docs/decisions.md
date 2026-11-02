@@ -1421,3 +1421,26 @@ Tightens phase 12’s “token never reaches the WebView longer than needed”.
   regions, and Snap Layouts restoration (e.g. `tauri-plugin-decorum`). That is a
   large redesign and stays out of this hardening pass; the native frame plus the
   app Menubar keep working.
+
+## D-082 Experimental iOS SwiftUI shell over native `.eglib` (2026-11-02)
+
+Draft iPhone client for **native libraries only** (no Eagle API, import or export;
+no Canvas). Desktop Tauri stays the default product and the Windows CI path is
+unchanged.
+
+- **FFI.** New crate `library-ffi` (`libegl_library`, `rlib` + `staticlib`) exposes
+  a small **C ABI** over `library-native`: create/open/close, `LibraryInfo`, a
+  windowed scope (`ItemCell` JSON, capped at `MAX_WINDOW`), item detail, folder
+  tree, tags, thumbnail path/bytes, and `ItemEdit` for tags/folders. Plain C was
+  chosen over UniFFI / swift-bridge: no new dependencies (D-002 / D-003), host
+  `cargo test -p library-ffi` works on Linux with libheif available, and the Mac
+  / Xcode link step is documented in `ios/README.md`. `unsafe` stays at the FFI
+  boundary (`#![allow(unsafe_code)]`, same idea as the WebAuthn bridge).
+- **iOS package.** `ios/EglViewer.xcodeproj` + SwiftUI screens (Welcome, Browse,
+  Preview, folders/tags edit) matching the desktop-aligned concept. Without the
+  static library linked, the UI runs on **mock data**; define `EGL_HAS_FFI` and
+  link `libegl_library.a` to call Rust (see `ios/README.md`).
+- **Out of scope for this draft.** App Store, signing, document-picker / security-
+  scoped bookmarks end-to-end, on-device media pipeline, Eagle, production polish.
+- **D-011.** Mobile `staticlib` lives in `library-ffi`, not in `src-tauri` (desktop
+  remains `rlib`-only).

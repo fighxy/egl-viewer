@@ -29,6 +29,7 @@ React UI. Windows first; no AI features.
 | 10. Eagle: live edits, adds, thumbnails | Implemented (2026-11-01), done checks against a real Eagle still open: `ItemMutator` / folder updates / tag rename-merge, same-PC `path` and remote data-URL `item/add` with “Importing…” cells, same-PC thumbnails (incl. `noThumbnail` downscale); remote thumbs wait for the helper plugin; undo of item edits stays native-only |
 | 11. Eagle: export into Eagle | Implemented (2026-11-01), done check against a real Eagle still open: Export… offers “Into a running Eagle”, folders top-down then items (same-PC `path` / remote data URL), comments, tag groups and smart folders through the API; `eagle_id` columns store the mapping so a second export updates (D-077) |
 | 12. Hardening and the Windows release | In progress: restore place/filters/selection per library (D-078); file logs + Help → Open Log Folder (D-079); clear Eagle token from Connect/Export forms after send (D-080); a11y Home/End and filter aria (D-081); updater (D-062) and bundled libheif (D-070) already in. Custom title bar (D-025), Authenticode, notarization, 100k/manual done checks and the clean-machine done check remain open |
+| Experimental iOS (not a numbered phase) | Draft (2026-11-02): `crates/library-ffi` C ABI over native `.eglib` + `ios/` SwiftUI shell (Welcome / Browse / Preview / edit). No Eagle, no Canvas. UI uses mock data until `libegl_library.a` is linked on a Mac (D-082, [`ios/README.md`](ios/README.md)) |
 
 The full plan is in [`docs/spec.md` §9](docs/spec.md). The Project-store plan for auto-update is mirrored by **D-062** in [`docs/decisions.md`](docs/decisions.md); set GitHub secrets `TAURI_SIGNING_PRIVATE_KEY` (and optional `TAURI_SIGNING_PRIVATE_KEY_PASSWORD`) before tagging a release, and attach `latest.json` (see `scripts/write-latest-json.mjs`) to the GitHub Release. Already-installed builds without the updater need **one last manual install** of the first updater-enabled release.
 
@@ -72,12 +73,14 @@ pnpm dev
 ```
 crates/library-core/   models, queries and views (filters, sorter), edits, errors, the LibrarySource trait (no IO)
 crates/library-native/ the native library: create, open, the library lock, recovery, adding files, scopes in SQL, edits, backups, export of originals, checks
+crates/library-ffi/    C ABI over library-native for the experimental iOS shell (D-082); no Eagle
 crates/app-store/      settings, recent libraries, library locations, secrets
 crates/eagle-api/      a running Eagle as a LibrarySource (transport from phase 9)
 crates/eagle-folder/   read-only Eagle `.library` folder parsing (phase 8, D-071)
 crates/media/          decoding, thumbnails, palettes and EXIF for the native library
-src-tauri/             the Tauri app: commands, configuration, capabilities, icons
+src-tauri/             the Tauri app: commands, configuration, capabilities, icons (desktop default)
 ui/                    React + TypeScript + Tailwind + shadcn/ui; i18n catalogs in ui/src/i18n/ (en, ru, zh-CN; D-069)
+ios/                   experimental SwiftUI iPhone draft (D-082); see ios/README.md
 docs/                  spec, architecture, decisions
 fixtures/eagle-api/    real Eagle 4.0.0 request and response captures
 fixtures/eagle-library/ synthetic Eagle `.library` for the folder import (D-071)
