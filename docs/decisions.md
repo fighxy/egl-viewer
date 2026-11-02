@@ -1476,10 +1476,11 @@ runs next to the Windows desktop `CI` workflow and does not change it.
 - **`library-ffi` (ubuntu).** `scripts/check-mobile-shell.sh` (layout + header
   sync), `cargo fmt` / clippy / `cargo test -p library-ffi` with `libheif-dev`.
   The Windows workspace job still covers the crate via `cargo test --workspace`.
-- **Android (ubuntu).** Temurin 17, Gradle wrapper cache, `android-actions/setup-android`,
-  platform 35, `./gradlew :app:assembleDebug`. **No NDK / no `.so`** — CMake
-  `externalNativeBuild` stays commented so the mock-FFI scaffold builds on CI
-  without secrets.
+- **Android (ubuntu).** Temurin 17, Gradle wrapper cache, the runner’s preinstalled
+  Android SDK (not `android-actions/setup-android`, whose default `tools` package
+  is gone from `sdkmanager`), platform 35, `./gradlew :app:assembleDebug`.
+  **No NDK / no `.so`** — CMake `externalNativeBuild` stays commented so the
+  mock-FFI scaffold builds on CI without secrets.
 - **iOS (`macos-latest`).** Shared scheme `EglViewer`, unsigned
   `xcodebuild … -sdk iphonesimulator` with `CODE_SIGNING_ALLOWED=NO` (mock FFI,
   no `libegl_library.a`). No Apple Developer certs or secrets.

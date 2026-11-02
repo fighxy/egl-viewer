@@ -87,7 +87,7 @@ Workflow: [`.github/workflows/mobile.yml`](../.github/workflows/mobile.yml) (pat
 | Job | Runner | What it runs |
 |---|---|---|
 | `library-ffi` | ubuntu | Layout/header sync, `cargo test` / clippy for `library-ffi` (needs `libheif-dev` on the runner — apt, no secrets) |
-| `android` | ubuntu | JDK 17 + Android SDK platform 35, `./gradlew :app:assembleDebug` **without NDK** (CMake stays commented; mock FFI) |
+| `android` | ubuntu | JDK 17 + runner Android SDK (platform 35 via `sdkmanager`), `./gradlew :app:assembleDebug` **without NDK** (CMake stays commented; mock FFI) |
 | `ios` | `macos-latest` | Unsigned simulator `xcodebuild` for the sibling shell |
 
 No repository secrets. Gradle uses the committed wrapper (`gradlew`) and the
