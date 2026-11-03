@@ -1,194 +1,152 @@
 import SwiftUI
-import UniformTypeIdentifiers
 
+/// Create a library in On My iPhone, open one from Files, or reopen a recent one.
 struct WelcomeScreen: View {
-    @EnvironmentObject private var bridge: LibraryBridge
-    @ObservedObject private var access = LibraryAccess.shared
-    @Binding var path: NavigationPath
-
-    @State private var showOpenPicker = false
-    @State private var showCreateParentPicker = false
-    @State private var pendingCreateName = "Demo"
-    @State private var showCreateNameAlert = false
+    @Environment(AppModel.self) private var model
+    @State private var creating = false
+    @State private var picking = false
 
     var body: some View {
-        ScrollView {
-            VStack(alignment: .leading, spacing: 20) {
-                VStack(alignment: .leading, spacing: 8) {
-                    Text("egl-viewer")
-                        .font(EglTokens.heroFont)
-                        .tracking(-0.5)
-                        .foregroundStyle(EglTokens.foreground)
-                    Text("Open a native library on this iPhone. Libraries live as .eglib packages in Files or iCloud Drive.")
-                        .font(.system(size: 14))
-                        .foregroundStyle(EglTokens.mutedForeground)
-                        .fixedSize(horizontal: false, vertical: true)
-                }
-                .padding(.top, 28)
-
-                VStack(spacing: 10) {
+        NavigationStack {
+            List {
+                Section {
                     Button {
-                        showCreateNameAlert = true
+                        creating = true
                     } label: {
-                        Label("Create library", systemImage: "plus")
-                            .font(.system(size: 15, weight: .semibold))
-                            .frame(maxWidth: .infinity)
-                            .frame(height: 48)
+                        Label("welcome.create", systemImage: "plus.square.on.square")
                     }
-                    .buttonStyle(.borderedProminent)
-                    .tint(EglTokens.primary)
-
+                    .accessibilityIdentifier("welcome.create")
                     Button {
-                        showOpenPicker = true
+                        picking = true
                     } label: {
-                        Label("Open .eglib…", systemImage: "folder")
-                            .font(.system(size: 15, weight: .semibold))
-                            .frame(maxWidth: .infinity)
-                            .frame(height: 48)
+                        Label("welcome.open", systemImage: "folder")
                     }
-                    .buttonStyle(.bordered)
+                    .accessibilityIdentifier("welcome.open")
+                } footer: {
+                    Text("welcome.hint")
                 }
 
-                VStack(alignment: .leading, spacing: 8) {
-                    Text("Recent")
-                        .font(.system(size: 12, weight: .semibold))
-                        .foregroundStyle(EglTokens.mutedForeground)
-
-                    if access.recents.isEmpty {
-                        Text("No recent libraries yet.")
-                            .font(EglTokens.chromeFont)
-                            .foregroundStyle(EglTokens.mutedForeground)
-                            .padding(.vertical, 8)
-                    }
-
-                    ForEach(Array(access.recents.enumerated()), id: \.element.id) { index, recent in
-                        Button {
-                            guard !recent.missing else { return }
-                            bridge.openRecent(recent)
-                            path.append(AppRoute.browse)
-                        } label: {
-                            HStack(spacing: 10) {
-                                ZStack {
-                                    RoundedRectangle(cornerRadius: 8)
-                                        .fill(EglTokens.sidebar)
-                                        .overlay(
-                                            RoundedRectangle(cornerRadius: 8)
-                                                .stroke(EglTokens.border, lineWidth: 1)
-                                        )
-                                    Image(systemName: "square.grid.2x2")
-                                        .font(.system(size: 12))
-                                        .foregroundStyle(EglTokens.mutedForeground.opacity(0.7))
-                                }
-                                .frame(width: 36, height: 36)
-
-                                VStack(alignment: .leading, spacing: 2) {
-                                    Text(recent.name)
-                                        .font(.system(size: 14, weight: .semibold))
-                                        .foregroundStyle(
-                                            recent.missing
-                                                ? EglTokens.mutedForeground
-                                                : EglTokens.foreground
-                                        )
-                                        .lineLimit(1)
-                                    Text(recent.locationHint)
-                                        .font(EglTokens.captionFont)
-                                        .foregroundStyle(EglTokens.mutedForeground)
-                                        .lineLimit(1)
-                                }
-                                Spacer(minLength: 0)
+                if !model.recents.isEmpty {
+                    Section("welcome.recent") {
+                        ForEach(model.recents) { recent in
+                            Button {
+                                Task { await model.open(recent: recent) }
+                            } label: {
+                                LibraryRow(name: recent.name, detail: recent.path)
                             }
-                            .padding(.horizontal, 10)
-                            .padding(.vertical, 10)
-                            .background(
-                                RoundedRectangle(cornerRadius: 10)
-                                    .fill(index == 0 && !recent.missing ? EglTokens.muted : Color.clear)
-                            )
-                        }
-                        .disabled(recent.missing)
-                        .contextMenu {
-                            Button("Forget", role: .destructive) {
-                                access.forget(path: recent.path)
+                            .accessibilityIdentifier("welcome.recent.\(recent.name)")
+                            .swipeActions {
+                                Button("welcome.forget", role: .destructive) {
+                                    model.forget(recent)
+                                }
                             }
                         }
                     }
                 }
 
-                if let error = bridge.lastError {
-                    Text(error)
-                        .font(EglTokens.chromeFont)
-                        .foregroundStyle(EglTokens.mutedForeground)
+                let local = model.localLibraries.filter { url in
+                    !model.recents.contains { $0.path == url.path }
                 }
-
-                                Text("Native .eglib only · same product as desktop")
-                    .font(EglTokens.captionFont)
-                    .foregroundStyle(EglTokens.mutedForeground)
-                    .frame(maxWidth: .infinity)
-                    .padding(.top, 16)
-                    .padding(.bottom, 12)
+                if !local.isEmpty {
+                    Section("welcome.onThisPhone") {
+                        ForEach(local, id: \.self) { url in
+                            Button {
+                                Task { await model.openLocal(url) }
+                            } label: {
+                                LibraryRow(
+                                    name: url.deletingPathExtension().lastPathComponent,
+                                    detail: String(localized: "welcome.onThisPhone")
+                                )
+                            }
+                        }
+                    }
+                }
             }
-            .padding(.horizontal, 20)
-            .padding(.bottom, 32)
-        }
-        .background(EglTokens.background.ignoresSafeArea())
-        .navigationBarHidden(true)
-        .fileImporter(
-            isPresented: $showOpenPicker,
-            allowedContentTypes: LibraryAccess.openContentTypes,
-            allowsMultipleSelection: false
-        ) { result in
-            handleOpen(result)
-        }
-        .fileImporter(
-            isPresented: $showCreateParentPicker,
-            allowedContentTypes: [.folder, .directory],
-            allowsMultipleSelection: false
-        ) { result in
-            handleCreateParent(result)
-        }
-        .alert("Library name", isPresented: $showCreateNameAlert) {
-            TextField("Name", text: $pendingCreateName)
-            Button("Choose folder…") {
-                showCreateParentPicker = true
+            .navigationTitle("app.name")
+            .overlay {
+                if model.busy { ProgressView().controlSize(.large) }
             }
-            Button("Mock only", role: .cancel) {
-                bridge.createLibrary(named: pendingCreateName, parentURL: nil)
-                path.append(AppRoute.browse)
+            .disabled(model.busy)
+            .sheet(isPresented: $creating) {
+                CreateLibrarySheet()
             }
-        } message: {
-            Text(
-                bridge.ffiLinked
-                    ? "Pick a parent folder for Name.eglib (security-scoped)."
-                    : "FFI not linked — Create uses mock data unless you link libegl_library.a."
-            )
-        }
-        .onAppear {
-            access.reloadFromDefaults()
+            .fileImporter(
+                isPresented: $picking,
+                allowedContentTypes: LibraryLocations.openTypes,
+                allowsMultipleSelection: false
+            ) { result in
+                switch result {
+                case let .success(urls):
+                    if let url = urls.first {
+                        Task { await model.open(picked: url) }
+                    }
+                case let .failure(error):
+                    model.error = AppModel.describe(error)
+                }
+            }
+            .onAppear { model.reloadLists() }
         }
     }
+}
 
-    private func handleOpen(_ result: Result<[URL], Error>) {
-        switch result {
-        case let .success(urls):
-            guard let url = urls.first else { return }
-            bridge.openPickedLibrary(url: url)
-            path.append(AppRoute.browse)
-        case let .failure(error):
-            bridge.lastError = error.localizedDescription
+private struct LibraryRow: View {
+    let name: String
+    let detail: String
+
+    var body: some View {
+        VStack(alignment: .leading, spacing: 2) {
+            Text(name)
+                .foregroundStyle(EglTokens.foreground)
+            Text(detail)
+                .font(.caption)
+                .foregroundStyle(EglTokens.mutedForeground)
+                .lineLimit(1)
+                .truncationMode(.middle)
         }
     }
+}
 
-    private func handleCreateParent(_ result: Result<[URL], Error>) {
-        switch result {
-        case let .success(urls):
-            guard let url = urls.first else { return }
-            let accessed = url.startAccessingSecurityScopedResource()
-            bridge.createLibrary(named: pendingCreateName, parentURL: url)
-            if accessed {
-                url.stopAccessingSecurityScopedResource()
+/// The name of a new library; it goes to On My iPhone.
+struct CreateLibrarySheet: View {
+    @Environment(AppModel.self) private var model
+    @Environment(\.dismiss) private var dismiss
+    @State private var name = ""
+    @FocusState private var focused: Bool
+
+    var body: some View {
+        NavigationStack {
+            Form {
+                Section {
+                    TextField("create.name", text: $name)
+                        .focused($focused)
+                        .textInputAutocapitalization(.words)
+                        .submitLabel(.done)
+                        .onSubmit(create)
+                        .accessibilityIdentifier("create.name")
+                } footer: {
+                    Text("create.hint")
+                }
             }
-            path.append(AppRoute.browse)
-        case let .failure(error):
-            bridge.lastError = error.localizedDescription
+            .navigationTitle("create.title")
+            .navigationBarTitleDisplayMode(.inline)
+            .toolbar {
+                ToolbarItem(placement: .cancellationAction) {
+                    Button("common.cancel") { dismiss() }
+                }
+                ToolbarItem(placement: .confirmationAction) {
+                    Button("create.confirm", action: create)
+                        .disabled(name.trimmingCharacters(in: .whitespaces).isEmpty)
+                        .accessibilityIdentifier("create.confirm")
+                }
+            }
+            .onAppear { focused = true }
         }
+        .presentationDetents([.medium])
+    }
+
+    private func create() {
+        let name = name
+        dismiss()
+        Task { await model.create(named: name) }
     }
 }

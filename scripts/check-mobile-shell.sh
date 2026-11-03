@@ -14,23 +14,24 @@ need() {
 }
 
 echo "Checking iOS / Android shell layout…"
+python3 "$root/scripts/check-ios-strings.py" || fail=1
 need crates/library-ffi/include/egl_library.h
 need crates/library-ffi/src/lib.rs
 need ios/README.md
-need ios/EglViewer.xcodeproj/project.pbxproj
-need ios/EglViewer.xcodeproj/xcshareddata/xcschemes/EglViewer.xcscheme
-need ios/EglViewer/EglViewerApp.swift
+need ios/project.yml
+need ios/EglViewer/App/EglViewerApp.swift
+need ios/EglViewer/App/AppModel.swift
+need ios/EglViewer/App/LibraryLocations.swift
 need ios/EglViewer/Screens/WelcomeScreen.swift
-need ios/EglViewer/Screens/BrowseScreen.swift
-need ios/EglViewer/Screens/PreviewScreen.swift
-need ios/EglViewer/Screens/EditSheet.swift
-need ios/EglViewer/Bridge/egl_library.h
+need ios/EglViewer/Screens/LibraryScreen.swift
+need ios/EglViewer/Resources/Info.plist
+need ios/EglViewer/Resources/Localizable.xcstrings
+need ios/EglViewerTests/LibraryLocationsTests.swift
+need ios/EglViewerUITests/WelcomeUITests.swift
 need ios/EglCore/Package.swift
 need ios/EglCore/Sources/CEglLibrary/egl_library.h
 need ios/EglCore/Sources/CEglLibrary/module.modulemap
 need ios/EglCore/Sources/EglCore/Library.swift
-need ios/EglViewer/Bridge/LibraryAccess.swift
-need ios/EglViewer/Config/WithFfi.xcconfig
 need android/README.md
 need android/gradlew
 need android/app/build.gradle.kts
@@ -46,7 +47,7 @@ need android/app/src/main/cpp/egl_jni.cpp
 need android/app/src/main/cpp/egl_library.h
 
 canon="$root/crates/library-ffi/include/egl_library.h"
-for copy in ios/EglViewer/Bridge/egl_library.h ios/EglCore/Sources/CEglLibrary/egl_library.h android/app/src/main/cpp/egl_library.h; do
+for copy in ios/EglCore/Sources/CEglLibrary/egl_library.h android/app/src/main/cpp/egl_library.h; do
   if ! cmp -s "$canon" "$root/$copy"; then
     echo "header drift: $copy differs from crates/library-ffi/include/egl_library.h" >&2
     fail=1
