@@ -1652,3 +1652,31 @@ Each fix has a UI test; the ones marked † fail on the code before the fix.
   checked by a test (`status.makingThumbnails` lacked `_few` and `_many`).
 - **Imports panel** ignores a late `imports` reply for the previous library.
 - **Rubber-band selection** removes its window listeners when the grid unmounts mid-drag.
+
+## D-091 `app-service`: the open native library as an app uses it (2026-11-03)
+
+The desktop `Session` (3 400 lines in `src-tauri/src/session.rs`) held everything an app does
+with an open native library: its views, the undo stack, item, folder, tag and lock edits, the
+import and export threads. `library-ffi` re-implemented part of it for the mobile shells, and an
+iOS app with the desktop's features (the next series of PRs) needs all of it.
+
+- **New crate `crates/app-service`**, without Tauri, C, Eagle or the app's settings files.
+  `LibraryService` holds the library, the views, the undo stack, the Empty Trash cancel flag
+  and the task registries; `ImportTasks` and `ExportTasks` run one thread per task with a
+  cancel flag, the latest progress and (imports) the duplicate question. The app hears
+  progress and recomputed views through `Emit`, a closure: Tauri emits to the WebView, the C
+  ABI will call back into Swift. `ItemsTarget`, `ViewOpened`, `ViewsInvalidated`,
+  `ScopeProgress` and `SmartDraft` move with it; their TypeScript bindings are unchanged.
+- **Where a library may live is the caller's question.** The service opens a path, read-only
+  when told it is synced; the desktop keeps `app_store::check_location` (cloud-synced and network
+  folders), a phone will check its own containers. So `app-service` does not depend on
+  `app-store` and its OS secret store.
+- **The desktop `Session` stays the Tauri-free layer the commands call**, over a
+  `LibraryService`: a running Eagle as the other source (it shares the service's views and
+  import registry, so ids stay unique), the "Importing…" cells, recent libraries,
+  preferences, login, YubiKey and WebAuthn, the clipboard, and the export into Eagle (a task in
+  the service's export registry). `session.rs` shrinks to about 1 300 lines plus its tests.
+- **Behaviour does not change.** The Session tests run unchanged against the new layer; the
+  service has its own tests for opening, views, edits with undo, imports, the trash, folders and
+  tags, exports and the read-only open.
+- `library-ffi` moves onto the service in the next PR.

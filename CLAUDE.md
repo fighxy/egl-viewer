@@ -85,7 +85,8 @@ pnpm test
 ## Conventions
 
 - Rust: edition 2024, `cargo fmt`, clippy with `-D warnings`, `unsafe` forbidden. Pure logic in
-  `library-core`; `src-tauri` stays a thin layer of commands.
+  `library-core`; the open library as an app uses it (views, undo, edits, tasks) in `app-service`,
+  shared by the desktop and `library-ffi`; `src-tauri` stays a thin layer of commands.
 - UI: React function components, TypeScript strict, Biome for lint and format, shadcn/ui
   components in `ui/src/components/ui/`, imports through `@/`. UI strings in English (D-007).
 - IPC: typed wrappers in `ui/src/ipc/index.ts`; types from `ui/src/ipc/generated/`.

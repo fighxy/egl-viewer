@@ -13,7 +13,7 @@ use wiremock::matchers::path;
 use wiremock::{Mock, MockServer, ResponseTemplate};
 
 use super::*;
-use crate::views::ItemsTarget;
+use crate::views::{Event, ItemsTarget};
 
 const ITEM: &str = "MVQTEQPE8FAQM";
 
@@ -341,9 +341,10 @@ fn show_in_explorer_reveals_only_what_an_export_wrote() {
         f.session.may_reveal(&elsewhere),
         Err(SourceError::Invalid(_))
     ));
-    lock(&f.session.exports)
-        .written
-        .push(PathBuf::from(&elsewhere));
+    f.session
+        .service()
+        .exports()
+        .remember_written(PathBuf::from(&elsewhere));
     assert_eq!(
         f.session.may_reveal(&elsewhere).unwrap(),
         PathBuf::from(&elsewhere)

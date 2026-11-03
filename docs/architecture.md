@@ -21,7 +21,7 @@ Live verification (2026-10-27): two test JPEGs were added to the open library th
 | Product | **A standalone asset manager** with its own library; Eagle compatibility is secondary (D-013) |
 | Targets | **Windows 10/11 now** (desktop default). Experimental iOS (D-082, D-085) and Android (D-083, D-085) drafts over native `.eglib` only. Nothing in the core may depend on Windows |
 | Shell | **Tauri 2.12** (stable) on desktop. Not Tauri 3, which is in alpha (§2). Mobile drafts: SwiftUI / Compose + C ABI (`library-ffi`) with optional live open/thumbs (D-085), not Tauri Mobile |
-| Core | Rust workspace: `library-core` (no IO), `library-native` (the native library), `media` (thumbnails, palettes, hashes), `app-store` (settings, recent libraries, secrets), `library-ffi` (C ABI for iOS/Android, D-082 / D-083), and for Eagle `eagle-folder` and `eagle-api`; the Tauri app crate is a thin layer of commands |
+| Core | Rust workspace: `library-core` (no IO), `library-native` (the native library), `media` (thumbnails, palettes, hashes), `app-service` (the open native library as an app uses it: views, undo, edits, background tasks; D-091), `app-store` (settings, recent libraries, secrets), `library-ffi` (C ABI for iOS/Android, D-082 / D-083), and for Eagle `eagle-folder` and `eagle-api`; the Tauri app crate is a thin layer of commands |
 | Library sources | One `LibrarySource` trait in `library-core`. Implementations: the native library, an Eagle library folder on disk (read only), a running Eagle (API) (§15.2) |
 | Library format | A folder `Name.eglib` (D-016): SQLite (`library.db`) as the single source of truth, the original files copied in (D-014), regenerable thumbnails; documented in `library-format.md` and versioned (§15.3) |
 | Media | v1 previews for JPEG, PNG, GIF, WebP, SVG, TIFF, BMP, PSD composites and HEIC/HEIF; AVIF and other files are stored with a placeholder (D-015, D-035, D-063, §15.4) |
@@ -154,6 +154,14 @@ egl-viewer/
       write.rs               item edits, folders, tags, trash, change_log
       add.rs                 adding one file: temp copy, hash, duplicates, the pending_file journal, rows
       import.rs, preview.rs  batches (folders walked, one duplicate question, cancel, progress); thumbnails, counts
+    app-service/             the open native library as an app uses it, shared by the desktop and the C ABI
+                             (D-091); no Tauri, no C, no Eagle, no app settings
+      service.rs             LibraryService: open and close, views, edits with undo, trash, folders, tags,
+                             smart folders, locks, backups, checks, export, adding files
+      tasks.rs               ImportTasks and ExportTasks: one thread each, cancel, latest progress, the
+                             duplicate question, finished imports; an error when a thread cannot start
+      events.rs, source.rs   Event and Emit (what the app hears), ItemsTarget, ViewOpened; the source read on
+                             the calling thread, refreshing views while imports write, the thumb URL
     media/                   decoding, thumbnails, palettes, EXIF (§15.4); no Tauri
       decode.rs, thumbnail.rs, palette.rs, metadata.rs; fixtures.rs makes test files on the fly (D-034)
     app-store/               file IO; no Tauri
@@ -176,7 +184,9 @@ egl-viewer/
   src-tauri/                 the app crate: thin
     commands.rs              libraries, imports (files and the Eagle folder import), views and items; the live
                              Eagle commands arrive with phases 9–11 (§8)
-    session.rs               the open library, its imports and views, the app's files, without Tauri (tested)
+    session.rs               the desktop session over app-service: a running Eagle as the other source, the
+                             app's files (recent libraries, preferences, login), YubiKey and WebAuthn,
+                             the clipboard; without Tauri (tested)
     views.rs                 view IPC types, the source read on a blocking thread, refreshing views after
                              writes, parsing `thumb` URLs (the scheme itself is registered in lib.rs)
     window.rs                window size and position, showing the window after the first paint
