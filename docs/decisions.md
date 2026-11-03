@@ -1582,3 +1582,45 @@ a test that failed before it.
   login": `login_status` returns it, the UI keeps the login screen, and unlocking shows why.
 - **Eagle API errors.** A network error drops its URL before it becomes text, so the token in a
   query string never reaches a log or the UI.
+
+## D-089 Session fixes for a connected Eagle (2026-11-03)
+
+The review after phase 12 found these defects in the app layer (`src-tauri`); each has a
+test, the first Session tests against a fake Eagle (`wiremock` over `fixtures/eagle-api/`,
+`session_eagle_tests.rs`).
+
+- **Deadlock.** Every item edit, batch edit and folder unlock hung while Eagle was connected:
+  `if let Some(source) = lock(&self.eagle)…` keeps the guard through the then-block in
+  edition 2024, and `refresh_views` locked `eagle` again. `Session::eagle()` clones the
+  `Arc` out from under the lock; no call site binds the guard itself any more.
+- **One source at a time.** Opening or creating a native library ends a live Eagle
+  connection, as connecting already closed the library. A library that fails to close cleanly
+  when Eagle connects is logged, not an error: it is already out of the session.
+- **The token is saved only after it connected**, so a typo never replaces a working token.
+- **Disconnect stops a running add to Eagle** and joins its thread first. A failed add ends as
+  Done with its failures listed, not as Cancelled.
+- **Export into Eagle.**
+  - The ids Eagle created are stored on every exit, a failure or a cancel included, so a retry
+    updates instead of duplicating.
+  - Decrypted originals for the same-PC batch go into a private temp folder that is removed
+    when the run ends.
+  - The token is the one typed in the dialog or else the one Connect saved for that host and
+    port; it is a `SecretString` in Rust and is dropped from the request before the thread starts.
+- **Two requests per Eagle per process** (correction 10): the request permits are shared by
+  every client of the same `host:port`, so the connection and an export together still send
+  at most two.
+- **Folder updates** read the folder from a fresh tree and keep its own sort (`orderBy`,
+  `sortIncrease`) when a move or rename does not set one: the body is always its full state.
+- **Background tasks** that cannot start a thread are an error for the user's import or
+  export, and a log line for pending previews.
+- **Login commands** run off the main thread: Argon2id and a YubiKey touch no longer freeze
+  the window.
+- **Show in Explorer** after an export reveals only a path an export of this session wrote.
+- **Undo** puts an entry back when taking it back fails; Delete Permanently drops the deleted
+  ids from the stack.
+- **Views with pending cells.** A window is capped at `MAX_WINDOW` before the "Importing…"
+  cells are appended, so they keep their positions; the totals of a refresh include them.
+- **Adding files to Eagle** walks dropped folders with the import's own collector
+  (`library_native::files_to_add`): hidden and system files and linked folders stay out.
+- **File actions on a selection** (Show in Explorer, Copy File, drag out) take an
+  `ItemsTarget`: Select All is resolved in Rust instead of the UI fetching every id.

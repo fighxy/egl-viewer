@@ -2,8 +2,9 @@
 //! (docs/architecture.md §4.1–§4.3).
 
 use std::borrow::Cow;
+use std::collections::HashMap;
 use std::fmt::Write;
-use std::sync::Arc;
+use std::sync::{Arc, Mutex, OnceLock};
 use std::time::Duration;
 
 use reqwest::header;
@@ -22,8 +23,33 @@ pub struct Endpoint {
     pub token: SecretString,
 }
 
+/// `host:port` of an Eagle, the key of its shared request limit.
+fn endpoint_key(base: &Url) -> String {
+    format!(
+        "{}:{}",
+        base.host_str().unwrap_or_default().to_ascii_lowercase(),
+        base.port_or_known_default().unwrap_or_default()
+    )
+}
+
+/// The two request permits of one Eagle, shared by every client of it in this process.
+fn permits_for(key: &str) -> Arc<Semaphore> {
+    static LIMITS: OnceLock<Mutex<HashMap<String, Arc<Semaphore>>>> = OnceLock::new();
+    let mut limits = LIMITS
+        .get_or_init(Mutex::default)
+        .lock()
+        .unwrap_or_else(std::sync::PoisonError::into_inner);
+    Arc::clone(
+        limits
+            .entry(key.to_owned())
+            .or_insert_with(|| Arc::new(Semaphore::new(2))),
+    )
+}
+
 /// Eagle's local API client. The semaphore is held until the response is parsed, so at most
-/// two requests are in flight at any moment (every call runs on Eagle's UI thread).
+/// two requests are in flight at any moment (every call runs on Eagle's UI thread). It is
+/// shared by every client of the same Eagle in this process: the live connection and an
+/// export into Eagle together still send at most two (correction 10).
 #[derive(Debug, Clone)]
 pub struct EagleHttp {
     client: reqwest::Client,
@@ -46,8 +72,8 @@ impl EagleHttp {
             .map_err(|error| EagleError::Invalid(format!("HTTP client: {error}")))?;
         Ok(Self {
             client,
+            permits: permits_for(&endpoint_key(&endpoint.base)),
             endpoint: Arc::new(endpoint),
-            permits: Arc::new(Semaphore::new(2)),
         })
     }
 
@@ -184,6 +210,20 @@ fn v2_path(path: &str) -> String {
 mod tests {
     use super::*;
     use serde_json::json;
+
+    #[test]
+    fn every_client_of_one_eagle_shares_its_two_permits() {
+        let endpoint = |base: &str| Endpoint {
+            base: Url::parse(base).unwrap(),
+            token: SecretString::from("t"),
+        };
+        let live = EagleHttp::new(endpoint("http://127.0.0.1:59001/"), false).unwrap();
+        let export = EagleHttp::new(endpoint("http://127.0.0.1:59001/"), false).unwrap();
+        let other = EagleHttp::new(endpoint("http://127.0.0.1:59002/"), false).unwrap();
+        assert!(Arc::ptr_eq(&live.permits, &export.permits));
+        assert!(!Arc::ptr_eq(&live.permits, &other.permits));
+        assert_eq!(live.permits.available_permits(), 2);
+    }
 
     #[test]
     fn ascii_passes_through_unchanged() {

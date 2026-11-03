@@ -153,6 +153,8 @@ struct Imports {
 struct Exports {
     next_id: u64,
     running: HashMap<u64, ExportRunning>,
+    /// What finished exports wrote: the only paths Show in Explorer may reveal.
+    written: Vec<PathBuf>,
 }
 
 struct ExportRunning {
@@ -313,6 +315,9 @@ impl Session {
         self.stop_imports();
         // The previous library closes here, after the new one opened.
         let previous = lock(&self.library).replace(Arc::clone(&library));
+        // One source at a time (docs/spec.md §8.3): a live Eagle connection ends here.
+        lock(&self.eagle).take();
+        lock(&self.pending).clear();
         lock(&self.views).clear();
         lock(&self.undo).clear();
         drop(previous);
@@ -327,7 +332,7 @@ impl Session {
                 .pending_previews(1)
                 .is_ok_and(|next| !next.is_empty())
         {
-            self.start(library, ImportKind::Previews, make_pending_previews);
+            self.start_previews(library);
         }
         Ok(info)
     }
@@ -344,14 +349,14 @@ impl Session {
     }
 
     pub fn current(&self) -> Option<LibraryInfo> {
-        if let Some(source) = lock(&self.eagle).as_ref() {
+        if let Some(source) = self.eagle() {
             return Some(source.info());
         }
         self.current_library().map(|library| library.info())
     }
 
     pub fn counts(&self) -> Result<LibraryCounts, SourceError> {
-        if let Some(source) = lock(&self.eagle).as_ref() {
+        if let Some(source) = self.eagle() {
             return Ok(source.counts()?);
         }
         self.current_library().ok_or_else(no_library)?.counts()
@@ -380,20 +385,21 @@ impl Session {
         let name = eagle_token_name(&settings.host, settings.port);
         // Move the plaintext into SecretString at once so a later panic cannot leave it in a
         // plain String; the Connect form also clears its field after send (D-080).
+        let given = token.is_some();
         let token = match token {
-            Some(token) => {
-                let secret = SecretString::from(token);
-                self.secrets.set(&name, secret.expose_secret())?;
-                secret
-            }
+            Some(token) => SecretString::from(token),
             None => SecretString::from(self.secrets.get(&name)?.unwrap_or_default()),
         };
         let source = Arc::new(EagleSource::connect(
             &settings.host,
             settings.port,
-            token,
+            token.clone(),
             settings.is_tailscale(),
         )?);
+        // Only a token that connected is saved: a typo never replaces the working one.
+        if given {
+            self.secrets.set(&name, token.expose_secret())?;
+        }
         let info = EagleSessionInfo {
             library: source.info(),
             eagle_version: source.eagle_version().to_owned(),
@@ -401,10 +407,14 @@ impl Session {
             host: settings.host.clone(),
             port: settings.port,
         };
-        // The previous source closes here, after the new one connected.
-        if let Some(library) = self.take_library() {
-            library.close()?;
+        // The previous source closes here, after the new one connected. The session switches
+        // either way: a library that fails to close cleanly is already out of the session.
+        if let Some(library) = self.take_library()
+            && let Err(error) = library.close()
+        {
+            tracing::warn!("cannot close the previous library cleanly: {error}");
         }
+        lock(&self.pending).clear();
         lock(&self.eagle).replace(source);
         self.store.save_connection(&settings)?;
         Ok(info)
@@ -412,8 +422,7 @@ impl Session {
 
     /// The live connection, so the UI can show the library again without reconnecting.
     pub fn eagle_session(&self) -> Option<EagleSessionInfo> {
-        let eagle = lock(&self.eagle);
-        let source = eagle.as_ref()?;
+        let source = self.eagle()?;
         let settings = self.store.connection();
         Some(EagleSessionInfo {
             library: source.info(),
@@ -426,6 +435,9 @@ impl Session {
 
     /// Disconnect: back to Welcome.
     pub fn disconnect_eagle(&self) -> Result<(), SourceError> {
+        // A running add to Eagle stops between files; its thread is joined before the
+        // connection goes, so nothing writes to Eagle after Disconnect.
+        self.stop_imports();
         lock(&self.eagle).take();
         lock(&self.pending).clear();
         lock(&self.views).clear();
@@ -459,9 +471,11 @@ impl Session {
         let mut views = lock(&self.views);
         let view = views.get(view_id).ok_or(SourceError::NotFound)?;
         let pending = lock(&self.pending).clone();
+        // The view part returns at most `MAX_WINDOW` cells; capping the window first keeps the
+        // pending cells at their own positions after it.
         Ok(combined(
             start as usize,
-            len as usize,
+            (len as usize).min(library_core::MAX_WINDOW),
             view.total(),
             &pending,
             |at, take| view.range(at, take),
@@ -511,7 +525,7 @@ impl Session {
     /// `?v=`; a running Eagle keys its thumbnail cache by it.
     pub fn image(&self, path: &str, version: Option<i64>) -> Option<Thumbnail> {
         let request = ImageRequest::parse(path)?;
-        if let Some(source) = lock(&self.eagle).as_ref().map(Arc::clone) {
+        if let Some(source) = self.eagle() {
             return match request {
                 ImageRequest::Thumbnail(id) => source
                     .thumbnail_versioned(&id, version.unwrap_or(i64::MIN))
@@ -622,7 +636,7 @@ impl Session {
         folder: Option<String>,
         filter: ImportFilter,
     ) -> Result<ImportTicket, SourceError> {
-        if let Some(source) = lock(&self.eagle).as_ref().map(Arc::clone) {
+        if let Some(source) = self.eagle() {
             return self.start_eagle_add(source, paths, folder, filter);
         }
         let library = self.writable_library()?;
@@ -643,7 +657,7 @@ impl Session {
                     cancel,
                 )
             },
-        );
+        )?;
         Ok(ImportTicket { id })
     }
 
@@ -657,10 +671,14 @@ impl Session {
         folder: Option<String>,
         filter: ImportFilter,
     ) -> Result<ImportTicket, SourceError> {
-        let mut files: Vec<NewFile> = Vec::new();
-        for path in &paths {
-            collect_eagle_files(Path::new(path), "", &filter, &mut files);
-        }
+        let sources: Vec<PathBuf> = paths.iter().map(PathBuf::from).collect();
+        let files: Vec<NewFile> = library_native::files_to_add(&sources, &filter)
+            .into_iter()
+            .map(|path| NewFile {
+                path: display_path(&path),
+                name: None,
+            })
+            .collect();
         let target = AddTarget {
             folders: folder.into_iter().collect(),
             ..AddTarget::default()
@@ -764,7 +782,8 @@ impl Session {
                             path: progress.current.clone().unwrap_or_default(),
                             reason: error.to_string(),
                         });
-                        progress.state = ImportState::Cancelled;
+                        // Finished with failures, not cancelled: nobody cancelled it.
+                        progress.state = ImportState::Done;
                     }
                 }
                 progress.current = None;
@@ -850,7 +869,7 @@ impl Session {
             move |library, id, observer, cancel| {
                 import_eagle(library, &eagle, &options, id, observer, cancel)
             },
-        );
+        )?;
         Ok(ImportTicket { id })
     }
 
@@ -891,7 +910,7 @@ impl Session {
     /// Edits one item; `Ctrl+Z` can take the edit back (native library; a running Eagle
     /// cannot give the previous states back through its API).
     pub fn apply_item_edit(&self, id: &str, edit: ItemEdit) -> Result<Item, SourceError> {
-        if let Some(source) = lock(&self.eagle).as_ref().map(Arc::clone) {
+        if let Some(source) = self.eagle() {
             let item = ready(source.apply_item_edit(&ItemId(id.to_owned()), edit))?;
             self.refresh_views();
             return Ok(item);
@@ -912,7 +931,7 @@ impl Session {
         edit: ItemEdit,
     ) -> Result<u32, SourceError> {
         let ids = self.target_ids(target)?;
-        if let Some(source) = lock(&self.eagle).as_ref().map(Arc::clone) {
+        if let Some(source) = self.eagle() {
             return match ready(source.apply_batch_edit(&ids, edit)) {
                 Ok(edited) => {
                     self.refresh_views();
@@ -955,12 +974,17 @@ impl Session {
         let Some(entry) = lock(&self.undo).pop() else {
             return Ok(None);
         };
-        let mut result = Ok(Some(entry.status()));
-        for step in entry.steps {
-            if let Err(error) = ready(source.apply_batch_edit(&step.ids, step.edit)) {
+        let status = entry.status();
+        let mut result = Ok(Some(status));
+        for step in &entry.steps {
+            if let Err(error) = ready(source.apply_batch_edit(&step.ids, step.edit.clone())) {
                 result = Err(error);
                 break;
             }
+        }
+        // A failed undo stays on the stack, so the user can try again.
+        if result.is_err() {
+            lock(&self.undo).restore(entry);
         }
         self.refresh_views();
         result
@@ -977,6 +1001,7 @@ impl Session {
         self.require_native("delete permanently")?;
         let ids = self.target_ids(target)?;
         let removed = ready(self.source()?.delete_items(&ids))?;
+        lock(&self.undo).forget(&ids);
         self.refresh_views();
         Ok(removed)
     }
@@ -1031,6 +1056,12 @@ impl Session {
         ids.iter().map(|id| library.original_path(&id.0)).collect()
     }
 
+    /// The ids of a selection, Select All resolved in Rust from its view: the UI never fetches
+    /// every id of a view to send them back (docs/architecture.md §8).
+    pub fn selected_ids(&self, target: ItemsTarget) -> Result<Vec<ItemId>, SourceError> {
+        self.target_ids(target)
+    }
+
     /// The image under the cursor while an item is dragged out: its thumbnail, small.
     pub fn drag_image(&self, id: &ItemId) -> Option<Vec<u8>> {
         let thumbnail = self.current_library()?.thumbnail(&id.0).ok()??;
@@ -1066,11 +1097,7 @@ impl Session {
             .pending_previews(1)
             .is_ok_and(|next| !next.is_empty())
         {
-            self.start(
-                Arc::clone(&library),
-                ImportKind::Previews,
-                make_pending_previews,
-            );
+            self.start_previews(Arc::clone(&library));
         }
         Ok(library.info())
     }
@@ -1130,7 +1157,25 @@ impl Session {
         let task_cancel = Arc::clone(&cancel);
         // The thread waits for the registry lock that is held here, so it is registered before
         // it can remove itself.
-        let eagle = request.eagle.is_some();
+        // Into a running Eagle: the token typed in the dialog, else the one Connect saved for
+        // that host and port. It stays a `SecretString` in Rust (D-080, D-089).
+        let eagle_token = match &request.eagle {
+            Some(target) => Some(
+                match target.token.as_deref().filter(|token| !token.is_empty()) {
+                    Some(token) => SecretString::from(token.to_owned()),
+                    None => SecretString::from(
+                        self.secrets
+                            .get(&eagle_token_name(target.host.trim(), target.port))?
+                            .unwrap_or_default(),
+                    ),
+                },
+            ),
+            None => None,
+        };
+        let mut request = request;
+        if let Some(target) = &mut request.eagle {
+            target.token = None;
+        }
         let thread = std::thread::Builder::new()
             .name(format!("export-{id}"))
             .spawn(move || {
@@ -1138,12 +1183,14 @@ impl Session {
                     *lock(&progress_latest) = Some(progress.clone());
                     emit(Event::ExportProgress(progress));
                 };
-                if eagle {
+                let eagle = eagle_token.is_some();
+                if let Some(token) = eagle_token {
                     // Into a running Eagle: the engine reports failures in the progress.
                     let result = crate::export_eagle::export_into_eagle(
                         &library,
                         id,
                         &request,
+                        token,
                         &task_cancel,
                         &mut on_progress,
                     );
@@ -1173,22 +1220,27 @@ impl Session {
                     }
                 }
                 drop(library);
+                let written = lock(&progress_latest)
+                    .as_ref()
+                    .and_then(|progress| progress.summary.as_ref())
+                    .filter(|_| !eagle)
+                    .map(|summary| PathBuf::from(&summary.path));
                 let mut exports = lock(&registry);
+                if let Some(path) = written {
+                    exports.written.push(path);
+                }
                 exports.running.remove(&id);
             });
-        match thread {
-            Ok(thread) => {
-                exports.running.insert(
-                    id,
-                    ExportRunning {
-                        cancel,
-                        latest,
-                        thread: Some(thread),
-                    },
-                );
-            }
-            Err(error) => tracing::warn!("cannot start an export: {error}"),
-        }
+        let thread =
+            thread.map_err(|error| SourceError::Storage(format!("start the export: {error}")))?;
+        exports.running.insert(
+            id,
+            ExportRunning {
+                cancel,
+                latest,
+                thread: Some(thread),
+            },
+        );
         let first = exports
             .running
             .get(&id)
@@ -1204,6 +1256,19 @@ impl Session {
             summary: None,
             error: None,
         }))
+    }
+
+    /// Show in Explorer after an export: only a path an export of this session wrote, so the
+    /// WebView cannot reveal arbitrary paths (D-089).
+    pub fn may_reveal(&self, path: &str) -> Result<PathBuf, SourceError> {
+        let path = PathBuf::from(path);
+        if lock(&self.exports).written.contains(&path) {
+            Ok(path)
+        } else {
+            Err(SourceError::Invalid(
+                "Only what an export wrote can be shown.".into(),
+            ))
+        }
     }
 
     /// Export tasks for the dialog to catch up with after it opens.
@@ -1276,7 +1341,7 @@ impl Session {
             .values()
             .any(|running| running.kind == ImportKind::Previews);
         if waiting > 0 && !previewing {
-            self.start(library, ImportKind::Previews, make_pending_previews);
+            self.start_previews(library);
         }
         Ok(waiting)
     }
@@ -1397,7 +1462,7 @@ impl Session {
         label_color: Option<String>,
         progress: &dyn Fn(u32, u32),
     ) -> Result<RecoveryKey, SourceError> {
-        if lock(&self.eagle).is_some() {
+        if self.eagle().is_some() {
             return Err(SourceError::NotSupported(
                 "Eagle's API cannot set a password on a folder".into(),
             ));
@@ -1412,7 +1477,7 @@ impl Session {
     /// Eagle this goes through the v1 API and also unlocks the folder in the Eagle desktop
     /// until Eagle restarts (docs/spec.md §8.3 "Writes").
     pub fn unlock_folder(&self, id: &str, password: String) -> Result<(), SourceError> {
-        if let Some(source) = lock(&self.eagle).as_ref().map(Arc::clone) {
+        if let Some(source) = self.eagle() {
             source.unlock_folder(id, &password)?;
             self.refresh_views();
             return Ok(());
@@ -1607,7 +1672,7 @@ impl Session {
                 .pending_previews(1)
                 .is_ok_and(|next| !next.is_empty())
         {
-            self.start(library, ImportKind::Previews, make_pending_previews);
+            self.start_previews(library);
         }
     }
 
@@ -1617,6 +1682,14 @@ impl Session {
             return;
         };
         let totals = lock(&self.views).refresh(&Blocking(source.as_dyn()));
+        // The totals the UI hears include the "Importing…" cells, as `open_view` does.
+        let extra = lock(&self.pending).len();
+        let totals = totals.map(|totals| {
+            totals
+                .into_iter()
+                .map(|(view_id, total)| (view_id, total + extra))
+                .collect()
+        });
         match totals.map(invalidated) {
             Ok(Some(event)) => (self.emit)(event),
             Ok(None) => {}
@@ -1669,7 +1742,7 @@ impl Session {
                 let _ = std::fs::remove_dir_all(&dir);
                 done
             },
-        );
+        )?;
         Ok(Some(ImportTicket { id }))
     }
 
@@ -1753,7 +1826,7 @@ impl Session {
         }
     }
 
-    fn start<F>(&self, library: Arc<Library>, kind: ImportKind, work: F) -> u64
+    fn start<F>(&self, library: Arc<Library>, kind: ImportKind, work: F) -> Result<u64, SourceError>
     where
         F: FnOnce(&Library, u64, &dyn ImportObserver, &AtomicBool) -> ImportProgress
             + Send
@@ -1788,22 +1861,27 @@ impl Session {
                 imports.finished.insert(0, done);
                 imports.finished.truncate(FINISHED_KEPT);
             });
-        match thread {
-            Ok(thread) => {
-                imports.running.insert(
-                    id,
-                    Running {
-                        kind,
-                        cancel,
-                        decision,
-                        latest,
-                        thread: Some(thread),
-                    },
-                );
-            }
-            Err(error) => tracing::warn!("cannot start an import: {error}"),
+        let thread =
+            thread.map_err(|error| SourceError::Storage(format!("start the import: {error}")))?;
+        imports.running.insert(
+            id,
+            Running {
+                kind,
+                cancel,
+                decision,
+                latest,
+                thread: Some(thread),
+            },
+        );
+        Ok(id)
+    }
+
+    /// Thumbnails and palettes still to make, in the background. Nobody asked for them, so a
+    /// thread that cannot start is only logged; the next open tries again.
+    fn start_previews(&self, library: Arc<Library>) {
+        if let Err(error) = self.start(library, ImportKind::Previews, make_pending_previews) {
+            tracing::warn!("cannot make the pending previews: {error}");
         }
-        id
     }
 
     fn writable_library(&self) -> Result<Arc<Library>, SourceError> {
@@ -1827,7 +1905,7 @@ impl Session {
     /// Native-only writes: a live Eagle session answers `NotSupported` instead of the
     /// misleading "Open a library first" from [`Session::source`].
     fn require_native(&self, what: &str) -> Result<(), SourceError> {
-        if lock(&self.eagle).is_some() {
+        if self.eagle().is_some() {
             return Err(SourceError::NotSupported(format!(
                 "Eagle's API cannot {what}"
             )));
@@ -1835,11 +1913,19 @@ impl Session {
         Ok(())
     }
 
+    /// The live Eagle connection, cloned out from under the lock. Callers bind it with `let`
+    /// or `if let` on this call, never on `lock(&self.eagle)` itself: in edition 2024 the guard
+    /// of an `if let` scrutinee lives through the then-block, and anything there that reaches
+    /// `active_source` or `refresh_views` would lock `eagle` again and deadlock (D-089).
+    fn eagle(&self) -> Option<Arc<EagleSource>> {
+        lock(&self.eagle).clone()
+    }
+
     /// The source the read commands talk to: a live Eagle connection wins over the open
     /// native library (the session holds at most one of them, docs/spec.md §8.3).
     fn active_source(&self) -> Result<ActiveSource, SourceError> {
-        if let Some(source) = lock(&self.eagle).as_ref() {
-            return Ok(ActiveSource::Eagle(Arc::clone(source)));
+        if let Some(source) = self.eagle() {
+            return Ok(ActiveSource::Eagle(source));
         }
         Ok(ActiveSource::Native(self.source()?))
     }
@@ -1858,39 +1944,6 @@ impl Session {
 
 fn no_library() -> SourceError {
     SourceError::Invalid("Open a library first.".into())
-}
-
-/// Walks a picked file or folder into `files`, applying the reviewed import's filter the
-/// same way the native import does (Eagle accepts every file type it can store).
-fn collect_eagle_files(path: &Path, rel: &str, filter: &ImportFilter, files: &mut Vec<NewFile>) {
-    if filter.exclude.contains(rel) {
-        return;
-    }
-    if path.is_dir() {
-        if let Ok(entries) = std::fs::read_dir(path) {
-            for entry in entries.flatten() {
-                let name = entry.file_name().to_string_lossy().into_owned();
-                let child = if rel.is_empty() {
-                    name
-                } else {
-                    format!("{rel}/{name}")
-                };
-                collect_eagle_files(&entry.path(), &child, filter, files);
-            }
-        }
-    } else if path.is_file() {
-        let ext = path
-            .extension()
-            .map(|ext| ext.to_string_lossy().to_ascii_lowercase())
-            .unwrap_or_default();
-        let image = media::has_preview(&ext);
-        if !filter.reviewed || image || filter.include.contains(rel) {
-            files.push(NewFile {
-                path: display_path(path),
-                name: None,
-            });
-        }
-    }
 }
 
 /// The positions `start..start + len` of a view of `total` items followed by `pending`
@@ -3387,3 +3440,7 @@ mod tests {
         assert_eq!(f.session.recent_libraries()[0].name, "Renamed");
     }
 }
+
+#[cfg(test)]
+#[path = "session_eagle_tests.rs"]
+mod eagle_tests;

@@ -540,7 +540,7 @@ Send the token like this:
 - GET and DELETE: query `?token=`.
 - POST and PUT: JSON field `token` **only**. The server would also read `?token=` on a POST, but Eagle writes the URL of every POST into its log file, so a query token ends up on disk (correction 6).
 
-Store the token in the OS secret store. Do not log it. Do not pass it to the WebView.
+Store the token in the OS secret store, and only after a connection with it succeeded. Do not log it. Do not pass it to the WebView. An export into Eagle uses the token typed in its dialog or else the saved one for that host and port (D-089). The session holds one source at a time: opening a native library ends a live Eagle connection, and connecting closes the open library.
 
 The token is not a real security boundary. A LAN request without a token but with the header `Host: localhost:41595` is accepted (verified live, correction 5). The client never uses this trick. The Connect screen tells the user to limit the Windows Firewall rule for 41595 to the Private profile and, ideally, to the client's IP. For access outside the LAN use Tailscale or WireGuard; never forward the port.
 

@@ -347,27 +347,29 @@ pub fn clear_login(session: State<'_, Session>) -> Result<LoginStatus, SourceErr
     session.clear_login()
 }
 
+// Login commands hash with Argon2id or wait for a touch: off the main thread, so the window
+// keeps painting (D-089).
 #[tauri::command]
-pub fn set_login_password(
-    session: State<'_, Session>,
+pub async fn set_login_password(
+    app: AppHandle,
     password: String,
 ) -> Result<LoginStatus, SourceError> {
-    session.set_login_password(password)
+    blocking(app, move |session| session.set_login_password(password)).await
 }
 
 #[tauri::command]
-pub fn set_login_pin(session: State<'_, Session>, pin: String) -> Result<LoginStatus, SourceError> {
-    session.set_login_pin(pin)
+pub async fn set_login_pin(app: AppHandle, pin: String) -> Result<LoginStatus, SourceError> {
+    blocking(app, move |session| session.set_login_pin(pin)).await
 }
 
 #[tauri::command]
-pub fn set_login_webauthn(session: State<'_, Session>) -> Result<LoginStatus, SourceError> {
-    session.set_login_webauthn()
+pub async fn set_login_webauthn(app: AppHandle) -> Result<LoginStatus, SourceError> {
+    blocking(app, Session::set_login_webauthn).await
 }
 
 #[tauri::command]
-pub fn unlock_app(session: State<'_, Session>, proof: LoginProof) -> Result<(), SourceError> {
-    session.unlock_app(proof)
+pub async fn unlock_app(app: AppHandle, proof: LoginProof) -> Result<(), SourceError> {
+    blocking(app, move |session| session.unlock_app(proof)).await
 }
 
 #[tauri::command]
@@ -545,15 +547,21 @@ pub async fn open_original(app: AppHandle, id: ItemId) -> Result<(), SourceError
 
 /// Shows the originals selected in Explorer.
 #[tauri::command]
-pub async fn reveal_originals(app: AppHandle, ids: Vec<ItemId>) -> Result<(), SourceError> {
-    let paths = blocking(app, move |session| session.original_paths(&ids)).await?;
+pub async fn reveal_originals(app: AppHandle, target: ItemsTarget) -> Result<(), SourceError> {
+    let paths = blocking(app, move |session| {
+        session.original_paths(&session.selected_ids(target)?)
+    })
+    .await?;
     tauri_plugin_opener::reveal_items_in_dir(&paths).map_err(opener_error)
 }
 
 /// Puts the originals on the clipboard as files, ready to paste in Explorer or another app.
 #[tauri::command]
-pub async fn copy_originals(app: AppHandle, ids: Vec<ItemId>) -> Result<u32, SourceError> {
-    let paths = blocking(app, move |session| session.original_paths(&ids)).await?;
+pub async fn copy_originals(app: AppHandle, target: ItemsTarget) -> Result<u32, SourceError> {
+    let paths = blocking(app, move |session| {
+        session.original_paths(&session.selected_ids(target)?)
+    })
+    .await?;
     copy_files(&paths)
         .map_err(|error| SourceError::Storage(format!("copy to the clipboard: {error}")))?;
     Ok(u32::try_from(paths.len()).unwrap_or(u32::MAX))
@@ -588,9 +596,10 @@ pub fn open_link(url: String) -> Result<(), SourceError> {
 pub async fn start_drag(
     app: AppHandle,
     window: WebviewWindow,
-    ids: Vec<ItemId>,
+    target: ItemsTarget,
 ) -> Result<(), SourceError> {
     let (paths, image) = blocking(app.clone(), move |session| {
+        let ids = session.selected_ids(target)?;
         let paths = session.original_paths(&ids)?;
         let image = ids.first().and_then(|id| session.drag_image(id));
         Ok((paths, image))
@@ -666,8 +675,9 @@ pub async fn exports(app: AppHandle) -> Result<Vec<ExportProgress>, SourceError>
 
 /// Shows an exported file or folder in Explorer.
 #[tauri::command]
-pub async fn reveal_path(path: String) -> Result<(), SourceError> {
-    tauri_plugin_opener::reveal_items_in_dir([PathBuf::from(path)]).map_err(opener_error)
+pub async fn reveal_path(app: AppHandle, path: String) -> Result<(), SourceError> {
+    let path = app.state::<Session>().may_reveal(&path)?;
+    tauri_plugin_opener::reveal_items_in_dir([path]).map_err(opener_error)
 }
 
 #[tauri::command]

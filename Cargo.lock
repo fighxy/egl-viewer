@@ -1582,6 +1582,7 @@ dependencies = [
  "tracing-subscriber",
  "ts-rs",
  "windows 0.62.2",
+ "wiremock",
  "yubikey",
 ]
 

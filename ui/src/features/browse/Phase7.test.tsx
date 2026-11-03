@@ -398,14 +398,22 @@ describe("Phase 7: editing, the trash and file actions", () => {
     await pick("image-0");
     await within(details()).findByRole("textbox", { name: "Name" });
     fireEvent.keyDown(screen.getByRole("grid", { name: "Items" }), { key: "c", ctrlKey: true });
-    await waitFor(() => expect(lastEdit(calls, "copy_originals")).toEqual({ ids: ["ID0000"] }));
+    await waitFor(() =>
+      expect(lastEdit(calls, "copy_originals")).toMatchObject({
+        target: { all: false, ids: ["ID0000"] },
+      }),
+    );
     await user.click(within(details()).getByRole("button", { name: "Open with default app" }));
     expect(lastEdit(calls, "open_original")).toEqual({ id: "ID0000" });
 
     // A right click on another item selects it first.
     fireEvent.contextMenu(await screen.findByRole("gridcell", { name: "image-2" }));
     await user.click(await screen.findByRole("menuitem", { name: "Show in Explorer" }));
-    await waitFor(() => expect(lastEdit(calls, "reveal_originals")).toEqual({ ids: ["ID0002"] }));
+    await waitFor(() =>
+      expect(lastEdit(calls, "reveal_originals")).toMatchObject({
+        target: { all: false, ids: ["ID0002"] },
+      }),
+    );
   });
 
   it("drags the original out of the window from the preview", async () => {
@@ -415,7 +423,11 @@ describe("Phase 7: editing, the trash and file actions", () => {
     const preview = await within(details()).findByTitle(/Show full size/);
     fireEvent.pointerDown(preview, { button: 0, buttons: 1, clientX: 10, clientY: 10 });
     fireEvent.pointerMove(preview, { buttons: 1, clientX: 30, clientY: 30 });
-    await waitFor(() => expect(lastEdit(calls, "start_drag")).toEqual({ ids: ["ID0001"] }));
+    await waitFor(() =>
+      expect(lastEdit(calls, "start_drag")).toMatchObject({
+        target: { all: false, ids: ["ID0001"] },
+      }),
+    );
     // The click that ends the drag opens no preview.
     fireEvent.click(preview);
     expect(screen.queryByRole("dialog")).toBeNull();

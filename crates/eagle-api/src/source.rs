@@ -887,8 +887,10 @@ impl EagleSource {
     }
 
     /// A fresh folder node and its parent id (`None` at the root).
+    /// The folder as Eagle has it now: an update sends its full state (correction 3), so it
+    /// never starts from a cached tree that another client may have changed.
     fn fresh_folder_with_parent(&self, id: &str) -> Result<(Folder, Option<String>), SourceError> {
-        let tree = self.fresh_tree()?;
+        let tree = self.fresh_tree_forced()?;
         find_folder(&tree, id).ok_or(SourceError::NotFound)
     }
 
@@ -1050,8 +1052,9 @@ fn folder_update_body(
             description,
             tags,
             icon_color,
-            *order_by,
-            *sort_ascending,
+            // Not given: the folder keeps its own sort; the body is its full desired state.
+            order_by.or(fresh.order_by),
+            sort_ascending.or(fresh.sort_ascending),
         ),
         _ => return Err(EagleError::Invalid("not an update".into())),
     };
@@ -1243,6 +1246,28 @@ mod tests {
         assert_eq!(body["iconColor"], Value::from("red"));
         assert_eq!(body["orderBy"], Value::from("name"));
         assert_eq!(body["sortIncrease"], Value::from(true));
+    }
+
+    #[test]
+    fn a_move_or_rename_keeps_the_folder_sort() {
+        let change = FolderChange::Update {
+            id: "F1".into(),
+            name: "Moved".into(),
+            description: String::new(),
+            tags: vec![],
+            icon_color: None,
+            order_by: None,
+            sort_ascending: None,
+        };
+        let fresh = Folder {
+            id: "F1".into(),
+            order_by: Some(library_core::SortKey::Title),
+            sort_ascending: Some(false),
+            ..Folder::default()
+        };
+        let body = folder_update_body(&change, &fresh, Some("P2")).unwrap();
+        assert_eq!(body["orderBy"], Value::from("name"));
+        assert_eq!(body["sortIncrease"], Value::from(false));
     }
 
     #[test]

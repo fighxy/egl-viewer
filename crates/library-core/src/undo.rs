@@ -194,6 +194,29 @@ impl UndoStack {
         self.entries.pop()
     }
 
+    /// Puts back an entry that could not be taken back, so `Ctrl+Z` can try it again. Steps
+    /// set states, so a step that already went through does no harm the second time.
+    pub fn restore(&mut self, entry: UndoEntry) {
+        self.entries.push(entry);
+        if self.entries.len() > UNDO_KEPT {
+            self.entries.remove(0);
+        }
+    }
+
+    /// Items deleted for good leave every entry; an entry left with nothing to take back goes.
+    pub fn forget(&mut self, gone: &[ItemId]) {
+        if gone.is_empty() {
+            return;
+        }
+        for entry in &mut self.entries {
+            for step in &mut entry.steps {
+                step.ids.retain(|id| !gone.contains(id));
+            }
+            entry.steps.retain(|step| !step.ids.is_empty());
+        }
+        self.entries.retain(|entry| !entry.steps.is_empty());
+    }
+
     pub fn status(&self) -> Option<UndoStatus> {
         self.entries.last().map(UndoEntry::status)
     }
@@ -242,6 +265,20 @@ mod tests {
                 },
             ]
         );
+    }
+
+    #[test]
+    fn deleted_items_leave_the_stack_and_a_failed_undo_can_be_put_back() {
+        let mut stack = UndoStack::default();
+        stack.push(&ItemEdit::SetStar(3), &[state("a"), state("b")]);
+        stack.push(&ItemEdit::SetStar(4), &[state("c")]);
+        stack.forget(&ids(&["c", "a"]));
+        assert_eq!(stack.status().unwrap().items, 1);
+        let entry = stack.pop().unwrap();
+        assert_eq!(entry.steps[0].ids, ids(&["b"]));
+        assert_eq!(stack.status(), None);
+        stack.restore(entry.clone());
+        assert_eq!(stack.pop(), Some(entry));
     }
 
     #[test]

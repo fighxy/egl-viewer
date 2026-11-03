@@ -68,8 +68,8 @@ pub use detect::{is_native_library, looks_like_eagle_library};
 pub use eagle_import::{EagleImportOptions, import_eagle};
 pub use export::{export_items, export_preview};
 pub use import::{
-    DuplicateChoice, DuplicatePolicy, ImportFilter, ImportObserver, ImportTarget, import_files,
-    make_pending_previews, preview_threads,
+    DuplicateChoice, DuplicatePolicy, ImportFilter, ImportObserver, ImportTarget, files_to_add,
+    import_files, make_pending_previews, preview_threads,
 };
 pub use library::{Library, OpenOptions};
 pub use name::validate_library_name;
