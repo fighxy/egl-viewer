@@ -1276,7 +1276,7 @@ Only through the API of a running Eagle, so that Eagle stays the writer of its l
 3. Wait for the items to appear (§7.4). Only for data URLs: then `item/update` for `star`, which that mode ignores (correction 11).
 4. Comments with a rect or a video time through `item/addComment`; tag groups through `tagGroup/create`; smart folders through `smartFolder/create` with `conditions` unchanged.
 5. Locked folders cannot be created through the API: they are exported unlocked, with a warning.
-6. Each new Eagle id is stored in `eagle_id`, so a second export updates instead of duplicating.
+6. Each new Eagle id is stored in `eagle_export` (format version 6, D-087), so a second export updates instead of duplicating; `eagle_id` keeps the origin of an imported row.
 
 Without a running Eagle, the app can write a `.eaglepack` instead (§17). Eagle imports it with new ids and a new date added, so it suits a one-time hand-over, not repeated exports that update earlier ones.
 

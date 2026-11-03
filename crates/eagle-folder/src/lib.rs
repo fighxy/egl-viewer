@@ -336,19 +336,10 @@ impl EagleLibrary {
         Ok(item)
     }
 
-    /// The item's original inside its `.info` directory, found by extension: the file name
-    /// is not rebuilt, Eagle may have renamed the file (docs/spec.md §8.2). The thumbnail
-    /// (`<name>_thumbnail.png`) never matches: its name always ends with `_thumbnail.png`.
+    /// The item's original inside its `.info` directory (docs/spec.md §8.2); see
+    /// [`find_original`].
     pub fn original(&self, item: &ItemDto) -> Option<PathBuf> {
-        let wanted = item.ext.to_lowercase();
-        let entries = fs::read_dir(self.item_dir(&item.id)).ok()?;
-        entries.flatten().map(|entry| entry.path()).find(|path| {
-            path.is_file()
-                && path
-                    .extension()
-                    .map(|ext| ext.to_string_lossy().to_lowercase() == wanted)
-                    .unwrap_or(false)
-        })
+        find_original(&self.item_dir(&item.id), &item.ext, &item.name)
     }
 
     /// The item's Eagle thumbnail (`_thumbnail.png`), when Eagle made one; small images
@@ -367,6 +358,43 @@ impl EagleLibrary {
     fn item_dir(&self, id: &str) -> PathBuf {
         self.root.join("images").join(format!("{id}.info"))
     }
+}
+
+/// The original in an item's `.info` directory: a file with the item's extension that is not
+/// Eagle's thumbnail. Eagle may have renamed the file, so the name is not rebuilt; it only
+/// decides between several candidates. For a PNG item, `<stem>_thumbnail.png` next to
+/// `<stem>.png` is the thumbnail, not a second original. The running Eagle's same-PC reads use
+/// this too (`eagle-api`).
+pub fn find_original(dir: &Path, ext: &str, name: &str) -> Option<PathBuf> {
+    let entries = fs::read_dir(dir).ok()?;
+    let mut candidates: Vec<PathBuf> = entries
+        .flatten()
+        .map(|entry| entry.path())
+        .filter(|path| {
+            path.is_file()
+                && path
+                    .extension()
+                    .is_some_and(|found| found.to_string_lossy().eq_ignore_ascii_case(ext))
+        })
+        .collect();
+    let stems: Vec<String> = candidates.iter().map(|path| stem(path)).collect();
+    candidates.retain(|path| {
+        let own = stem(path);
+        !own.strip_suffix("_thumbnail")
+            .is_some_and(|original| stems.iter().any(|other| other == original))
+    });
+    candidates.sort();
+    let named = candidates.iter().position(|path| stem(path) == name);
+    match named {
+        Some(at) => Some(candidates.swap_remove(at)),
+        None => candidates.into_iter().next(),
+    }
+}
+
+fn stem(path: &Path) -> String {
+    path.file_stem()
+        .map(|stem| stem.to_string_lossy().into_owned())
+        .unwrap_or_default()
 }
 
 /// The sum of every file's bytes under `dir`, best effort: folders that cannot be read
@@ -394,6 +422,44 @@ fn walk_bytes(dir: &Path) -> u64 {
 mod tests {
     use super::*;
     use serde_json::json;
+
+    #[test]
+    fn the_original_is_never_the_eagle_thumbnail() {
+        let dir = tempfile::tempdir().unwrap();
+        // Read order is up to the file system: whatever it is, the PNG item's original is
+        // `scan.png`, not the thumbnail next to it.
+        for name in ["scan.png", "scan_thumbnail.png", "metadata.json"] {
+            fs::write(dir.path().join(name), name).unwrap();
+        }
+        assert_eq!(
+            find_original(dir.path(), "png", "renamed by Eagle"),
+            Some(dir.path().join("scan.png"))
+        );
+        // A JPEG original is found by its extension alone.
+        fs::write(dir.path().join("photo.JPG"), b"x").unwrap();
+        assert_eq!(
+            find_original(dir.path(), "jpg", "photo"),
+            Some(dir.path().join("photo.JPG"))
+        );
+        // An original whose own name ends in `_thumbnail` still counts when nothing else
+        // has its stem.
+        let lone = tempfile::tempdir().unwrap();
+        fs::write(lone.path().join("icon_thumbnail.png"), b"x").unwrap();
+        assert_eq!(
+            find_original(lone.path(), "png", "icon"),
+            Some(lone.path().join("icon_thumbnail.png"))
+        );
+        // Several candidates: the item's own name wins.
+        let two = tempfile::tempdir().unwrap();
+        for name in ["a.png", "b.png"] {
+            fs::write(two.path().join(name), name).unwrap();
+        }
+        assert_eq!(
+            find_original(two.path(), "png", "b"),
+            Some(two.path().join("b.png"))
+        );
+        assert_eq!(find_original(two.path(), "gif", "b"), None);
+    }
 
     #[test]
     fn folder_password_becomes_a_flag_and_is_not_kept() {

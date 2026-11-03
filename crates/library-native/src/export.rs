@@ -20,6 +20,7 @@ use serde::Serialize;
 use zip::write::SimpleFileOptions;
 
 use crate::add::file_name_for;
+use crate::create::check_not_inside_a_library;
 use crate::error::{Context, Result};
 use crate::fsutil::rename_with_retry;
 use crate::library::Library;
@@ -50,8 +51,6 @@ pub(crate) struct ExportItem {
     pub(crate) folder_names: Vec<String>,
     /// The direct folders' ids; for the layout.
     pub(crate) folder_ids: Vec<String>,
-    /// Eagle id from a previous export into Eagle (docs/spec.md §8.4).
-    pub(crate) eagle_id: Option<String>,
     /// Date added, ms: Eagle `modificationTime`.
     pub(crate) added_at: i64,
 }
@@ -294,7 +293,9 @@ pub fn export_items(
             export_base(library, &conn, &request.selection),
         )
     };
-    let (planned, manifest_items) = plan_layout(items, &folder_rows, &roots);
+    // The manifest sits at the top of the export: no item may take its name.
+    let reserved = [MANIFEST.to_owned(), format!("{base}/{MANIFEST}")];
+    let (planned, manifest_items) = plan_layout(items, &folder_rows, &roots, &reserved);
     let bytes_total = planned.iter().map(|p| p.item.size).sum();
     let destination = PathBuf::from(&request.destination);
     fs::create_dir_all(&destination).context("create the destination folder")?;
@@ -386,7 +387,9 @@ fn validate(request: &ExportRequest, library: &Library) -> Result<()> {
             "Choose a folder outside the library.".into(),
         ));
     }
-    Ok(())
+    // Nor into another library: Eagle is the only writer of its `.library` folder, and a
+    // native library's files are only written through its journal.
+    check_not_inside_a_library(&destination)
 }
 
 /// The visible items of the selection with their tags and folder links, names opened for
@@ -396,7 +399,7 @@ pub(crate) fn load_export_items(library: &Library, sql: &SelectionSql) -> Result
     let visibility = library.visibility(&conn)?;
     let query = format!(
         "{}SELECT id, name, ext, size, star, annotation, url, file_path, encrypted, sealed, \
-         eagle_id, added_at \
+         added_at \
          FROM item WHERE deleted_at IS NULL AND {} AND {VISIBLE} ORDER BY seq",
         sql.prefix, sql.condition
     );
@@ -421,8 +424,7 @@ pub(crate) fn load_export_items(library: &Library, sql: &SelectionSql) -> Result
             tags: Vec::new(),
             folder_names: Vec::new(),
             folder_ids: Vec::new(),
-            eagle_id: row.get(10).context("read an item")?,
-            added_at: row.get(11).context("read an item")?,
+            added_at: row.get(10).context("read an item")?,
         };
         if encrypted {
             sealed.push((
@@ -545,9 +547,10 @@ fn plan_layout(
     items: Vec<ExportItem>,
     folder_rows: &HashMap<String, FolderRow>,
     roots: &[String],
+    reserved: &[String],
 ) -> (Vec<Placement>, Vec<ManifestItem>) {
     let root_set: HashSet<&str> = roots.iter().map(String::as_str).collect();
-    let mut used: HashSet<String> = HashSet::new();
+    let mut used: HashSet<String> = reserved.iter().map(|path| path.to_lowercase()).collect();
     let mut placements = Vec::new();
     let mut manifest = Vec::new();
     for item in &items {
@@ -594,7 +597,6 @@ fn plan_layout(
                     tags: Vec::new(),
                     folder_names: Vec::new(),
                     folder_ids: Vec::new(),
-                    eagle_id: None,
                     added_at: 0,
                 },
                 rel,
@@ -645,12 +647,21 @@ fn unique_rel(rel: &str, used: &mut HashSet<String>) -> String {
     if used.insert(rel.to_lowercase()) {
         return rel.to_owned();
     }
-    let (stem, ext) = rel.rsplit_once('.').unwrap_or((rel, ""));
+    // The counter goes into the file name, never into a folder of the path: `a.b/README`
+    // becomes `a.b/README (2)`, and `.gitignore` keeps its leading dot as part of the stem.
+    let (dir, name) = match rel.rsplit_once('/') {
+        Some((dir, name)) => (format!("{dir}/"), name),
+        None => (String::new(), rel),
+    };
+    let (stem, ext) = name
+        .rsplit_once('.')
+        .filter(|(stem, _)| !stem.is_empty())
+        .unwrap_or((name, ""));
     for n in 2.. {
         let candidate = if ext.is_empty() {
-            format!("{stem} ({n})")
+            format!("{dir}{stem} ({n})")
         } else {
-            format!("{stem} ({n}).{ext}")
+            format!("{dir}{stem} ({n}).{ext}")
         };
         if used.insert(candidate.to_lowercase()) {
             return candidate;
@@ -797,6 +808,40 @@ enum Outcome {
     Done(ExportSummary),
 }
 
+/// Removes a partial export (a folder tree, a `.zip.part`, a half-written `.age`) when it is
+/// dropped, unless the export finished and called [`Leftovers::keep`]. A cancelled, failed or
+/// panicking export leaves nothing behind, decrypted copies of locked items included.
+struct Leftovers {
+    paths: Vec<PathBuf>,
+}
+
+impl Leftovers {
+    fn new(paths: Vec<PathBuf>) -> Self {
+        Self { paths }
+    }
+
+    fn keep(mut self) {
+        self.paths.clear();
+    }
+}
+
+impl Drop for Leftovers {
+    fn drop(&mut self) {
+        for path in &self.paths {
+            let removed = if path.is_dir() {
+                fs::remove_dir_all(path)
+            } else {
+                fs::remove_file(path)
+            };
+            if let Err(error) = removed
+                && error.kind() != ErrorKind::NotFound
+            {
+                tracing::warn!("cannot remove a partial export: {error}");
+            }
+        }
+    }
+}
+
 /// Writes the placements and the manifest as a folder tree under `<destination>/<base>`.
 #[allow(clippy::too_many_arguments)]
 fn write_mirror(
@@ -811,12 +856,12 @@ fn write_mirror(
 ) -> Result<Outcome> {
     let root = unique_child(destination, base, "");
     fs::create_dir_all(&root).context("create the export folder")?;
+    let leftovers = Leftovers::new(vec![root.clone()]);
     let mut files = 0u64;
     let mut bytes = 0u64;
     let mut missing = Vec::new();
     for placement in planned {
         if cancel.load(Ordering::Relaxed) {
-            let _ = fs::remove_dir_all(&root);
             return Ok(Outcome::Cancelled);
         }
         let under = rel_under_base(&placement.rel, base);
@@ -832,23 +877,16 @@ fn write_mirror(
         reporter.item_done(placement.item.size, under);
     }
     let manifest_items = manifest_with_base(manifest_items, base);
-    let manifest_path = root.join(MANIFEST);
-    match write_manifest(&manifest_path, &library_name, &manifest_items) {
-        Ok(()) => {
-            files += 1;
-            Ok(Outcome::Done(ExportSummary {
-                items: manifest_items.len() as u64,
-                files,
-                bytes,
-                missing,
-                path: root.to_string_lossy().into_owned(),
-            }))
-        }
-        Err(error) => {
-            let _ = fs::remove_dir_all(&root);
-            Err(error)
-        }
-    }
+    write_manifest(&root.join(MANIFEST), &library_name, &manifest_items)?;
+    files += 1;
+    leftovers.keep();
+    Ok(Outcome::Done(ExportSummary {
+        items: manifest_items.len() as u64,
+        files,
+        bytes,
+        missing,
+        path: root.to_string_lossy().into_owned(),
+    }))
 }
 
 /// Writes the placements and the manifest into `<destination>/<base>.zip`, wrapped in an age
@@ -868,6 +906,14 @@ fn write_zip(
 ) -> Result<Outcome> {
     let archive = unique_child(destination, base, "zip");
     let part = archive.with_extension("zip.part");
+    let encrypted = archive.with_file_name(format!(
+        "{}.age",
+        archive
+            .file_name()
+            .and_then(|name| name.to_str())
+            .unwrap_or("export.zip")
+    ));
+    let leftovers = Leftovers::new(vec![part.clone(), encrypted.clone()]);
     let outcome = (|| -> Result<Outcome> {
         let file = File::create(&part).context("create the archive")?;
         let mut zip = zip::ZipWriter::new(file).set_auto_large_file();
@@ -877,7 +923,6 @@ fn write_zip(
         for placement in planned {
             if cancel.load(Ordering::Relaxed) {
                 drop(zip);
-                let _ = fs::remove_file(&part);
                 return Ok(Outcome::Cancelled);
             }
             let entry = zip_entry(&placement.rel, base);
@@ -914,36 +959,23 @@ fn write_zip(
             path: archive.to_string_lossy().into_owned(),
         }))
     })();
-    match outcome {
-        Ok(Outcome::Cancelled) => Ok(Outcome::Cancelled),
-        Ok(done @ Outcome::Done(_)) => {
-            let Outcome::Done(mut summary) = done else {
-                unreachable!()
-            };
-            if let Some(password) = encrypt {
-                let encrypted = archive.with_file_name(format!(
-                    "{}.age",
-                    archive
-                        .file_name()
-                        .and_then(|name| name.to_str())
-                        .unwrap_or("export.zip")
-                ));
-                let part_len = fs::metadata(&part)
-                    .map(|metadata| metadata.len())
-                    .unwrap_or(0);
-                encrypt_file(&part, &encrypted, password, reporter, part_len)?;
-                fs::remove_file(&part).context("remove the temporary archive")?;
-                summary.path = encrypted.to_string_lossy().into_owned();
-            } else {
-                rename_with_retry(&part, &archive).context("finish the archive")?;
-            }
-            Ok(Outcome::Done(summary))
-        }
-        Err(error) => {
-            let _ = fs::remove_file(&part);
-            Err(error)
-        }
+    let mut summary = match outcome? {
+        Outcome::Cancelled => return Ok(Outcome::Cancelled),
+        Outcome::Done(summary) => summary,
+    };
+    if let Some(password) = encrypt {
+        let part_len = fs::metadata(&part)
+            .map(|metadata| metadata.len())
+            .unwrap_or(0);
+        encrypt_file(&part, &encrypted, password, reporter, part_len)?;
+        // The plaintext archive goes with the leftovers; only the encrypted one stays.
+        drop(Leftovers::new(vec![part.clone()]));
+        summary.path = encrypted.to_string_lossy().into_owned();
+    } else {
+        rename_with_retry(&part, &archive).context("finish the archive")?;
     }
+    leftovers.keep();
+    Ok(Outcome::Done(summary))
 }
 
 fn file_options(compression: Compression) -> SimpleFileOptions {
@@ -1065,16 +1097,17 @@ fn encrypt_file(
 
 #[cfg(test)]
 mod tests {
+    use std::collections::HashSet;
     use std::fs;
-    use std::io::{BufReader, Read};
+    use std::io::{BufReader, Read, Write};
     use std::sync::atomic::AtomicBool;
 
     use image::ImageFormat;
-    use library_core::{ExportFormat, ExportRequest, ExportSelection, ItemEdit};
+    use library_core::{Compression, ExportFormat, ExportRequest, ExportSelection, ItemEdit};
     use media::fixtures;
     use secrecy::SecretString;
 
-    use super::{export_items, export_preview};
+    use super::{MANIFEST, export_items, export_preview, unique_rel};
     use crate::Library;
     use crate::test_support::{add_png, create, files_under, new_library, open, put};
 
@@ -1416,6 +1449,127 @@ mod tests {
         let cancel = AtomicBool::new(false);
         let error = export_items(&library, 1, &request, &cancel, &mut |_| {}).unwrap_err();
         assert!(matches!(error, library_core::SourceError::Invalid(_)));
+    }
+
+    #[test]
+    fn a_failure_mid_export_leaves_nothing_behind() {
+        let dir = tempfile::tempdir().unwrap();
+        let root = new_library(dir.path(), "Broken");
+        let library = open(&root);
+        let plain = dir.path().join("plain");
+        fs::create_dir(&plain).unwrap();
+        add_png(&library, &plain, "a.png", 1);
+        let b = add_png(&library, &plain, "b.png", 2);
+        // The stored original grows behind the library's back: its copy fails.
+        let stored: String = library
+            .conn()
+            .query_row("SELECT file_path FROM item WHERE id = ?1", [&b], |row| {
+                row.get(0)
+            })
+            .unwrap();
+        fs::OpenOptions::new()
+            .append(true)
+            .open(root.join(stored))
+            .unwrap()
+            .write_all(b"more")
+            .unwrap();
+        let whole = ExportSelection {
+            whole: true,
+            ..Default::default()
+        };
+        let cancel = AtomicBool::new(false);
+        for format in [
+            ExportFormat::Mirror,
+            ExportFormat::Zip {
+                compression: Compression::None,
+            },
+        ] {
+            let out = dir.path().join(format!("out-{format:?}"));
+            let mut request = request(whole.clone(), true, format, &out);
+            if matches!(format, ExportFormat::Zip { .. }) {
+                request.encrypt = Some("correct horse".into());
+            }
+            assert!(export_items(&library, 1, &request, &cancel, &mut |_| {}).is_err());
+            assert_eq!(files_under(&out), Vec::<String>::new(), "{format:?}");
+        }
+    }
+
+    #[test]
+    fn no_item_takes_the_manifest_name() {
+        let dir = tempfile::tempdir().unwrap();
+        let library = open(&new_library(dir.path(), "Names"));
+        let plain = dir.path().join("plain");
+        fs::create_dir(&plain).unwrap();
+        let id = add_png(&library, &plain, "one.png", 1);
+        library
+            .apply_item_edit(&id, &ItemEdit::Rename("egl-export".into()))
+            .unwrap();
+        library
+            .conn()
+            .execute("UPDATE item SET ext = 'json' WHERE id = ?1", [&id])
+            .unwrap();
+        let out = dir.path().join("out");
+        let summary = run(
+            &library,
+            &request(
+                ExportSelection {
+                    whole: true,
+                    ..Default::default()
+                },
+                true,
+                ExportFormat::Mirror,
+                &out,
+            ),
+        );
+        let root = std::path::Path::new(&summary.path);
+        let manifest: serde_json::Value =
+            serde_json::from_slice(&fs::read(root.join(MANIFEST)).unwrap()).unwrap();
+        assert_eq!(manifest["items"][0]["file"], "Names/egl-export (2).json");
+        assert!(root.join("egl-export (2).json").is_file());
+    }
+
+    #[test]
+    fn the_counter_goes_into_the_file_name_not_a_folder() {
+        let mut used = HashSet::new();
+        assert_eq!(unique_rel("a.b/README", &mut used), "a.b/README");
+        assert_eq!(unique_rel("a.b/README", &mut used), "a.b/README (2)");
+        assert_eq!(unique_rel("x/photo.jpg", &mut used), "x/photo.jpg");
+        assert_eq!(unique_rel("x/Photo.JPG", &mut used), "x/Photo (2).JPG");
+        assert_eq!(unique_rel(".gitignore", &mut used), ".gitignore");
+        assert_eq!(unique_rel(".gitignore", &mut used), ".gitignore (2)");
+    }
+
+    #[test]
+    fn the_destination_is_never_an_eagle_library() {
+        let dir = tempfile::tempdir().unwrap();
+        let library = open(&new_library(dir.path(), "Mine"));
+        let plain = dir.path().join("plain");
+        fs::create_dir(&plain).unwrap();
+        add_png(&library, &plain, "one.png", 1);
+        let eagle = dir.path().join("Theirs.library");
+        fs::create_dir_all(eagle.join("images")).unwrap();
+        fs::write(eagle.join("metadata.json"), b"{}").unwrap();
+        let request = request(
+            ExportSelection {
+                whole: true,
+                ..Default::default()
+            },
+            true,
+            ExportFormat::Mirror,
+            &eagle.join("images"),
+        );
+        let cancel = AtomicBool::new(false);
+        let error = export_items(&library, 1, &request, &cancel, &mut |_| {}).unwrap_err();
+        assert!(
+            matches!(
+                error,
+                library_core::SourceError::UnsupportedLocation(
+                    library_core::LocationProblem::InsideEagleLibrary
+                )
+            ),
+            "{error:?}"
+        );
+        assert_eq!(files_under(&eagle.join("images")), Vec::<String>::new());
     }
 
     #[test]

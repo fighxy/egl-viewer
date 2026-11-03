@@ -240,6 +240,8 @@ export function folder(id: string, name: string, change: Partial<Folder> = {}): 
     descendantImageCount: 0,
     isLocked: false,
     isUnlocked: false,
+    // A locked folder has a password unless a test says it was imported without one.
+    hasPassword: change.isLocked ?? false,
     lockLabel: null,
     lockColor: null,
     coverItemId: null,

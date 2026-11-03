@@ -221,7 +221,26 @@ fn imports_everything_with_the_mapping_of_arch_15_5() {
             )
             .unwrap();
         assert!(version > 0, "{eagle_id} has no thumbnail: {version}");
+        // The row says a thumbnail exists, so the file does, and it is served.
+        let id: String = library
+            .conn()
+            .query_row(
+                "SELECT id FROM item WHERE eagle_id = ?1",
+                [eagle_id],
+                |row| row.get(0),
+            )
+            .unwrap();
+        assert!(library.thumbnail_path(&id).unwrap().is_file(), "{eagle_id}");
+        assert!(library.thumbnail(&id).unwrap().is_some(), "{eagle_id}");
     }
+    let journal: u32 = library
+        .conn()
+        .query_row("SELECT count(*) FROM pending_file", [], |row| row.get(0))
+        .unwrap();
+    assert_eq!(
+        journal, 0,
+        "the thumbnails left the journal with their rows"
+    );
 
     // Manual order from Eagle's `order` (correction 39).
     let position: Option<f64> = library
@@ -237,6 +256,32 @@ fn imports_everything_with_the_mapping_of_arch_15_5() {
         .unwrap();
     assert_eq!(position, Some(0.0));
     library.close().unwrap();
+}
+
+#[test]
+fn a_png_original_is_never_its_eagle_thumbnail() {
+    let dir = tempfile::tempdir().unwrap();
+    let fixture = eagle_fixture(dir.path());
+    let expected = fs::read(fixture.join("images/EITEMLOCKED1.info/secret-scan.png")).unwrap();
+    let eagle = EagleLibrary::open(&fixture).unwrap();
+    let root = test_support::new_library(dir.path(), "Imported");
+    let library = open(&root);
+    import(
+        &library,
+        &eagle,
+        &EagleImportOptions::default(),
+        &AtomicBool::new(false),
+    );
+    let stored: String = library
+        .conn()
+        .query_row(
+            "SELECT file_path FROM item WHERE eagle_id = 'EITEMLOCKED1'",
+            [],
+            |row| row.get(0),
+        )
+        .unwrap();
+    assert!(stored.ends_with("/secret-scan.png"), "{stored}");
+    assert_eq!(fs::read(root.join(&stored)).unwrap(), expected);
 }
 
 #[test]

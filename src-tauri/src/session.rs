@@ -1468,7 +1468,7 @@ impl Session {
         Ok(())
     }
 
-    pub fn login_status(&self) -> LoginStatus {
+    pub fn login_status(&self) -> Result<LoginStatus, SourceError> {
         self.store.login_status()
     }
 

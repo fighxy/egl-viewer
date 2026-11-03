@@ -38,6 +38,21 @@ impl JsonFile {
         }
     }
 
+    /// The stored value, the default when the file is missing, and an error when it cannot be
+    /// read or parsed: for settings that must fail closed, such as the app login.
+    pub(crate) fn read<T: DeserializeOwned + Default>(&self) -> Result<T, SourceError> {
+        match fs::read(&self.path) {
+            Ok(bytes) => serde_json::from_slice(&bytes).map_err(|error| {
+                SourceError::Storage(format!("{} is unreadable: {error}", self.path.display()))
+            }),
+            Err(error) if error.kind() == ErrorKind::NotFound => Ok(T::default()),
+            Err(error) => Err(SourceError::Storage(format!(
+                "cannot read {}: {error}",
+                self.path.display()
+            ))),
+        }
+    }
+
     /// Re-reads the file, applies `change` and writes the result, all under the lock.
     pub(crate) fn update<T, R>(&self, change: impl FnOnce(&mut T) -> R) -> Result<R, SourceError>
     where

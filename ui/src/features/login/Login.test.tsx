@@ -77,4 +77,24 @@ describe("the login gate", () => {
     ).toBeInTheDocument();
     expect(form).not.toBeInTheDocument();
   });
+
+  it("stays locked when the login settings cannot be read", async () => {
+    mockBackend({
+      login_status: () => {
+        throw { kind: "storage", detail: "login.json is unreadable" };
+      },
+      unlock_app: () => {
+        throw { kind: "storage", detail: "login.json is unreadable" };
+      },
+    });
+    const user = userEvent.setup();
+    render(<App />);
+    await screen.findByRole("form", { name: "Log in" });
+    expect(
+      screen.queryByRole("heading", { name: "Welcome to egl-viewer" }),
+    ).not.toBeInTheDocument();
+    await user.type(screen.getByLabelText("Password"), "secret");
+    await user.click(screen.getByRole("button", { name: "Log in" }));
+    expect(await screen.findByRole("alert")).toHaveTextContent("unreadable");
+  });
 });

@@ -140,11 +140,12 @@ impl Library {
         })
     }
 
+    /// `seen` is the version the header check read before the lock was taken.
     fn writer(
         root: PathBuf,
         db: &Path,
         lock: LibraryLock,
-        version: u32,
+        seen: u32,
         options: &OpenOptions,
         migrations: &[Migration],
     ) -> Result<Self> {
@@ -154,6 +155,16 @@ impl Library {
         )
         .context("open library.db")?;
         schema::configure_writer(&conn)?;
+        // Another writer may have migrated the file between the header check and the lock:
+        // only the version read under the lock decides which steps run, or a step would run
+        // twice (version 4 rebuilds `folder_piv_wrap`, version 6 `eagle_export`).
+        let newest = migrations
+            .last()
+            .map_or(FORMAT_VERSION, |step| step.version.max(FORMAT_VERSION));
+        let version = check_header(schema::read_header(&conn).ok(), newest)?.version;
+        if version != seen {
+            tracing::info!("the library moved from format {seen} to {version} before the lock");
+        }
 
         let unclean_close = meta_get(&conn, "open_by")?.is_some();
         if unclean_close {
@@ -414,6 +425,39 @@ fn computer_name() -> String {
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    #[test]
+    fn the_version_read_under_the_lock_decides_the_migrations() {
+        let dir = tempfile::tempdir().unwrap();
+        let root = crate::test_support::new_library(dir.path(), "Raced");
+        let library = crate::test_support::open(&root);
+        library
+            .conn()
+            .execute(
+                "INSERT INTO eagle_export (kind, native_id, eagle_id) VALUES ('item', 'A', 'E')",
+                [],
+            )
+            .unwrap();
+        library.close().unwrap();
+        // The header check saw version 5, then another writer migrated the file to 6.
+        let LockAttempt::Acquired(lock) = LibraryLock::try_acquire(&root) else {
+            panic!("the lock is free");
+        };
+        let library = Library::writer(
+            root.clone(),
+            &root.join(DB_FILE),
+            lock,
+            5,
+            &crate::test_support::options(),
+            MIGRATIONS,
+        )
+        .unwrap();
+        let kept: u32 = library
+            .conn()
+            .query_row("SELECT count(*) FROM eagle_export", [], |row| row.get(0))
+            .unwrap();
+        assert_eq!(kept, 1, "version 6 did not run a second time");
+    }
 
     #[test]
     fn sqlite_uris_escape_reserved_characters() {

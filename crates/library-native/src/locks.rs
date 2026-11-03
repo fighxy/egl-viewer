@@ -130,6 +130,11 @@ impl LockMap {
         self.locks.contains_key(folder)
     }
 
+    /// A lock with a password; a folder imported locked from Eagle has none yet.
+    pub(crate) fn has_password(&self, folder: &str) -> bool {
+        self.locks.get(folder) == Some(&true)
+    }
+
     pub(crate) fn name(&self, folder: &str) -> String {
         self.names.get(folder).cloned().unwrap_or_default()
     }
@@ -274,7 +279,9 @@ impl Library {
         if !map.names.contains_key(id) {
             return Err(SourceError::NotFound);
         }
-        if map.is_lock(id) {
+        // A folder imported locked from Eagle has the lock but no password: locking it now
+        // sets the first password and encrypts its items (docs/spec.md §8.2).
+        if map.has_password(id) {
             return Err(SourceError::Invalid(
                 "This folder is already locked.".into(),
             ));
@@ -321,9 +328,14 @@ impl Library {
         }
         self.keys().insert(id, key);
         // The folder is locked at once; if encrypting stops here, the next unlock finishes it.
-        let sealed = self.reseal(&covered, progress);
+        // The recovery secret already wraps the folder's key, so it is returned whatever
+        // happens: without it a forgotten password would lock the folder for good.
+        if let Err(error) = self.reseal(&covered, progress) {
+            tracing::warn!(
+                "encrypting the locked folder stopped, the next unlock goes on: {error}"
+            );
+        }
         self.keys().forget(id);
-        sealed?;
         Ok(RecoveryKey {
             key: secret.key_text(),
             phrase: secret.phrase(),
@@ -423,9 +435,16 @@ impl Library {
         progress: &dyn Fn(u32, u32),
     ) -> Result<()> {
         self.check_writable()?;
-        let key = self.open_with_password(id, &password(given))?;
-        self.keys().insert(id, key);
         let map = LockMap::load(&self.conn())?;
+        if !map.is_lock(id) {
+            return Err(SourceError::Invalid("This folder is not locked.".into()));
+        }
+        // A lock without a password (imported from Eagle) encrypts nothing: removing it only
+        // shows its items again, so it takes no password.
+        if map.has_password(id) {
+            let key = self.open_with_password(id, &password(given))?;
+            self.keys().insert(id, key);
+        }
         let mut affected = self.items_in(&map.subtree(id))?;
         affected.extend(self.items_wrapped_for(id)?);
         affected.sort();

@@ -193,10 +193,16 @@ impl AppStore {
         JsonFile::new(self.dir(), LOGIN_FILE)
     }
 
-    pub fn login_status(&self) -> LoginStatus {
-        LoginStatus {
-            method: self.login_file().load::<Stored>().method(),
-        }
+    /// The configured login. A `login.json` that cannot be read is an error, never "no login":
+    /// a damaged file must not open the app (fail closed).
+    pub fn login_status(&self) -> Result<LoginStatus, SourceError> {
+        Ok(LoginStatus {
+            method: self.stored_login()?.method(),
+        })
+    }
+
+    fn stored_login(&self) -> Result<Stored, SourceError> {
+        self.login_file().read::<Stored>()
     }
 
     /// No login: the app opens straight to Welcome.
@@ -204,7 +210,7 @@ impl AppStore {
         self.login_file().update(|stored: &mut Stored| {
             *stored = Stored::None;
         })?;
-        Ok(self.login_status())
+        self.login_status()
     }
 
     /// Replaces whatever login was set. The hash is Argon2id, not an age key.
@@ -216,7 +222,7 @@ impl AppStore {
         self.login_file().update(|stored: &mut Stored| {
             *stored = Stored::Password { hash };
         })?;
-        Ok(self.login_status())
+        self.login_status()
     }
 
     /// A numeric PIN, 4 to 8 digits. Replaces whatever login was set.
@@ -226,7 +232,7 @@ impl AppStore {
         self.login_file().update(|stored: &mut Stored| {
             *stored = Stored::Pin { hash };
         })?;
-        Ok(self.login_status())
+        self.login_status()
     }
 
     /// Stores the credential id and public key, and nothing else. Replaces the previous login.
@@ -250,7 +256,7 @@ impl AppStore {
                 sign_count: 0,
             };
         })?;
-        Ok(self.login_status())
+        self.login_status()
     }
 
     /// Checks the one configured method. A proof of another method does not pass.
@@ -283,7 +289,7 @@ impl AppStore {
         &self,
         authenticator: &mut impl Authenticator,
     ) -> Result<(), SourceError> {
-        let stored = self.login_file().load::<Stored>();
+        let stored = self.stored_login()?;
         let Stored::WebAuthn { credential_id, .. } = &stored else {
             return Err(SourceError::Invalid("App login is not a YubiKey.".into()));
         };
@@ -300,7 +306,7 @@ impl AppStore {
         expected: LoginMethod,
         secret: &SecretString,
     ) -> Result<(), SourceError> {
-        let stored = self.login_file().load::<Stored>();
+        let stored = self.stored_login()?;
         if stored.method() != expected {
             return Err(SourceError::Invalid(method_message(stored.method())));
         }
@@ -477,7 +483,7 @@ mod tests {
     #[test]
     fn no_login_opens_straight_through() {
         let (_dir, store) = store();
-        assert_eq!(store.login_status().method, LoginMethod::None);
+        assert_eq!(store.login_status().unwrap().method, LoginMethod::None);
         assert!(matches!(
             store.unlock_app(&LoginProof::Password {
                 secret: "secret".into()
@@ -487,12 +493,33 @@ mod tests {
     }
 
     #[test]
+    fn an_unreadable_login_file_refuses_to_open() {
+        let (dir, store) = store();
+        store
+            .set_login_password(&SecretString::from("correct horse"))
+            .unwrap();
+        std::fs::write(dir.path().join(LOGIN_FILE), b"{ not json").unwrap();
+        assert!(matches!(store.login_status(), Err(SourceError::Storage(_))));
+        assert!(matches!(
+            store.unlock_app(&LoginProof::Password {
+                secret: "correct horse".into()
+            }),
+            Err(SourceError::Storage(_))
+        ));
+        let mut key = SoftwareAuthenticator::generate();
+        assert!(matches!(
+            store.login_webauthn(&mut key),
+            Err(SourceError::Storage(_))
+        ));
+    }
+
+    #[test]
     fn password_pin_and_webauthn_replace_each_other() {
         let (_dir, store) = store();
         store
             .set_login_password(&SecretString::from("correct horse"))
             .unwrap();
-        assert_eq!(store.login_status().method, LoginMethod::Password);
+        assert_eq!(store.login_status().unwrap().method, LoginMethod::Password);
         assert!(
             store
                 .unlock_app(&LoginProof::Password {
@@ -514,7 +541,7 @@ mod tests {
         ));
 
         store.set_login_pin(&SecretString::from("1234")).unwrap();
-        assert_eq!(store.login_status().method, LoginMethod::Pin);
+        assert_eq!(store.login_status().unwrap().method, LoginMethod::Pin);
         assert!(matches!(
             store.unlock_app(&LoginProof::Password {
                 secret: "1234".into()
@@ -533,7 +560,7 @@ mod tests {
 
         let mut key = SoftwareAuthenticator::generate();
         store.enroll_webauthn(&mut key).unwrap();
-        assert_eq!(store.login_status().method, LoginMethod::WebAuthn);
+        assert_eq!(store.login_status().unwrap().method, LoginMethod::WebAuthn);
         assert!(matches!(
             store.unlock_app(&LoginProof::Pin {
                 secret: "1234".into()
@@ -557,7 +584,7 @@ mod tests {
         assert!(!saved.contains("argon2"));
 
         store.clear_login().unwrap();
-        assert_eq!(store.login_status().method, LoginMethod::None);
+        assert_eq!(store.login_status().unwrap().method, LoginMethod::None);
         assert!(store.login_webauthn(&mut key).is_err());
     }
 

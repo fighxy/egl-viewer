@@ -1,6 +1,7 @@
 //! Reading a library for an export into a running Eagle and writing the Eagle ids back
-//! (docs/spec.md §8.4, docs/architecture.md §15.7). The `eagle_id` columns exist since
-//! format version 1, so storing the mapping needs no format change.
+//! (docs/spec.md §8.4, docs/architecture.md §15.7). The ids an export created live in
+//! `eagle_export` (format version 6, D-087); the `eagle_id` columns name where an imported
+//! object came from and are never written here.
 
 use std::collections::{HashMap, HashSet};
 
@@ -42,7 +43,7 @@ pub struct EagleExportItem {
     pub encrypted: bool,
     pub tags: Vec<String>,
     pub folder_ids: Vec<String>,
-    /// Eagle id from a previous export into Eagle (docs/spec.md §8.4).
+    /// Eagle id from a previous export into Eagle (docs/spec.md §8.4), from `eagle_export`.
     pub eagle_id: Option<String>,
     /// Date added, ms: Eagle `modificationTime`.
     pub added_at: i64,
@@ -102,9 +103,14 @@ pub fn load_eagle_export(
         let conn = library.conn();
         export::selection_sql(&conn, selection, include_subfolders)?
     };
+    let exported = {
+        let conn = library.conn();
+        exported_ids(&conn, "item")?
+    };
     let items: Vec<EagleExportItem> = load_export_items(library, &sql)?
         .into_iter()
         .map(|item| EagleExportItem {
+            eagle_id: exported.get(&item.id).cloned(),
             id: item.id,
             name: item.name,
             ext: item.ext,
@@ -116,12 +122,12 @@ pub fn load_eagle_export(
             encrypted: item.encrypted,
             tags: item.tags,
             folder_ids: item.folder_ids,
-            eagle_id: item.eagle_id,
             added_at: item.added_at,
         })
         .collect();
     let conn = library.conn();
-    let folders = export_folders(&conn, selection)?;
+    let hidden = library.visibility(&conn)?.hidden_folders;
+    let folders = export_folders(&conn, selection, &hidden)?;
     let unlocked = folders
         .iter()
         .filter(|folder| folder.locked)
@@ -160,7 +166,6 @@ pub fn item_bytes(library: &Library, item: &EagleExportItem) -> Result<Option<Ve
         tags: Vec::new(),
         folder_names: Vec::new(),
         folder_ids: Vec::new(),
-        eagle_id: None,
         added_at: 0,
     };
     let Some(mut source) = export_source(library, &internal)? else {
@@ -187,24 +192,42 @@ pub fn store_eagle_ids(
     let tx = conn
         .transaction()
         .map_err(|error| SourceError::Storage(format!("store the Eagle ids: {error}")))?;
-    for (table, pairs) in [
-        ("folder", folders),
-        ("item", items),
-        ("tag_group", groups),
-        ("smart_folder", smart),
-    ] {
+    {
         let mut statement = tx
-            .prepare(format!("UPDATE {table} SET eagle_id = ?2 WHERE id = ?1").as_str())
+            .prepare(
+                "INSERT INTO eagle_export (kind, native_id, eagle_id) VALUES (?1, ?2, ?3)
+                 ON CONFLICT (kind, native_id) DO UPDATE SET eagle_id = excluded.eagle_id",
+            )
             .map_err(|error| SourceError::Storage(format!("store the Eagle ids: {error}")))?;
-        for (native, eagle) in pairs {
-            statement
-                .execute(params![native, eagle])
-                .map_err(|error| SourceError::Storage(format!("store the Eagle ids: {error}")))?;
+        for (kind, pairs) in [
+            ("folder", folders),
+            ("item", items),
+            ("tag_group", groups),
+            ("smart_folder", smart),
+        ] {
+            for (native, eagle) in pairs {
+                statement
+                    .execute(params![kind, native, eagle])
+                    .map_err(|error| {
+                        SourceError::Storage(format!("store the Eagle ids: {error}"))
+                    })?;
+            }
         }
     }
     tx.commit()
         .map_err(|error| SourceError::Storage(format!("store the Eagle ids: {error}")))?;
     Ok(())
+}
+
+/// Native id → the Eagle id a previous export created, for one kind of object.
+fn exported_ids(conn: &Connection, kind: &str) -> Result<HashMap<String, String>> {
+    let mut statement = conn
+        .prepare("SELECT native_id, eagle_id FROM eagle_export WHERE kind = ?1")
+        .map_err(|error| SourceError::Storage(format!("read the Eagle ids: {error}")))?;
+    statement
+        .query_map(params![kind], |row| Ok((row.get(0)?, row.get(1)?)))
+        .and_then(Iterator::collect)
+        .map_err(|error| SourceError::Storage(format!("read the Eagle ids: {error}")))
 }
 
 struct FolderRow {
@@ -219,16 +242,20 @@ struct FolderRow {
     locked: bool,
 }
 
-/// The folders of the selection, parents before children. `whole` takes every folder;
-/// otherwise the selected folders and everything under them.
+/// The folders of the selection, parents before children and siblings in their order. `whole`
+/// takes every folder; otherwise the selected folders and everything under them.
 fn export_folders(
     conn: &Connection,
     selection: &ExportSelection,
+    hidden: &HashSet<String>,
 ) -> Result<Vec<EagleExportFolder>> {
     let mut statement = conn
         .prepare(
-            "SELECT id, parent_id, name, description, icon_color, order_by, sort_ascending, \
-             eagle_id, locked FROM folder",
+            "SELECT folder.id, parent_id, name, description, icon_color, order_by, \
+             sort_ascending, eagle_export.eagle_id, locked FROM folder \
+             LEFT JOIN eagle_export ON eagle_export.kind = 'folder' \
+             AND eagle_export.native_id = folder.id \
+             ORDER BY folder.sort_key",
         )
         .map_err(|error| SourceError::Storage(format!("read the folders: {error}")))?;
     let mut rows = statement
@@ -274,16 +301,28 @@ fn export_folders(
         }
         wanted
     };
+    // One walk over the whole tree in sibling order: parents always precede their children,
+    // also for a selected folder under a parent that is not exported. Subfolders of a locked
+    // folder that is not unlocked stay home, as the tree hides them; the locked folder itself
+    // is listed (exported unlocked, after the warning).
     let mut ordered = Vec::with_capacity(wanted.len());
     let mut stack: Vec<String> = roots.into_iter().rev().collect();
     while let Some(id) = stack.pop() {
-        if !wanted.contains(&id) {
+        let Some(row) = by_id.remove(&id) else {
+            continue;
+        };
+        let under_a_lock = hidden.contains(&row.id)
+            && row
+                .parent
+                .as_ref()
+                .is_some_and(|parent| hidden.contains(parent));
+        if under_a_lock {
             continue;
         }
         if let Some(kids) = children.get(&Some(id.clone())) {
             stack.extend(kids.iter().rev().cloned());
         }
-        if let Some(row) = by_id.remove(&id) {
+        if wanted.contains(&row.id) {
             ordered.push(EagleExportFolder {
                 id: row.id,
                 parent: row.parent,
@@ -297,25 +336,6 @@ fn export_folders(
             });
         }
     }
-    // Folders whose parents are not exported keep their relative subtree order; anything
-    // missed above (a selected child under an unselected parent) appends in id order.
-    let mut rest: Vec<EagleExportFolder> = by_id
-        .into_values()
-        .filter(|row| wanted.contains(&row.id))
-        .map(|row| EagleExportFolder {
-            id: row.id,
-            parent: row.parent,
-            name: row.name,
-            description: row.description,
-            icon_color: row.icon_color,
-            order_by: row.order_by,
-            sort_ascending: row.sort_ascending,
-            eagle_id: row.eagle_id,
-            locked: row.locked,
-        })
-        .collect();
-    rest.sort_by(|a, b| a.id.cmp(&b.id));
-    ordered.extend(rest);
     Ok(ordered)
 }
 
@@ -367,7 +387,11 @@ fn export_comments(conn: &Connection, items: &HashSet<&str>) -> Result<Vec<Eagle
 
 fn export_groups(conn: &Connection) -> Result<Vec<EagleGroup>> {
     let mut statement = conn
-        .prepare("SELECT id, name, color, eagle_id FROM tag_group ORDER BY sort_key")
+        .prepare(
+            "SELECT tag_group.id, name, color, eagle_export.eagle_id FROM tag_group \
+             LEFT JOIN eagle_export ON eagle_export.kind = 'tag_group' \
+             AND eagle_export.native_id = tag_group.id ORDER BY sort_key",
+        )
         .map_err(|error| SourceError::Storage(format!("read the tag groups: {error}")))?;
     let mut rows = statement
         .query([])
@@ -420,7 +444,9 @@ fn read_group(error: rusqlite::Error) -> SourceError {
 fn export_smart(conn: &Connection) -> Result<Vec<EagleSmart>> {
     let mut statement = conn
         .prepare(
-            "SELECT id, parent_id, name, conditions, eagle_id FROM smart_folder ORDER BY sort_key",
+            "SELECT smart_folder.id, parent_id, name, conditions, eagle_export.eagle_id \
+             FROM smart_folder LEFT JOIN eagle_export ON eagle_export.kind = 'smart_folder' \
+             AND eagle_export.native_id = smart_folder.id ORDER BY sort_key",
         )
         .map_err(|error| SourceError::Storage(format!("read the smart folders: {error}")))?;
     let mut rows = statement
@@ -522,6 +548,125 @@ mod tests {
                 Some(format!("EAGLE-{}", item.id).as_str())
             );
         }
+    }
+
+    #[test]
+    fn a_selected_folder_under_an_unselected_parent_still_comes_before_its_children() {
+        let (_dir, library) = fixture();
+        let root = crate::test_support::create(&library, "Root", None);
+        // The child is older than its parent: it was made first and moved in later, so id
+        // order would put it first.
+        let child = crate::test_support::create(&library, "Child", None);
+        let parent = crate::test_support::create(&library, "Parent", Some(&root));
+        let second = crate::test_support::create(&library, "Second", Some(&parent));
+        library
+            .save_folder(&library_core::FolderChange::Move {
+                id: child.clone(),
+                parent: Some(parent.clone()),
+                index: 0,
+            })
+            .unwrap();
+        let plan = load_eagle_export(
+            &library,
+            &ExportSelection {
+                whole: false,
+                folders: vec![parent.clone()],
+                tags: Vec::new(),
+            },
+            true,
+        )
+        .unwrap();
+        let ids: Vec<&str> = plan
+            .folders
+            .iter()
+            .map(|folder| folder.id.as_str())
+            .collect();
+        assert_eq!(ids, [parent.as_str(), child.as_str(), second.as_str()]);
+    }
+
+    #[test]
+    fn the_export_ids_never_touch_where_an_import_came_from() {
+        let (_dir, library) = fixture();
+        let item: String = library
+            .conn()
+            .query_row("SELECT id FROM item LIMIT 1", [], |row| row.get(0))
+            .unwrap();
+        library
+            .conn()
+            .execute(
+                "UPDATE item SET eagle_id = 'FROM-THE-EAGLE-LIBRARY' WHERE id = ?1",
+                params![item],
+            )
+            .unwrap();
+        let selection = ExportSelection {
+            whole: true,
+            ..ExportSelection::default()
+        };
+        let plan = load_eagle_export(&library, &selection, true).unwrap();
+        let planned = plan
+            .items
+            .iter()
+            .find(|planned| planned.id == item)
+            .unwrap();
+        assert_eq!(planned.eagle_id, None, "an import's origin is no export id");
+        store_eagle_ids(
+            &library,
+            &[],
+            &[(item.clone(), "IN-THE-RUNNING-EAGLE".into())],
+            &[],
+            &[],
+        )
+        .unwrap();
+        let origin: String = library
+            .conn()
+            .query_row(
+                "SELECT eagle_id FROM item WHERE id = ?1",
+                params![item],
+                |row| row.get(0),
+            )
+            .unwrap();
+        assert_eq!(origin, "FROM-THE-EAGLE-LIBRARY");
+        let again = load_eagle_export(&library, &selection, true).unwrap();
+        let planned = again
+            .items
+            .iter()
+            .find(|planned| planned.id == item)
+            .unwrap();
+        assert_eq!(planned.eagle_id.as_deref(), Some("IN-THE-RUNNING-EAGLE"));
+    }
+
+    #[test]
+    fn subfolders_of_a_locked_folder_stay_home() {
+        let (_dir, library) = fixture();
+        let private = crate::test_support::create(&library, "Private", None);
+        let inner = crate::test_support::create(&library, "Inner", Some(&private));
+        library
+            .lock_folder(&private, "correct horse".into(), None, None, &|_, _| {})
+            .unwrap();
+        let plan = load_eagle_export(
+            &library,
+            &ExportSelection {
+                whole: true,
+                ..ExportSelection::default()
+            },
+            true,
+        )
+        .unwrap();
+        assert!(plan.folders.iter().any(|folder| folder.id == private));
+        assert!(plan.folders.iter().all(|folder| folder.id != inner));
+        library
+            .unlock_folder(&private, "correct horse".into())
+            .unwrap();
+        let open = load_eagle_export(
+            &library,
+            &ExportSelection {
+                whole: true,
+                ..ExportSelection::default()
+            },
+            true,
+        )
+        .unwrap();
+        assert!(open.folders.iter().any(|folder| folder.id == inner));
     }
 
     #[test]

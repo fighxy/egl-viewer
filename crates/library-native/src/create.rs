@@ -64,7 +64,7 @@ pub(crate) fn create_with(
     Ok(target)
 }
 
-fn check_not_inside_a_library(parent: &Path) -> Result<()> {
+pub(crate) fn check_not_inside_a_library(parent: &Path) -> Result<()> {
     for folder in parent.ancestors() {
         if is_native_library(folder) {
             return Err(SourceError::UnsupportedLocation(

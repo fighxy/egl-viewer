@@ -316,29 +316,29 @@ fn migrations_run_after_a_backup() {
     let dir = tempfile::tempdir().unwrap();
     let root = new_library(dir.path(), "Old");
     let steps = [Migration {
-        version: 6,
-        sql: "CREATE TABLE added_in_v6 (x INTEGER) STRICT;",
+        version: 7,
+        sql: "CREATE TABLE added_in_v7 (x INTEGER) STRICT;",
     }];
     let library = Library::open_with(&root, &options(), &steps).unwrap();
     let names = backups(&root);
     assert!(
-        names.iter().any(|name| name.ends_with("-v5.db")),
+        names.iter().any(|name| name.ends_with("-v6.db")),
         "{names:?}"
     );
     let conn = library.conn();
     let version: u32 = conn
         .query_row("PRAGMA user_version", [], |r| r.get(0))
         .unwrap();
-    assert_eq!(version, 6);
-    assert_eq!(count(&conn, "SELECT count(*) FROM added_in_v6"), 0);
+    assert_eq!(version, 7);
+    assert_eq!(count(&conn, "SELECT count(*) FROM added_in_v7"), 0);
 
-    let backup = names.iter().find(|name| name.ends_with("-v5.db")).unwrap();
+    let backup = names.iter().find(|name| name.ends_with("-v6.db")).unwrap();
     let old = Connection::open(root.join("backups").join(backup)).unwrap();
     let old_version: u32 = old
         .query_row("PRAGMA user_version", [], |r| r.get(0))
         .unwrap();
     assert_eq!(
-        old_version, 5,
+        old_version, 6,
         "the backup is the state before the migration"
     );
 }
@@ -349,7 +349,7 @@ fn a_read_only_open_refuses_a_library_that_needs_a_migration() {
     let root = new_library(dir.path(), "Old");
     let _writer = open(&root);
     let steps = [Migration {
-        version: 6,
+        version: 7,
         sql: "SELECT 1;",
     }];
     assert!(matches!(

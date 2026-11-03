@@ -207,6 +207,8 @@ impl FolderDto {
             descendant_image_count: self.descendant_image_count,
             is_locked: self.is_locked,
             is_unlocked: self.is_unlock,
+            // Eagle keeps the password of every lock it shows.
+            has_password: self.is_locked,
             lock_label: None,
             lock_color: None,
             cover_item_id: self.cover_id.clone(),

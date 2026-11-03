@@ -227,10 +227,14 @@ mod tests {
 
     #[test]
     fn names_and_extensions_come_from_the_path() {
-        assert_eq!(base_name("C:\\Photos\\IMG 1042.JPG"), "IMG 1042");
         assert_eq!(base_name("/home/me/pic.png"), "pic");
-        assert_eq!(extension("C:\\Photos\\IMG.JPG"), "jpg");
+        assert_eq!(extension("/home/me/IMG.JPG"), "jpg");
         assert_eq!(extension("no-extension"), "");
+        // Backslashes separate folders on Windows only; elsewhere they may be in a name.
+        if cfg!(windows) {
+            assert_eq!(base_name("C:\\Photos\\IMG 1042.JPG"), "IMG 1042");
+            assert_eq!(extension("C:\\Photos\\IMG.JPG"), "jpg");
+        }
     }
 
     #[test]

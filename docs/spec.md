@@ -453,7 +453,7 @@ Link     https://…  ↗
 9. **Keyboard Shortcuts** (`F1`): every command with its shortcut, read from the command registry.
 10. **Check for Updates…** (Help menu, D-062). Asks GitHub Releases for a newer signed build; if one exists, confirms before download, install and restart. A silent check after launch uses the same confirm. Builds without the updater plugin need one last manual install.
 11. **Eagle screens:** the import wizard (section 8.2), Connect (section 8.3), export (section 8.4).
-12. **Backup** (Library menu, D-064) and **Export** (context menus of folders and tags): one dialog. It picks what to export (the whole library, chosen folders with or without subfolders, chosen tags), shows the item count and bytes from the database, the format (a folder tree or a ZIP archive with a compression level), an optional age passphrase for the archive, and the destination folder (the last one is remembered). While it runs, a progress bar; afterwards, the result: what was written where, skipped missing files, **Show in Explorer**. The export runs in the background and can be cancelled; the partial output is removed. It reads only, so a read-only library exports too; items of locked folders stay home and are counted as hidden. `egl-export.json` at the export root carries the exported items' metadata. Distinct from Back Up Now, which copies the database (§7.4 item 6).
+12. **Backup** (Library menu, D-064) and **Export** (context menus of folders and tags): one dialog. It picks what to export (the whole library, chosen folders with or without subfolders, chosen tags), shows the item count and bytes from the database, the format (a folder tree or a ZIP archive with a compression level), an optional age passphrase for the archive, and the destination folder (the last one is remembered). While it runs, a progress bar; afterwards, the result: what was written where, skipped missing files, **Show in Explorer**. The export runs in the background and can be cancelled; the partial output is removed, after a failure too. A destination inside an Eagle or egl-viewer library is refused (D-088). It reads only, so a read-only library exports too; items of locked folders stay home and are counted as hidden. `egl-export.json` at the export root carries the exported items' metadata. Distinct from Back Up Now, which copies the database (§7.4 item 6).
 
 ### 7.5 Look and motion
 
@@ -509,7 +509,7 @@ Rules (arch §15.5, §15.6):
 - Never read or write Eagle's cache in `%APPDATA%\Eagle` (correction 36).
 - Mapping: name, ext, size, dimensions, duration, bpm, note, link, rating (absent means 0), date added (`modificationTime`), file dates (`btime`, `mtime`), palettes, tags (case preserved), folders (same tree and order), folder colours, descriptions, folder tags, per-folder sort, covers, smart folders (`conditions` unchanged), tag groups (`tagsGroups`), comments, EXIF from `rawMetas` (correction 38), manual order from `order` (correction 39). Eagle ids are kept as `eagle_id`.
 - Eagle's `_thumbnail.png` is used as the first thumbnail when present, so the import is fast; missing thumbnails are generated in the background.
-- **Folder passwords are not imported.** Locked Eagle folders are imported as locked folders with no password, no salt, and no identity. The report lists them. Files stay plaintext, and the content stays hidden, until the user sets a password or removes the lock.
+- **Folder passwords are not imported.** Locked Eagle folders are imported as locked folders with no password, no salt, and no identity. The report lists them. Files stay plaintext, and the content stays hidden, until the user sets a password or removes the lock. The Locked folders section offers **Set Password…** (the same dialog as Lock…, with a recovery key at the end) and **Remove Lock…**, which asks for no password (D-088).
 - Duplicates inside the Eagle library are kept as separate items (they are separate in Eagle). Eagle's own notion of a duplicate is a metadata fingerprint, not content (correction 41).
 
 Later: `.eaglepack` files as a second import source (arch §17); "Follow Eagle", an incremental re-import through `mtime.json`.
@@ -1105,7 +1105,7 @@ Native library (`library-native`, `media`), with temporary folders:
 | Export with a missing original | Listed in `missing`; other files and the manifest still written |
 | Export cancel; destination inside the library; encrypt without ZIP | Partial output removed; refused |
 | `load_eagle_export` of the whole library | Folders top-down (parent before child); items, tag groups and smart folders present |
-| `store_eagle_ids` then `load_eagle_export` again | Every stored folder and item carries its Eagle id |
+| `store_eagle_ids` then `load_eagle_export` again | Every stored folder and item carries its Eagle id; an imported row keeps its origin `eagle_id` (D-087) |
 | `load_eagle_export` of one folder | Only that folder's subtree |
 
 Settings (`app-store`), with temporary folders:

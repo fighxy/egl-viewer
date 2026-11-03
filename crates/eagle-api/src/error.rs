@@ -53,9 +53,12 @@ impl From<EagleError> for SourceError {
     }
 }
 
-/// A `reqwest` error as the connect screen explains it (docs/architecture.md §4.4).
-pub(crate) fn network_error(error: &reqwest::Error) -> NetworkError {
+/// A `reqwest` error as the connect screen explains it (docs/architecture.md §4.4). The URL is
+/// dropped first: a GET carries the token in its query, and the error text reaches the UI and
+/// the log.
+pub(crate) fn network_error(error: reqwest::Error) -> NetworkError {
     use std::io::ErrorKind;
+    let error = &error.without_url();
     if error.is_connect() && error.is_timeout() {
         return NetworkError::ConnectTimeout;
     }

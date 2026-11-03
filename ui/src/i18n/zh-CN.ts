@@ -225,6 +225,8 @@ export const zhCN: MessageCatalog = {
     locked: "已锁定",
     openFolder: "打开文件夹",
     unlockFolder: "解锁文件夹",
+    setFolderPassword: "为文件夹设置密码",
+    setPasswordMenu: "设置密码…",
   },
   empty: {
     noFilterMatch: "没有符合筛选条件的项目。",

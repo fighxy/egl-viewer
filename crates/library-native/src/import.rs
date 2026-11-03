@@ -167,7 +167,7 @@ pub fn import_files(
                     if preview {
                         let tracker = &tracker;
                         scope.spawn(move |_| {
-                            make_preview(library, &id, &stored, &ext, tracker, cancel);
+                            make_preview(library, &id, &stored, &ext, tracker, cancel, &store_full);
                         });
                     }
                 }
@@ -204,11 +204,36 @@ pub fn make_pending_previews(
 ) -> ImportProgress {
     let tracker = Tracker::new(id, ImportKind::Previews, observer);
     tracker.update(true, |progress| progress.state = ImportState::Previews);
+    preview_pass(library, &tracker, cancel, &store_full);
+    tracker.finish(cancel)
+}
+
+/// How a rendered preview is stored. [`store_full`] takes the file's dimensions, palette and
+/// EXIF too; an import whose source already had them stores only the thumbnail.
+pub(crate) type StorePreview<'a> =
+    &'a (dyn Fn(&Library, &str, &media::Rendered) -> Result<(), SourceError> + Sync);
+
+pub(crate) fn store_full(
+    library: &Library,
+    id: &str,
+    rendered: &media::Rendered,
+) -> Result<(), SourceError> {
+    library.store_preview(id, rendered)
+}
+
+/// Renders every pending preview, in batches on a small thread pool, until none is left, the
+/// import is cancelled, or the database stops taking them.
+pub(crate) fn preview_pass(
+    library: &Library,
+    tracker: &Tracker<'_>,
+    cancel: &AtomicBool,
+    store: StorePreview<'_>,
+) {
     let Ok(pool) = rayon::ThreadPoolBuilder::new()
         .num_threads(preview_threads())
         .build()
     else {
-        return tracker.finish(cancel);
+        return;
     };
     loop {
         if cancel.load(Ordering::Relaxed) {
@@ -228,7 +253,6 @@ pub fn make_pending_previews(
         });
         pool.in_place_scope(|scope| {
             for pending in &batch {
-                let tracker = &tracker;
                 scope.spawn(move |_| {
                     make_preview(
                         library,
@@ -237,6 +261,7 @@ pub fn make_pending_previews(
                         &pending.ext,
                         tracker,
                         cancel,
+                        store,
                     );
                 });
             }
@@ -250,7 +275,6 @@ pub fn make_pending_previews(
             break;
         }
     }
-    tracker.finish(cancel)
 }
 
 enum Outcome {
@@ -390,6 +414,7 @@ fn make_preview(
     ext: &str,
     tracker: &Tracker<'_>,
     cancel: &AtomicBool,
+    store: StorePreview<'_>,
 ) {
     if cancel.load(Ordering::Relaxed) {
         return;
@@ -402,8 +427,7 @@ fn make_preview(
         _ => media::render(stored, ext),
     };
     let failure = match rendered {
-        Ok(rendered) => library
-            .store_preview(id, &rendered)
+        Ok(rendered) => store(library, id, &rendered)
             .err()
             .map(|error| reason(&error)),
         Err(media::MediaError::Unsupported) => None,
