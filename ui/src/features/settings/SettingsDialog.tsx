@@ -1,5 +1,5 @@
 import { cn } from "cn";
-import { type FormEvent, useEffect, useState } from "react";
+import { type FormEvent, useState } from "react";
 import { useTranslation } from "react-i18next";
 import { Button } from "@/components/ui/button";
 import {
@@ -16,6 +16,7 @@ import { Switch } from "@/components/ui/switch";
 import { APP_LOCALES } from "@/i18n";
 import type { Locale, LoginMethod, Preferences, Theme } from "@/ipc";
 import { describeError } from "@/lib/errors";
+import { useOpenings } from "@/lib/useOpenings";
 
 type Props = {
   open: boolean;
@@ -38,8 +39,13 @@ const THEMES: readonly Theme[] = ["system", "light", "dark"];
 
 const LOGIN_METHODS: readonly LoginMethod[] = ["none", "password", "pin", "webAuthn"];
 
-/** Settings → General (docs/spec.md §7.4, D-027, D-069). */
-export function SettingsDialog({
+/** Settings → General (docs/spec.md §7.4, D-027, D-069). The draft starts from the saved
+ * preferences once per opening. */
+export function SettingsDialog(props: Props) {
+  return <SettingsForm key={useOpenings(props.open)} {...props} />;
+}
+
+function SettingsForm({
   open,
   onOpenChange,
   preferences,
@@ -58,15 +64,6 @@ export function SettingsDialog({
   const [secret, setSecret] = useState("");
   const [error, setError] = useState<string>();
   const [busy, setBusy] = useState(false);
-
-  useEffect(() => {
-    if (open) {
-      setDraft(preferences);
-      setMethod(login);
-      setSecret("");
-      setError(undefined);
-    }
-  }, [open, preferences, login]);
 
   const folder = draft.defaultLibraryParent ?? "";
 

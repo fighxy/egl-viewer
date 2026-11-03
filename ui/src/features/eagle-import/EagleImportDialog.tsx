@@ -344,7 +344,7 @@ export function EagleImportDialog({
             )}
             <DialogFooter>
               <Button type="button" onClick={close}>
-                {t("common.close")}
+                {t("commonExtra.close")}
               </Button>
             </DialogFooter>
           </div>

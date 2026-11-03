@@ -9,6 +9,37 @@ describe("i18n catalogs", () => {
     setAppLocale("en");
   });
 
+  it("every literal key the code passes to t() is in the English catalog", () => {
+    // Vite reads the sources as text; tests and generated bindings are left out.
+    const sources = import.meta.glob(["/src/**/*.{ts,tsx}", "!/src/**/*.test.{ts,tsx}"], {
+      query: "?raw",
+      import: "default",
+      eager: true,
+    }) as Record<string, string>;
+    const keys = new Set(catalogKeys(en));
+    // A plural key is used without its `_one` / `_other` suffix.
+    const known = (key: string) => keys.has(key) || keys.has(`${key}_other`);
+    const missing: string[] = [];
+    for (const [file, text] of Object.entries(sources)) {
+      for (const match of text.matchAll(/\bt\(\s*"([a-zA-Z][\w]*(?:\.[\w]+)+)"/g)) {
+        const key = match[1] ?? "";
+        if (!known(key)) missing.push(`${file}: ${key}`);
+      }
+    }
+    expect(Object.keys(sources).length).toBeGreaterThan(50);
+    expect(missing).toEqual([]);
+  });
+
+  it("every Russian plural has all four forms", () => {
+    const keys = new Set(catalogKeys(ru));
+    const plurals = [...keys].filter((key) => key.endsWith("_one")).map((key) => key.slice(0, -4));
+    const incomplete = plurals.filter((base) =>
+      ["_few", "_many", "_other"].some((form) => !keys.has(`${base}${form}`)),
+    );
+    expect(plurals.length).toBeGreaterThan(5);
+    expect(incomplete).toEqual([]);
+  });
+
   it("ru and zh-CN cover every English key", () => {
     const english = catalogKeys(en).sort();
     expect(catalogKeys(ru).sort()).toEqual(english);

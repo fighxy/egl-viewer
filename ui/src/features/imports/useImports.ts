@@ -22,13 +22,15 @@ export function useImports(libraryKey: string | null) {
       .catch(() => {});
     ipc
       .imports()
-      .then((list) =>
+      .then((list) => {
+        // A reply for the previous library must not fill the panel of this one.
+        if (cancelled) return;
         setById((current) => {
           const next = new Map(current);
           for (const progress of list) if (!next.has(progress.id)) next.set(progress.id, progress);
           return next;
-        }),
-      )
+        });
+      })
       .catch(() => {});
     return () => {
       cancelled = true;

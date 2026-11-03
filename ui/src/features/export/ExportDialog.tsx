@@ -3,7 +3,7 @@ import { listen } from "@tauri-apps/api/event";
 import { open as openDialog } from "@tauri-apps/plugin-dialog";
 import type { TFunction } from "i18next";
 import { FolderOpen, HardDrive } from "lucide-react";
-import { useEffect, useMemo, useState } from "react";
+import { useEffect, useMemo, useRef, useState } from "react";
 import { useTranslation } from "react-i18next";
 import { Button } from "@/components/ui/button";
 import { Checkbox } from "@/components/ui/checkbox";
@@ -35,6 +35,7 @@ import type {
 } from "@/ipc";
 import { EVENTS, inTauri, ipc } from "@/ipc";
 import { describeError } from "@/lib/errors";
+import { useOpenings } from "@/lib/useOpenings";
 
 /** What an Export from a context menu starts with; the Backup menu starts free (docs/spec.md §7.4 item 12). */
 export type ExportTarget =
@@ -112,8 +113,14 @@ function stateLabel(t: TFunction, state: ExportState): string {
 /**
  * Backup (Library menu) and Export (folder and tag context menus) in one dialog: what to
  * export, in which format, where, and with what protection; then progress and the result.
+ * Each opening starts from a fresh form: the content is keyed on it, so nothing that changes
+ * while the dialog is open (the remembered destination, for one) resets a running export.
  */
-export function ExportDialog({
+export function ExportDialog(props: Props) {
+  return <ExportDialogContent key={useOpenings(props.open)} {...props} />;
+}
+
+function ExportDialogContent({
   open,
   onOpenChange,
   library,
@@ -134,41 +141,40 @@ export function ExportDialog({
   const [encrypt, setEncrypt] = useState(false);
   const [password, setPassword] = useState("");
   const [confirm, setConfirm] = useState("");
-  const [destination, setDestination] = useState("");
+  const [destination, setDestination] = useState(preferences.exportDestination ?? "");
   /** Into a running Eagle (docs/spec.md §8.4). */
   const [eagleHost, setEagleHost] = useState("127.0.0.1");
   const [eaglePort, setEaglePort] = useState("41595");
   const [eagleToken, setEagleToken] = useState("");
   const [progress, setProgress] = useState<ExportProgress | null>(null);
-  /** The export the dialog follows; separate state so the listener does not re-subscribe per event. */
-  const [runId, setRunId] = useState<number | null>(null);
+  /** The export the dialog follows. */
+  const runId = useRef<number | null>(null);
+  /** The latest progress of every export heard while open: events can arrive before
+   * `start_export` answers with the id. */
+  const heard = useRef(new Map<number, ExportProgress>());
   const [startError, setStartError] = useState<string | null>(null);
 
   useEffect(() => {
-    if (open) {
-      setScope("whole");
-      setSelectedFolders(new Set());
-      setSelectedTags(new Set());
-      setIncludeSubfolders(true);
-      setFormatKind("zip");
-      setCompression("balanced");
-      setEncrypt(false);
-      setPassword("");
-      setConfirm("");
-      setDestination(preferences.exportDestination ?? "");
-      setEagleToken("");
-      setProgress(null);
-      setRunId(null);
-      setStartError(null);
-      ipc
-        .connectionDefaults()
-        .then((defaults) => {
-          setEagleHost(defaults.host);
-          setEaglePort(String(defaults.port));
-        })
-        .catch(() => {});
-    }
-  }, [open, preferences.exportDestination]);
+    if (!open || !inTauri()) return;
+    ipc
+      .connectionDefaults()
+      .then((defaults) => {
+        setEagleHost(defaults.host);
+        setEaglePort(String(defaults.port));
+      })
+      .catch(() => {});
+    // Reopened while an export runs: follow it instead of offering a second one.
+    ipc
+      .exports()
+      .then((running) => {
+        const latest = running[0];
+        if (latest && runId.current === null) {
+          runId.current = latest.id;
+          setProgress(heard.current.get(latest.id) ?? latest);
+        }
+      })
+      .catch(() => {});
+  }, [open]);
 
   const selection: ExportSelection = useMemo(
     () =>
@@ -193,13 +199,14 @@ export function ExportDialog({
     staleTime: 5000,
   });
 
+  // Listening starts with the dialog, before any export does, so no early event is missed.
   useEffect(() => {
-    if (!open || !inTauri() || runId === null) return;
-    const id = runId;
+    if (!open || !inTauri()) return;
     let unlisten: (() => void) | undefined;
     let cancelled = false;
     listen<ExportProgress>(EVENTS.exportProgress, (event) => {
-      if (event.payload.id === id) setProgress(event.payload);
+      heard.current.set(event.payload.id, event.payload);
+      if (event.payload.id === runId.current) setProgress(event.payload);
     })
       .then((stop) => {
         if (cancelled) stop();
@@ -210,7 +217,7 @@ export function ExportDialog({
       cancelled = true;
       unlisten?.();
     };
-  }, [open, runId]);
+  }, [open]);
 
   const toggle = (set: ReadonlySet<string>, value: string, on: boolean) => {
     const next = new Set(set);
@@ -220,9 +227,11 @@ export function ExportDialog({
   };
 
   const pickDestination = () => {
-    void openDialog({ directory: true, defaultPath: destination || undefined }).then((path) => {
-      if (typeof path === "string") setDestination(path);
-    });
+    openDialog({ directory: true, defaultPath: destination || undefined })
+      .then((path) => {
+        if (typeof path === "string") setDestination(path);
+      })
+      .catch((failure: unknown) => setStartError(describeError(failure)));
   };
 
   const problems = (): string | null => {
@@ -267,8 +276,9 @@ export function ExportDialog({
     ipc
       .startExport(request)
       .then((first) => {
-        setProgress(first);
-        setRunId(first.id);
+        runId.current = first.id;
+        // An event heard while the call was answering is newer than its first progress.
+        setProgress(heard.current.get(first.id) ?? first);
         // Drop the token from the dialog once Rust has it (D-080).
         if (intoEagle) setEagleToken("");
         if (!intoEagle && destination.trim() !== preferences.exportDestination) {
@@ -562,8 +572,18 @@ export function ExportDialog({
         ) : (
           <ExportResult
             progress={progress}
-            onCancel={() => progress && void ipc.cancelExport(progress.id)}
-            onReveal={(path) => void ipc.revealPath(path)}
+            error={startError}
+            onCancel={() =>
+              progress &&
+              ipc
+                .cancelExport(progress.id)
+                .catch((failure: unknown) => setStartError(describeError(failure)))
+            }
+            onReveal={(path) =>
+              ipc
+                .revealPath(path)
+                .catch((failure: unknown) => setStartError(describeError(failure)))
+            }
             onClose={() => close(false)}
           />
         )}
@@ -684,11 +704,14 @@ function TagChoice({
 /** The progress bar while an export runs, and the result afterwards. */
 function ExportResult({
   progress,
+  error,
   onCancel,
   onReveal,
   onClose,
 }: {
   progress: ExportProgress | null;
+  /** Cancel or Show in Explorer failed. */
+  error: string | null;
   onCancel: () => void;
   onReveal: (path: string) => void;
   onClose: () => void;
@@ -699,6 +722,11 @@ function ExportResult({
   const percent = progress.total > 0 ? (progress.done / progress.total) * 100 : 0;
   return (
     <section className="grid gap-3" aria-live="polite">
+      {error && (
+        <p role="alert" className="text-sm text-destructive">
+          {error}
+        </p>
+      )}
       {running && (
         <>
           <div className="grid gap-1.5">
