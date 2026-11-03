@@ -222,6 +222,35 @@ describe("Locked folders", () => {
     });
   });
 
+  it("a lock imported from Eagle takes a first password and is removed without one", async () => {
+    const IMPORTED = folder("F4", "From Eagle", { isLocked: true, hasPassword: false });
+    let tree = [PLAIN, IMPORTED];
+    const calls = library(() => tree, {
+      lock_folder: () => {
+        tree = [PLAIN, { ...IMPORTED, hasPassword: true }];
+        return { key: "AAAA-BBBB", phrase: RECOVERY_PHRASE };
+      },
+    });
+    const user = userEvent.setup();
+    render(<App />);
+    const row = await within(await lockedSection()).findByRole("button", { name: /From Eagle/ });
+    fireEvent.contextMenu(row);
+    expect(await screen.findByRole("menuitem", { name: "Set Password…" })).toBeInTheDocument();
+    expect(screen.queryByRole("menuitem", { name: "Unlock…" })).not.toBeInTheDocument();
+    expect(screen.queryByRole("menuitem", { name: "Change Password…" })).not.toBeInTheDocument();
+    await user.click(screen.getByRole("menuitem", { name: "Remove Lock…" }));
+    let dialog = await screen.findByRole("dialog", { name: "Remove the lock of “From Eagle”?" });
+    expect(within(dialog).queryByLabelText("Password")).not.toBeInTheDocument();
+    await user.click(within(dialog).getByRole("button", { name: "Remove lock" }));
+    expect(called(calls, "remove_folder_lock")[0]?.args).toMatchObject({ id: "F4", password: "" });
+    await waitFor(() => expect(screen.queryByRole("dialog")).not.toBeInTheDocument());
+
+    await user.click(row);
+    dialog = await screen.findByRole("dialog");
+    expect(called(calls, "unlock_folder")).toHaveLength(0);
+    expect(within(dialog).getAllByLabelText(/password/i).length).toBeGreaterThan(0);
+  });
+
   it("Ctrl+L locks every open folder again", async () => {
     const calls = library(() => [PLAIN, UNLOCKED, folder("F3", "Old", { isLocked: true })]);
     render(<App />);

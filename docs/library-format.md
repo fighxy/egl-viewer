@@ -43,7 +43,7 @@ My Library.eglib/
 | Where | Value | Meaning |
 |---|---|---|
 | `PRAGMA application_id` | `1162300482` (`0x45474C42`, ASCII `EGLB`) | This SQLite file is an egl-viewer library |
-| `PRAGMA user_version` | `5` | The format version. There is no other version number. Version 2 had the schema of version 1 and marked a library with a locked folder (D-019, D-045). Version 3 rebuilt `item_fts` for substring search (D-047). Version 4 records the retired PIV slot and the touch-or-PIN policy on `folder_piv_wrap` (D-056). Version 5 adds `eagle_import`, the import state of an Eagle library import (docs/spec.md §8.2). Every library is migrated to 5 when a writer opens it |
+| `PRAGMA user_version` | `6` | The format version. There is no other version number. Version 2 had the schema of version 1 and marked a library with a locked folder (D-019, D-045). Version 3 rebuilt `item_fts` for substring search (D-047). Version 4 records the retired PIV slot and the touch-or-PIN policy on `folder_piv_wrap` (D-056). Version 5 adds `eagle_import`, the import state of an Eagle library import (docs/spec.md §8.2). Version 6 adds `eagle_export`: the ids an export into Eagle created, kept apart from `eagle_id`, which only records where an imported row came from (D-087). Every library is migrated to 6 when a writer opens it |
 | `meta.created_with`, `meta.last_written_with` | app version, for example `0.1.0` | Diagnostics only; never used to decide anything |
 
 Checks when a library is opened (the full order is in §7):
@@ -73,7 +73,7 @@ PRAGMA page_size = 4096;
 PRAGMA auto_vacuum = INCREMENTAL;     -- emptying the trash can give space back without a full VACUUM
 PRAGMA journal_mode = WAL;            -- stored in the file
 PRAGMA application_id = 1162300482;
-PRAGMA user_version = 1;              -- then the migrations of §8 bring a new library to 5
+PRAGMA user_version = 1;              -- then the migrations of §8 bring a new library to 6
 ```
 
 The text encoding is UTF-8 (the default). On every writer connection:
@@ -250,6 +250,15 @@ CREATE TABLE eagle_import (
   eagle_id      TEXT PRIMARY KEY,                   -- Eagle's item id
   last_modified INTEGER NOT NULL,                   -- Eagle's lastModified for the item, ms
   imported_at   INTEGER NOT NULL
+) STRICT, WITHOUT ROWID;
+
+-- the Eagle ids an export into a running Eagle created (docs/spec.md §8.4, D-087): a second
+-- export updates them instead of duplicating; `eagle_id` names where an imported object came from
+CREATE TABLE eagle_export (
+  kind      TEXT NOT NULL CHECK (kind IN ('item', 'folder', 'tag_group', 'smart_folder')),
+  native_id TEXT NOT NULL,                          -- the native id; no foreign key, ULIDs are never reused
+  eagle_id  TEXT NOT NULL,                          -- the id in the Eagle library exported into
+  PRIMARY KEY (kind, native_id)
 ) STRICT, WITHOUT ROWID;
 
 -- reserved, phase 4: the key of an item in a locked folder, wrapped once per locked folder
@@ -471,8 +480,11 @@ app emits `library-closed` and returns to Welcome with a message.
   `item_fts` aligned with `item`.
 - Migrations run forward only. Each version step is one transaction that also sets
   `user_version`. Every released format version gets a fixture library under
-  `fixtures/library/vN/`; a test migrates each older fixture to the newest version. Until the
-  first release, a test turns a new library back into version 1 instead.
+  `fixtures/library/vN/`; a test migrates each older fixture to the newest version and checks
+  that every item, folder, tag and file is still there (`format_fixture_tests.rs`). The first
+  fixture is version 5; a test also turns a new library back into version 1.
+- The writer reads `user_version` again after it holds `library.lock`, so a second instance that
+  migrated in between never makes this one run a step twice.
 - A new library is created at version 1 and brought to the newest version by the same steps,
   without a backup, so the schema has one source: `schema/v1.sql` and the migrations.
 - **Version 3** (D-047): `item_fts` becomes `fts5(name, annotation, url, tokenize = 'trigram')`
@@ -486,6 +498,12 @@ app emits `library-closed` and returns to Welcome with a message.
   the Eagle id, its `lastModified` on the Eagle side (for a later incremental re-import) and
   when the import stored it. An interrupted import resumes where it stopped; the table stays
   empty for a library that never imported one.
+- **Version 6** (D-087): `eagle_export` records the ids that an export into Eagle created, per
+  kind (`item`, `folder`, `tag_group`, `smart_folder`). Before, the export wrote them into
+  `eagle_id`, overwriting the origin of imported rows; an import and an export then collided. The
+  step moves the item ids that are not in `eagle_import` into the new table. Folder, tag group
+  and smart folder ids move only in a library that never imported from Eagle, since there they
+  can only have come from an export.
 
 ## 9. Creating a library
 

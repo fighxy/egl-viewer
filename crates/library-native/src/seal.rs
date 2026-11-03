@@ -318,8 +318,10 @@ impl Library {
         let plain_thumb = self.thumbnail_path(item)?;
         let sealed_thumb = self.sealed_thumbnail_path(item)?;
         let had_thumb = plain_thumb.is_file();
+        let new_thumb = journal_name(self.root(), &sealed_thumb);
         if had_thumb {
             let bytes = fs::read(&plain_thumb).context("read a thumbnail")?;
+            journal_now(&self.conn(), &new_thumb)?;
             write_atomically(&sealed_thumb, &key.seal(&bytes))?;
         }
         let fields = SealedFields {
@@ -332,45 +334,55 @@ impl Library {
         let sealed = fields.seal(&key);
         let old_thumb = journal_name(self.root(), &plain_thumb);
         let now = now_ms();
-        {
-            let mut conn = self.conn();
-            let tx = conn.transaction().context("encrypt an item")?;
-            tx.execute(
+        let committed =
+            (|| -> Result<()> {
+                let mut conn = self.conn();
+                let tx = conn.transaction().context("encrypt an item")?;
+                // A missing original keeps its path, as decrypting does: no row names a file that
+                // was never written.
+                tx.execute(
                 "UPDATE item SET encrypted = 1, sealed = ?2, name = '', annotation = '', url = '',
                      exif = NULL, palette = NULL, file_path = ?3, updated_at = ?4
                  WHERE id = ?1",
-                params![item, sealed, stored, now],
+                params![item, sealed, if wrote { &stored } else { &row.file_path }, now],
             )
             .context("encrypt an item")?;
-            tx.execute("DELETE FROM item_fts WHERE rowid = ?1", params![row.seq])
-                .context("encrypt an item")?;
-            for (lock, recipient) in wraps {
-                tx.execute(
-                    "INSERT OR REPLACE INTO item_key_wrap (item_id, folder_id, wrapped_key)
+                tx.execute("DELETE FROM item_fts WHERE rowid = ?1", params![row.seq])
+                    .context("encrypt an item")?;
+                for (lock, recipient) in wraps {
+                    tx.execute(
+                        "INSERT OR REPLACE INTO item_key_wrap (item_id, folder_id, wrapped_key)
                      VALUES (?1, ?2, ?3)",
-                    params![item, lock, key.wrap_for(recipient)],
-                )
-                .context("wrap an item key")?;
-            }
-            tx.execute("DELETE FROM pending_file WHERE path = ?1", params![stored])
-                .context("encrypt an item")?;
-            // The plaintext copies go once the row no longer names them.
-            if wrote {
-                journal(&tx, &row.file_path, now)?;
-            }
-            if had_thumb {
-                journal(&tx, &old_thumb, now)?;
-            }
-            log_item(&tx, item, now)?;
-            tx.commit().context("encrypt an item")?;
+                        params![item, lock, key.wrap_for(recipient)],
+                    )
+                    .context("wrap an item key")?;
+                }
+                for new in [&stored, &new_thumb] {
+                    tx.execute("DELETE FROM pending_file WHERE path = ?1", params![new])
+                        .context("encrypt an item")?;
+                }
+                // The plaintext copies go once the row no longer names them.
+                if wrote {
+                    journal(&tx, &row.file_path, now)?;
+                }
+                if had_thumb {
+                    journal(&tx, &old_thumb, now)?;
+                }
+                log_item(&tx, item, now)?;
+                tx.commit().context("encrypt an item")
+            })();
+        if let Err(error) = committed {
+            self.drop_new_copies(&[
+                (wrote, &target, &stored),
+                (had_thumb, &sealed_thumb, &new_thumb),
+            ]);
+            return Err(error);
         }
         if wrote && let Some(source) = source {
-            remove_with_empty_parent(&source)?;
-            self.forget_journal(&row.file_path);
+            self.remove_old_copy(&source, &row.file_path);
         }
         if had_thumb {
-            remove_with_empty_parent(&plain_thumb)?;
-            self.forget_journal(&old_thumb);
+            self.remove_old_copy(&plain_thumb, &old_thumb);
         }
         let mut keys = self.keys();
         keys.remember_item(item, Arc::new(key));
@@ -413,13 +425,18 @@ impl Library {
         let plain_thumb = self.thumbnail_path(item)?;
         let sealed_thumb = self.sealed_thumbnail_path(item)?;
         let had_thumb = sealed_thumb.is_file();
+        let new_thumb = journal_name(self.root(), &plain_thumb);
         if had_thumb {
             let bytes = fs::read(&sealed_thumb).context("read a thumbnail")?;
-            write_atomically(&plain_thumb, &key.open(&bytes).map_err(vault_error)?)?;
+            let plain = key.open(&bytes).map_err(vault_error)?;
+            // Journaled first: a plaintext preview of an item that stays encrypted must not
+            // outlive a failed commit (docs/library-format.md §6).
+            journal_now(&self.conn(), &new_thumb)?;
+            write_atomically(&plain_thumb, &plain)?;
         }
         let old_thumb = journal_name(self.root(), &sealed_thumb);
         let now = now_ms();
-        {
+        let committed = (|| -> Result<()> {
             let mut conn = self.conn();
             let tx = conn.transaction().context("decrypt an item")?;
             tx.execute(
@@ -450,8 +467,10 @@ impl Library {
                 params![item],
             )
             .context("decrypt an item")?;
-            tx.execute("DELETE FROM pending_file WHERE path = ?1", params![stored])
-                .context("decrypt an item")?;
+            for new in [&stored, &new_thumb] {
+                tx.execute("DELETE FROM pending_file WHERE path = ?1", params![new])
+                    .context("decrypt an item")?;
+            }
             if wrote {
                 journal(&tx, &row.file_path, now)?;
             }
@@ -459,18 +478,44 @@ impl Library {
                 journal(&tx, &old_thumb, now)?;
             }
             log_item(&tx, item, now)?;
-            tx.commit().context("decrypt an item")?;
+            tx.commit().context("decrypt an item")
+        })();
+        if let Err(error) = committed {
+            // The decrypted copies are plaintext of an item that stays encrypted: they go now,
+            // not only on the next open.
+            self.drop_new_copies(&[
+                (wrote, &target, &stored),
+                (had_thumb, &plain_thumb, &new_thumb),
+            ]);
+            return Err(error);
         }
         if wrote && let Some(source) = source {
-            remove_with_empty_parent(&source)?;
-            self.forget_journal(&row.file_path);
+            self.remove_old_copy(&source, &row.file_path);
         }
         if had_thumb {
-            remove_with_empty_parent(&sealed_thumb)?;
-            self.forget_journal(&old_thumb);
+            self.remove_old_copy(&sealed_thumb, &old_thumb);
         }
         self.keys().forget_item(item);
         Ok(())
+    }
+
+    /// After the commit the row names the new copies: an old copy that cannot be removed now
+    /// (open in another app) stays in the journal, and the next open removes it.
+    fn remove_old_copy(&self, path: &Path, stored: &str) {
+        match remove_with_empty_parent(path) {
+            Ok(()) => self.forget_journal(stored),
+            Err(error) => tracing::warn!("cannot remove an old copy yet: {error}"),
+        }
+    }
+
+    /// The commit failed: the row still names the old copies, so the new ones (each written,
+    /// at `path`, journaled as `stored`) go.
+    fn drop_new_copies(&self, copies: &[(bool, &Path, &str)]) {
+        for &(written, path, stored) in copies {
+            if written && remove_with_empty_parent(path).is_ok() {
+                self.forget_journal(stored);
+            }
+        }
     }
 
     /// Writes a new copy of a file through `files/.tmp/`, journals its target, and renames it

@@ -803,3 +803,67 @@ fn a_yubikey_opens_only_its_folder_and_the_password_still_works() {
         .unwrap();
     assert_eq!(left, 0);
 }
+
+/// A folder imported locked from Eagle: locked, hidden, but with no password yet.
+fn mark_imported_lock(library: &Library, folder: &str) {
+    library
+        .conn()
+        .execute(
+            "UPDATE folder SET locked = 1 WHERE id = ?1",
+            params![folder],
+        )
+        .unwrap();
+}
+
+#[test]
+fn an_imported_lock_takes_a_first_password() {
+    let dir = tempfile::tempdir().unwrap();
+    let root = new_library(dir.path(), "Imported");
+    let library = open(&root);
+    let folder = create(&library, "From Eagle", None);
+    let item = add_png(&library, dir.path(), "a.png", 1);
+    put(&library, &item, &[&folder]);
+    previews(&library);
+    mark_imported_lock(&library, &folder);
+    let tree = library.folder_tree().unwrap();
+    let imported = find(&tree, &folder);
+    assert!(imported.is_locked && !imported.has_password);
+    assert!(all(&library).is_empty());
+    assert!(!row(&library, &item).1);
+
+    let key = lock(&library, &folder, "first");
+    assert_eq!(key.phrase.split(' ').count(), 12);
+    assert!(find(&library.folder_tree().unwrap(), &folder).has_password);
+    let (_, encrypted, file_path, _) = row(&library, &item);
+    assert!(encrypted);
+    assert!(starts_with_age(&stored(&root, &file_path)));
+    assert!(matches!(
+        library.lock_folder(&folder, "again".into(), None, None, &|_, _| {}),
+        Err(SourceError::Invalid(_))
+    ));
+    library.unlock_folder(&folder, "first".into()).unwrap();
+    assert_eq!(all(&library), [item]);
+}
+
+#[test]
+fn an_imported_lock_is_removed_without_a_password() {
+    let dir = tempfile::tempdir().unwrap();
+    let root = new_library(dir.path(), "Imported");
+    let library = open(&root);
+    let folder = create(&library, "From Eagle", None);
+    let open_folder = create(&library, "Open", None);
+    let item = add_png(&library, dir.path(), "a.png", 1);
+    put(&library, &item, &[&folder]);
+    mark_imported_lock(&library, &folder);
+    assert!(all(&library).is_empty());
+
+    assert!(matches!(
+        library.remove_folder_lock(&open_folder, String::new(), &|_, _| {}),
+        Err(SourceError::Invalid(_))
+    ));
+    library
+        .remove_folder_lock(&folder, String::new(), &|_, _| {})
+        .unwrap();
+    assert!(!find(&library.folder_tree().unwrap(), &folder).is_locked);
+    assert_eq!(all(&library), [item]);
+}

@@ -223,6 +223,8 @@ export const en = {
     locked: "Locked",
     openFolder: "Open the folder",
     unlockFolder: "Unlock the folder",
+    setFolderPassword: "Set a password for the folder",
+    setPasswordMenu: "Set Password…",
   },
   empty: {
     noFilterMatch: "No items match the filters.",

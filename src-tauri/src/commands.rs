@@ -338,7 +338,7 @@ pub fn yubikey_present() -> bool {
 }
 
 #[tauri::command]
-pub fn login_status(session: State<'_, Session>) -> LoginStatus {
+pub fn login_status(session: State<'_, Session>) -> Result<LoginStatus, SourceError> {
     session.login_status()
 }
 

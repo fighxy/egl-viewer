@@ -23,6 +23,11 @@ imageCount: number | null,
  */
 descendantImageCount: number | null, isLocked: boolean, isUnlocked: boolean, 
 /**
+ * A locked folder has a password. One imported locked from Eagle has none until the user
+ * sets one; until then it stays hidden and nothing in it is encrypted (docs/spec.md §8.2).
+ */
+hasPassword: boolean, 
+/**
  * The lock's tag of a locked folder: a caption and a colour, plaintext (D-018). Not an
  * item tag.
  */

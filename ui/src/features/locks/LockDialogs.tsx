@@ -764,6 +764,8 @@ function RemoveLock({
   const [working, setWorking] = useState(false);
   const [progress, setProgress] = useState<LockProgress | null>(null);
   const [error, setError] = useState<string>();
+  // A lock imported from Eagle has no password and encrypts nothing (docs/spec.md §8.2).
+  const needsPassword = folder.hasPassword;
   return (
     <Dialog open onOpenChange={(open) => !open && !working && onCancel()}>
       <DialogContent showCloseButton={!working}>
@@ -771,7 +773,7 @@ function RemoveLock({
           className="grid gap-4"
           onSubmit={(event) => {
             event.preventDefault();
-            if (!password || working) return;
+            if ((needsPassword && !password) || working) return;
             setWorking(true);
             setError(undefined);
             ipc
@@ -792,19 +794,25 @@ function RemoveLock({
           {working ? (
             <Working progress={progress} verb={t("locksUi.decrypting")} />
           ) : (
-            <PasswordField
-              label={t("locksUi.password")}
-              value={password}
-              onChange={setPassword}
-              autoFocus
-            />
+            needsPassword && (
+              <PasswordField
+                label={t("locksUi.password")}
+                value={password}
+                onChange={setPassword}
+                autoFocus
+              />
+            )
           )}
           {error && <ErrorText>{error}</ErrorText>}
           <DialogFooter>
             <Button type="button" variant="outline" disabled={working} onClick={onCancel}>
               {t("common.cancel")}
             </Button>
-            <Button type="submit" variant="destructive" disabled={!password || working}>
+            <Button
+              type="submit"
+              variant="destructive"
+              disabled={(needsPassword && !password) || working}
+            >
               {t("locksUi.removeLockAction")}
             </Button>
           </DialogFooter>

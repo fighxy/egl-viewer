@@ -27,6 +27,7 @@ struct Row {
     sort_ascending: Option<bool>,
     cover_item_id: Option<String>,
     locked: bool,
+    has_password: bool,
     lock_label: Option<String>,
     lock_color: Option<String>,
 }
@@ -42,7 +43,8 @@ impl Library {
         let mut statement = conn
             .prepare(
                 "SELECT id, parent_id, name, description, icon_color, order_by, sort_ascending,
-                        cover_item_id, locked, label, label_color
+                        cover_item_id, locked, label, label_color,
+                        wrapped_identity IS NOT NULL
                  FROM folder ORDER BY sort_key, id",
             )
             .context("read folders")?;
@@ -60,6 +62,7 @@ impl Library {
                     locked: row.get(8)?,
                     lock_label: row.get(9)?,
                     lock_color: row.get(10)?,
+                    has_password: row.get(11)?,
                 })
             })
             .and_then(Iterator::collect)
@@ -172,6 +175,7 @@ impl Library {
                         descendant_image_count: count(subtree),
                         is_locked: row.locked,
                         is_unlocked: row.locked && !hidden.contains(&row.id),
+                        has_password: row.locked && row.has_password,
                         lock_label: row.lock_label.clone(),
                         lock_color: row.lock_color.clone(),
                         cover_item_id: row.cover_item_id.clone(),

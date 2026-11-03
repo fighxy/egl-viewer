@@ -97,6 +97,9 @@ pub struct Folder {
     pub descendant_image_count: Option<u32>,
     pub is_locked: bool,
     pub is_unlocked: bool,
+    /// A locked folder has a password. One imported locked from Eagle has none until the user
+    /// sets one; until then it stays hidden and nothing in it is encrypted (docs/spec.md §8.2).
+    pub has_password: bool,
     /// The lock's tag of a locked folder: a caption and a colour, plaintext (D-018). Not an
     /// item tag.
     pub lock_label: Option<String>,

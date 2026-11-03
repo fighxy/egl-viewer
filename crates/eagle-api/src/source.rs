@@ -445,7 +445,7 @@ impl EagleSource {
         if !item.no_thumbnail.unwrap_or(false) {
             return Ok(None);
         }
-        let Some(bytes) = self.read_original(&id.0, &item.ext) else {
+        let Some(bytes) = self.read_original(&id.0, &item.ext, &item.name) else {
             return Ok(None);
         };
         let rendered = media::render_bytes(&bytes, &item.ext)
@@ -469,12 +469,14 @@ impl EagleSource {
         let Some(item) = self.item_blocking(id)? else {
             return Ok(None);
         };
-        Ok(self.read_original(&id.0, &item.ext).map(|bytes| Thumbnail {
-            content_type: mime_of_ext(&item.ext)
-                .unwrap_or_else(|| "application/octet-stream".into()),
-            bytes,
-            private: false,
-        }))
+        Ok(self
+            .read_original(&id.0, &item.ext, &item.name)
+            .map(|bytes| Thumbnail {
+                content_type: mime_of_ext(&item.ext)
+                    .unwrap_or_else(|| "application/octet-stream".into()),
+                bytes,
+                private: false,
+            }))
     }
 
     fn item_blocking(&self, id: &ItemId) -> Result<Option<ItemDto>, SourceError> {
@@ -500,17 +502,12 @@ impl EagleSource {
         std::fs::read(&path).map_err(|_| SourceError::NotFound)
     }
 
-    /// The item's original: `images/{id}.info/` holds one file, matched by extension.
-    fn read_original(&self, id: &str, ext: &str) -> Option<Vec<u8>> {
+    /// The item's original in `images/{id}.info/`, never Eagle's thumbnail next to it
+    /// (`eagle_folder::find_original`).
+    fn read_original(&self, id: &str, ext: &str, name: &str) -> Option<Vec<u8>> {
         let root = self.library_path.as_ref()?;
         let dir = root.join("images").join(format!("{id}.info"));
-        let wanted = ext.to_ascii_lowercase();
-        let found = std::fs::read_dir(dir).ok()?.find_map(|entry| {
-            let path = entry.ok()?.path();
-            let name = path.file_name()?.to_string_lossy().into_owned();
-            let dot = name.rfind('.')?;
-            (name[dot + 1..].eq_ignore_ascii_case(&wanted)).then_some(path)
-        })?;
+        let found = eagle_folder::find_original(&dir, ext, name)?;
         self.read_inside_library(&found).ok()
     }
 

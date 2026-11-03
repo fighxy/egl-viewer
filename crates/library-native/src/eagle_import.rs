@@ -22,9 +22,10 @@ use crate::add::stored_file_name;
 use crate::error::{Context, Result};
 use crate::folders::{add_link, ensure_tag, log};
 use crate::fsutil::rename_with_retry;
-use crate::import::{ImportObserver, Tracker, note_failure};
+use crate::import::{ImportObserver, Tracker, note_failure, preview_pass, store_full};
 use crate::library::Library;
 use crate::recover::{library_file, remove_with_empty_parent};
+use crate::seal::write_atomically;
 use crate::time::now_ms;
 
 /// Rows are committed every this many items (docs/architecture.md §15.6 step 5).
@@ -79,8 +80,9 @@ struct Prepared {
     exif: Option<String>,
     palette: Option<String>,
     deleted_at: Option<i64>,
-    /// The Eagle thumbnail converted to WebP; `None` asks for a generated preview later.
-    thumb: Option<Vec<u8>>,
+    /// `thumbs/<shard>/<id>.webp`, already written from Eagle's thumbnail and journaled like
+    /// the original; `None` asks for a generated preview later.
+    thumb: Option<String>,
     folders: Vec<(String, Option<f64>)>,
     tags: Vec<String>,
     comments: Vec<eagle_folder::CommentDto>,
@@ -136,6 +138,7 @@ fn import(
     let known = imported_ids(library)?;
     let mut seen_hashes: HashSet<[u8; 32]> = HashSet::new();
     let mut prepared: Vec<Prepared> = Vec::new();
+    let mut needs_preview: HashSet<String> = HashSet::new();
     let mut added = 0_u32;
 
     for entry in &manifest.items {
@@ -157,18 +160,24 @@ fn import(
             report,
         ) {
             Ok(Some(item)) => {
-                let needs_preview = item.thumb.is_none();
+                if item.thumb.is_none() {
+                    needs_preview.insert(item.id.clone());
+                }
                 added += 1;
                 prepared.push(item);
                 tracker.update(false, |progress| {
                     progress.added += 1;
                     progress.processed += 1;
-                    if needs_preview {
-                        progress.previews_total += 1;
-                    }
                 });
             }
             Ok(None) => tracker.update(false, |progress| progress.processed += 1),
+            // A full disk or a database that refuses writes stops the import: the items
+            // copied so far commit, the rest would fail the same way.
+            Err(error @ SourceError::Storage(_)) => {
+                flush(library, &mut prepared, &structure.covers)?;
+                report.imported = added;
+                return Err(error);
+            }
             Err(reason) => {
                 let line = failure(eagle, &entry.id, reason.to_string());
                 if report.skipped.len() < LISTED {
@@ -189,7 +198,7 @@ fn import(
     tracker.update(true, |progress| progress.current = None);
 
     if !cancel.load(Ordering::Relaxed) {
-        make_previews(library, tracker, cancel);
+        make_previews(library, tracker, cancel, &needs_preview);
     }
     Ok(())
 }
@@ -445,7 +454,8 @@ fn imported_ids(library: &Library) -> Result<HashSet<String>> {
 }
 
 /// Reads, hashes and copies one item; `Ok(None)` when the options or the file leave nothing
-/// to import. Anything wrong becomes a report line, not a failed import.
+/// to import. A problem with this item (`Invalid`) becomes a report line; a problem with the
+/// native library (`Storage`: a full disk, a refused write) stops the import.
 fn prepare_item(
     library: &Library,
     eagle: &EagleLibrary,
@@ -466,7 +476,8 @@ fn prepare_item(
     let Some(original) = eagle.original(&item) else {
         return Err(SourceError::Invalid("the original file is missing".into()));
     };
-    let metadata = fs::metadata(&original).context("read the original")?;
+    let metadata = fs::metadata(&original)
+        .map_err(|error| SourceError::Invalid(format!("read the original: {error}")))?;
     let file_name = original
         .file_name()
         .and_then(|name| name.to_str())
@@ -484,7 +495,7 @@ fn prepare_item(
         Ok(hash) => hash,
         Err(error) => {
             let _ = fs::remove_file(&tmp);
-            return Err(SourceError::Invalid(error.to_string()));
+            return Err(error);
         }
     };
 
@@ -493,14 +504,9 @@ fn prepare_item(
     let stored = format!("files/{shard}/{id}/{}", stored_file_name(&file_name));
     let target = library_file(library.root(), &stored)
         .ok_or_else(|| SourceError::Storage("bad stored path".into()))?;
-    if let Err(error) = library.conn().execute(
-        "INSERT INTO pending_file (path, created_at) VALUES (?1, ?2)",
-        params![stored, now_ms()],
-    ) {
+    if let Err(error) = journal(library, &stored) {
         let _ = fs::remove_file(&tmp);
-        return Err(SourceError::Invalid(format!(
-            "write the add journal: {error}"
-        )));
+        return Err(error);
     }
     if let Err(error) = target
         .parent()
@@ -510,7 +516,7 @@ fn prepare_item(
         let _ = fs::remove_file(&tmp);
         let _ = remove_with_empty_parent(&target);
         forget_journal(library, &stored);
-        return Err(SourceError::Invalid(format!(
+        return Err(SourceError::Storage(format!(
             "move the file into the library: {error}"
         )));
     }
@@ -519,12 +525,21 @@ fn prepare_item(
         report.duplicates += 1;
     }
 
-    // Eagle's 320 px thumbnail becomes the first thumbnail; a missing or unreadable one
-    // leaves thumb_version 0 and the background pass makes one from the original.
+    // Eagle's 320 px thumbnail becomes the first thumbnail, written and journaled before the
+    // row says it exists; a missing or unreadable one leaves thumb_version 0 and the
+    // background pass makes one from the original.
     let thumb = eagle
         .thumbnail(&entry.id)
         .and_then(|path| media::render(&path, "png").ok())
-        .map(|rendered| rendered.thumbnail.webp);
+        .and_then(
+            |rendered| match store_thumbnail(library, &id, &rendered.thumbnail.webp) {
+                Ok(stored) => Some(stored),
+                Err(error) => {
+                    tracing::warn!("cannot keep the Eagle thumbnail of {}: {error}", entry.id);
+                    None
+                }
+            },
+        );
 
     let folders = item
         .folders
@@ -622,11 +637,10 @@ fn flush(
             params![item.eagle_id, item.last_modified, now],
         )
         .context("record the imported item")?;
-        tx.execute(
-            "DELETE FROM pending_file WHERE path = ?1",
-            params![item.stored],
-        )
-        .context("clear the add journal")?;
+        for stored in std::iter::once(&item.stored).chain(&item.thumb) {
+            tx.execute("DELETE FROM pending_file WHERE path = ?1", params![stored])
+                .context("clear the add journal")?;
+        }
     }
     for (folder, cover) in covers {
         tx.execute(
@@ -702,65 +716,47 @@ fn insert_comments(tx: &Transaction<'_>, item: &Prepared, now: i64) -> Result<()
 }
 
 /// Thumbnails the Eagle library did not have are made from the originals in the
-/// background (docs/spec.md §8.2): the same pending list as after a restart. Items of
-/// locked folders wait until their folder is unlocked.
-fn make_previews(library: &Library, tracker: &Tracker<'_>, cancel: &AtomicBool) {
+/// background (docs/spec.md §8.2): the same pass as after a restart, so encrypted and stuck
+/// items are handled alike. Items imported now keep Eagle's dimensions, palette and EXIF and
+/// take only the thumbnail; other pending items are stored in full.
+fn make_previews(
+    library: &Library,
+    tracker: &Tracker<'_>,
+    cancel: &AtomicBool,
+    imported: &HashSet<String>,
+) {
     tracker.update(true, |progress| progress.state = ImportState::Previews);
-    let pool = match rayon::ThreadPoolBuilder::new()
-        .num_threads(crate::import::preview_threads())
-        .build()
-    {
-        Ok(pool) => pool,
-        Err(error) => {
-            tracing::warn!("no thread pool for previews: {error}");
-            return;
+    let store = |library: &Library, id: &str, rendered: &media::Rendered| {
+        if imported.contains(id) {
+            library.store_imported_preview(id, &rendered.thumbnail.webp)
+        } else {
+            store_full(library, id, rendered)
         }
     };
-    loop {
-        if cancel.load(Ordering::Relaxed) {
-            break;
-        }
-        let Ok(batch) = library.pending_previews(64) else {
-            break;
-        };
-        if batch.is_empty() {
-            break;
-        }
-        pool.in_place_scope(|scope| {
-            for pending in &batch {
-                let tracker = &*tracker;
-                scope.spawn(move |_| {
-                    if cancel.load(Ordering::Relaxed) {
-                        return;
-                    }
-                    let rendered = media::render(&pending.file, &pending.ext);
-                    let failure = match rendered {
-                        Ok(rendered) => library
-                            .store_imported_preview(&pending.id, &rendered.thumbnail.webp)
-                            .err()
-                            .map(|error| error.to_string()),
-                        Err(media::MediaError::Unsupported) => None,
-                        Err(error) => {
-                            let _ = library.mark_no_preview(&pending.id);
-                            Some(format!("No preview: {error}"))
-                        }
-                    };
-                    tracker.update(false, |progress| {
-                        progress.previews_done += 1;
-                        if let Some(reason) = failure {
-                            note_failure(
-                                progress,
-                                ImportFailure {
-                                    path: pending.file.to_string_lossy().into_owned(),
-                                    reason,
-                                },
-                            );
-                        }
-                    });
-                });
-            }
-        });
+    preview_pass(library, tracker, cancel, &store);
+}
+
+/// Writes Eagle's thumbnail for a new item under the journal; returns the journaled path.
+fn store_thumbnail(library: &Library, id: &str, webp: &[u8]) -> Result<String> {
+    let path = library.thumbnail_path(id)?;
+    let stored = format!("thumbs/{}/{id}.webp", &id[id.len() - 2..]);
+    journal(library, &stored)?;
+    if let Err(error) = write_atomically(&path, webp) {
+        forget_journal(library, &stored);
+        return Err(error);
     }
+    Ok(stored)
+}
+
+fn journal(library: &Library, stored: &str) -> Result<()> {
+    library
+        .conn()
+        .execute(
+            "INSERT OR IGNORE INTO pending_file (path, created_at) VALUES (?1, ?2)",
+            params![stored, now_ms()],
+        )
+        .context("write the add journal")?;
+    Ok(())
 }
 
 fn forget_journal(library: &Library, stored: &str) {
@@ -794,7 +790,9 @@ fn copy_hash(
     tmp: &Path,
     size_before: u64,
 ) -> std::result::Result<blake3::Hash, SourceError> {
-    let mut input = File::open(source).context("open the original")?;
+    let unreadable =
+        |error: std::io::Error| SourceError::Invalid(format!("read the original: {error}"));
+    let mut input = File::open(source).map_err(unreadable)?;
     let mut output = File::create_new(tmp).context("create a temp file")?;
     let mut hasher = blake3::Hasher::new();
     let mut buffer = vec![0_u8; BUFFER];
@@ -804,7 +802,7 @@ fn copy_hash(
             Ok(0) => break,
             Ok(read) => read,
             Err(error) if error.kind() == std::io::ErrorKind::Interrupted => continue,
-            Err(error) => return Err(error).context("read the original"),
+            Err(error) => return Err(unreadable(error)),
         };
         hasher.update(&buffer[..read]);
         output
@@ -815,7 +813,7 @@ fn copy_hash(
     if copied != size_before
         || fs::metadata(source).map_or(0, |metadata| metadata.len()) != size_before
     {
-        return Err(SourceError::Storage(
+        return Err(SourceError::Invalid(
             "the original changed while it was copied".into(),
         ));
     }

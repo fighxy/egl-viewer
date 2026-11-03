@@ -44,6 +44,8 @@ mod edit_tests;
 #[cfg(test)]
 mod folder_tests;
 #[cfg(test)]
+mod format_fixture_tests;
+#[cfg(test)]
 mod import_tests;
 #[cfg(test)]
 mod lock_tests;

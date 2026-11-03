@@ -1533,3 +1533,52 @@ Eagle, App Store, or Play polish.
   provider URIs without a path fall back to mock with an explanatory error.
 - **Out of scope.** On-device media pipeline, full-size original preview beyond
   thumb bytes, iCloud File Provider packaging polish, Play/App Store signing.
+
+## D-087 Ids from an export into Eagle get their own table, format version 6 (2026-11-03)
+
+`eagle_id` on `item`, `folder`, `tag_group` and `smart_folder` meant two things: where an
+imported row came from (phase 8) and what an export into a running Eagle created (phase 10).
+`store_eagle_ids` overwrote it, so exporting an imported item into another Eagle library
+replaced its origin, and a later re-import of the first library no longer recognised it.
+
+- **Format version 6** adds `eagle_export (kind, native_id, eagle_id)`, primary key
+  `(kind, native_id)`, `STRICT, WITHOUT ROWID`. `eagle_id` now only names the origin of an import.
+- **Migration.** Item ids that are not in `eagle_import` move into `eagle_export`. Folder, tag
+  group and smart folder ids move only when `eagle_import` is empty: an import never records its
+  folders there, so in a library that imported, the column may hold either and stays as it was.
+- **No foreign key.** Native ids are ULIDs and never reused; a row of a deleted object is
+  harmless and an export simply creates that object again.
+- **First fixture.** `fixtures/library/v5/Fixture.eglib` is the first released-format fixture
+  (docs/library-format.md §8); `every_released_format_migrates_from_its_fixture` opens a copy of
+  each one. New fixtures are written by the ignored `make_format_fixture` test.
+
+## D-088 Data-safety fixes from the post-phase-12 review (2026-11-03)
+
+A review of the work merged after phase 7 found these defects in the core crates; each fix has
+a test that failed before it.
+
+- **Eagle import thumbnails.** The import set `thumb_version = 1` without writing the file. The
+  converted Eagle thumbnail is now journaled in `pending_file` and written atomically to
+  `thumbs/<shard>/<id>.webp` before the row is inserted. The preview pass reuses the import's
+  batch loop (`preview_pass`) with its stuck-batch guard. A `Storage` error aborts the import
+  instead of becoming a report line.
+- **Eagle originals.** `eagle_folder::find_original` is the one finder for both the folder
+  reader and the live API: it never takes `<stem>_thumbnail.<ext>` when `<stem>.<ext>` exists and
+  prefers the file named after the item.
+- **Locks.** `lock_folder` always returns the recovery key once the folder row is committed; a
+  stopped re-encryption is finished by the next unlock. Decrypting journals the new plaintext
+  preview before writing it; removing old copies after the commit is best effort. Encrypting an
+  item that wrote nothing keeps its `file_path`.
+- **Imported locked folders** (docs/spec.md §8.2). A folder imported locked has no password.
+  `Folder.has_password` tells the UI; Lock takes a first password for it, and Remove Lock needs
+  none. The Locked folders section offers Set Password… and Remove Lock… for such a folder.
+- **Export.** A failed or cancelled export removes the partial tree, `.zip.part` and `.age`. A
+  destination inside an Eagle or egl-viewer library is refused. The manifest name is reserved,
+  and the `(2)` counter goes before the extension of names without one or with a leading dot.
+- **Export into Eagle.** Folders go out in tree and `sort_key` order, from the selected folders
+  whose parent is not selected; hidden subfolders of a locked folder stay home.
+- **Migrations.** The writer reads `user_version` again under the lock.
+- **App login fails closed.** `login.json` that cannot be read or parsed is an error, never "no
+  login": `login_status` returns it, the UI keeps the login screen, and unlocking shows why.
+- **Eagle API errors.** A network error drops its URL before it becomes text, so the token in a
+  query string never reaches a log or the UI.

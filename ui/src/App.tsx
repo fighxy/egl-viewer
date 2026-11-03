@@ -594,9 +594,11 @@ function AppShell() {
       const stored = await ipc.preferences().catch(() => DEFAULT_PREFERENCES);
       if (cancelled) return;
       setPreferences(stored);
+      // A login file that cannot be read keeps the app locked (fail closed): the login
+      // screen then shows why it cannot unlock.
       const status = await ipc.loginStatus().catch(() => null);
       if (cancelled) return;
-      const method = status?.method ?? "none";
+      const method = status ? status.method : "password";
       setLoginMethod(method);
       setGate(method === "none" ? "open" : "locked");
     };

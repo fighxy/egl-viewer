@@ -28,7 +28,8 @@ type Props = {
   writable: true | string;
   /** A running Eagle: the API can unlock but never set, change or remove a lock. */
   eagle?: boolean;
-  /** A locked row was chosen: ask for that folder's password. */
+  /** A locked row was chosen: ask for that folder's password, or for a first one when it has
+   * none (imported locked from Eagle, docs/spec.md §8.2). */
   onUnlock: (id: string) => void;
   /** An unlocked row was chosen: open the folder. */
   onOpen: (id: string) => void;
@@ -75,6 +76,8 @@ export function LockedFolders({
         <ul className="grid gap-px">
           {locked.map((folder) => {
             const Icon = folder.isUnlocked ? LockOpen : Lock;
+            // Imported locked from Eagle: hidden, but with no password until the user sets one.
+            const noPassword = !folder.hasPassword;
             const color = folder.lockColor ? FOLDER_COLORS[folder.lockColor] : undefined;
             return (
               <li key={folder.id}>
@@ -84,10 +87,20 @@ export function LockedFolders({
                       type="button"
                       aria-current={folder.id === selectedId ? "page" : undefined}
                       title={
-                        folder.isUnlocked ? t("sidebar.openFolder") : t("sidebar.unlockFolder")
+                        folder.isUnlocked
+                          ? t("sidebar.openFolder")
+                          : noPassword
+                            ? t("sidebar.setFolderPassword")
+                            : t("sidebar.unlockFolder")
                       }
                       className="flex h-7 w-full items-center gap-2 rounded-md px-2 text-left text-[13px] outline-none hover:bg-sidebar-accent focus-visible:ring-3 focus-visible:ring-ring/50 aria-[current=page]:bg-sidebar-accent aria-[current=page]:font-medium"
-                      onClick={() => (folder.isUnlocked ? onOpen(folder.id) : onUnlock(folder.id))}
+                      onClick={() =>
+                        folder.isUnlocked
+                          ? onOpen(folder.id)
+                          : noPassword
+                            ? onLock(folder.id, "lock")
+                            : onUnlock(folder.id)
+                      }
                     >
                       <Icon
                         aria-label={folder.isUnlocked ? t("sidebar.unlocked") : t("sidebar.locked")}
@@ -112,12 +125,30 @@ export function LockedFolders({
                     </button>
                   </ContextMenuTrigger>
                   <ContextMenuContent>
-                    {!folder.isUnlocked && (
+                    {noPassword && !eagle ? (
+                      <>
+                        <ContextMenuItem
+                          disabled={!canWrite}
+                          title={canWrite ? undefined : writable}
+                          onSelect={() => onLock(folder.id, "lock")}
+                        >
+                          {t("sidebar.setPasswordMenu")}
+                        </ContextMenuItem>
+                        <ContextMenuItem
+                          disabled={!canWrite}
+                          title={canWrite ? undefined : writable}
+                          onSelect={() => onLock(folder.id, "remove")}
+                        >
+                          Remove Lock…
+                        </ContextMenuItem>
+                      </>
+                    ) : null}
+                    {!noPassword && !folder.isUnlocked && (
                       <ContextMenuItem onSelect={() => onLock(folder.id, "unlock")}>
                         Unlock…
                       </ContextMenuItem>
                     )}
-                    {eagle ? null : (
+                    {eagle || noPassword ? null : (
                       <>
                         {folder.isUnlocked && (
                           <ContextMenuItem onSelect={() => onLock(folder.id, "relock")}>

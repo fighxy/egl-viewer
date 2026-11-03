@@ -66,7 +66,7 @@ impl EagleHttp {
             .query(&[("token", self.endpoint.token.expose_secret())])
             .send()
             .await
-            .map_err(|error| EagleError::Network(network_error(&error)))?;
+            .map_err(|error| EagleError::Network(network_error(error)))?;
         parse_jsend(path, response).await
     }
 
@@ -100,7 +100,7 @@ impl EagleHttp {
             .body(text)
             .send()
             .await
-            .map_err(|error| EagleError::Network(network_error(&error)))?;
+            .map_err(|error| EagleError::Network(network_error(error)))?;
         parse_jsend(path, response).await
     }
 
@@ -230,6 +230,33 @@ mod tests {
         .unwrap();
         let data = http.get("api/v2/app/info", &[]).await.unwrap();
         assert_eq!(data, json!({ "version": "4.0.0" }));
+    }
+
+    #[tokio::test]
+    async fn a_network_error_never_carries_the_token() {
+        // Something accepts the connection and hangs up before answering: an error with no
+        // I/O cause, whose text would carry the URL with the token in the query.
+        let listener = std::net::TcpListener::bind("127.0.0.1:0").unwrap();
+        let port = listener.local_addr().unwrap().port();
+        std::thread::spawn(move || {
+            for stream in listener.incoming().flatten() {
+                drop(stream);
+            }
+        });
+        let http = EagleHttp::new(
+            Endpoint {
+                base: Url::parse(&format!("http://127.0.0.1:{port}/")).unwrap(),
+                token: SecretString::from("leak-me-not"),
+            },
+            false,
+        )
+        .unwrap();
+        let error = http
+            .get("api/v2/app/info", &[("x", "1")])
+            .await
+            .unwrap_err();
+        let text = format!("{error} {error:?}");
+        assert!(!text.contains("leak-me-not"), "{text}");
     }
 
     #[tokio::test]

@@ -226,6 +226,8 @@ export const ru: MessageCatalog = {
     locked: "Заперто",
     openFolder: "Открыть папку",
     unlockFolder: "Отпереть папку",
+    setFolderPassword: "Задать пароль папки",
+    setPasswordMenu: "Задать пароль…",
   },
   empty: {
     noFilterMatch: "Нет объектов, подходящих под фильтры.",
