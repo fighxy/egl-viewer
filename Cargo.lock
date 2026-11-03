@@ -3503,6 +3503,7 @@ dependencies = [
 name = "library-ffi"
 version = "0.2.1"
 dependencies = [
+ "app-service",
  "image",
  "library-core",
  "library-native",

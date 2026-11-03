@@ -1,0 +1,5 @@
+module CEglLibrary [system] {
+    header "egl_library.h"
+    link "egl_library"
+    export *
+}

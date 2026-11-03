@@ -1680,3 +1680,46 @@ iOS app with the desktop's features (the next series of PRs) needs all of it.
   service has its own tests for opening, views, edits with undo, imports, the trash, folders and
   tags, exports and the read-only open.
 - `library-ffi` moves onto the service in the next PR.
+
+## D-092 `library-ffi` over `app-service`; Swift `EglCore` (2026-11-03)
+
+The C ABI re-implemented part of the desktop session (its own import registry, undo stack and
+stateless query windows) and had no locked folders, backups, checks or exports. The iOS app
+with the desktop's features needs all of them, the same way the desktop does them.
+
+- **Every export goes through `LibraryService`** (D-091): one service per `EglLibrary` handle.
+  Edits refresh the open views and push undo exactly as on the desktop; imports and exports
+  are the service's tasks. The crate's own registry and undo stack are gone.
+- **The existing functions keep their signatures**, so the frozen Android shell and the current
+  iOS screens need no change. `egl_view_window` and `egl_query_window` stay stateless (they
+  open a view for the call), and `Target` with `query` still names a Select All.
+- **New: views by id** (`egl_open_view`, `egl_view_range`, `egl_view_ids`,
+  `egl_view_dimensions`, `egl_close_view`, `egl_edit_items`, `egl_delete_items`,
+  `egl_view_selection_tags`, `egl_refresh_views`): a query evaluated once and followed under
+  its id, as the desktop grid does.
+- **New: events through a callback** (`egl_set_event_callback`): import and export progress and
+  `viewsInvalidated`, as JSON, on the thread that produced them. Polling (`egl_imports`,
+  `egl_exports`) still works.
+- **New: locked folders, settings and maintenance** (lock, unlock, relock one or all, recover,
+  change password, renew the recovery key, remove the lock, the lock label; rename, stats,
+  backups and restore, check and repair, export preview, start, list and cancel, preview of a
+  reviewed import; counts, smart rules, decrypted original bytes). YubiKey and app login stay
+  out: there is no PC/SC on iOS, and the app login is the app's (Face ID, a later PR).
+- **New status codes** `EGL_ERR_WRONG_PASSWORD` (8) and `EGL_ERR_LOCKED` (9); they were
+  `EGL_ERR_OTHER` before.
+- **Safety at the boundary.** A panic never unwinds into C: every export runs under
+  `catch_unwind` and answers `EGL_ERR_OTHER` with the message. The pointer helpers are
+  `unsafe fn` with SAFETY notes; `unsafe` stays confined to this crate.
+- **The header is checked.** A host test compares the functions declared in
+  `include/egl_library.h` with the exported symbols, and the status codes with the enum;
+  `scripts/check-mobile-shell.sh` keeps its copies identical (now four, with `ios/EglCore`).
+- **Swift package `ios/EglCore`**: a system-library module over the header, a `Library` class
+  (typed calls, `EglError` with the code and the core's message, an event handler) and
+  `Codable` models of the core's JSON. Its XCTests run on macOS in CI (`ios-core` job of the
+  Mobile workflow) against the core built for the host, so Swift and Rust are tested together
+  without a simulator. The app adopts the package in the next PR.
+- An export that has not reported yet is listed as preparing, so a dialog opened right after
+  the start, or a caller waiting for the list to empty, sees it.
+- Not changed: Android's JNI still converts strings with `GetStringUTFChars` (modified UTF-8);
+  the Android shell is frozen while the iOS app is built.
+

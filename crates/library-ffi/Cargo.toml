@@ -1,6 +1,6 @@
 [package]
 name = "library-ffi"
-description = "C ABI shell over library-native for experimental iOS/Android clients (D-082 / D-083 / D-085)"
+description = "C ABI over app-service for the iOS and Android apps (D-082, D-083, D-092)"
 version.workspace = true
 edition.workspace = true
 rust-version.workspace = true
@@ -14,6 +14,7 @@ crate-type = ["rlib", "staticlib", "cdylib"]
 
 [dependencies]
 library-core.workspace = true
+app-service.workspace = true
 library-native.workspace = true
 serde.workspace = true
 serde_json.workspace = true

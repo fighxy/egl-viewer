@@ -1,8 +1,12 @@
 /**
- * C ABI for the experimental egl-viewer iOS / Android shells (docs/decisions.md D-082).
+ * C ABI for the egl-viewer iOS / Android apps (docs/decisions.md D-082, D-092).
  *
- * Native `.eglib` only — no Eagle. Strings and JSON buffers are UTF-8,
- * heap-allocated by Rust; free them with egl_string_free / egl_bytes_free.
+ * The same open library as the desktop (crates/app-service): views, undo, edits,
+ * background tasks. Native `.eglib` only — no Eagle. Strings and JSON buffers are
+ * UTF-8, heap-allocated by Rust; free them with egl_string_free / egl_bytes_free.
+ * A panic inside Rust never crosses this boundary: the call returns EGL_ERR_OTHER.
+ * Kept identical in ios/EglViewer/Bridge, ios/EglCore and android/app/src/main/cpp
+ * (scripts/check-mobile-shell.sh); a host test checks it against the exports.
  *
  * Build:
  *   iOS (Mac):  cargo build -p library-ffi --release --target aarch64-apple-ios
@@ -33,7 +37,9 @@ typedef enum EglStatus {
   EGL_ERR_NOT_A_LIBRARY = 4,
   EGL_ERR_STORAGE = 5,
   EGL_ERR_UNSUPPORTED = 6,
-  EGL_ERR_OTHER = 7
+  EGL_ERR_OTHER = 7,
+  EGL_ERR_WRONG_PASSWORD = 8,
+  EGL_ERR_LOCKED = 9
 } EglStatus;
 
 /**
@@ -48,18 +54,17 @@ EglStatus egl_create_library(
 
 /**
  * Opens a library folder. Pass sync_folder != 0 when the path is inside a
- * cloud-synced location (opens read-only, D-021).
- * Returns NULL on failure; call egl_last_error(NULL) is not available — use
- * the status from a follow-up only after a successful open. Failures that
- * happen before a handle exists leave a process-wide last error via
- * egl_last_error_global().
+ * cloud-synced location (opens read-only, D-021). Thumbnails a crash or a
+ * cancelled import left undone are made in the background.
+ * Returns NULL on failure; the reason is in egl_last_error_global().
  */
 EglLibrary *egl_open(
     const char *path_utf8,
     const char *app_version_utf8,
     int sync_folder);
 
-/** Closes and frees the handle; cancels and joins running imports first. Safe with NULL. */
+/** Closes and frees the handle; cancels and joins running imports and exports first.
+ *  Safe with NULL. */
 void egl_close(EglLibrary *lib);
 
 /** LibraryInfo as camelCase JSON. */
@@ -226,10 +231,10 @@ EglStatus egl_apply_batch_edit(EglLibrary *lib, const char *target_json, const c
 /** {"items":N,"tags":[{"name","imageCount"}],"size":N,"stack":[ItemCell…]}.
  *  Counted within target.query (default All). */
 EglStatus egl_selection_tags(EglLibrary *lib, const char *target_json, char **out_json);
-/** egl_apply_item_edit that egl_undo can take back. */
+/** egl_apply_item_edit under its older name (every edit is undoable). */
 EglStatus egl_apply_item_edit_undoable(EglLibrary *lib, const char *id_utf8,
                                        const char *edit_json, char **out_item_json);
-/** Takes back the last undoable edit of this handle; UndoStatus or null. */
+/** Takes back the last edit; UndoStatus or null. A failed undo stays on the stack. */
 EglStatus egl_undo(EglLibrary *lib, char **out_json);
 /** What egl_undo would take back; UndoStatus or null. */
 EglStatus egl_undo_status(EglLibrary *lib, char **out_json);
@@ -248,6 +253,117 @@ EglStatus egl_smart_folders(EglLibrary *lib, char **out_json);
 EglStatus egl_save_smart_folder(EglLibrary *lib, const char *change_json, char **out_json);
 EglStatus egl_delete_smart_folder(EglLibrary *lib, const char *id_utf8, char **out_json);
 
+/* ==========================================================================
+ * Events (D-092)
+ *
+ * The library tells the app what changed as JSON, through one callback per
+ * handle. event_json is valid only during the call; do not free it. The
+ * callback runs on a background thread (an import or export) or on the
+ * thread of the call that wrote: hop to the main thread before touching UI.
+ *   {"type":"importProgress","progress":ImportProgress}
+ *   {"type":"exportProgress","progress":ExportProgress}
+ *   {"type":"viewsInvalidated","views":[{"viewId":N,"total":N}]}
+ * ========================================================================== */
+
+typedef void (*EglEventCallback)(void *ctx, const char *event_json);
+
+/** Sets the callback (NULL clears it); ctx is handed back on every call. */
+EglStatus egl_set_event_callback(EglLibrary *lib, EglEventCallback callback, void *ctx);
+
+/* ==========================================================================
+ * Views by id (D-092): a Query evaluated once, kept sorted in Rust, read in
+ * windows, recomputed after writes under the same id (viewsInvalidated).
+ * ItemsTarget (a selection of a view):
+ *   {"viewId":N,"all":false,"ids":["01…"]}   listed items
+ *   {"viewId":N,"all":true,"ids":[excluded…]} Select All of the view
+ * ========================================================================== */
+
+/** Opens a view of query_json (NULL or "" = All, newest first): {"viewId":N,"total":N}. */
+EglStatus egl_open_view(EglLibrary *lib, const char *query_json, char **out_json);
+/** ItemCell[] of positions start..start+len (at most 200). */
+EglStatus egl_view_range(EglLibrary *lib, uint64_t view_id, uint32_t start, uint32_t len,
+                         char **out_json);
+/** Item ids of positions start..start+len, for selections. */
+EglStatus egl_view_ids(EglLibrary *lib, uint64_t view_id, uint32_t start, uint32_t len,
+                       char **out_json);
+/** [[width,height],…] of every position, for justified rows ([0,0] unknown). */
+EglStatus egl_view_dimensions(EglLibrary *lib, uint64_t view_id, char **out_json);
+/** Closes a view; an unknown id is fine. */
+EglStatus egl_close_view(EglLibrary *lib, uint64_t view_id);
+/** SelectionTags of an ItemsTarget. */
+EglStatus egl_view_selection_tags(EglLibrary *lib, const char *target_json, char **out_json);
+/** One ItemEdit for an ItemsTarget (undoable). */
+EglStatus egl_edit_items(EglLibrary *lib, const char *target_json, const char *edit_json,
+                         uint32_t *out_count);
+/** Removes the trashed items of an ItemsTarget with their files. No undo. */
+EglStatus egl_delete_items(EglLibrary *lib, const char *target_json, uint32_t *out_count);
+/** Recomputes the open views now (viewsInvalidated for those that changed). */
+EglStatus egl_refresh_views(EglLibrary *lib);
+
+/** LibraryCounts: {"all":N,"uncategorized":N,"untagged":N,"trash":N,…}. */
+EglStatus egl_counts(EglLibrary *lib, char **out_json);
+/** "Save as smart folder" for a Query: {"parent":id|null,"conditions":[…]}. */
+EglStatus egl_smart_rules(EglLibrary *lib, const char *query_json, char **out_json);
+/** The original's bytes and content type, decrypted for an unlocked folder's item.
+ *  Free with egl_bytes_free. */
+EglStatus egl_original_bytes(EglLibrary *lib, const char *id_utf8, uint8_t **out_bytes,
+                             size_t *out_len, char **out_content_type);
+
+/* ==========================================================================
+ * Locked folders (docs/age-locked-folders.md). Blocking: run off the main
+ * thread. A wrong password is EGL_ERR_WRONG_PASSWORD.
+ * ========================================================================== */
+
+/** request_json: {"password":"…","label":null,"labelColor":null}.
+ *  *out_json: RecoveryKey {"key":"…","phrase":"…"}, shown once, never stored. */
+EglStatus egl_lock_folder(EglLibrary *lib, const char *id_utf8, const char *request_json,
+                          char **out_json);
+EglStatus egl_unlock_folder(EglLibrary *lib, const char *id_utf8, const char *password_utf8);
+/** Locks an open folder again; id NULL: every open folder. */
+EglStatus egl_relock_folder(EglLibrary *lib, const char *id_utf8);
+/** The recovery key or phrase opens the folder and sets a new password. */
+EglStatus egl_recover_folder(EglLibrary *lib, const char *id_utf8, const char *recovery_utf8,
+                             const char *new_password_utf8);
+EglStatus egl_change_folder_password(EglLibrary *lib, const char *id_utf8,
+                                     const char *current_utf8, const char *new_password_utf8);
+/** A new RecoveryKey; the old one stops working. */
+EglStatus egl_renew_recovery_key(EglLibrary *lib, const char *id_utf8, const char *current_utf8,
+                                 char **out_json);
+/** Decrypts the folder and takes the lock off ("" for a lock imported without password). */
+EglStatus egl_remove_folder_lock(EglLibrary *lib, const char *id_utf8, const char *password_utf8);
+/** The plaintext tag of a locked folder; NULL clears a part. */
+EglStatus egl_set_lock_label(EglLibrary *lib, const char *id_utf8, const char *label_utf8,
+                             const char *color_utf8);
+
+/* ==========================================================================
+ * Library settings, maintenance and export (docs/spec.md §7.4 items 6, 12)
+ * ========================================================================== */
+
+/** Renames the library; LibraryInfo afterwards. */
+EglStatus egl_rename_library(EglLibrary *lib, const char *name_utf8, char **out_json);
+/** LibraryStats: bytes of originals, thumbnails, database, backups. */
+EglStatus egl_library_stats(EglLibrary *lib, char **out_json);
+/** Backup[] newest first. */
+EglStatus egl_backups(EglLibrary *lib, char **out_json);
+/** Backs up now; the new Backup. */
+EglStatus egl_back_up_now(EglLibrary *lib, char **out_json);
+/** Restores a backup by name; LibraryInfo afterwards. */
+EglStatus egl_restore_backup(EglLibrary *lib, const char *name_utf8, char **out_json);
+/** LibraryCheck (reads only). */
+EglStatus egl_check_library(EglLibrary *lib, char **out_json);
+/** options_json: {"orphans":bool,"missing":bool}; LibraryCheck afterwards. */
+EglStatus egl_repair_library(EglLibrary *lib, const char *options_json, char **out_json);
+/** ExportPreview of an ExportSelection {"whole":bool,"folders":[…],"tags":[…]}. */
+EglStatus egl_export_preview(EglLibrary *lib, const char *selection_json,
+                             int include_subfolders, char **out_json);
+/** Starts an ExportRequest (folder tree or ZIP; "eagle" must be null); first ExportProgress. */
+EglStatus egl_start_export(EglLibrary *lib, const char *request_json, char **out_json);
+/** ExportProgress[] of running exports. */
+EglStatus egl_exports(EglLibrary *lib, char **out_json);
+EglStatus egl_cancel_export(EglLibrary *lib, uint64_t id);
+/** ImportPreview of a folder for a reviewed import. */
+EglStatus egl_preview_import(EglLibrary *lib, const char *path_utf8, char **out_json);
+
 /*
  * JNI notes (android/app/src/main/cpp/egl_jni.cpp forwards these 1:1):
  *  - Pass the EglLibrary* as jlong; uint64_t import ids as jlong.
@@ -263,7 +379,8 @@ EglStatus egl_delete_smart_folder(EglLibrary *lib, const char *id_utf8, char **o
 void egl_string_free(char *s);
 void egl_bytes_free(uint8_t *bytes, size_t len);
 
-/** Last error message for this handle, or empty string. Never NULL. */
+/** Last error message for this handle (NULL: the global one), or an empty string. Never
+ *  NULL; valid until this thread calls again; do not free. */
 const char *egl_last_error(EglLibrary *lib);
 
 /** Last error when open/create failed before a handle existed. Never NULL. */

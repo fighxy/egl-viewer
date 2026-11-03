@@ -25,6 +25,10 @@ need ios/EglViewer/Screens/BrowseScreen.swift
 need ios/EglViewer/Screens/PreviewScreen.swift
 need ios/EglViewer/Screens/EditSheet.swift
 need ios/EglViewer/Bridge/egl_library.h
+need ios/EglCore/Package.swift
+need ios/EglCore/Sources/CEglLibrary/egl_library.h
+need ios/EglCore/Sources/CEglLibrary/module.modulemap
+need ios/EglCore/Sources/EglCore/Library.swift
 need ios/EglViewer/Bridge/LibraryAccess.swift
 need ios/EglViewer/Config/WithFfi.xcconfig
 need android/README.md
@@ -42,7 +46,7 @@ need android/app/src/main/cpp/egl_jni.cpp
 need android/app/src/main/cpp/egl_library.h
 
 canon="$root/crates/library-ffi/include/egl_library.h"
-for copy in ios/EglViewer/Bridge/egl_library.h android/app/src/main/cpp/egl_library.h; do
+for copy in ios/EglViewer/Bridge/egl_library.h ios/EglCore/Sources/CEglLibrary/egl_library.h android/app/src/main/cpp/egl_library.h; do
   if ! cmp -s "$canon" "$root/$copy"; then
     echo "header drift: $copy differs from crates/library-ffi/include/egl_library.h" >&2
     fail=1
