@@ -145,6 +145,20 @@ source = "registry+https://github.com/rust-lang/crates.io-index"
 checksum = "330a5ed07fa54e4702c9d6c4174f74427fc0ef6e214bbd677ae50a5099946470"
 
 [[package]]
+name = "app-service"
+version = "0.2.1"
+dependencies = [
+ "library-core",
+ "library-native",
+ "media",
+ "serde",
+ "serde_json",
+ "tempfile",
+ "tracing",
+ "ts-rs",
+]
+
+[[package]]
 name = "app-store"
 version = "0.2.1"
 dependencies = [
@@ -1556,6 +1570,7 @@ dependencies = [
 name = "egl-viewer"
 version = "0.2.1"
 dependencies = [
+ "app-service",
  "app-store",
  "arboard",
  "base64 0.22.1",

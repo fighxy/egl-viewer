@@ -1,0 +1,24 @@
+[package]
+name = "app-service"
+description = "The open native library as an app uses it: views, undo, edits and background tasks, without a UI toolkit"
+version.workspace = true
+edition.workspace = true
+rust-version.workspace = true
+license.workspace = true
+publish.workspace = true
+
+[dependencies]
+library-core.workspace = true
+library-native.workspace = true
+media.workspace = true
+serde.workspace = true
+serde_json.workspace = true
+tracing.workspace = true
+ts-rs.workspace = true
+
+[dev-dependencies]
+media = { workspace = true, features = ["fixtures"] }
+tempfile.workspace = true
+
+[lints]
+workspace = true

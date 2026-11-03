@@ -75,6 +75,7 @@ pnpm dev
 ```
 crates/library-core/   models, queries and views (filters, sorter), edits, errors, the LibrarySource trait (no IO)
 crates/library-native/ the native library: create, open, the library lock, recovery, adding files, scopes in SQL, edits, backups, export of originals, checks
+crates/app-service/    the open native library as an app uses it: views, undo, edits, tasks (desktop and mobile, D-091)
 crates/library-ffi/    C ABI over library-native for experimental mobile shells (D-082 / D-083); no Eagle
 crates/app-store/      settings, recent libraries, library locations, secrets
 crates/eagle-api/      a running Eagle as a LibrarySource (transport from phase 9)
