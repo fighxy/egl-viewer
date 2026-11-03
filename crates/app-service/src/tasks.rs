@@ -181,6 +181,20 @@ impl ImportTasks {
         running
     }
 
+    /// Import `id`: `Some(None)` while it runs and has not reported yet, `Some(progress)` with
+    /// its latest or final progress, `None` for an id the registry does not know (any more).
+    pub fn status(&self, id: u64) -> Option<Option<ImportProgress>> {
+        let imports = lock(&self.inner);
+        if let Some(running) = imports.running.get(&id) {
+            return Some(lock(&running.latest).clone());
+        }
+        imports
+            .finished
+            .iter()
+            .find(|progress| progress.id == id)
+            .map(|progress| Some(progress.clone()))
+    }
+
     /// Adding files or importing an Eagle library is running (previews made after a restart
     /// do not count: they resume later). A task that sent its final progress counts as over
     /// even before its thread has ended.
@@ -318,13 +332,18 @@ impl ExportTasks {
         Ok(first.unwrap_or_else(|| preparing(id)))
     }
 
-    /// Running exports, newest first, for the dialog to catch up with after it opens.
+    /// Running exports, newest first, for the dialog to catch up with after it opens. One that
+    /// has not reported yet is listed as preparing.
     pub fn list(&self) -> Vec<ExportProgress> {
         let exports = lock(&self.inner);
         let mut running: Vec<ExportProgress> = exports
             .running
-            .values()
-            .filter_map(|running| lock(&running.latest).clone())
+            .iter()
+            .map(|(id, running)| {
+                lock(&running.latest)
+                    .clone()
+                    .unwrap_or_else(|| preparing(*id))
+            })
             .collect();
         running.sort_by_key(|progress| std::cmp::Reverse(progress.id));
         running

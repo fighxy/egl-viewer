@@ -8,6 +8,7 @@ on:
       - "android/**"
       - "ios/**"
       - "crates/library-ffi/**"
+      - "crates/app-service/**"
       - "crates/library-native/**"
       - "crates/library-core/**"
       - "crates/media/**"
@@ -22,6 +23,7 @@ on:
       - "android/**"
       - "ios/**"
       - "crates/library-ffi/**"
+      - "crates/app-service/**"
       - "crates/library-native/**"
       - "crates/library-core/**"
       - "crates/media/**"
@@ -127,6 +129,34 @@ jobs:
           name: android-debug-apk
           path: android/app/build/outputs/apk/debug/*.apk
           if-no-files-found: error
+
+  # EglCore (ios/EglCore, D-092): the Swift wrapper over the C ABI, tested on the macOS host
+  # against the real Rust core (library-ffi over app-service), built as a dylib here.
+  ios-core:
+    runs-on: macos-latest
+    steps:
+      - uses: actions/checkout@v7
+
+      - name: libheif (HEIC/HEIF previews on the host, D-063)
+        run: brew install libheif
+
+      - name: Rust toolchain (from rust-toolchain.toml)
+        run: rustup toolchain install
+
+      - uses: Swatinem/rust-cache@v2
+        with:
+          prefix-key: mobile-ios-core-v1
+          workspaces: ". -> target"
+
+      - name: Build libegl_library (host)
+        run: cargo build -p library-ffi --release
+
+      - name: swift test (EglCore against the core)
+        working-directory: ios/EglCore
+        run: |
+          set -euo pipefail
+          LIB="$GITHUB_WORKSPACE/target/release"
+          swift test -Xlinker -L"$LIB" -Xlinker -rpath -Xlinker "$LIB"
 
   # Shared scheme + unsigned iphonesimulator build (mock FFI, no libegl_library.a).
   ios:

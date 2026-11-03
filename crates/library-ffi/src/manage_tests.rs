@@ -598,3 +598,205 @@ fn null_handles_are_invalid() {
         assert_eq!(egl_cancel_import(ptr::null_mut(), 1), EglStatus::Invalid);
     }
 }
+
+// ---------------------------------------------------------------------------------------------
+// The service-backed API (D-092)
+
+use std::ffi::c_void;
+use std::sync::Mutex;
+
+/// Events the callback heard, as JSON.
+static HEARD: Mutex<Vec<Value>> = Mutex::new(Vec::new());
+
+unsafe extern "C" fn record(ctx: *mut c_void, event: *const c_char) {
+    assert_eq!(ctx as usize, 42);
+    let text = unsafe { CStr::from_ptr(event) }.to_str().unwrap();
+    HEARD
+        .lock()
+        .unwrap()
+        .push(serde_json::from_str(text).unwrap());
+}
+
+#[test]
+fn views_by_id_follow_writes_and_the_callback_hears_them() {
+    let (f, ids) = seeded(3);
+    assert_eq!(
+        unsafe { egl_set_event_callback(f.lib, Some(record), 42 as *mut c_void) },
+        EglStatus::Ok
+    );
+    let opened = json(f.lib, |out| unsafe {
+        egl_open_view(f.lib, ptr::null(), out)
+    });
+    let view = opened["viewId"].as_u64().unwrap();
+    assert_eq!(opened["total"], 3);
+    let cells = json(f.lib, |out| unsafe {
+        egl_view_range(f.lib, view, 0, 10, out)
+    });
+    assert_eq!(cells.as_array().unwrap().len(), 3);
+    let dims = json(f.lib, |out| unsafe {
+        egl_view_dimensions(f.lib, view, out)
+    });
+    assert_eq!(dims[0], serde_json::json!([40, 20]));
+
+    // Select All minus one, trashed through the view: the view shrinks under its id.
+    let target =
+        cstring(&serde_json::json!({"viewId": view, "all": true, "ids": [ids[0]]}).to_string());
+    let edit = cstring(r#"{"type":"trash"}"#);
+    let trashed = count(f.lib, |out| unsafe {
+        egl_edit_items(f.lib, target.as_ptr(), edit.as_ptr(), out)
+    });
+    assert_eq!(trashed, 2);
+    let heard = HEARD.lock().unwrap().clone();
+    assert!(
+        heard.iter().any(|event| event["type"] == "viewsInvalidated"
+            && event["views"][0]["viewId"] == view
+            && event["views"][0]["total"] == 1),
+        "{heard:?}"
+    );
+    let counts = json(f.lib, |out| unsafe { egl_counts(f.lib, out) });
+    assert_eq!(counts["trash"], 2);
+    assert_eq!(
+        unsafe { egl_set_event_callback(f.lib, None, ptr::null_mut()) },
+        EglStatus::Ok
+    );
+    assert_eq!(unsafe { egl_close_view(f.lib, view) }, EglStatus::Ok);
+    let mut out: *mut c_char = ptr::null_mut();
+    assert_eq!(
+        unsafe { egl_view_range(f.lib, view, 0, 1, &mut out) },
+        EglStatus::NotFound
+    );
+}
+
+#[test]
+fn a_locked_folder_hides_its_items_until_unlocked() {
+    let (f, ids) = seeded(1);
+    let change = cstring(
+        r#"{"type":"create","name":"Private","parent":null,"description":"","iconColor":null}"#,
+    );
+    let tree = json(f.lib, |out| unsafe {
+        egl_save_folder(f.lib, change.as_ptr(), out)
+    });
+    let folder = tree[0]["id"].as_str().unwrap().to_owned();
+    let target = cstring(&serde_json::json!({"ids": ids}).to_string());
+    let edit = cstring(&serde_json::json!({"type":"addToFolders","value":[folder]}).to_string());
+    count(f.lib, |out| unsafe {
+        egl_apply_batch_edit(f.lib, target.as_ptr(), edit.as_ptr(), out)
+    });
+
+    let folder_c = cstring(&folder);
+    let request = cstring(r#"{"password":"pässwörd 🔒"}"#);
+    let key = json(f.lib, |out| unsafe {
+        egl_lock_folder(f.lib, folder_c.as_ptr(), request.as_ptr(), out)
+    });
+    assert_eq!(key["phrase"].as_str().unwrap().split(' ').count(), 12);
+    assert_eq!(
+        ids_of(&query_window(f.lib, &serde_json::json!({}))).len(),
+        0
+    );
+
+    let wrong = cstring("nope");
+    assert_eq!(
+        unsafe { egl_unlock_folder(f.lib, folder_c.as_ptr(), wrong.as_ptr()) },
+        EglStatus::WrongPassword
+    );
+    let right = cstring("pässwörd 🔒");
+    assert_eq!(
+        unsafe { egl_unlock_folder(f.lib, folder_c.as_ptr(), right.as_ptr()) },
+        EglStatus::Ok
+    );
+    assert_eq!(ids_of(&query_window(f.lib, &serde_json::json!({}))), ids);
+    // The original of an unlocked item comes decrypted as bytes; its file is ciphertext.
+    let id = cstring(&ids[0]);
+    let mut bytes: *mut u8 = ptr::null_mut();
+    let mut len = 0usize;
+    assert_eq!(
+        unsafe { egl_original_bytes(f.lib, id.as_ptr(), &mut bytes, &mut len, ptr::null_mut()) },
+        EglStatus::Ok,
+        "{}",
+        last_error(f.lib)
+    );
+    assert_eq!(
+        &unsafe { std::slice::from_raw_parts(bytes, len) }[1..4],
+        b"PNG"
+    );
+    unsafe { egl_bytes_free(bytes, len) };
+    // Null relocks every open folder.
+    assert_eq!(
+        unsafe { egl_relock_folder(f.lib, ptr::null()) },
+        EglStatus::Ok
+    );
+    assert_eq!(
+        ids_of(&query_window(f.lib, &serde_json::json!({}))).len(),
+        0
+    );
+    assert_eq!(
+        unsafe { egl_remove_folder_lock(f.lib, folder_c.as_ptr(), right.as_ptr()) },
+        EglStatus::Ok
+    );
+    assert_eq!(ids_of(&query_window(f.lib, &serde_json::json!({}))), ids);
+}
+
+#[test]
+fn backups_checks_and_an_export_into_a_zip() {
+    let (f, _) = seeded(2);
+    let backup = json(f.lib, |out| unsafe { egl_back_up_now(f.lib, out) });
+    let backups = json(f.lib, |out| unsafe { egl_backups(f.lib, out) });
+    assert!(
+        backups
+            .as_array()
+            .unwrap()
+            .iter()
+            .any(|b| b["name"] == backup["name"])
+    );
+    let check = json(f.lib, |out| unsafe { egl_check_library(f.lib, out) });
+    assert_eq!(check["databaseOk"], true);
+    assert_eq!(check["missingCount"], 0);
+    let stats = json(f.lib, |out| unsafe { egl_library_stats(f.lib, out) });
+    assert!(stats["originals"].as_u64().unwrap() > 0);
+    let renamed_to = cstring("Renamed 📚");
+    let info = json(f.lib, |out| unsafe {
+        egl_rename_library(f.lib, renamed_to.as_ptr(), out)
+    });
+    assert_eq!(info["name"], "Renamed 📚");
+
+    let selection = cstring(r#"{"whole":true,"folders":[],"tags":[]}"#);
+    let preview = json(f.lib, |out| unsafe {
+        egl_export_preview(f.lib, selection.as_ptr(), 1, out)
+    });
+    assert_eq!(preview["items"], 2);
+    let destination = f.dir.path().join("out");
+    std::fs::create_dir_all(&destination).unwrap();
+    let request = cstring(
+        &serde_json::json!({
+            "selection": {"whole": true, "folders": [], "tags": []},
+            "includeSubfolders": true,
+            "format": {"kind": "zip", "compression": "fast"},
+            "destination": destination.to_str().unwrap(),
+            "encrypt": null,
+            "eagle": null
+        })
+        .to_string(),
+    );
+    let first = json(f.lib, |out| unsafe {
+        egl_start_export(f.lib, request.as_ptr(), out)
+    });
+    assert!(first["id"].as_u64().is_some());
+    let deadline = Instant::now() + Duration::from_secs(30);
+    while !json(f.lib, |out| unsafe { egl_exports(f.lib, out) })
+        .as_array()
+        .unwrap()
+        .is_empty()
+    {
+        assert!(Instant::now() < deadline, "the export never ended");
+        std::thread::sleep(Duration::from_millis(20));
+    }
+    let written: Vec<_> = std::fs::read_dir(&destination).unwrap().flatten().collect();
+    assert_eq!(written.len(), 1);
+    assert!(written[0].file_name().to_string_lossy().ends_with(".zip"));
+}
+
+#[test]
+fn a_panic_never_crosses_the_boundary() {
+    let status = crate::guarded(|_| {}, || panic!("boom"));
+    assert_eq!(status, EglStatus::Other);
+}
