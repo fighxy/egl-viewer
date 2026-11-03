@@ -180,7 +180,8 @@ egl-viewer/
       api_v2.rs              typed methods per route, FolderUpdateBody
     library-ffi/             C ABI over app-service for the mobile apps (D-082, D-083, D-092): views by id,
                              events through a callback, edits, locks, maintenance; no Eagle, no Tauri
-  ios/                       SwiftUI iPhone app; ios/EglCore is the Swift package over the C ABI; see ios/README.md
+  ios/                       SwiftUI iPhone app (XcodeGen project.yml); ios/EglCore is the Swift package over
+                             the C ABI; see ios/README.md
   android/                   Jetpack Compose draft (same flow); see android/README.md
   src-tauri/                 the app crate: thin
     commands.rs              libraries, imports (files and the Eagle folder import), views and items; the live

@@ -1,4 +1,0 @@
-module EglLibrary {
-  header "egl_library.h"
-  export *
-}

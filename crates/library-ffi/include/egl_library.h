@@ -5,7 +5,7 @@
  * background tasks. Native `.eglib` only — no Eagle. Strings and JSON buffers are
  * UTF-8, heap-allocated by Rust; free them with egl_string_free / egl_bytes_free.
  * A panic inside Rust never crosses this boundary: the call returns EGL_ERR_OTHER.
- * Kept identical in ios/EglViewer/Bridge, ios/EglCore and android/app/src/main/cpp
+ * Kept identical in ios/EglCore/Sources/CEglLibrary and android/app/src/main/cpp
  * (scripts/check-mobile-shell.sh); a host test checks it against the exports.
  *
  * Build:

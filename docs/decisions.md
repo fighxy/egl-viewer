@@ -1723,3 +1723,34 @@ with the desktop's features needs all of them, the same way the desktop does the
 - Not changed: Android's JNI still converts strings with `GetStringUTFChars` (modified UTF-8);
   the Android shell is frozen while the iOS app is built.
 
+
+## D-093 iOS app foundation: XcodeGen, real core always, libraries in On My iPhone (2026-11-03)
+
+The first PR of the iOS app on `EglCore` (D-092) replaces the draft shell of D-082 and D-085.
+
+- **The Xcode project is generated** from `ios/project.yml` by XcodeGen 2.42.0 (a build tool,
+  pinned in CI by its release download, not a library dependency). The generated
+  `EglViewer.xcodeproj` is not committed. A hand-written `project.pbxproj` with a local Swift
+  package and two test targets is fragile to edit without Xcode, and this repository's work
+  happens largely without one.
+- **No mock mode.** The app always links the real core through `EglCore`; the draft's
+  `EGL_HAS_FFI` switch, `WithFfi.xcconfig`, the bridging header and the mock library are gone.
+- **The core is linked as a static library** built with `cargo rustc --crate-type staticlib`
+  for the destination (`aarch64-apple-ios`, `aarch64-apple-ios-sim`). Next to a `cdylib` the
+  linker takes the dylib, which an app does not embed; the CI jobs remove it.
+- **Where libraries live.** New libraries go to On My iPhone (`Documents/Libraries`; the Info.plist
+  already shares Documents with the Files app). A library picked in Files is kept with a
+  security-scoped bookmark, and its scope is held while it is open. One in iCloud Drive (or any
+  path a File Provider manages) opens read-only, as a synced folder does on the desktop (D-021).
+- **State.** `AppModel` (`@Observable`, main actor) holds Welcome or one `OpenLibrary`, the
+  recent libraries (the last 10, in `UserDefaults`) and the last error; every core call runs on
+  a detached task. `OpenLibrary` listens to the core's events and refreshes its counts.
+- **Strings** are a String Catalog in English, Russian and Simplified Chinese, the desktop's
+  three languages (D-069). `scripts/check-ios-strings.py` checks it on Linux.
+- **Colours** follow light and dark mode through system colours, with the desktop's neutral
+  accent.
+- **Tests**: unit tests (locations, recents, `AppModel` creating, opening and closing a library
+  with the real core) and UI tests on a simulator (create, open, close, reopen from Recent; the
+  Welcome screen in Russian), in the `ios-app` job of the Mobile workflow, which replaces the
+  mock simulator build.
+- The library screen shows its places with counts for now; the grid arrives in the next PR.
