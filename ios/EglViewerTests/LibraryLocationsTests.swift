@@ -35,29 +35,25 @@ final class LibraryLocationsTests: XCTestCase {
         XCTAssertFalse(locations.isLocal(icloud))
     }
 
+    @MainActor
     func testAModelCreatesOpensAndClosesALibrary() async throws {
         let root = FileManager.default.temporaryDirectory
             .appendingPathComponent("model-\(UUID().uuidString)/Libraries", isDirectory: true)
         let defaults = UserDefaults(suiteName: "model-\(UUID().uuidString)")!
-        let model = await AppModel(
+        let model = AppModel(
             locations: LibraryLocations(root: root),
             recentStore: RecentLibraries(defaults: defaults),
             arguments: []
         )
         await model.create(named: "Refs 📚")
-        let open = try await XCTUnwrap(model.openLibrary)
-        let name = await open.info.name
-        XCTAssertEqual(name, "Refs 📚")
-        let counts = await open.counts
-        XCTAssertEqual(counts?.all, 0)
+        let open = try XCTUnwrap(model.openLibrary)
+        XCTAssertEqual(open.info.name, "Refs 📚")
+        XCTAssertEqual(open.counts?.all, 0)
         await model.close()
-        let recents = await model.recents
-        XCTAssertEqual(recents.map(\.name), ["Refs 📚"])
-        let error = await model.error
-        XCTAssertNil(error)
+        XCTAssertEqual(model.recents.map(\.name), ["Refs 📚"])
+        XCTAssertNil(model.error)
 
         await model.create(named: "   ")
-        let refused = await model.error
-        XCTAssertNotNil(refused)
+        XCTAssertNotNil(model.error)
     }
 }
