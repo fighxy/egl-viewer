@@ -83,6 +83,20 @@ public struct Folder: Codable, Equatable, Identifiable, Sendable {
     public var lockColor: String?
 }
 
+public struct SmartFolder: Codable, Equatable, Identifiable, Sendable {
+    public var id: String
+    public var name: String
+    public var children: [SmartFolder]
+    /// Rules this build cannot evaluate: they never match.
+    public var unsupported: [String]
+}
+
+/// A file type of the library with its item count, for the Type filter.
+public struct ExtensionCount: Codable, Equatable, Hashable, Sendable {
+    public var ext: String
+    public var count: Int
+}
+
 public struct Tag: Codable, Equatable, Hashable, Sendable {
     /// The tag is the exact, case-sensitive string.
     public var name: String

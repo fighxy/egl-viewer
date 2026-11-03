@@ -21,21 +21,30 @@ final class AppModel {
 
     let locations: LibraryLocations
     private let recentStore: RecentLibraries
+    private let savedViews: SavedViews
     let appVersion: String
 
     init(
         locations: LibraryLocations = .standard(),
         recentStore: RecentLibraries = RecentLibraries(),
+        savedViews: SavedViews = SavedViews(),
         arguments: [String] = ProcessInfo.processInfo.arguments
     ) {
         self.locations = locations
         self.recentStore = recentStore
+        self.savedViews = savedViews
         appVersion = Bundle.main.object(forInfoDictionaryKey: "CFBundleShortVersionString") as? String
             ?? "0.0.0"
         if arguments.contains("-uiTesting") {
             recentStore.clear()
+            savedViews.clear()
         }
         reloadLists()
+        #if DEBUG
+        if let count = SampleLibrary.requested(in: arguments) {
+            Task { await self.createSample(images: count) }
+        }
+        #endif
     }
 
     var openLibrary: OpenLibrary? {
@@ -130,12 +139,25 @@ final class AppModel {
         let library = try await Task.detached {
             try Library.open(at: url, appVersion: version, syncFolder: synced)
         }.value
-        let open = try await OpenLibrary(library: library, url: url, scoped: scoped)
+        let open = try await OpenLibrary(library: library, url: url, scoped: scoped, savedViews: savedViews)
         screen = .library(open)
         recents = recentStore.remember(
             RecentLibrary(name: open.info.name, path: url.path, bookmark: bookmark, openedAt: Date())
         )
     }
+
+    #if DEBUG
+    /// `-sampleLibrary N` (UI tests): a library named Sample with N generated images, a few
+    /// of them tagged, opened at launch.
+    func createSample(images count: Int) async {
+        await create(named: SampleLibrary.name)
+        guard let open = openLibrary else { return }
+        await run {
+            try await SampleLibrary.fill(open.library, images: count)
+            await open.refresh()
+        }
+    }
+    #endif
 
     private func run(_ work: @escaping () async throws -> Void) async {
         busy = true
@@ -160,46 +182,124 @@ final class AppModel {
     }
 }
 
-/// One open library: its core handle, what the app shows of it, and the events that keep it
-/// current.
+/// One open library: its core handle, what the app shows of it (counts, folders, smart
+/// folders, the saved view), and the events that keep it current.
 @MainActor
 @Observable
 final class OpenLibrary {
     let library: Library
     let url: URL
+    let thumbnails: ThumbnailCache
     private(set) var info: LibraryInfo
     private(set) var counts: LibraryCounts?
+    private(set) var folders: [Folder] = []
+    private(set) var smartFolders: [SmartFolder] = []
     /// Imports that run now.
     private(set) var imports: [UInt64: ImportProgress] = [:]
+    /// The sort, look and last place, saved per library (D-094).
+    private(set) var savedView: SavedView
+    /// Shown in an alert over the library; cleared when the user dismisses it.
+    var error: String?
     private let scoped: Bool
+    @ObservationIgnored private let savedViews: SavedViews
+    @ObservationIgnored private var browsers: [WeakBrowser] = []
+    @ObservationIgnored private var refreshing: Task<Void, Never>?
 
-    init(library: Library, url: URL, scoped: Bool) async throws {
+    init(library: Library, url: URL, scoped: Bool, savedViews: SavedViews = SavedViews()) async throws {
         self.library = library
         self.url = url
         self.scoped = scoped
+        self.savedViews = savedViews
+        thumbnails = ThumbnailCache(library: library)
+        savedView = savedViews.load(for: url.standardizedFileURL.path)
         info = try await Task.detached { try library.info() }.value
-        counts = try? await Task.detached { try library.counts() }.value
         try library.setEventHandler { [weak self] event in
             Task { @MainActor in self?.receive(event) }
         }
+        await refresh()
     }
 
     var readOnly: Bool { info.readOnly }
 
+    /// Counts, info, folders and smart folders, read again.
     func refresh() async {
         let library = library
-        if let counts = try? await Task.detached(operation: { try library.counts() }).value {
-            self.counts = counts
-        }
-        if let info = try? await Task.detached(operation: { try library.info() }).value {
-            self.info = info
-        }
+        let read = await Task.detached { () -> (LibraryCounts?, LibraryInfo?, [Folder]?, [SmartFolder]?) in
+            (try? library.counts(), try? library.info(), try? library.folders(), try? library.smartFolders())
+        }.value
+        if let counts = read.0 { self.counts = counts }
+        if let info = read.1 { self.info = info }
+        if let folders = read.2 { self.folders = folders }
+        if let smart = read.3 { smartFolders = smart }
     }
 
     func close() async {
+        browsers = []
         let library = library
         await Task.detached { library.close() }.value
+        thumbnails.removeAll()
         if scoped { url.stopAccessingSecurityScopedResource() }
+    }
+
+    // MARK: Saved view
+
+    func remember(_ view: SavedView) {
+        guard view != savedView else { return }
+        savedView = view
+        savedViews.save(view, for: url.standardizedFileURL.path)
+    }
+
+    /// Back on the list of places: the next launch starts there.
+    func forgetPlace() {
+        var view = savedView
+        view.place = nil
+        view.filters = BrowseFilters()
+        view.search = ""
+        remember(view)
+    }
+
+    /// Whether `place` still exists: a saved folder may have been deleted since.
+    func exists(_ place: Place) -> Bool {
+        switch place {
+        case .all, .uncategorized, .untagged, .trash:
+            return true
+        case let .folder(id, _):
+            return Self.find(id, in: folders).map { !$0.isLocked || $0.isUnlocked } ?? false
+        case let .smart(id, _):
+            return Self.find(id, in: smartFolders) != nil
+        }
+    }
+
+    private static func find(_ id: String, in folders: [Folder]) -> Folder? {
+        for folder in folders {
+            if folder.id == id { return folder }
+            if let found = find(id, in: folder.children) { return found }
+        }
+        return nil
+    }
+
+    private static func find(_ id: String, in folders: [SmartFolder]) -> SmartFolder? {
+        for folder in folders {
+            if folder.id == id { return folder }
+            if let found = find(id, in: folder.children) { return found }
+        }
+        return nil
+    }
+
+    // MARK: Events
+
+    /// A browse screen hears when its view is recomputed.
+    func register(_ browser: BrowseModel) {
+        browsers.removeAll { $0.model == nil || $0.model === browser }
+        browsers.append(WeakBrowser(model: browser))
+    }
+
+    func unregister(_ browser: BrowseModel) {
+        browsers.removeAll { $0.model == nil || $0.model === browser }
+    }
+
+    func report(_ error: Error) {
+        self.error = AppModel.describe(error)
     }
 
     private func receive(_ event: LibraryEvent) {
@@ -210,11 +310,28 @@ final class OpenLibrary {
             } else {
                 imports[progress.id] = progress
             }
-            Task { await refresh() }
-        case .viewsInvalidated:
-            Task { await refresh() }
+            scheduleRefresh()
+        case let .viewsInvalidated(views):
+            for browser in browsers {
+                browser.model?.invalidated(views)
+            }
+            scheduleRefresh()
         case .exportProgress:
             break
         }
     }
+
+    /// Imports report often: the counts and the tree are read once per burst.
+    private func scheduleRefresh() {
+        guard refreshing == nil else { return }
+        refreshing = Task {
+            try? await Task.sleep(for: .milliseconds(200))
+            await refresh()
+            refreshing = nil
+        }
+    }
+}
+
+private struct WeakBrowser {
+    weak var model: BrowseModel?
 }

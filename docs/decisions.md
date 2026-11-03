@@ -1754,3 +1754,38 @@ The first PR of the iOS app on `EglCore` (D-092) replaces the draft shell of D-0
   Welcome screen in Russian), in the `ios-app` job of the Mobile workflow, which replaces the
   mock simulator build.
 - The library screen shows its places with counts for now; the grid arrives in the next PR.
+
+## D-094 iOS browsing: places, a lazy grid by view id, saved view per library (2026-11-03)
+
+The second app PR of the iOS series (D-093) adds browsing.
+
+- **Places.** The library screen lists All, Uncategorized, Untagged and Trash with counts, the
+  folder tree (a folder shows its subfolders' items, as on the desktop) and the smart folders. A
+  locked folder shows its lock label and does not open; unlocking comes with the locks PR. Each
+  place opens `BrowseScreen` in a `NavigationStack`.
+- **Windows by view id.** `BrowseModel` opens one core view per query (`egl_open_view`) and asks
+  for cells in windows of 100 around what the user sees (`egl_view_range`; the core serves at
+  most 200). The item list never crosses the C ABI. `viewsInvalidated` events reach the open
+  models through `OpenLibrary`; a model takes the new total and reloads the windows near the
+  last cell seen, dropping the others. Answers for an older query or an older refresh are
+  dropped by generation counters.
+- **Thumbnails** are the core's WebP bytes (`egl_thumbnail_bytes`), decoded by ImageIO off the
+  main thread at the cell's pixel size and kept in an `NSCache` by cost (64 MB). The key has
+  the thumbnail version, so a rebuilt thumbnail shows at once. Until it arrives a cell shows its
+  main colour (`palette0`), or the file type when it has no thumbnail.
+- **Controls.** Grid or list, three thumbnail sizes, the sort (the desktop's keys except manual
+  order, tag and duration) with ascending, search in the navigation bar (asked 250 ms after the
+  last keystroke), and a filter sheet: tags with any / all / none, file type with counts, rating
+  (unrated or exactly 1–5 stars), shape. Each change opens a new view.
+- **Selection.** A Select button or a long press starts it; Select All is the core's target
+  `{viewId, all: true, ids: exclusions}` (as on the desktop, D-089), so it never lists the view's
+  ids. The actions on a selection arrive with the details PR.
+- **Saved view** (as D-078 on the desktop), per library path in `UserDefaults`: the sort, layout
+  and size for the whole library, and the last place with its filters and search. The library
+  opens in that place again; going back to the list of places forgets it, and filters of one
+  place do not carry over to another.
+- **Tests.** Unit tests of `BrowseModel` against the real core (windows, sort, search, filters,
+  Select All with a trash and the refresh, the saved view) and a UI test on a generated library
+  (`-sampleLibrary N`, a debug-only launch argument: N PNGs of their own colour, the first four
+  tagged `Red`). `scripts/check-ios-strings.py` also skips SF Symbol names after `systemName:`.
+

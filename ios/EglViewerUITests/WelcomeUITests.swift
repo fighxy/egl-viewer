@@ -20,7 +20,7 @@ final class WelcomeUITests: XCTestCase {
         app.buttons["create.confirm"].tap()
 
         XCTAssertTrue(app.navigationBars["UI Library"].waitForExistence(timeout: 15))
-        XCTAssertTrue(app.staticTexts["All"].exists)
+        XCTAssertTrue(app.descendants(matching: .any).matching(identifier: "place.all").firstMatch.exists)
 
         app.buttons["library.close"].tap()
         let recent = app.buttons["welcome.recent.UI Library"]

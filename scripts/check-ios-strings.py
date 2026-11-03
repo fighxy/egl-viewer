@@ -39,7 +39,8 @@ def main() -> int:
     used = set()
     for path in (ROOT / "EglViewer").rglob("*.swift"):
         for line in path.read_text(encoding="utf-8").splitlines():
-            if "accessibilityIdentifier" in line:
+            # Identifiers and SF Symbol names (`Image(systemName:)`, also in a ternary).
+            if "accessibilityIdentifier" in line or "systemName:" in line:
                 continue
             for match in LITERAL.finditer(line):
                 before = line[: match.start()].rstrip()
