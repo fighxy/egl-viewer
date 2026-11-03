@@ -1,9 +1,10 @@
 //! Exporting the open native library into a running Eagle (docs/spec.md §8.4,
 //! docs/architecture.md §15.7). Eagle stays the writer of its library: everything goes
-//! through its API, and every new Eagle id is stored in the `eagle_id` columns so a second
+//! through its API, and every new Eagle id is stored in `eagle_export` (D-087) so a second
 //! export updates instead of duplicating.
 
 use std::collections::{HashMap, HashSet};
+use std::path::PathBuf;
 use std::sync::atomic::{AtomicBool, Ordering};
 use std::time::Duration;
 
@@ -23,6 +24,7 @@ pub fn export_into_eagle(
     library: &Library,
     id: u64,
     request: &ExportRequest,
+    token: SecretString,
     cancel: &AtomicBool,
     on_progress: &mut dyn FnMut(ExportProgress),
 ) -> ExportProgress {
@@ -45,6 +47,7 @@ pub fn export_into_eagle(
         library,
         &target,
         request,
+        token,
         cancel,
         &mut progress,
         on_progress,
@@ -73,6 +76,7 @@ fn run(
     library: &Library,
     target: &EagleExportTarget,
     request: &ExportRequest,
+    token: SecretString,
     cancel: &AtomicBool,
     progress: &mut ExportProgress,
     on_progress: &mut dyn FnMut(ExportProgress),
@@ -87,7 +91,6 @@ fn run(
         .enable_all()
         .build()
         .map_err(|error| format!("runtime: {error}"))?;
-    let token = SecretString::from(target.token.clone().unwrap_or_default());
     let api = EagleApi::new(&target.host, target.port, token, tailscale(&target.host))
         .map_err(|error| error.to_string())?;
     let target_library = runtime
@@ -118,7 +121,8 @@ fn run(
         .map(|folder| folder.id.clone())
         .collect();
     let mut folder_map: HashMap<String, String> = HashMap::new();
-    let mut folder_pairs: Vec<(String, String)> = Vec::new();
+    // Whatever Eagle created is stored however the run ends, so a retry updates it.
+    let mut created = Created::new(library);
     for folder in &plan.folders {
         if cancel.load(Ordering::Relaxed) {
             return Err(String::new());
@@ -166,21 +170,20 @@ fn run(
             .block_on(api.folder_create(body))
             .map_err(|error| error.to_string())?;
         folder_map.insert(folder.id.clone(), eagle_id.clone());
-        folder_pairs.push((folder.id.clone(), eagle_id));
+        created.folders.push((folder.id.clone(), eagle_id));
     }
 
     // Items. A stored Eagle id that still exists means "already exported": skip it, so a
     // second export updates folders and adds only what is new (docs/spec.md §8.4 step 6).
     progress.state = ExportState::Copying;
-    let mut item_pairs: Vec<(String, String)> = Vec::new();
     let mut missing: Vec<String> = Vec::new();
     let mut added: HashMap<String, String> = HashMap::new();
     let mut batch: Vec<(EagleExportItem, String)> = Vec::new();
-    let mut temp_files: Vec<std::path::PathBuf> = Vec::new();
+    let mut staging = Staging::default();
+    let mut temp_files: Vec<PathBuf> = Vec::new();
     let mut added_count = 0u64;
     for item in &plan.items {
         if cancel.load(Ordering::Relaxed) {
-            store_ids(library, &folder_pairs, &item_pairs, &[], &[]);
             return Err(String::new());
         }
         if let Some(eagle_id) = &item.eagle_id {
@@ -196,7 +199,9 @@ fn run(
         }
         progress.current = Some(item.name.clone());
         if same_pc {
-            let Some(path) = same_pc_path(library, item, &mut temp_files, &mut missing) else {
+            let Some(path) =
+                same_pc_path(library, item, &mut staging, &mut temp_files, &mut missing)
+            else {
                 progress.done += 1;
                 continue;
             };
@@ -209,7 +214,7 @@ fn run(
                     &mut batch,
                     &mut temp_files,
                     progress,
-                    &mut item_pairs,
+                    &mut created.items,
                     &mut added,
                     &mut added_count,
                     on_progress,
@@ -225,7 +230,7 @@ fn run(
             &folder_map,
             cancel,
             progress,
-            &mut item_pairs,
+            &mut created.items,
             &mut added,
             &mut added_count,
             &mut missing,
@@ -239,7 +244,7 @@ fn run(
         &mut batch,
         &mut temp_files,
         progress,
-        &mut item_pairs,
+        &mut created.items,
         &mut added,
         &mut added_count,
         on_progress,
@@ -248,7 +253,6 @@ fn run(
     // Comments of the items exported now (a repeated export must not duplicate them).
     for comment in &plan.comments {
         if cancel.load(Ordering::Relaxed) {
-            store_ids(library, &folder_pairs, &item_pairs, &[], &[]);
             return Err(String::new());
         }
         let Some(eagle_item) = added.get(&comment.item_id) else {
@@ -293,10 +297,8 @@ fn run(
         .map_err(|error| error.to_string())?;
     let target_group_ids: HashSet<String> =
         target_groups.iter().map(|group| group.id.clone()).collect();
-    let mut group_pairs: Vec<(String, String)> = Vec::new();
     for group in &plan.groups {
         if cancel.load(Ordering::Relaxed) {
-            store_ids(library, &folder_pairs, &item_pairs, &group_pairs, &[]);
             return Err(String::new());
         }
         if let Some(eagle_id) = &group.eagle_id
@@ -312,7 +314,7 @@ fn run(
         let eagle_id = runtime
             .block_on(api.tag_group_create(body))
             .map_err(|error| error.to_string())?;
-        group_pairs.push((group.id.clone(), eagle_id));
+        created.groups.push((group.id.clone(), eagle_id));
     }
 
     let target_smart = runtime
@@ -329,16 +331,8 @@ fn run(
         .iter()
         .map(|folder| folder.id.clone())
         .collect();
-    let mut smart_pairs: Vec<(String, String)> = Vec::new();
     for smart in &plan.smart {
         if cancel.load(Ordering::Relaxed) {
-            store_ids(
-                library,
-                &folder_pairs,
-                &item_pairs,
-                &group_pairs,
-                &smart_pairs,
-            );
             return Err(String::new());
         }
         if let Some(eagle_id) = &smart.eagle_id
@@ -354,16 +348,10 @@ fn run(
                 ("conditions".to_owned(), conditions),
             ])))
             .map_err(|error| error.to_string())?;
-        smart_pairs.push((smart.id.clone(), eagle_id));
+        created.smart.push((smart.id.clone(), eagle_id));
     }
 
-    store_ids(
-        library,
-        &folder_pairs,
-        &item_pairs,
-        &group_pairs,
-        &smart_pairs,
-    );
+    created.store();
     Ok(ExportSummary {
         items: progress.total,
         files: added_count,
@@ -379,7 +367,7 @@ fn flush_batch(
     api: &EagleApi,
     folder_map: &HashMap<String, String>,
     batch: &mut Vec<(EagleExportItem, String)>,
-    temp_files: &mut Vec<std::path::PathBuf>,
+    temp_files: &mut Vec<PathBuf>,
     progress: &mut ExportProgress,
     item_pairs: &mut Vec<(String, String)>,
     added: &mut HashMap<String, String>,
@@ -445,7 +433,8 @@ fn flush_batch(
 fn same_pc_path(
     library: &Library,
     item: &EagleExportItem,
-    temp_files: &mut Vec<std::path::PathBuf>,
+    staging: &mut Staging,
+    temp_files: &mut Vec<PathBuf>,
     missing: &mut Vec<String>,
 ) -> Option<String> {
     if !item.encrypted {
@@ -459,12 +448,14 @@ fn same_pc_path(
     }
     match item_bytes(library, item) {
         Ok(Some(bytes)) => {
-            let temp = std::env::temp_dir().join(format!(
-                "egl-export-{}-{}.{}",
-                std::process::id(),
-                item.id,
-                item.ext
-            ));
+            let temp = match staging.dir() {
+                Ok(dir) => dir.join(format!("{}.{}", item.id, item.ext)),
+                Err(error) => {
+                    tracing::warn!("cannot stage {}: {error}", item.name);
+                    missing.push(item.name.clone());
+                    return None;
+                }
+            };
             match std::fs::write(&temp, bytes) {
                 Ok(()) => {
                     temp_files.push(temp.clone());
@@ -550,16 +541,98 @@ fn export_one_remote(
     Ok(())
 }
 
-fn store_ids(
-    library: &Library,
-    folders: &[(String, String)],
-    items: &[(String, String)],
-    groups: &[(String, String)],
-    smart: &[(String, String)],
-) {
-    if let Err(error) = store_eagle_ids(library, folders, items, groups, smart) {
-        tracing::warn!("cannot store the Eagle ids: {error}");
+/// The Eagle ids one run created, native id first. Stored on every exit, a failure or a
+/// cancel included: Eagle keeps what it created, so a second run must update it, not
+/// create it again.
+struct Created<'a> {
+    library: &'a Library,
+    folders: Vec<(String, String)>,
+    items: Vec<(String, String)>,
+    groups: Vec<(String, String)>,
+    smart: Vec<(String, String)>,
+}
+
+impl<'a> Created<'a> {
+    fn new(library: &'a Library) -> Self {
+        Self {
+            library,
+            folders: Vec::new(),
+            items: Vec::new(),
+            groups: Vec::new(),
+            smart: Vec::new(),
+        }
     }
+
+    fn store(&mut self) {
+        if self.folders.is_empty()
+            && self.items.is_empty()
+            && self.groups.is_empty()
+            && self.smart.is_empty()
+        {
+            return;
+        }
+        if let Err(error) = store_eagle_ids(
+            self.library,
+            &self.folders,
+            &self.items,
+            &self.groups,
+            &self.smart,
+        ) {
+            tracing::warn!("cannot store the Eagle ids: {error}");
+        }
+        self.folders.clear();
+        self.items.clear();
+        self.groups.clear();
+        self.smart.clear();
+    }
+}
+
+impl Drop for Created<'_> {
+    fn drop(&mut self) {
+        self.store();
+    }
+}
+
+/// A private folder for the decrypted originals of locked items that Eagle on this PC reads
+/// by path. Made on first use, removed with everything in it when the run ends.
+#[derive(Default)]
+struct Staging {
+    dir: Option<PathBuf>,
+}
+
+impl Staging {
+    fn dir(&mut self) -> std::io::Result<&PathBuf> {
+        if self.dir.is_none() {
+            let dir = std::env::temp_dir().join(format!(
+                "egl-export-{}-{}",
+                std::process::id(),
+                ulid_like()
+            ));
+            std::fs::create_dir(&dir)?;
+            self.dir = Some(dir);
+        }
+        Ok(self.dir.as_ref().expect("set above"))
+    }
+}
+
+impl Drop for Staging {
+    fn drop(&mut self) {
+        if let Some(dir) = self.dir.take()
+            && let Err(error) = std::fs::remove_dir_all(&dir)
+        {
+            tracing::warn!("cannot remove {}: {error}", dir.display());
+        }
+    }
+}
+
+/// A name part no other run of this process uses.
+fn ulid_like() -> String {
+    use std::sync::atomic::AtomicU64;
+    static NEXT: AtomicU64 = AtomicU64::new(0);
+    let nanos = std::time::SystemTime::now()
+        .duration_since(std::time::UNIX_EPOCH)
+        .map_or(0, |elapsed| elapsed.as_nanos());
+    format!("{nanos:x}-{}", NEXT.fetch_add(1, Ordering::Relaxed))
 }
 
 /// Polls `item/get {id}` until the item exists (docs/architecture.md §15.7 step 3).

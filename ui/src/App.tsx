@@ -892,14 +892,6 @@ function AppShell() {
     [failed, client],
   );
 
-  /** The ids of the selected items; Select All asks the view for them. */
-  const selectedIds = useCallback(async (): Promise<string[]> => {
-    if (!selection.all) return [...selection.ids];
-    if (!opened.view) return [];
-    const ids = await ipc.viewIds(opened.view.viewId, 0, total);
-    return ids.filter((id) => !selection.ids.has(id));
-  }, [selection, opened.view, total]);
-
   // The tags of a selection of several items, counted in Rust from the view.
   const selected = selectedCount(selection, total);
   const several = selected > 1 || (selected === 1 && singleId(selection) === null);
@@ -1132,28 +1124,19 @@ function AppShell() {
         if (id) ipc.openOriginal(id).catch(failed);
       },
       onReveal: () => {
-        selectedIds().then(ipc.revealOriginals).catch(failed);
+        ipc.revealOriginals(selectedTarget()).catch(failed);
       },
       onCopy: () => {
-        selectedIds().then(ipc.copyOriginals).catch(failed);
+        ipc.copyOriginals(selectedTarget()).catch(failed);
       },
       onOpenLink: (url) => {
         ipc.openLink(url).catch(failed);
       },
       onDragOut: () => {
-        selectedIds().then(ipc.startDrag).catch(failed);
+        ipc.startDrag(selectedTarget()).catch(failed);
       },
     }),
-    [
-      editItem,
-      editItems,
-      selectedTarget,
-      trashSelection,
-      deleteSelection,
-      selection,
-      selectedIds,
-      failed,
-    ],
+    [editItem, editItems, selectedTarget, trashSelection, deleteSelection, selection, failed],
   );
 
   /** A tag was renamed or merged into `to`, or deleted (`to` null), everywhere. */

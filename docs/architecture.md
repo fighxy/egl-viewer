@@ -214,7 +214,7 @@ This section and §5 apply only to the running-Eagle source (spec §8.3). The na
 pub struct EagleHttp {
     client: reqwest::Client,
     endpoint: Endpoint,
-    permits: tokio::sync::Semaphore,         // 2 permits: Eagle runs every call on its UI thread
+    permits: Arc<tokio::sync::Semaphore>,    // 2 permits per host:port, shared in the process (D-089)
 }
 
 pub struct Endpoint {

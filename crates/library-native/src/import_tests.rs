@@ -361,3 +361,24 @@ fn demo_library() {
     library.close().unwrap();
     eprintln!("{} items in {}", count, root.display());
 }
+
+#[test]
+fn files_for_a_running_eagle_skip_what_an_import_skips() {
+    let dir = tempfile::tempdir().unwrap();
+    let drop = dir.path().join("Drop");
+    fs::create_dir_all(drop.join("nested")).unwrap();
+    fs::write(drop.join("a.png"), b"x").unwrap();
+    fs::write(drop.join("nested/b.jpg"), b"x").unwrap();
+    fs::write(drop.join(".hidden.png"), b"x").unwrap();
+    fs::write(drop.join("Thumbs.db"), b"x").unwrap();
+    let single = dir.path().join("c.gif");
+    fs::write(&single, b"x").unwrap();
+    let files = crate::files_to_add(
+        &[drop.clone(), single.clone(), dir.path().join("gone.png")],
+        &crate::ImportFilter::default(),
+    );
+    assert_eq!(
+        files,
+        [drop.join("a.png"), drop.join("nested/b.jpg"), single]
+    );
+}

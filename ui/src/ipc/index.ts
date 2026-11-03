@@ -289,10 +289,10 @@ export const ipc = {
   trashInfo: () => invoke<TrashInfo>("trash_info"),
   restoreTrash: () => invoke<number>("restore_trash"),
   openOriginal: (id: string) => invoke<void>("open_original", { id }),
-  revealOriginals: (ids: string[]) => invoke<void>("reveal_originals", { ids }),
-  copyOriginals: (ids: string[]) => invoke<number>("copy_originals", { ids }),
+  revealOriginals: (target: ItemsTarget) => invoke<void>("reveal_originals", { target }),
+  copyOriginals: (target: ItemsTarget) => invoke<number>("copy_originals", { target }),
   openLink: (url: string) => invoke<void>("open_link", { url }),
-  startDrag: (ids: string[]) => invoke<void>("start_drag", { ids }),
+  startDrag: (target: ItemsTarget) => invoke<void>("start_drag", { target }),
   // Library Settings (docs/spec.md §7.4, item 6).
   revealLibrary: () => invoke<void>("reveal_library"),
   backups: () => invoke<Backup[]>("backups"),

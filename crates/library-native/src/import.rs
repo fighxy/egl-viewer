@@ -444,6 +444,14 @@ fn make_preview(
     });
 }
 
+/// The files a drop or a pick takes for a target that is not a native library (a running
+/// Eagle): the same walk as an import, so hidden and system files, linked folders and what
+/// `filter` skips stay out the same way. Missing sources are left out.
+pub fn files_to_add(sources: &[PathBuf], filter: &ImportFilter) -> Vec<PathBuf> {
+    let (files, _) = collect_from(None, sources, filter, &AtomicBool::new(false));
+    files.into_iter().map(|source| source.path).collect()
+}
+
 /// Files to add, and sources refused before copying (missing, inside this library).
 fn collect(
     root: &Path,
@@ -451,7 +459,16 @@ fn collect(
     filter: &ImportFilter,
     cancel: &AtomicBool,
 ) -> (Vec<Source>, Vec<ImportFailure>) {
-    let root = root.canonicalize().unwrap_or_else(|_| root.to_path_buf());
+    collect_from(Some(root), sources, filter, cancel)
+}
+
+fn collect_from(
+    root: Option<&Path>,
+    sources: &[PathBuf],
+    filter: &ImportFilter,
+    cancel: &AtomicBool,
+) -> (Vec<Source>, Vec<ImportFailure>) {
+    let root = root.map(|root| root.canonicalize().unwrap_or_else(|_| root.to_path_buf()));
     let mut files = Vec::new();
     let mut refused = Vec::new();
     for source in sources {
@@ -465,9 +482,10 @@ fn collect(
             ));
             continue;
         };
-        if source
-            .canonicalize()
-            .is_ok_and(|canonical| canonical.starts_with(&root))
+        if let Some(root) = &root
+            && source
+                .canonicalize()
+                .is_ok_and(|canonical| canonical.starts_with(root))
         {
             refused.push(failure_for(
                 source,

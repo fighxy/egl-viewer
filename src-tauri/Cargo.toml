@@ -53,6 +53,7 @@ windows = { version = "0.62.2", features = [
 image.workspace = true
 media = { workspace = true, features = ["fixtures"] }
 tempfile.workspace = true
+wiremock.workspace = true
 
 [lints]
 workspace = true
