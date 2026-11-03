@@ -95,6 +95,11 @@ public struct SmartFolder: Codable, Equatable, Identifiable, Sendable {
 public struct ExtensionCount: Codable, Equatable, Hashable, Sendable {
     public var ext: String
     public var count: Int
+
+    public init(ext: String, count: Int) {
+        self.ext = ext
+        self.count = count
+    }
 }
 
 public struct Tag: Codable, Equatable, Hashable, Sendable {
