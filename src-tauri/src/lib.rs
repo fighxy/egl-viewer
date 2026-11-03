@@ -33,11 +33,13 @@ const VIEWS_INVALIDATED: &str = "views-invalidated";
 /// The window's close was held back; the UI asks before quitting (D-072).
 const CLOSE_REQUESTED: &str = "close-requested";
 
-/// Payload of `close-requested`: whether imports or exports are still running.
+/// Payload of `close-requested`: whether imports or exports are still running. An export
+/// gets its own question: quitting removes its partial output.
 #[derive(Clone, Copy, serde::Serialize)]
 #[serde(rename_all = "camelCase")]
 struct CloseRequested {
     busy: bool,
+    exporting: bool,
 }
 
 pub fn run() {
@@ -97,9 +99,10 @@ pub fn run() {
                 // Always ask in the UI (window X and File → Exit both hit this). Confirm calls
                 // `quit`, which remembers the window and exits (D-072, arch §9).
                 let session = window.state::<Session>();
-                let busy = session.has_running_imports() || session.has_running_exports();
+                let exporting = session.has_running_exports();
+                let busy = session.has_running_imports() || exporting;
                 api.prevent_close();
-                let _ = window.emit(CLOSE_REQUESTED, CloseRequested { busy });
+                let _ = window.emit(CLOSE_REQUESTED, CloseRequested { busy, exporting });
             }
         })
         .invoke_handler(tauri::generate_handler![

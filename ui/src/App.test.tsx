@@ -4,7 +4,15 @@ import { act, fireEvent, render, screen, waitFor, within } from "@testing-librar
 import userEvent from "@testing-library/user-event";
 import { describe, expect, it } from "vitest";
 import { DEFAULT_PREFERENCES } from "@/ipc";
-import { called, LIBRARY, listening, mockBackend, progress, viewOf } from "@/test/backend";
+import {
+  called,
+  fakeLayout,
+  LIBRARY,
+  listening,
+  mockBackend,
+  progress,
+  viewOf,
+} from "@/test/backend";
 import { App } from "./App";
 
 async function openConnect() {
@@ -131,6 +139,50 @@ describe("App inside Tauri", () => {
     expect(called(calls, "library_session")[0]?.args).toEqual({ path: LIBRARY.path });
   });
 
+  it("restores the selection when the saved place is the default one", async () => {
+    mockBackend({
+      startup: () => ({ library: LIBRARY, notice: null }),
+      library_session: () => ({
+        place: { kind: "all" },
+        filters: {
+          tags: [],
+          tagMode: "any",
+          folders: [],
+          folderMode: "any",
+          ext: null,
+          rating: null,
+          shape: null,
+        },
+        searchText: "",
+        selection: { all: false, ids: ["ID0002"] },
+        screenSort: null,
+        screenAscending: null,
+      }),
+      ...viewOf(5),
+    });
+    const restoreLayout = fakeLayout(800, 600);
+    const user = userEvent.setup();
+    render(<App />);
+    const cell = await screen.findByRole("gridcell", { name: "image-2" });
+    await waitFor(() => expect(cell).toHaveAttribute("aria-selected", "true"));
+    expect(screen.getByRole("gridcell", { name: "image-1" })).toHaveAttribute(
+      "aria-selected",
+      "false",
+    );
+    // The restore is spent: choosing another place starts with nothing selected.
+    await user.click(screen.getByRole("button", { name: /Untagged/ }));
+    await waitFor(() =>
+      expect(screen.getByRole("heading", { level: 1 })).toHaveTextContent("Untagged"),
+    );
+    await waitFor(() =>
+      expect(screen.getByRole("gridcell", { name: "image-2" })).toHaveAttribute(
+        "aria-selected",
+        "false",
+      ),
+    );
+    restoreLayout();
+  });
+
   it("says why the last library was not reopened", async () => {
     mockBackend({
       startup: () => ({ library: null, notice: '"Refs" is open in another egl-viewer window.' }),
@@ -234,6 +286,41 @@ describe("App inside Tauri", () => {
     expect(called(calls, "set_preferences").at(-1)?.args).toEqual({
       preferences: { ...DEFAULT_PREFERENCES, theme: "dark" },
     });
+  });
+
+  it("a slow first save never undoes a newer one", async () => {
+    let writes = 0;
+    const calls = mockBackend({
+      set_preferences: async (args) => {
+        writes += 1;
+        // The first write answers late, after the second was made.
+        if (writes === 1) await new Promise((resolve) => setTimeout(resolve, 1500));
+        return args.preferences;
+      },
+    });
+    const user = userEvent.setup();
+    render(<App />);
+    await screen.findByText("egl-viewer 9.9.9");
+    const pickTheme = async (name: string) => {
+      await user.click(screen.getByRole("menuitem", { name: "View" }));
+      // jsdom has no geometry for Radix's pointer grace, so the submenu goes by keyboard.
+      (await screen.findByRole("menuitem", { name: "Theme" })).focus();
+      await user.keyboard("{ArrowRight}");
+      (await screen.findByRole("menuitemradio", { name })).focus();
+      await user.keyboard("{Enter}");
+    };
+    await pickTheme("Dark");
+    await pickTheme("Light");
+    await waitFor(() => expect(called(calls, "set_preferences")).toHaveLength(2), {
+      timeout: 4000,
+    });
+    await new Promise((resolve) => setTimeout(resolve, 1600));
+    expect(document.documentElement).not.toHaveClass("dark");
+    // Rust got them in the order they were made.
+    expect(called(calls, "set_preferences").map((call) => call.args.preferences)).toMatchObject([
+      { theme: "dark" },
+      { theme: "light" },
+    ]);
   });
 
   it("saves the trash confirmation toggle from Settings", async () => {
@@ -459,6 +546,19 @@ describe("Adding files", () => {
     await act(() => emit("close-requested", { busy: true }));
     await user.click(await screen.findByRole("button", { name: "Stop and quit" }));
     await waitFor(() => expect(called(calls, "quit")).toHaveLength(1));
+  });
+
+  it("asks in its own words before quitting while an export runs", async () => {
+    const calls = mockBackend(opened());
+    const user = userEvent.setup();
+    render(<App />);
+    await listening("close-requested");
+    await act(() => emit("close-requested", { busy: true, exporting: true }));
+    expect(
+      await screen.findByRole("heading", { name: "An export is still running" }),
+    ).toBeInTheDocument();
+    await user.click(screen.getByRole("button", { name: "Keep exporting" }));
+    expect(called(calls, "quit")).toHaveLength(0);
   });
 
   it("asks before quitting and Cancel keeps the app open", async () => {

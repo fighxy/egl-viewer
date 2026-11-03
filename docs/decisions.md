@@ -1624,3 +1624,31 @@ test, the first Session tests against a fake Eagle (`wiremock` over `fixtures/ea
   (`library_native::files_to_add`): hidden and system files and linked folders stay out.
 - **File actions on a selection** (Show in Explorer, Copy File, drag out) take an
   `ItemsTarget`: Select All is resolved in Rust instead of the UI fetching every id.
+
+## D-090 UI fixes from the post-phase-12 review (2026-11-03)
+
+Each fix has a UI test; the ones marked † fail on the code before the fix.
+
+- **Export dialog** †. The form is keyed on each opening (`useOpenings`), so saving the
+  destination as the export starts no longer resets the dialog and drops its progress. It
+  listens for progress from the moment it opens and keeps the latest event of every export, so
+  an event that arrives before `start_export` answers is not lost. Reopened while an export
+  runs, it follows that export. Cancel and Show in Explorer report their errors.
+- **Settings** keys its draft the same way: a preference or login change made while it is open
+  does not reset what the user is editing.
+- **Preferences** †. Every change starts from the latest preferences, not from a render's
+  copy, and writes go to Rust one after another; Rust's answer is shown only when no newer
+  change came. A slow first save no longer undoes a newer one.
+- **Saved screen (D-078).** The saved session is read before the library is shown, so the
+  library and its restored place, filters and selection land in one render; the selection is
+  also set directly, and the skip flags hold for that one commit only. A saved screen equal to
+  the default one restores its selection and does not swallow a later reset.
+- **Quit while exporting** gets its own question ("An export is still running"): the payload
+  of `close-requested` carries `exporting`.
+- **Strings** †. A test checks every literal key passed to `t()` against the English catalog;
+  it found `common.close` in the Eagle import dialog. Full key typing through i18next's
+  `CustomTypeOptions` was tried and left out: its types reject key unions and break type
+  predicates in a dozen places for no further finding. Russian plurals have all four forms,
+  checked by a test (`status.makingThumbnails` lacked `_few` and `_many`).
+- **Imports panel** ignores a late `imports` reply for the previous library.
+- **Rubber-band selection** removes its window listeners when the grid unmounts mid-drag.

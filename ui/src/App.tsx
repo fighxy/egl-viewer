@@ -287,7 +287,31 @@ function AppShell() {
   const [defaults, setDefaults] = useState<ConnectionSettings>(FALLBACK_DEFAULTS);
   const [view, setView] = useState<View>({ kind: "welcome" });
   const [status, setStatus] = useState<string>();
-  const [preferences, setPreferences] = useState<Preferences>(DEFAULT_PREFERENCES);
+  const [preferences, setPreferencesState] = useState<Preferences>(DEFAULT_PREFERENCES);
+  /** The preferences as last changed: every change starts from it, so two quick changes
+   * (a layout drag and a sort, say) never undo each other. */
+  const preferencesNow = useRef<Preferences>(DEFAULT_PREFERENCES);
+  /** Writes go to Rust one after another, so an older write never lands last. */
+  const preferenceWrites = useRef<Promise<unknown>>(Promise.resolve());
+  const setPreferences = useCallback((next: Preferences) => {
+    preferencesNow.current = next;
+    setPreferencesState(next);
+  }, []);
+  /** Applies `change` to the latest preferences and, with `persist`, saves them. Rejects
+   * with the reason when Rust refuses them; Rust's answer is shown unless a newer change came. */
+  const updatePreferences = useCallback(
+    (change: (current: Preferences) => Preferences, persist = true): Promise<void> => {
+      const next = change(preferencesNow.current);
+      setPreferences(next);
+      if (!persist || !inTauri()) return Promise.resolve();
+      const write = preferenceWrites.current.then(() => ipc.setPreferences(next));
+      preferenceWrites.current = write.catch(() => {});
+      return write.then((saved) => {
+        if (preferencesNow.current === next) setPreferences(saved);
+      });
+    },
+    [setPreferences],
+  );
   const [loginMethod, setLoginMethod] = useState<LoginMethod>("none");
   const [gate, setGate] = useState<"pending" | "open" | "locked">(inTauri() ? "pending" : "open");
   const started = useRef(false);
@@ -471,6 +495,14 @@ function AppShell() {
     setSearchText("");
     setFilterOpen(false);
   }, [library?.path]);
+  // The skip flags hold for the commit that restored a session only: when no reset ran in it
+  // (the saved screen equals the one shown), they must not swallow a later reset. Declared
+  // after the reset effects, so it runs after them in the same commit.
+  useEffect(() => {
+    skipSelectionReset.current = false;
+    skipFilterReset.current = false;
+    pendingSelection.current = null;
+  });
   // biome-ignore lint/correctness/useExhaustiveDependencies: positions change with the order.
   useEffect(() => {
     setSelection((current) => ({ ...current, anchor: null, focus: null }));
@@ -609,25 +641,19 @@ function AppShell() {
     return () => {
       cancelled = true;
     };
-  }, []);
+  }, [setPreferences]);
 
-  /** Apply a library and restore its last place, filters and selection when known (D-078). */
+  /** Apply a library and restore its last place, filters and selection when known (D-078).
+   * The saved session is read first, so the library and its restored screen land in one
+   * render: the reset effects then see the skip flags in the same commit. */
   const libraryOpened = useCallback(
     async (next: LibraryInfo) => {
+      const saved =
+        inTauri() && next.path ? await ipc.librarySession(next.path).catch(() => null) : null;
       setView({ kind: "library", library: next });
       setStatus(undefined);
       setDialog(null);
       void refreshRecent();
-      if (!inTauri() || !next.path) {
-        setPlace({ kind: "all" });
-        setFilters(NO_FILTERS);
-        setSearchText("");
-        setFilterOpen(false);
-        setSelection(NOTHING);
-        setScreenSort(null);
-        return;
-      }
-      const saved = await ipc.librarySession(next.path).catch(() => null);
       if (!saved) {
         setPlace({ kind: "all" });
         setFilters(NO_FILTERS);
@@ -642,6 +668,9 @@ function AppShell() {
       skipFilterReset.current = true;
       skipSelectionReset.current = true;
       pendingSelection.current = saved.selection;
+      // Also set directly: when the saved screen equals the current one, no reset runs.
+      setSelection(selectionFromSaved(saved.selection));
+      setPreviewIndex(null);
       setPlace(restoredPlace);
       setFilters(restoredFilters);
       setSearchText(saved.searchText);
@@ -704,31 +733,27 @@ function AppShell() {
     [libraryOpened],
   );
 
-  const savePreferences = useCallback(async (next: Preferences) => {
-    setPreferences(next);
-    if (inTauri()) setPreferences(await ipc.setPreferences(next));
-  }, []);
+  const savePreferences = useCallback(
+    (next: Preferences) => updatePreferences(() => next),
+    [updatePreferences],
+  );
 
   const changeLayout = useCallback(
     (layout: UiLayout, persist: boolean) => {
-      const next = { ...preferences, layout };
-      setPreferences(next);
-      if (persist && inTauri()) {
-        ipc.setPreferences(next).catch((error: unknown) => setStatus(describeError(error)));
-      }
+      updatePreferences((current) => ({ ...current, layout }), persist).catch((error: unknown) =>
+        setStatus(describeError(error)),
+      );
     },
-    [preferences],
+    [updatePreferences],
   );
 
   const changeBrowse = useCallback(
     (next: BrowsePreferences, persist: boolean) => {
-      const updated = { ...preferences, browse: next };
-      setPreferences(updated);
-      if (persist && inTauri()) {
-        ipc.setPreferences(updated).catch((error: unknown) => setStatus(describeError(error)));
-      }
+      updatePreferences((current) => ({ ...current, browse: next }), persist).catch(
+        (error: unknown) => setStatus(describeError(error)),
+      );
     },
-    [preferences],
+    [updatePreferences],
   );
 
   const openPreview = useCallback((index: number, id: string | null) => {
@@ -768,9 +793,20 @@ function AppShell() {
     [addingFiles, t],
   );
 
-  /** Asks before quitting; `busy` means imports or exports are still running (D-072). */
+  /** Asks before quitting; `busy` means imports or exports are still running (D-072). An
+   * export gets its own words: quitting stops it and removes what it wrote so far. */
   const confirmQuit = useCallback(
-    (busy: boolean) => {
+    (busy: boolean, exporting = false) => {
+      if (exporting) {
+        setConfirmation({
+          title: t("confirm.stopExportQuitTitle"),
+          description: t("confirm.stopExportQuitBody"),
+          confirm: t("confirm.stopQuitConfirm"),
+          cancel: t("confirm.keepExporting"),
+          onConfirm: () => void ipc.quit().catch(() => {}),
+        });
+        return;
+      }
       if (busy) {
         setConfirmation({
           title: t("confirm.stopQuitTitle"),
@@ -1019,13 +1055,15 @@ function AppShell() {
         },
         onConfirm: (dontAskAgain) => {
           if (dontAskAgain) {
-            void savePreferences({ ...preferences, confirmBeforeTrash: false });
+            updatePreferences((current) => ({ ...current, confirmBeforeTrash: false })).catch(
+              (error: unknown) => setStatus(describeError(error)),
+            );
           }
           move();
         },
       });
     },
-    [editItems, preferences, savePreferences, t, i18n.language],
+    [editItems, preferences, updatePreferences, t, i18n.language],
   );
 
   /** Delete in the grid: to the trash after a confirmation (docs/spec.md §7.3). */
@@ -1440,7 +1478,7 @@ function AppShell() {
       },
       exit: () => void closeWindow().catch(() => {}),
       setTheme: (theme) => {
-        savePreferences({ ...preferences, theme }).catch((error: unknown) =>
+        updatePreferences((current) => ({ ...current, theme })).catch((error: unknown) =>
           setStatus(describeError(error)),
         );
       },
@@ -1556,7 +1594,7 @@ function AppShell() {
       addPaths,
       openPath,
       refreshRecent,
-      savePreferences,
+      updatePreferences,
       changeLayout,
       preferences,
       fullscreen,
@@ -1693,7 +1731,9 @@ function AppShell() {
     if (!inTauri()) return;
     let unlisten: (() => void) | undefined;
     let cancelled = false;
-    listen<{ busy: boolean }>(EVENTS.closeRequested, (event) => confirmQuit(event.payload.busy))
+    listen<{ busy: boolean; exporting?: boolean }>(EVENTS.closeRequested, (event) =>
+      confirmQuit(event.payload.busy, event.payload.exporting ?? false),
+    )
       .then((stop) => {
         if (cancelled) stop();
         else unlisten = stop;
@@ -2081,10 +2121,9 @@ function AppShell() {
             vocabulary={vocabulary}
             preferences={preferences}
             onPreferences={(next) => {
-              setPreferences(next);
-              if (inTauri()) {
-                ipc.setPreferences(next).catch((error: unknown) => setStatus(describeError(error)));
-              }
+              updatePreferences(() => next).catch((error: unknown) =>
+                setStatus(describeError(error)),
+              );
             }}
           />
         )}

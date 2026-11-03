@@ -231,6 +231,10 @@ export function ItemsView({
     };
   };
 
+  /** Removes the window listeners of a band in progress; also run on unmount. */
+  const endBand = useRef<(() => void) | null>(null);
+  useEffect(() => () => endBand.current?.(), []);
+
   const startBand = (event: ReactMouseEvent<HTMLDivElement>) => {
     if (event.button !== 0 || (event.target as HTMLElement).closest("[data-index]")) return;
     // Clicks on the scrollbar do not start a band.
@@ -252,9 +256,13 @@ export function ItemsView({
       current = { ...current, end: contentPoint(move) };
       setBand(current);
     };
-    const onUp = () => {
+    const stop = () => {
       window.removeEventListener("mousemove", onMove);
       window.removeEventListener("mouseup", onUp);
+      endBand.current = null;
+    };
+    const onUp = () => {
+      stop();
       setBand(null);
       const picked = justified
         ? justifiedIndicesInRect(justified, total, bandRect(current))
@@ -280,6 +288,8 @@ export function ItemsView({
         })
         .catch(() => {});
     };
+    endBand.current?.();
+    endBand.current = stop;
     window.addEventListener("mousemove", onMove);
     window.addEventListener("mouseup", onUp);
   };
