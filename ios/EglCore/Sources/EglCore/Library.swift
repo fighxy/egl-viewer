@@ -211,6 +211,11 @@ public final class Library: @unchecked Sendable {
 
     public func tags() throws -> [Tag] { try json { egl_tags($0, $1) } }
 
+    public func smartFolders() throws -> [SmartFolder] { try json { egl_smart_folders($0, $1) } }
+
+    /// File types with their item counts, for the Type filter.
+    public func extensions() throws -> [ExtensionCount] { try json { egl_extensions($0, $1) } }
+
     // MARK: Adding files
 
     /// Starts adding files and folders in the background; progress comes as events.

@@ -117,6 +117,16 @@ final class EglCoreTests: XCTestCase {
         XCTAssertEqual(try library.restoreTrash(), 1)
         XCTAssertEqual(try library.counts().all, 3)
 
+        XCTAssertEqual(try library.extensions(), [ExtensionCount(ext: "png", count: 3)])
+        XCTAssertEqual(try library.smartFolders(), [])
+        let searched = try library.openView(LibraryQuery(text: "image-1"))
+        XCTAssertEqual(searched.total, 1)
+        let sorted = try library.openView(LibraryQuery(sort: .name, ascending: true))
+        XCTAssertEqual(
+            try library.range(of: sorted.viewId, start: 0, count: 3).map(\.name),
+            ["image-0", "image-1", "image-2"]
+        )
+
         let thumbnail = try XCTUnwrap(try library.thumbnail(cells[0].id))
         XCTAssertEqual(thumbnail.prefix(4), Data("RIFF".utf8))
         XCTAssertNil(try library.thumbnail("01NOTANITEM000000000000000"))

@@ -2,8 +2,7 @@
 
 A SwiftUI app over the same native `.eglib` core as the desktop: `crates/app-service` through
 the C ABI of `crates/library-ffi`, wrapped for Swift by the `EglCore` package (D-091, D-092,
-D-093). **No Eagle.** The plan is the desktop's features in a series of PRs; this one is the
-foundation.
+D-093, D-094). **No Eagle.** The plan is the desktop's features in a series of PRs.
 
 ## What works
 
@@ -12,7 +11,8 @@ foundation.
 | `EglCore` (`ios/EglCore`) | Typed `Library`, `EglError`, `Codable` models; XCTests on macOS against the real core (CI `ios-core`) |
 | App foundation | `AppModel` (`@Observable`), Welcome (create, open from Files, recent, On My iPhone), the open library with its counts, read-only banner, errors, light and dark, English / Russian / Simplified Chinese |
 | Where libraries live | New ones in **On My iPhone** (`Documents/Libraries`, visible in the Files app). Others through the Files picker, kept with security-scoped bookmarks; a library in iCloud Drive opens **read-only** (D-021, D-093) |
-| Browse, details, adding, folders, tags, locks, maintenance | The next PRs of the series |
+| Browsing (D-094) | Places with counts, the folder tree and smart folders; a lazy grid or a list per place, cells loaded in windows by view id; thumbnails decoded off the main thread and cached; sort, thumbnail size, search, a filter sheet (tags any / all / none, type, rating, shape); selection with Select All over the whole view; the view saved per library |
+| Details, adding, organizing, locks, maintenance | The next PRs of the series |
 
 ## Layout
 
@@ -21,12 +21,17 @@ ios/
   project.yml              XcodeGen spec; the .xcodeproj is generated, not committed
   EglCore/                 Swift package over the C ABI (CEglLibrary module, EglCore, tests)
   EglViewer/
-    App/                   EglViewerApp, AppModel (+ OpenLibrary), LibraryLocations (+ recents)
-    Screens/               WelcomeScreen (+ CreateLibrarySheet), LibraryScreen
+    App/                   EglViewerApp, AppModel (+ OpenLibrary), LibraryLocations (+ recents),
+                           SampleLibrary (debug: generated images for tests)
+    Browse/                Place (+ saved view), BrowseModel, BrowseScreen, FilterSheet,
+                           ThumbnailCache
+    Screens/               WelcomeScreen (+ CreateLibrarySheet), LibraryScreen (places, folders)
     Theme/Tokens.swift     colours that follow light and dark mode
     Resources/             Info.plist, Localizable.xcstrings (en, ru, zh-Hans)
-  EglViewerTests/          unit tests (locations, recents, AppModel with the real core)
-  EglViewerUITests/        UI tests on a simulator (create, open, close, reopen; Russian)
+  EglViewerTests/          unit tests (locations, recents, AppModel and BrowseModel with the
+                           real core)
+  EglViewerUITests/        UI tests on a simulator (create, open, close, reopen; Russian;
+                           browse, search, filter, select on `-sampleLibrary 12`)
 ```
 
 ## Build and run (Mac)
