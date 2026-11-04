@@ -2,7 +2,7 @@
 
 A SwiftUI app over the same native `.eglib` core as the desktop: `crates/app-service` through
 the C ABI of `crates/library-ffi`, wrapped for Swift by the `EglCore` package (D-091, D-092,
-D-093, D-094, D-095). **No Eagle.** The plan is the desktop's features in a series of PRs.
+D-093–D-096). **No Eagle.** The plan is the desktop's features in a series of PRs.
 
 ## What works
 
@@ -13,7 +13,8 @@ D-093, D-094, D-095). **No Eagle.** The plan is the desktop's features in a seri
 | Where libraries live | New ones in **On My iPhone** (`Documents/Libraries`, visible in the Files app). Others through the Files picker, kept with security-scoped bookmarks; a library in iCloud Drive opens **read-only** (D-021, D-093) |
 | Browsing (D-094) | Places with counts, the folder tree and smart folders; a lazy grid or a list per place, cells loaded in windows by view id; thumbnails decoded off the main thread and cached; sort, thumbnail size, search, a filter sheet (tags any / all / none, type, rating, shape); selection with Select All over the whole view; the view saved per library |
 | Preview and details (D-095) | Full-screen pager over the view with zoom; originals decoded at screen size; details with name, rating, tags (suggestions), folders, notes, link and facts; actions on a selection, from the preview and the long-press menu (rate, tags, folder, share, trash, restore, delete permanently, Empty Trash) with Undo; originals shared under their item names |
-| Adding, organizing, locks, maintenance | The next PRs of the series |
+| Adding (D-096) | The + menu: Photos (originals, HEIC kept), Files (files and folders, security scopes held during the import), Paste; drops; progress with Stop and a summary; the duplicate question (skip, add anyway, add to the folder, stop) for the batch; HEIC dimensions and thumbnails through ImageIO, lent to the core as its platform decoder |
+| Organizing, locks, maintenance | The next PRs of the series |
 
 ## Layout
 
@@ -29,11 +30,12 @@ ios/
                            toast)
     Preview/               PreviewScreen, ZoomingImage (+ OriginalCache)
     Details/               DetailsSheet, ItemDetailsModel, ShareFiles
+    Adding/                AddMenu (+ pickers, progress, duplicate question), PickedFiles
     Screens/               WelcomeScreen (+ CreateLibrarySheet), LibraryScreen (places, folders)
     Theme/Tokens.swift     colours that follow light and dark mode
     Resources/             Info.plist, Localizable.xcstrings (en, ru, zh-Hans)
   EglViewerTests/          unit tests (locations, recents, AppModel, BrowseModel, details,
-                           actions and sharing with the real core)
+                           actions, sharing and adding with the real core)
   EglViewerUITests/        UI tests on a simulator (create, open, close, reopen; Russian;
                            browse, search, filter, select, preview, details, trash and undo
                            on `-sampleLibrary 12`)

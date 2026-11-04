@@ -7,6 +7,7 @@ struct BrowseScreen: View {
     @State private var model: BrowseModel
     @State private var filtering = false
     @State private var emptying = false
+    @State private var adding: AddSource? = nil
 
     init(open: OpenLibrary, place: Place) {
         _model = State(initialValue: BrowseModel(open: open, place: place))
@@ -31,11 +32,15 @@ struct BrowseScreen: View {
         .autocorrectionDisabled()
         .textInputAutocapitalization(.never)
         .toolbar { toolbar }
+        .safeAreaInset(edge: .top) {
+            ImportBanner(open: model.open)
+        }
         .safeAreaInset(edge: .bottom) {
             if model.selecting {
                 SelectionBar(model: model)
             }
         }
+        .addPickers(model.open, folder: addFolder, source: $adding)
         .toast(model.open, alignment: .bottom, padding: model.selecting ? 96 : 16, shown: model.previewing == nil)
         .sheet(isPresented: $filtering) {
             FilterSheet(model: model)
@@ -121,6 +126,9 @@ struct BrowseScreen: View {
                 }
                 .accessibilityIdentifier("browse.filter")
                 OptionsMenu(model: model)
+                if !model.open.readOnly, model.place != .trash {
+                    AddMenu(open: model.open, folder: addFolder, source: $adding)
+                }
                 Button("browse.select") { model.setSelecting(true) }
                     .disabled(model.total == 0)
                     .accessibilityIdentifier("browse.select")
@@ -132,6 +140,12 @@ struct BrowseScreen: View {
                 }
             }
         }
+    }
+
+    /// Files added here go into the open folder.
+    private var addFolder: String? {
+        if case let .folder(id, _) = model.place { return id }
+        return nil
     }
 
     private var filterSymbol: String {

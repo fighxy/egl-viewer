@@ -13,6 +13,7 @@
 
 #![allow(unsafe_code)]
 
+mod decoder;
 mod events;
 mod maintenance;
 mod manage;

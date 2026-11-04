@@ -239,6 +239,12 @@ public final class Library: @unchecked Sendable {
         try json { egl_import_status($0, id, $1) }
     }
 
+    /// Answers the duplicate question of import `id`.
+    public func answerImport(_ id: UInt64, _ answer: DuplicateAnswer) throws {
+        let lib = try live()
+        try check(answer.rawValue.withCString { egl_answer_import(lib, id, $0) })
+    }
+
     public func cancelImport(_ id: UInt64) throws {
         try check(egl_cancel_import(try live(), id))
     }

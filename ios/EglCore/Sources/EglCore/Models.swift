@@ -138,6 +138,21 @@ public enum ImportState: String, Codable, Sendable {
     case scanning, adding, waitingForDecision, previews, done, cancelled
 }
 
+/// A file whose content the library has already: the import waits for an answer.
+public struct DuplicateNotice: Codable, Equatable, Sendable {
+    public var path: String
+    /// The id of the item with the same content.
+    public var existing: String
+    public var inTrash: Bool
+    /// The folder the file was going into; the existing item can join it instead.
+    public var targetFolder: String?
+}
+
+/// The answer to a duplicate; the first answer holds for the rest of the batch.
+public enum DuplicateAnswer: String, Sendable {
+    case skip, addAnyway, addToFolder, cancel
+}
+
 public struct ImportProgress: Codable, Equatable, Identifiable, Sendable {
     public var id: UInt64
     public var kind: ImportKind
@@ -150,6 +165,8 @@ public struct ImportProgress: Codable, Equatable, Identifiable, Sendable {
     public var previewsTotal: Int
     public var previewsDone: Int
     public var current: String?
+    /// The duplicate that waits for an answer (state `waitingForDecision`).
+    public var duplicate: DuplicateNotice?
 
     public var isFinished: Bool { state == .done || state == .cancelled }
 }

@@ -16,6 +16,8 @@ crate-type = ["rlib", "staticlib", "cdylib"]
 library-core.workspace = true
 app-service.workspace = true
 library-native.workspace = true
+# The platform decoder hook (D-096).
+media.workspace = true
 serde.workspace = true
 serde_json.workspace = true
 
