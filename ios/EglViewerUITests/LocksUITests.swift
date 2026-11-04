@@ -28,7 +28,11 @@ final class LocksUITests: XCTestCase {
         app.activate()
 
         let password = app.secureTextFields["login.password"]
-        XCTAssertTrue(password.waitForExistence(timeout: 10), "the login covers the app")
+        if !password.waitForExistence(timeout: 10) {
+            // What the app shows instead, for the log.
+            print(app.debugDescription)
+            XCTFail("the login covers the app")
+        }
         password.tap()
         password.typeText("0000")
         app.buttons["login.unlock"].tap()

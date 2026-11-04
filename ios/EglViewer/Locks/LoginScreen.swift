@@ -62,7 +62,6 @@ struct LoginScreen: View {
         .padding(24)
         .frame(maxWidth: .infinity, maxHeight: .infinity)
         .background(EglTokens.background.ignoresSafeArea())
-        .accessibilityIdentifier("login.screen")
         .task {
             if lock.biometryEnabled {
                 await biometry()
