@@ -1789,3 +1789,34 @@ The second app PR of the iOS series (D-093) adds browsing.
   (`-sampleLibrary N`, a debug-only launch argument: N PNGs of their own colour, the first four
   tagged `Red`). `scripts/check-ios-strings.py` also skips SF Symbol names after `systemName:`.
 
+## D-095 iOS preview, details and actions with undo (2026-11-04)
+
+The third app PR of the iOS series (D-093, D-094).
+
+- **Preview.** A tap on an item opens it full screen on the dark stage, over the same view of
+  the core as the grid: a lazy horizontal pager (`LazyHStack` with paging and
+  `scrollPosition`), so a 10,000-item view costs no more than a short one. The original is
+  decoded by ImageIO at 1.5× the screen's pixel size, by path for a stored original and through
+  the core's decrypted bytes for an item of an unlocked folder; a few stay in memory. Until it
+  arrives, and for what ImageIO cannot draw, the page shows the thumbnail and the file type.
+  A UIScrollView zooms (pinch, double tap); paging stops while zoomed; a single tap hides the
+  bars. The browse screen keeps its view open while the preview covers it.
+- **Details** (the desktop's right bar): name, rating (the same rating again clears it), tags
+  with suggestions from the library (matched ignoring case, stored exactly as typed), folders
+  (the tree as a picker; locked folders only while open), notes, link, and the file's facts.
+  Each change is one undoable edit through `egl_apply_item_edit`; text fields save on submit
+  and when the sheet closes.
+- **Actions.** On a selection (a bar under the grid), from the preview, and from the long-press
+  menu of a cell: rate, tags (the selection's tags with counts from `egl_view_selection_tags`,
+  remove from all or add), add to folder, share, move to trash; in the Trash: restore, delete
+  permanently (confirmed) and Empty Trash. Select All acts through the view target (D-094).
+- **Undo.** After an action a note shows what happened, with Undo when the core can take it
+  back (`egl_undo`); permanent deletes have none, as on the desktop.
+- **Sharing.** Originals go to the system share sheet under their item names (`name.ext`, with
+  ` (2)` for repeats), at most 100 at once: a stored original is hard-linked (copied across
+  volumes) into a temporary folder, an unlocked folder's item is written there decrypted with
+  complete file protection. The folder is removed when the sheet closes. The library's own
+  files are never moved or changed.
+- **EglCore:** `selectionTags(_:)`; public initialisers for `Tag` and `ExtensionCount`.
+- **Strings check:** a key's first segment may be camelCase now.
+

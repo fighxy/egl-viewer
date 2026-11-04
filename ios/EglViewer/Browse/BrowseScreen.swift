@@ -6,6 +6,7 @@ import SwiftUI
 struct BrowseScreen: View {
     @State private var model: BrowseModel
     @State private var filtering = false
+    @State private var emptying = false
 
     init(open: OpenLibrary, place: Place) {
         _model = State(initialValue: BrowseModel(open: open, place: place))
@@ -32,19 +33,38 @@ struct BrowseScreen: View {
         .toolbar { toolbar }
         .safeAreaInset(edge: .bottom) {
             if model.selecting {
-                Text("browse.selected \(model.selectedCount)")
-                    .font(.footnote.weight(.medium))
-                    .frame(maxWidth: .infinity)
-                    .padding(.vertical, 10)
-                    .background(.bar)
-                    .accessibilityIdentifier("browse.selectedCount")
+                SelectionBar(model: model)
             }
         }
+        .toast(model.open, alignment: .bottom, padding: model.selecting ? 96 : 16)
         .sheet(isPresented: $filtering) {
             FilterSheet(model: model)
         }
+        .fullScreenCover(item: $model.previewing) { start in
+            PreviewScreen(model: model, start: start.index)
+        }
+        .sheet(item: $model.details) { cell in
+            DetailsSheet(open: model.open, cell: cell)
+        }
+        .sheet(item: $model.sharing) { files in
+            ShareSheet(files: files)
+                .presentationDetents([.medium, .large])
+        }
+        .confirmationDialog("trash.emptyConfirm", isPresented: $emptying, titleVisibility: .visible) {
+            Button("trash.empty", role: .destructive) {
+                Task { await model.emptyTrash() }
+            }
+            .accessibilityIdentifier("trash.emptyConfirmed")
+        } message: {
+            Text("trash.noUndo")
+        }
         .task { await model.start() }
-        .onDisappear { model.stop() }
+        .onDisappear {
+            // The full-screen preview hides this screen too; its view stays open for it.
+            if model.previewing == nil {
+                model.stop()
+            }
+        }
     }
 
     private var title: Text {
@@ -104,6 +124,12 @@ struct BrowseScreen: View {
                 Button("browse.select") { model.setSelecting(true) }
                     .disabled(model.total == 0)
                     .accessibilityIdentifier("browse.select")
+            }
+            if model.place == .trash, model.total > 0, !model.open.readOnly {
+                ToolbarItem(placement: .bottomBar) {
+                    Button("trash.empty", role: .destructive) { emptying = true }
+                        .accessibilityIdentifier("trash.empty")
+                }
             }
         }
     }
@@ -269,10 +295,10 @@ private struct GridTile: View {
         }
         .contentShape(Rectangle())
         .onTapGesture {
-            if let cell { model.tap(cell) }
+            if let cell { model.tap(cell, at: index) }
         }
-        .onLongPressGesture {
-            if let cell { model.longPress(cell) }
+        .contextMenu {
+            if let cell { ItemMenu(model: model, cell: cell) }
         }
         .accessibilityElement(children: .ignore)
         .accessibilityLabel(Text(verbatim: cell?.name ?? ""))
@@ -321,10 +347,10 @@ private struct ListRow: View {
         }
         .contentShape(Rectangle())
         .onTapGesture {
-            if let cell { model.tap(cell) }
+            if let cell { model.tap(cell, at: index) }
         }
-        .onLongPressGesture {
-            if let cell { model.longPress(cell) }
+        .contextMenu {
+            if let cell { ItemMenu(model: model, cell: cell) }
         }
         .accessibilityElement(children: .combine)
         .accessibilityAddTraits(selected ? [.isButton, .isSelected] : .isButton)

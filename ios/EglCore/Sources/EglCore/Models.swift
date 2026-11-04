@@ -106,6 +106,19 @@ public struct Tag: Codable, Equatable, Hashable, Sendable {
     /// The tag is the exact, case-sensitive string.
     public var name: String
     public var imageCount: Int?
+
+    public init(name: String, imageCount: Int? = nil) {
+        self.name = name
+        self.imageCount = imageCount
+    }
+}
+
+/// The tags of a selection with how many of its items carry each, and its size.
+public struct SelectionTags: Codable, Equatable, Sendable {
+    public var items: Int
+    /// `imageCount` is the number of selected items with the tag.
+    public var tags: [Tag]
+    public var size: Int
 }
 
 public struct ViewOpened: Codable, Equatable, Sendable {

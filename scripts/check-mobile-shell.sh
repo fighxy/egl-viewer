@@ -28,6 +28,12 @@ need ios/EglViewer/Browse/BrowseModel.swift
 need ios/EglViewer/Browse/BrowseScreen.swift
 need ios/EglViewer/Browse/FilterSheet.swift
 need ios/EglViewer/Browse/ThumbnailCache.swift
+need ios/EglViewer/Browse/SelectionActions.swift
+need ios/EglViewer/Preview/PreviewScreen.swift
+need ios/EglViewer/Preview/ZoomingImage.swift
+need ios/EglViewer/Details/DetailsSheet.swift
+need ios/EglViewer/Details/ItemDetailsModel.swift
+need ios/EglViewer/Details/ShareFiles.swift
 need ios/EglViewer/Screens/WelcomeScreen.swift
 need ios/EglViewer/Screens/LibraryScreen.swift
 need ios/EglViewer/Resources/Info.plist
@@ -36,6 +42,8 @@ need ios/EglViewerTests/LibraryLocationsTests.swift
 need ios/EglViewerUITests/WelcomeUITests.swift
 need ios/EglViewerTests/BrowseModelTests.swift
 need ios/EglViewerUITests/BrowseUITests.swift
+need ios/EglViewerTests/DetailsAndActionsTests.swift
+need ios/EglViewerUITests/PreviewUITests.swift
 need ios/EglCore/Package.swift
 need ios/EglCore/Sources/CEglLibrary/egl_library.h
 need ios/EglCore/Sources/CEglLibrary/module.modulemap
