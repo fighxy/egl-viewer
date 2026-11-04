@@ -43,8 +43,14 @@ final class BrowseUITests: XCTestCase {
         search.typeText("sample-1")
         // sample-1, sample-10 and sample-11.
         waitForLabel("3 items", of: count)
-        app.buttons["Cancel"].tap()
+        // Clear the field by keys: the search bar's Cancel button is gone in newer iOS.
+        search.typeText(String(repeating: XCUIKeyboardKey.delete.rawValue, count: "sample-1".count))
         waitForLabel("12 items", of: count)
+        // Leave the search, so the toolbar comes back: Cancel before iOS 26, a close button since.
+        for label in ["Cancel", "close", "Close"] where app.buttons[label].exists {
+            app.buttons[label].tap()
+            break
+        }
 
         app.buttons["browse.filter"].tap()
         let red = element("filter.tag.Red", in: app)

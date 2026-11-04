@@ -190,6 +190,7 @@ final class OpenLibrary {
     let library: Library
     let url: URL
     let thumbnails: ThumbnailCache
+    let originals: OriginalCache
     private(set) var info: LibraryInfo
     private(set) var counts: LibraryCounts?
     private(set) var folders: [Folder] = []
@@ -200,10 +201,13 @@ final class OpenLibrary {
     private(set) var savedView: SavedView
     /// Shown in an alert over the library; cleared when the user dismisses it.
     var error: String?
+    /// What the last action did, with Undo when the core can take it back (D-095).
+    private(set) var toast: Toast?
     private let scoped: Bool
     @ObservationIgnored private let savedViews: SavedViews
     @ObservationIgnored private var browsers: [WeakBrowser] = []
     @ObservationIgnored private var refreshing: Task<Void, Never>?
+    @ObservationIgnored private var hidingToast: Task<Void, Never>?
 
     init(library: Library, url: URL, scoped: Bool, savedViews: SavedViews = SavedViews()) async throws {
         self.library = library
@@ -211,6 +215,7 @@ final class OpenLibrary {
         self.scoped = scoped
         self.savedViews = savedViews
         thumbnails = ThumbnailCache(library: library)
+        originals = OriginalCache(library: library)
         savedView = savedViews.load(for: url.standardizedFileURL.path)
         info = try await Task.detached { try library.info() }.value
         try library.setEventHandler { [weak self] event in
@@ -238,7 +243,65 @@ final class OpenLibrary {
         let library = library
         await Task.detached { library.close() }.value
         thumbnails.removeAll()
+        originals.removeAll()
         if scoped { url.stopAccessingSecurityScopedResource() }
+    }
+
+    // MARK: Work and undo
+
+    /// Runs `work` with the core off the main thread; a failure goes to the alert.
+    func perform<T: Sendable>(_ work: @escaping @Sendable (Library) throws -> T) async -> T? {
+        let library = library
+        do {
+            return try await Task.detached { try work(library) }.value
+        } catch {
+            report(error)
+            return nil
+        }
+    }
+
+    /// Shows what happened for a few seconds.
+    func show(_ message: String, undoable: Bool) {
+        let toast = Toast(message: message, undoable: undoable)
+        self.toast = toast
+        hidingToast?.cancel()
+        hidingToast = Task {
+            try? await Task.sleep(for: .seconds(5))
+            guard !Task.isCancelled, self.toast == toast else { return }
+            self.toast = nil
+        }
+    }
+
+    func dismissToast() {
+        hidingToast?.cancel()
+        toast = nil
+    }
+
+    /// Takes back the last edit, as Edit > Undo does on the desktop.
+    func undo() async {
+        dismissToast()
+        if let status = await perform({ try $0.undo() }), status != nil {
+            show(String(localized: "toast.undone"), undoable: false)
+        }
+    }
+
+    // MARK: Folders
+
+    /// Folders in tree order with their depth, for pickers; locked ones only when open.
+    var pickableFolders: [(folder: Folder, depth: Int)] {
+        var list: [(folder: Folder, depth: Int)] = []
+        func walk(_ folders: [Folder], _ depth: Int) {
+            for folder in folders where !folder.isLocked || folder.isUnlocked {
+                list.append((folder, depth))
+                walk(folder.children, depth + 1)
+            }
+        }
+        walk(folders, 0)
+        return list
+    }
+
+    func folderName(_ id: String) -> String? {
+        Self.find(id, in: folders)?.name
     }
 
     // MARK: Saved view
@@ -330,6 +393,13 @@ final class OpenLibrary {
             refreshing = nil
         }
     }
+}
+
+/// A short note over the library after an action.
+struct Toast: Equatable, Identifiable {
+    let id = UUID()
+    let message: String
+    let undoable: Bool
 }
 
 private struct WeakBrowser {

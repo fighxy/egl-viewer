@@ -16,7 +16,7 @@ CATALOG = ROOT / "EglViewer" / "Resources" / "Localizable.xcstrings"
 LANGUAGES = ("en", "ru", "zh-Hans")
 RU_PLURAL = {"one", "few", "many", "other"}
 # A key: dotted lowercase words, optionally followed by interpolations (`%lld`, `%@`).
-KEY = r'"([a-z]+(?:\.[A-Za-z]+)+(?: \\\([^)]*\))*)"'
+KEY = r'"([a-z][A-Za-z]*(?:\.[A-Za-z]+)+(?: \\\([^)]*\))*)"'
 LITERAL = re.compile(KEY)
 
 

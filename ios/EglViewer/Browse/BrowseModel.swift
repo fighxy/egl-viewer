@@ -28,6 +28,11 @@ final class BrowseModel {
     private(set) var allSelected = false
     private(set) var picked: Set<String> = []
 
+    // What the screen presents: the preview, an item's details, the share sheet.
+    var previewing: PreviewStart?
+    var details: ItemCell?
+    var sharing: ShareFiles?
+
     /// The tags and file types of the library, for the filter sheet.
     private(set) var vocabulary: [Tag] = []
     private(set) var extensions: [ExtensionCount] = []
@@ -272,20 +277,112 @@ final class BrowseModel {
         picked = []
     }
 
-    /// A tap: toggles in selection mode. Opening the preview arrives with the next PR.
-    func tap(_ cell: ItemCell) {
+    /// A tap: toggles in selection mode, opens the preview otherwise.
+    func tap(_ cell: ItemCell, at index: Int) {
         if selecting {
             toggle(cell.id)
+        } else {
+            previewing = PreviewStart(index: index)
         }
     }
 
-    /// A long press starts selecting with this item.
-    func longPress(_ cell: ItemCell) {
+    /// Select in the context menu: starts selecting with this item.
+    func startSelecting(with cell: ItemCell) {
         if !selecting {
             selecting = true
         }
         if !isSelected(cell.id) {
             toggle(cell.id)
+        }
+    }
+
+    // MARK: Actions (D-095)
+
+    /// Moves to the trash, with Undo.
+    func trash(_ target: ItemsTarget) async {
+        guard let count = await open.perform({ try $0.edit(target, .trash) }) else { return }
+        finished()
+        open.show(String(localized: "toast.trashed \(count)"), undoable: true)
+    }
+
+    /// Puts trashed items back, with Undo.
+    func restore(_ target: ItemsTarget) async {
+        guard let count = await open.perform({ try $0.edit(target, .restore) }) else { return }
+        finished()
+        open.show(String(localized: "toast.restored \(count)"), undoable: true)
+    }
+
+    /// Removes trashed items with their files. No undo.
+    func deleteForGood(_ target: ItemsTarget) async {
+        guard let count = await open.perform({ try $0.deleteForGood(target) }) else { return }
+        finished()
+        open.show(String(localized: "toast.deleted \(count)"), undoable: false)
+    }
+
+    func emptyTrash() async {
+        guard let count = await open.perform({ try $0.emptyTrash() }) else { return }
+        open.show(String(localized: "toast.deleted \(count)"), undoable: false)
+    }
+
+    func rate(_ target: ItemsTarget, stars: Int) async {
+        guard let count = await open.perform({ try $0.edit(target, .setStar(stars)) }) else { return }
+        finished()
+        open.show(String(localized: "toast.rated \(count)"), undoable: true)
+    }
+
+    func addTags(_ target: ItemsTarget, _ tags: [String]) async {
+        guard !tags.isEmpty, await open.perform({ try $0.edit(target, .addTags(tags)) }) != nil else { return }
+        open.show(String(localized: "toast.tagged"), undoable: true)
+    }
+
+    func removeTags(_ target: ItemsTarget, _ tags: [String]) async {
+        guard await open.perform({ try $0.edit(target, .removeTags(tags)) }) != nil else { return }
+        open.show(String(localized: "toast.untagged"), undoable: true)
+    }
+
+    func addToFolder(_ target: ItemsTarget, _ folder: String) async {
+        guard let count = await open.perform({ try $0.edit(target, .addToFolders([folder])) }) else { return }
+        finished()
+        open.show(String(localized: "toast.filed \(count)"), undoable: true)
+    }
+
+    /// Opens the share sheet of the browse screen on the originals of a selection.
+    func share(_ target: ItemsTarget) async {
+        if let files = await shareFiles(target) {
+            sharing = files
+        }
+    }
+
+    /// Prepares the originals of a selection for a share sheet.
+    func shareFiles(_ target: ItemsTarget) async -> ShareFiles? {
+        let chosen = await ids(of: target, limit: ShareFiles.limit)
+        guard !chosen.isEmpty else { return nil }
+        return await open.perform { try ShareFiles.prepare(chosen, from: $0) }
+    }
+
+    /// The ids a target names, in view order, at most `limit`: Select All reads them from the
+    /// view in windows, skipping the exclusions.
+    func ids(of target: ItemsTarget, limit: Int) async -> [String] {
+        guard target.all, let viewId = target.viewId else { return Array(target.ids.prefix(limit)) }
+        let excluded = Set(target.ids)
+        let total = total
+        return await open.perform { library -> [String] in
+            var ids: [String] = []
+            var start = 0
+            while start < total, ids.count < limit {
+                let window = try library.ids(of: viewId, start: start, count: 200)
+                if window.isEmpty { break }
+                ids += window.filter { !excluded.contains($0) }
+                start += window.count
+            }
+            return Array(ids.prefix(limit))
+        } ?? []
+    }
+
+    /// The selection is done with after an action on it.
+    private func finished() {
+        if selecting {
+            setSelecting(false)
         }
     }
 
@@ -311,3 +408,10 @@ final class BrowseModel {
         }
     }
 }
+
+/// Where the preview opens: a position of the view.
+struct PreviewStart: Identifiable, Equatable {
+    let index: Int
+    var id: Int { index }
+}
+

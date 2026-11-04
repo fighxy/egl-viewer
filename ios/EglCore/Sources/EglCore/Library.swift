@@ -155,6 +155,12 @@ public final class Library: @unchecked Sendable {
         }
     }
 
+    /// The tags of a selection, counted within its view.
+    public func selectionTags(_ target: ItemsTarget) throws -> SelectionTags {
+        let target = try encode(target)
+        return try target.withCString { target in try json { egl_view_selection_tags($0, target, $1) } }
+    }
+
     /// Takes back the last edit; nil when there was nothing to undo.
     @discardableResult
     public func undo() throws -> UndoStatus? { try json { egl_undo($0, $1) } }

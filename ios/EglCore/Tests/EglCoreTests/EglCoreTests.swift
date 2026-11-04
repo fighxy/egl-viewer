@@ -105,6 +105,9 @@ final class EglCoreTests: XCTestCase {
         // Tags stay exactly as typed.
         try library.edit(cells[0].id, .addTags(["Poster", "poster"]))
         XCTAssertEqual(Set(try library.tags().map(\.name)), ["Poster", "poster"])
+        let picked = try library.selectionTags(ItemsTarget(viewId: view.viewId, all: true, ids: []))
+        XCTAssertEqual(picked.items, 3)
+        XCTAssertEqual(picked.tags.first { $0.name == "Poster" }?.imageCount, 1)
 
         try library.edit(ItemsTarget(ids: [cells[0].id]), .trash)
         XCTAssertTrue(heard.events.contains {
