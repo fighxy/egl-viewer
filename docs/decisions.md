@@ -1948,6 +1948,9 @@ The seventh app PR of the iOS series (D-093–D-098).
     starts. Eagle is not a destination on the phone.
   The app part: App Lock (moved here from Welcome), the version, the language with a link to the
   system settings, where iOS keeps the app's language.
+- **The preview's position** (D-095) follows the scroll offset on iOS 18 and later (offset over
+  page width): `scrollPosition` and the visible-target callback did not always follow a quick
+  swipe on a busy device, which made the preview UI test fail now and then on `main`.
 - **EglCore:** `stats`, `backups`, `backUpNow`, `restoreBackup`, `check`, `repair`,
   `generatePreviews(rebuild:)`, `exportPreview`, `startExport`, `exports`, `cancelExport`, and
   their models (`LibraryStats`, `Backup.kind`, `LibraryCheck`, `RepairOptions`,
