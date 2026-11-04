@@ -206,6 +206,68 @@ final class EglCoreTests: XCTestCase {
         XCTAssertEqual(try library.counts().all, 1)
     }
 
+    func testFoldersTagsGroupsAndSmartFoldersAreEdited() throws {
+        let library = try openNew()
+        try seeded(library, count: 2)
+        let view = try library.openView(LibraryQuery(sort: .name, ascending: true))
+        let ids = try library.ids(of: view.viewId, start: 0, count: 2)
+
+        // Folders: create, nest, update, move to the top, delete with or without items.
+        let refs = try XCTUnwrap(try library.createFolder(named: "Refs").first)
+        let tree = try library.saveFolder(.create(name: "Posters", parent: refs.id, iconColor: LabelColor.blue.rawValue))
+        let posters = try XCTUnwrap(tree.first?.children.first)
+        XCTAssertEqual(posters.iconColor, "blue")
+        try library.saveFolder(.update(
+            id: posters.id, name: "Posters 🎨", description: "Old ones", tags: ["Print"],
+            iconColor: nil, orderBy: .name, sortAscending: true
+        ))
+        var moved = try library.saveFolder(.move(id: posters.id, parent: nil, index: 0))
+        XCTAssertEqual(moved.map(\.name), ["Posters 🎨", "Refs"])
+        XCTAssertEqual(moved.first?.orderBy, .name)
+        try library.edit(ItemsTarget(ids: [ids[0]]), .addToFolders([posters.id]))
+        moved = try library.deleteFolder(posters.id, trashItems: true)
+        XCTAssertEqual(moved.map(\.name), ["Refs"])
+        XCTAssertEqual(try library.counts().trash, 1)
+        try library.restoreTrash()
+
+        // Tags stay case-sensitive through rename and merge.
+        try library.edit(ItemsTarget(ids: ids), .addTags(["Blue"]))
+        try library.edit(ItemsTarget(ids: [ids[1]]), .addTags(["blue"]))
+        try library.renameTag("Blue", to: "Navy")
+        XCTAssertEqual(Set(try library.tags().map(\.name)), ["Navy", "blue"])
+        try library.mergeTag("blue", into: "Navy")
+        XCTAssertEqual(try library.tags().map(\.name), ["Navy"])
+        let groups = try library.saveTagGroup(.create(name: "Colours", color: LabelColor.green.rawValue, tags: ["Navy"]))
+        let group = try XCTUnwrap(groups.first)
+        XCTAssertEqual(group.tags, ["Navy"])
+        try library.saveTagGroup(.update(id: group.id, name: "Colors", color: nil, tags: []))
+        XCTAssertEqual(try library.tagGroups().first?.name, "Colors")
+        XCTAssertEqual(try library.deleteTagGroup(group.id), [])
+        try library.deleteTag("Navy")
+        XCTAssertEqual(try library.tags(), [])
+
+        // Smart folders keep rules they do not know.
+        let draft = try library.smartRules(of: LibraryQuery(ext: "png", rating: 0))
+        let unknown: JSONValue = .object(["property": .string("palette"), "method": .string("near"), "value": .array([.number(1), .number(2)])])
+        guard case var .array(conditions) = draft.conditions, case var .object(condition) = conditions[0],
+              case var .array(rules) = condition["rules"] else {
+            return XCTFail("unexpected draft \(draft.conditions)")
+        }
+        rules.append(unknown)
+        condition["rules"] = .array(rules)
+        conditions[0] = .object(condition)
+        let smart = try library.saveSmartFolder(.create(name: "PNG", parent: nil, conditions: .array(conditions)))
+        let folder = try XCTUnwrap(smart.first)
+        XCTAssertEqual(folder.unsupported.count, 1)
+        let stored = folder.conditions?.array?.first?.object?["rules"]?.array ?? []
+        XCTAssertTrue(stored.contains(unknown))
+        let shown = try library.openView(LibraryQuery(scope: .smart(id: folder.id)))
+        XCTAssertEqual(shown.total, 0, "an unknown rule matches nothing")
+        try library.saveSmartFolder(.update(id: folder.id, name: "PNGs", conditions: draft.conditions))
+        XCTAssertEqual(try library.openView(LibraryQuery(scope: .smart(id: folder.id))).total, 2)
+        XCTAssertEqual(try library.deleteSmartFolder(folder.id), [])
+    }
+
     func testALockedFolderHidesItsItemsUntilUnlocked() throws {
         let library = try openNew()
         try seeded(library, count: 1)

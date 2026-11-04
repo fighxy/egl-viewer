@@ -10,6 +10,11 @@ struct LibraryScreen: View {
     @State private var path: [Place] = []
     @State private var restored = false
     @State private var adding: AddSource? = nil
+    @State private var folderEditing: FolderEditing? = nil
+    @State private var movingFolder: Folder? = nil
+    @State private var deletingFolder: Folder? = nil
+    @State private var smartEditing: SmartEditing? = nil
+    @State private var deletingSmart: SmartFolder? = nil
 
     var body: some View {
         NavigationStack(path: $path) {
@@ -26,15 +31,34 @@ struct LibraryScreen: View {
                     PlaceLink(place: .uncategorized, title: "place.uncategorized", systemImage: "tray", count: open.counts?.uncategorized)
                     PlaceLink(place: .untagged, title: "place.untagged", systemImage: "tag.slash", count: open.counts?.untagged)
                     PlaceLink(place: .trash, title: "place.trash", systemImage: "trash", count: open.counts?.trash)
+                    NavigationLink {
+                        TagsScreen(open: open)
+                    } label: {
+                        Label("library.tags", systemImage: "tag")
+                    }
+                    .accessibilityIdentifier("place.tags")
                 }
-                if !open.folders.isEmpty {
+                if !open.folders.isEmpty || !open.readOnly {
                     Section("library.folders") {
                         OutlineGroup(open.folders, children: \.subfolders) { folder in
                             FolderRow(folder: folder)
+                                .contextMenu {
+                                    if !open.readOnly, !folder.isLocked || folder.isUnlocked {
+                                        folderMenu(folder)
+                                    }
+                                }
+                        }
+                        if !open.readOnly {
+                            Button {
+                                folderEditing = .create(parent: nil)
+                            } label: {
+                                Label("folder.new", systemImage: "folder.badge.plus")
+                            }
+                            .accessibilityIdentifier("folder.new")
                         }
                     }
                 }
-                if !open.smartFolders.isEmpty {
+                if !open.smartFolders.isEmpty || !open.readOnly {
                     Section("library.smartFolders") {
                         OutlineGroup(open.smartFolders, children: \.subfolders) { folder in
                             NavigationLink(value: Place.smart(id: folder.id, name: folder.name)) {
@@ -45,6 +69,19 @@ struct LibraryScreen: View {
                                 }
                             }
                             .accessibilityIdentifier("smart.\(folder.name)")
+                            .contextMenu {
+                                if !open.readOnly {
+                                    smartMenu(folder)
+                                }
+                            }
+                        }
+                        if !open.readOnly {
+                            Button {
+                                smartEditing = .create(parent: nil, conditions: nil)
+                            } label: {
+                                Label("smart.new", systemImage: "gearshape.2")
+                            }
+                            .accessibilityIdentifier("smart.new")
                         }
                     }
                 }
@@ -83,6 +120,45 @@ struct LibraryScreen: View {
             .addPickers(open, folder: nil, source: $adding)
         }
         .duplicateQuestion(open)
+        .sheet(item: $folderEditing) { editing in
+            FolderEditor(open: open, editing: editing)
+        }
+        .sheet(item: $movingFolder) { folder in
+            FolderMovePicker(open: open, folder: folder)
+        }
+        .sheet(item: $smartEditing) { editing in
+            SmartFolderEditor(open: open, editing: editing)
+        }
+        .confirmationDialog(
+            "folder.deleteTitle",
+            isPresented: Binding(get: { deletingFolder != nil }, set: { if !$0 { deletingFolder = nil } }),
+            titleVisibility: .visible,
+            presenting: deletingFolder
+        ) { folder in
+            Button("folder.deleteKeepItems", role: .destructive) {
+                Task { await open.deleteFolder(folder.id, trashItems: false) }
+            }
+            .accessibilityIdentifier("folder.deleteKeepItems")
+            Button("folder.deleteTrashItems", role: .destructive) {
+                Task { await open.deleteFolder(folder.id, trashItems: true) }
+            }
+            .accessibilityIdentifier("folder.deleteTrashItems")
+        } message: { folder in
+            Text(verbatim: folder.name)
+        }
+        .confirmationDialog(
+            "smart.deleteTitle",
+            isPresented: Binding(get: { deletingSmart != nil }, set: { if !$0 { deletingSmart = nil } }),
+            titleVisibility: .visible,
+            presenting: deletingSmart
+        ) { folder in
+            Button("smart.delete", role: .destructive) {
+                Task { await open.deleteSmartFolder(folder.id) }
+            }
+            .accessibilityIdentifier("smart.deleteConfirm")
+        } message: { folder in
+            folder.children.isEmpty ? Text("smart.deleteHint") : Text("smart.deleteHintChildren")
+        }
         .onAppear(perform: restore)
         .onChange(of: path) { _, path in
             if path.isEmpty, restored {
@@ -97,6 +173,49 @@ struct LibraryScreen: View {
             Button("common.ok", role: .cancel) {}
         } message: { message in
             Text(message)
+        }
+    }
+
+    @ViewBuilder
+    private func folderMenu(_ folder: Folder) -> some View {
+        Button {
+            folderEditing = .create(parent: folder.id)
+        } label: {
+            Label("folder.newSubfolder", systemImage: "folder.badge.plus")
+        }
+        Button {
+            folderEditing = .edit(folder)
+        } label: {
+            Label("folder.edit", systemImage: "pencil")
+        }
+        Button {
+            movingFolder = folder
+        } label: {
+            Label("folder.move", systemImage: "arrow.up.and.down.and.arrow.left.and.right")
+        }
+        Button(role: .destructive) {
+            deletingFolder = folder
+        } label: {
+            Label("folder.delete", systemImage: "trash")
+        }
+    }
+
+    @ViewBuilder
+    private func smartMenu(_ folder: SmartFolder) -> some View {
+        Button {
+            smartEditing = .create(parent: folder.id, conditions: nil)
+        } label: {
+            Label("smart.newChild", systemImage: "gearshape.2")
+        }
+        Button {
+            smartEditing = .edit(folder)
+        } label: {
+            Label("smart.edit", systemImage: "pencil")
+        }
+        Button(role: .destructive) {
+            deletingSmart = folder
+        } label: {
+            Label("smart.delete", systemImage: "trash")
         }
     }
 
@@ -167,6 +286,7 @@ private struct FolderRow: View {
                         Text(verbatim: folder.name)
                     } icon: {
                         Image(systemName: folder.isLocked ? "lock.open" : "folder")
+                            .foregroundStyle(folder.iconColor.map(LabelColors.color) ?? EglTokens.accent)
                     }
                     Spacer()
                     if let count = folder.descendantImageCount ?? folder.imageCount {

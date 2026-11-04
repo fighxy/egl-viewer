@@ -1855,3 +1855,39 @@ The fourth app PR of the iOS series (D-093–D-095).
   for the batch, HEIC with dimensions and a thumbnail, clipboard file names; a UI test of the
   menu.
 
+## D-097 iOS organizing: folders, tags, tag groups, the smart folder editor (2026-11-04)
+
+The fifth app PR of the iOS series (D-093–D-096).
+
+- **Folders.** The library screen always lists its folder section (when the library is
+  writable), with New Folder; a folder's long-press menu offers New Subfolder, Edit (name,
+  description, one of the eight label colours or none), Move To (the top level or another
+  folder, never into itself; it lands after the new parent's last child) and Delete (keep the
+  items, or move them to the trash too). A folder's tags and its own sort stay as they are:
+  they belong to the desktop's properties panel. A locked folder offers nothing until it is
+  open (the locks PR). A deleted folder is not the place the library reopens in.
+- **Tags.** A Tags row opens the tag list: tags by tag group, then the others, with counts and
+  search. A tag opens its items (a `tag` place: All filtered by the tag; the filter sheet hides
+  its tag section there). Rename (onto an existing name the two merge), Merge Into, Add to
+  Group, Remove from Group and Delete; tag groups are made, edited (name, colour, tags) and
+  deleted. Names are compared exactly: tags stay case-sensitive.
+- **Smart folders.** New Smart Folder, New Smart Subfolder, Edit and Delete; the browse
+  screen's options offer Save as Smart Folder (the core's `egl_smart_rules` for the view's
+  query). The editor follows the desktop's (`ui/src/features/smart/rules.ts`): conditions that
+  all must hold, each matching all or any of its rules or negated; the v1 properties (tags,
+  folders, name, notes, link, type, rating, shape, the three dates, width, height, file size)
+  with their methods and value editors. The rules stay Eagle's JSON: `JSONValue` in EglCore
+  keeps every key, so keys and rules this editor does not know survive an edit; such a rule
+  shows as one it cannot edit and can only be removed.
+- **EglCore:** `JSONValue`; `FolderChange`, `saveFolder`, `deleteFolder`; `renameTag`,
+  `mergeTag`, `deleteTag`; `TagGroup`, `TagGroupChange` and their calls; `SmartFolderChange`,
+  `saveSmartFolder`, `deleteSmartFolder`, `smartRules(of:)`; `Folder.orderBy`,
+  `Folder.sortAscending`, `SmartFolder.conditions`; `LabelColor`. Stored colours stay strings, so
+  a library imported with another colour still opens.
+- **Tests.** Rust: the smart rules of a query, unknown rules kept and listed as unsupported, an
+  update in place. EglCore on macOS: every edit above against the core. The app on the
+  simulator: the rule model (round trip with unknown keys, methods keeping their values),
+  folders made, moved (not into themselves) and deleted with their items, tags renamed, merged,
+  grouped, browsed and deleted, a view saved as a smart folder; UI tests for a new folder and a
+  tag's items.
+

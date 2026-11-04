@@ -32,6 +32,8 @@ final class BrowseModel {
     var previewing: PreviewStart?
     var details: ItemCell?
     var sharing: ShareFiles?
+    /// "Save as Smart Folder": a new smart folder with this view's rules.
+    var smartDraft: SmartEditing?
 
     /// The tags and file types of the library, for the filter sheet.
     private(set) var vocabulary: [Tag] = []
@@ -68,10 +70,12 @@ final class BrowseModel {
     var query: LibraryQuery {
         let filters = settings.filters
         let text = settings.search.trimmingCharacters(in: .whitespacesAndNewlines)
+        // A tag place filters by its tag; the filter sheet hides its tag section there.
+        let tags = place.fixedTag.map { [$0] } ?? filters.tags
         return LibraryQuery(
             scope: place.scope,
-            tags: filters.tags.isEmpty ? nil : filters.tags,
-            tagMode: filters.tags.isEmpty ? nil : filters.tagMode,
+            tags: tags.isEmpty ? nil : tags,
+            tagMode: tags.isEmpty ? nil : (place.fixedTag == nil ? filters.tagMode : .any),
             ext: filters.ext,
             rating: filters.rating,
             shape: filters.shape?.rawValue,
@@ -384,6 +388,12 @@ final class BrowseModel {
         if selecting {
             setSelecting(false)
         }
+    }
+
+    /// Opens the smart folder editor with the rules of this view's query.
+    func saveAsSmartFolder() async {
+        guard let draft = await open.smartDraft(for: query) else { return }
+        smartDraft = .create(parent: nil, conditions: draft.conditions)
     }
 
     // MARK: The filter sheet
