@@ -1820,3 +1820,38 @@ The third app PR of the iOS series (D-093, D-094).
 - **EglCore:** `selectionTags(_:)`; public initialisers for `Tag` and `ExtensionCount`.
 - **Strings check:** a key's first segment may be camelCase now.
 
+## D-096 iOS adding: Photos, Files, paste, drops, duplicates, HEIC through ImageIO (2026-11-04)
+
+The fourth app PR of the iOS series (D-093–D-095).
+
+- **Sources.** The + menu (library screen and every place but the Trash; files added in a
+  folder go into it) offers Photos (`PhotosPicker`, images and videos, the original encoding
+  kept: HEIC stays HEIC), Files (`fileImporter`, files and folders, several at once) and Paste.
+  Files can also be dropped onto a place. Photos, paste and drops hand over temporary files:
+  each is copied into a folder of its own (`tmp/picked-…`) and removed when its import ends;
+  copies left by a killed run are removed at launch. Files from the Files picker are not
+  copied: the app holds their security scopes until the import ends. Paste reads the clipboard
+  only when the user picks Paste, so the system asks once, at that moment.
+- **Import.** One `egl_add_files` per batch; progress shows over the place with a way to stop;
+  when it ends a note says what was added, skipped and failed. Closing the library runs the
+  pending clean-ups.
+- **Duplicates.** At the first duplicate of a batch the core waits (`waitingForDecision`); the
+  app asks: skip, add anyway, add the existing item to the folder (when the batch goes into
+  one), or stop. The answer holds for the rest of the batch (`egl_answer_import`).
+- **HEIC on iOS.** The iOS core is built without libheif (D-086). The core gains a
+  process-wide platform decoder (`media::set_platform_decoder`), offered through the C ABI as
+  `egl_set_platform_decoder(callback, ctx)` with `egl_decode_sink_put` for the result. The app
+  installs ImageIO at launch: it decodes with the orientation applied, reports the displayed
+  size and hands RGBA pixels of at most 2048 on the long side (the thumbnail is far smaller).
+  The core checks the sizes before it uses them. HEIC gets dimensions, a thumbnail and a
+  palette on the phone; EXIF of HEIC stays a desktop feature. On the desktop the decoder is not
+  set and libheif keeps working as before; when one is set it goes first.
+- **EglCore:** `PlatformDecoder.install()`, `answerImport(_:_:)`, `DuplicateNotice`,
+  `DuplicateAnswer`, `ImportProgress.duplicate`.
+- **Tests.** Rust: the platform image is checked (sizes, pixels) and used for HEIC; the C ABI
+  callback round trip. EglCore on macOS: ImageIO applies the orientation; HEIC imported through
+  the decoder; a duplicate waits for an answer. The app on the simulator (where the core really
+  has no libheif): picked copies are added and removed, the duplicate question and its answer
+  for the batch, HEIC with dimensions and a thumbnail, clipboard file names; a UI test of the
+  menu.
+

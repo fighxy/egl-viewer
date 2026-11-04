@@ -39,6 +39,9 @@ final class AppModel {
             recentStore.clear()
             savedViews.clear()
         }
+        // HEIC thumbnails through ImageIO (D-096); temporary copies of a killed run go.
+        PlatformDecoder.install()
+        PickedFile.removeLeftovers()
         reloadLists()
         #if DEBUG
         if let count = SampleLibrary.requested(in: arguments) {
@@ -208,6 +211,11 @@ final class OpenLibrary {
     @ObservationIgnored private var browsers: [WeakBrowser] = []
     @ObservationIgnored private var refreshing: Task<Void, Never>?
     @ObservationIgnored private var hidingToast: Task<Void, Never>?
+    /// What to undo when an import ends: temporary copies to remove, scopes to give back.
+    @ObservationIgnored private var afterImport: [UInt64: @MainActor () -> Void] = [:]
+    /// The duplicate an import waits on, shown as a question.
+    var duplicateQuestion: ImportProgress?
+    @ObservationIgnored private var answered: Set<UInt64> = []
 
     init(library: Library, url: URL, scoped: Bool, savedViews: SavedViews = SavedViews()) async throws {
         self.library = library
@@ -242,6 +250,11 @@ final class OpenLibrary {
         browsers = []
         let library = library
         await Task.detached { library.close() }.value
+        // Closing stopped the imports: their copies and scopes go now.
+        let cleanups = afterImport.values
+        afterImport = [:]
+        cleanups.forEach { $0() }
+        duplicateQuestion = nil
         thumbnails.removeAll()
         originals.removeAll()
         if scoped { url.stopAccessingSecurityScopedResource() }
@@ -283,6 +296,83 @@ final class OpenLibrary {
         if let status = await perform({ try $0.undo() }), status != nil {
             show(String(localized: "toast.undone"), undoable: false)
         }
+    }
+
+    // MARK: Adding (D-096)
+
+    /// Adds files and folders into `folder` (or none); `cleanup` runs when the import ends,
+    /// or at once when it cannot start.
+    func add(_ urls: [URL], into folder: String?, cleanup: @escaping @MainActor () -> Void = {}) async {
+        guard !urls.isEmpty, !readOnly else {
+            cleanup()
+            return
+        }
+        guard let ticket = await perform({ try $0.addFiles(urls, into: folder) }) else {
+            cleanup()
+            return
+        }
+        afterImport[ticket.id] = cleanup
+        // It may have ended before its last event reached this model.
+        if let progress = await perform({ try $0.importStatus(ticket.id) }) ?? nil, progress.isFinished {
+            finished(progress)
+        }
+    }
+
+    /// Adds files picked from Photos, the clipboard or a drop; their copies go afterwards.
+    func add(_ files: [PickedFile], into folder: String?) async {
+        await add(files.map(\.url), into: folder) {
+            files.forEach { $0.remove() }
+        }
+    }
+
+    /// Adds files the Files picker handed over, holding their security scopes until the
+    /// import ends.
+    func add(picked urls: [URL], into folder: String?) async {
+        let scoped = urls.filter { $0.startAccessingSecurityScopedResource() }
+        await add(urls, into: folder) {
+            scoped.forEach { $0.stopAccessingSecurityScopedResource() }
+        }
+    }
+
+    func answer(_ answer: DuplicateAnswer) async {
+        guard let question = duplicateQuestion else { return }
+        duplicateQuestion = nil
+        answered.insert(question.id)
+        _ = await perform { try $0.answerImport(question.id, answer) }
+    }
+
+    private func progressed(_ progress: ImportProgress) {
+        if progress.isFinished {
+            finished(progress)
+        } else if progress.state == .waitingForDecision, progress.duplicate != nil,
+                  !answered.contains(progress.id), duplicateQuestion?.id != progress.id {
+            duplicateQuestion = progress
+        }
+    }
+
+    private func finished(_ progress: ImportProgress) {
+        if duplicateQuestion?.id == progress.id {
+            duplicateQuestion = nil
+        }
+        answered.remove(progress.id)
+        guard let cleanup = afterImport.removeValue(forKey: progress.id) else { return }
+        cleanup()
+        show(Self.summary(of: progress), undoable: false)
+    }
+
+    /// `Added 3 items · 1 duplicate skipped · 1 failed`.
+    static func summary(of progress: ImportProgress) -> String {
+        var parts = [String(localized: "add.done \(progress.added)")]
+        if progress.duplicates > 0 {
+            parts.append(String(localized: "add.duplicates \(progress.duplicates)"))
+        }
+        if progress.failed > 0 {
+            parts.append(String(localized: "add.failed \(progress.failed)"))
+        }
+        if progress.state == .cancelled {
+            parts.append(String(localized: "add.cancelled"))
+        }
+        return parts.joined(separator: " · ")
     }
 
     // MARK: Folders
@@ -373,6 +463,7 @@ final class OpenLibrary {
             } else {
                 imports[progress.id] = progress
             }
+            progressed(progress)
             scheduleRefresh()
         case let .viewsInvalidated(views):
             for browser in browsers {

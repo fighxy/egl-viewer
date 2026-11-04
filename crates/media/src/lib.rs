@@ -8,6 +8,7 @@ mod decode;
 pub mod fixtures;
 mod metadata;
 mod palette;
+mod platform;
 mod thumbnail;
 
 use std::path::Path;
@@ -17,6 +18,7 @@ use library_core::Palette;
 use thiserror::Error;
 
 pub use palette::palette;
+pub use platform::{PlatformDecoder, PlatformImage, set_platform_decoder};
 
 /// The long edge of a thumbnail, in pixels.
 pub const THUMBNAIL_SIZE: u32 = 512;

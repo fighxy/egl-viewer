@@ -74,4 +74,16 @@ final class BrowseUITests: XCTestCase {
         XCTAssertTrue(element("browse.list", in: app).waitForExistence(timeout: 5))
         XCTAssertTrue(element("item.sample-0", in: app).waitForExistence(timeout: 10))
     }
+
+    func testTheAddMenuOffersPhotosFilesAndPaste() {
+        let app = launch()
+        XCTAssertTrue(app.navigationBars["Sample"].waitForExistence(timeout: 30))
+        element("place.all", in: app).tap()
+        let menu = app.buttons["add.menu"]
+        XCTAssertTrue(menu.waitForExistence(timeout: 10))
+        menu.tap()
+        XCTAssertTrue(element("add.photos", in: app).waitForExistence(timeout: 5))
+        XCTAssertTrue(element("add.files", in: app).exists)
+        XCTAssertTrue(element("add.paste", in: app).exists)
+    }
 }

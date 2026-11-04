@@ -136,10 +136,14 @@ pub(crate) fn psd_bytes(bytes: &[u8]) -> Result<Decoded, MediaError> {
 /// HEIC/HEIF through `libheif`: iPhone photos and modern camera files (HEVC, AVIF in HEIF).
 /// libheif applies the file's geometric transforms (irot/imir), so the pixels come out
 /// display-oriented, like EXIF orientation for raster files.
+/// A platform decoder (ImageIO on iOS, D-096) goes first when the host set one.
 #[cfg(not(target_os = "ios"))]
 pub(crate) fn heic_bytes(bytes: &[u8]) -> Result<Decoded, MediaError> {
     if bytes.len() as u64 > MAX_WHOLE_FILE {
         return Err(MediaError::TooLarge);
+    }
+    if let Some(decoded) = crate::platform::decode(bytes, "heic") {
+        return decoded;
     }
     let context = HeifContext::read_from_bytes(bytes).map_err(decode_error)?;
     let handle = context.primary_image_handle().map_err(decode_error)?;
@@ -166,10 +170,16 @@ pub(crate) fn heic_bytes(bytes: &[u8]) -> Result<Decoded, MediaError> {
     })
 }
 
-/// iOS builds carry no libheif; HEIC keeps the extension placeholder.
+/// iOS builds carry no libheif: HEIC goes through the platform decoder the app sets (ImageIO,
+/// D-096); without one it keeps the extension placeholder.
 #[cfg(target_os = "ios")]
-pub(crate) fn heic_bytes(_bytes: &[u8]) -> Result<Decoded, MediaError> {
-    Err(MediaError::Decode(
-        "HEIC decoding is not available on this platform".into(),
-    ))
+pub(crate) fn heic_bytes(bytes: &[u8]) -> Result<Decoded, MediaError> {
+    if bytes.len() as u64 > MAX_WHOLE_FILE {
+        return Err(MediaError::TooLarge);
+    }
+    crate::platform::decode(bytes, "heic").unwrap_or_else(|| {
+        Err(MediaError::Decode(
+            "HEIC decoding is not available on this platform".into(),
+        ))
+    })
 }

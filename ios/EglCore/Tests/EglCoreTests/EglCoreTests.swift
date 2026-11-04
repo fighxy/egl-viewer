@@ -136,6 +136,76 @@ final class EglCoreTests: XCTestCase {
         try library.setEventHandler(nil)
     }
 
+    /// A JPEG (or HEIC where the host can write one) turned a quarter by its orientation.
+    private func turned(_ type: UTType, _ name: String) throws -> URL? {
+        let context = CGContext(
+            data: nil, width: 300, height: 200, bitsPerComponent: 8, bytesPerRow: 0,
+            space: CGColorSpaceCreateDeviceRGB(), bitmapInfo: CGImageAlphaInfo.premultipliedLast.rawValue
+        )!
+        context.setFillColor(red: 0.2, green: 0.6, blue: 0.9, alpha: 1)
+        context.fill(CGRect(x: 0, y: 0, width: 300, height: 200))
+        let url = dir.appendingPathComponent(name)
+        guard let destination = CGImageDestinationCreateWithURL(url as CFURL, type.identifier as CFString, 1, nil) else {
+            return nil
+        }
+        CGImageDestinationAddImage(destination, context.makeImage()!, [kCGImagePropertyOrientation: 6] as CFDictionary)
+        return CGImageDestinationFinalize(destination) ? url : nil
+    }
+
+    func testThePlatformDecoderAppliesTheOrientation() throws {
+        let url = try XCTUnwrap(try turned(.jpeg, "turned.jpg"))
+        let image = try XCTUnwrap(PlatformDecoder.decode(try Data(contentsOf: url)))
+        XCTAssertEqual([image.width, image.height], [200, 300])
+        XCTAssertEqual(image.rgba.count, image.pixelWidth * image.pixelHeight * 4)
+        XCTAssertNil(PlatformDecoder.decode(Data("not an image".utf8)))
+    }
+
+    func testHeicGoesThroughThePlatformDecoder() throws {
+        guard let url = try turned(.heic, "turned.heic") else {
+            throw XCTSkip("this host cannot write HEIC")
+        }
+        PlatformDecoder.install()
+        defer { PlatformDecoder.uninstall() }
+        let library = try openNew()
+        let ticket = try library.addFiles([url])
+        let deadline = Date().addingTimeInterval(30)
+        while try library.importStatus(ticket.id)?.isFinished != true {
+            XCTAssertLessThan(Date(), deadline, "the import never ended")
+            Thread.sleep(forTimeInterval: 0.02)
+        }
+        let view = try library.openView()
+        let cell = try XCTUnwrap(try library.range(of: view.viewId, start: 0, count: 1).first)
+        XCTAssertEqual(cell.ext, "heic")
+        XCTAssertEqual([cell.width, cell.height], [200, 300])
+        XCTAssertTrue(cell.hasThumbnail)
+    }
+
+    func testADuplicateWaitsForAnAnswer() throws {
+        let library = try openNew()
+        try seeded(library, count: 1)
+        let again = try png("image-0.png", seed: 1)
+        let ticket = try library.addFiles([again])
+        let deadline = Date().addingTimeInterval(30)
+        var asked = false
+        while true {
+            let progress = try library.importStatus(ticket.id)
+            if progress?.state == .waitingForDecision, !asked {
+                XCTAssertNotNil(progress?.duplicate?.existing)
+                try library.answerImport(ticket.id, .skip)
+                asked = true
+            }
+            if let progress, progress.isFinished {
+                XCTAssertTrue(asked)
+                XCTAssertEqual(progress.duplicates, 1)
+                XCTAssertEqual(progress.added, 0)
+                break
+            }
+            XCTAssertLessThan(Date(), deadline, "the import never ended")
+            Thread.sleep(forTimeInterval: 0.02)
+        }
+        XCTAssertEqual(try library.counts().all, 1)
+    }
+
     func testALockedFolderHidesItsItemsUntilUnlocked() throws {
         let library = try openNew()
         try seeded(library, count: 1)

@@ -9,6 +9,7 @@ struct LibraryScreen: View {
     let open: OpenLibrary
     @State private var path: [Place] = []
     @State private var restored = false
+    @State private var adding: AddSource? = nil
 
     var body: some View {
         NavigationStack(path: $path) {
@@ -72,9 +73,16 @@ struct LibraryScreen: View {
                     }
                     .accessibilityIdentifier("library.close")
                 }
+                if !open.readOnly {
+                    ToolbarItem(placement: .topBarTrailing) {
+                        AddMenu(open: open, folder: nil, source: $adding)
+                    }
+                }
             }
             .refreshable { await open.refresh() }
+            .addPickers(open, folder: nil, source: $adding)
         }
+        .duplicateQuestion(open)
         .onAppear(perform: restore)
         .onChange(of: path) { _, path in
             if path.isEmpty, restored {

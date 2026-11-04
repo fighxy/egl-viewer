@@ -34,6 +34,8 @@ need ios/EglViewer/Preview/ZoomingImage.swift
 need ios/EglViewer/Details/DetailsSheet.swift
 need ios/EglViewer/Details/ItemDetailsModel.swift
 need ios/EglViewer/Details/ShareFiles.swift
+need ios/EglViewer/Adding/AddMenu.swift
+need ios/EglViewer/Adding/PickedFiles.swift
 need ios/EglViewer/Screens/WelcomeScreen.swift
 need ios/EglViewer/Screens/LibraryScreen.swift
 need ios/EglViewer/Resources/Info.plist
@@ -43,11 +45,13 @@ need ios/EglViewerUITests/WelcomeUITests.swift
 need ios/EglViewerTests/BrowseModelTests.swift
 need ios/EglViewerUITests/BrowseUITests.swift
 need ios/EglViewerTests/DetailsAndActionsTests.swift
+need ios/EglViewerTests/AddingTests.swift
 need ios/EglViewerUITests/PreviewUITests.swift
 need ios/EglCore/Package.swift
 need ios/EglCore/Sources/CEglLibrary/egl_library.h
 need ios/EglCore/Sources/CEglLibrary/module.modulemap
 need ios/EglCore/Sources/EglCore/Library.swift
+need ios/EglCore/Sources/EglCore/PlatformDecoder.swift
 need android/README.md
 need android/gradlew
 need android/app/build.gradle.kts

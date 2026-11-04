@@ -271,6 +271,26 @@ typedef void (*EglEventCallback)(void *ctx, const char *event_json);
 EglStatus egl_set_event_callback(EglLibrary *lib, EglEventCallback callback, void *ctx);
 
 /* ==========================================================================
+ * Platform image decoder (D-096): formats this build cannot read itself (HEIC
+ * on iOS, which has no libheif) go through the app's decoder (ImageIO).
+ * Process-wide; set once at launch. The callback runs on import threads, may
+ * run concurrently, and gets bytes and ext only for the call. On success it
+ * calls egl_decode_sink_put once and returns nonzero; it returns 0 otherwise.
+ * ========================================================================== */
+
+typedef struct EglDecodeSink EglDecodeSink;
+typedef int (*EglDecodeCallback)(void *ctx, const uint8_t *bytes, size_t len,
+                                 const char *ext_utf8, EglDecodeSink *sink);
+
+/** Sets the decoder (NULL clears it); ctx is handed back on every call. */
+EglStatus egl_set_platform_decoder(EglDecodeCallback callback, void *ctx);
+/** The image's displayed size (after orientation) and its RGBA pixels, which may
+ *  be smaller: pixel_width * pixel_height * 4 == len. Copied. */
+void egl_decode_sink_put(EglDecodeSink *sink, uint32_t width, uint32_t height,
+                         uint32_t pixel_width, uint32_t pixel_height,
+                         const uint8_t *rgba, size_t len);
+
+/* ==========================================================================
  * Views by id (D-092): a Query evaluated once, kept sorted in Rust, read in
  * windows, recomputed after writes under the same id (viewsInvalidated).
  * ItemsTarget (a selection of a view):
