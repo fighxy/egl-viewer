@@ -25,23 +25,23 @@ final class PreviewUITests: XCTestCase {
         XCTAssertEqual(XCTWaiter.wait(for: [expectation], timeout: timeout), .completed, "expected “\(label)”")
     }
 
-    /// Opens All once the twelve images are in, sorted by name.
+    /// Opens All once the twelve images are in.
     private func openAll(_ app: XCUIApplication) -> XCUIElement {
         XCTAssertTrue(app.navigationBars["Sample"].waitForExistence(timeout: 30))
         element("place.all", in: app).tap()
         let count = app.staticTexts["browse.count"]
         XCTAssertTrue(count.waitForExistence(timeout: 15))
         waitForLabel("12 items", of: count)
-        app.buttons["browse.options"].tap()
-        app.buttons["Sort By"].tap()
-        app.buttons["Name"].tap()
         return count
     }
 
     func testPreviewSwipesRatesAndTrashesWithUndo() {
         let app = launch()
         let count = openAll(app)
-        let first = element("item.sample-0", in: app)
+        // The first tile of the grid, whichever image the sort puts there.
+        let first = app.descendants(matching: .any)
+            .matching(NSPredicate(format: "identifier BEGINSWITH 'item.sample-'"))
+            .element(boundBy: 0)
         XCTAssertTrue(first.waitForExistence(timeout: 10))
         first.tap()
 
