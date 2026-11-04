@@ -36,7 +36,7 @@ struct BrowseScreen: View {
                 SelectionBar(model: model)
             }
         }
-        .toast(model.open, alignment: .bottom, padding: model.selecting ? 96 : 16)
+        .toast(model.open, alignment: .bottom, padding: model.selecting ? 96 : 16, shown: model.previewing == nil)
         .sheet(isPresented: $filtering) {
             FilterSheet(model: model)
         }

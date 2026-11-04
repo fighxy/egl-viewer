@@ -337,10 +337,11 @@ private struct ToastModifier: ViewModifier {
     let open: OpenLibrary
     let alignment: Alignment
     let padding: CGFloat
+    let shown: Bool
 
     func body(content: Content) -> some View {
         content.overlay(alignment: alignment) {
-            if let toast = open.toast {
+            if shown, let toast = open.toast {
                 HStack(spacing: 16) {
                     Text(verbatim: toast.message)
                         .font(.subheadline)
@@ -367,7 +368,9 @@ private struct ToastModifier: ViewModifier {
 }
 
 extension View {
-    func toast(_ open: OpenLibrary, alignment: Alignment = .bottom, padding: CGFloat = 16) -> some View {
-        modifier(ToastModifier(open: open, alignment: alignment, padding: padding))
+    /// The note after an action; `shown` is false while a screen is covered by another one
+    /// that shows the note itself.
+    func toast(_ open: OpenLibrary, alignment: Alignment = .bottom, padding: CGFloat = 16, shown: Bool = true) -> some View {
+        modifier(ToastModifier(open: open, alignment: alignment, padding: padding, shown: shown))
     }
 }
