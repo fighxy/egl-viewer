@@ -9,6 +9,8 @@ enum Place: Codable, Hashable {
     case trash
     case folder(id: String, name: String)
     case smart(id: String, name: String)
+    /// Every item with this tag, from the tag list.
+    case tag(name: String)
 
     var scope: Scope {
         switch self {
@@ -19,7 +21,14 @@ enum Place: Codable, Hashable {
         // A folder shows its subfolders' items too, as on the desktop.
         case let .folder(id, _): .folder(id: id, includeDescendants: true)
         case let .smart(id, _): .smart(id: id)
+        case .tag: .all
         }
+    }
+
+    /// The tag a tag place always filters by.
+    var fixedTag: String? {
+        if case let .tag(name) = self { return name }
+        return nil
     }
 
     /// A stable name for the place, for accessibility identifiers and the saved view.
@@ -31,6 +40,7 @@ enum Place: Codable, Hashable {
         case .trash: "trash"
         case let .folder(id, _): "folder.\(id)"
         case let .smart(id, _): "smart.\(id)"
+        case let .tag(name): "tag.\(name)"
         }
     }
 }

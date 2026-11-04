@@ -580,6 +580,57 @@ fn query_window_filters_sorts_and_smart_folders_round_trip() {
     let _ = egl_folder_tree;
 }
 
+/// What the phone's smart folder editor relies on (D-097): the rules of a query, rules this
+/// build does not know kept unchanged and listed as unsupported, and an update in place.
+#[test]
+fn smart_rules_keep_unknown_rules_and_update_in_place() {
+    let (f, _) = seeded(3);
+    let lib = f.lib;
+    let query = cstring(r#"{"ext":"png","rating":0}"#);
+    let draft = json(lib, |out| unsafe {
+        egl_smart_rules(lib, query.as_ptr(), out)
+    });
+    assert!(draft["parent"].is_null());
+    let mut conditions = draft["conditions"].clone();
+    let unknown = serde_json::json!({ "property": "palette", "method": "near", "value": [1, 2] });
+    conditions[0]["rules"]
+        .as_array_mut()
+        .unwrap()
+        .push(unknown.clone());
+    let create = cstring(
+        &serde_json::json!({ "type": "create", "name": "PNG", "parent": null, "conditions": conditions })
+            .to_string(),
+    );
+    let tree = json(lib, |out| unsafe {
+        egl_save_smart_folder(lib, create.as_ptr(), out)
+    });
+    let folder = &tree[0];
+    assert_eq!(folder["unsupported"].as_array().unwrap().len(), 1);
+    assert!(
+        folder["conditions"][0]["rules"]
+            .as_array()
+            .unwrap()
+            .contains(&unknown)
+    );
+    let id = folder["id"].as_str().unwrap().to_owned();
+    let scope = serde_json::json!({ "scope": { "kind": "smart", "id": id } });
+    assert_eq!(
+        query_window(lib, &scope)["total"],
+        0,
+        "an unknown rule matches nothing"
+    );
+
+    let update = cstring(
+        &serde_json::json!({ "type": "update", "id": id, "name": "PNGs", "conditions": draft["conditions"] })
+            .to_string(),
+    );
+    let tree = json(lib, |out| unsafe {
+        egl_save_smart_folder(lib, update.as_ptr(), out)
+    });
+    assert_eq!(tree[0]["name"], "PNGs");
+    assert_eq!(query_window(lib, &scope)["total"], 3);
+}
+
 #[test]
 fn null_handles_are_invalid() {
     let mut out: *mut c_char = ptr::null_mut();

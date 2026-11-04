@@ -51,6 +51,9 @@ struct BrowseScreen: View {
         .sheet(item: $model.details) { cell in
             DetailsSheet(open: model.open, cell: cell)
         }
+        .sheet(item: $model.smartDraft) { editing in
+            SmartFolderEditor(open: model.open, editing: editing)
+        }
         .sheet(item: $model.sharing) { files in
             ShareSheet(files: files)
                 .presentationDetents([.medium, .large])
@@ -78,7 +81,7 @@ struct BrowseScreen: View {
         case .uncategorized: Text("place.uncategorized")
         case .untagged: Text("place.untagged")
         case .trash: Text("place.trash")
-        case let .folder(_, name), let .smart(_, name): Text(verbatim: name)
+        case let .folder(_, name), let .smart(_, name), let .tag(name): Text(verbatim: name)
         }
     }
 
@@ -190,6 +193,15 @@ private struct OptionsMenu: View {
                 Toggle(isOn: model.binding(\.ascending)) {
                     Text("browse.ascending")
                 }
+            }
+            if !model.open.readOnly, model.place != .trash {
+                Divider()
+                Button {
+                    Task { await model.saveAsSmartFolder() }
+                } label: {
+                    Label("smart.saveView", systemImage: "gearshape.2")
+                }
+                .accessibilityIdentifier("browse.saveSmart")
             }
         } label: {
             Label("browse.options", systemImage: "ellipsis.circle")

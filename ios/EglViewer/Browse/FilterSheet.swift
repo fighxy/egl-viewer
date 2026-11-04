@@ -11,6 +11,7 @@ struct FilterSheet: View {
     var body: some View {
         NavigationStack {
             Form {
+                if model.place.fixedTag == nil {
                 Section("filter.tags") {
                     if model.vocabulary.isEmpty {
                         Text("filter.noTags")
@@ -47,6 +48,7 @@ struct FilterSheet: View {
                             .accessibilityIdentifier("filter.tag.\(tag.name)")
                         }
                     }
+                }
                 }
 
                 Section {

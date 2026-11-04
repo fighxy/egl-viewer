@@ -36,6 +36,10 @@ need ios/EglViewer/Details/ItemDetailsModel.swift
 need ios/EglViewer/Details/ShareFiles.swift
 need ios/EglViewer/Adding/AddMenu.swift
 need ios/EglViewer/Adding/PickedFiles.swift
+need ios/EglViewer/Organize/FolderEditor.swift
+need ios/EglViewer/Organize/SmartFolderEditor.swift
+need ios/EglViewer/Organize/SmartRules.swift
+need ios/EglViewer/Organize/TagsScreen.swift
 need ios/EglViewer/Screens/WelcomeScreen.swift
 need ios/EglViewer/Screens/LibraryScreen.swift
 need ios/EglViewer/Resources/Info.plist
@@ -46,12 +50,15 @@ need ios/EglViewerTests/BrowseModelTests.swift
 need ios/EglViewerUITests/BrowseUITests.swift
 need ios/EglViewerTests/DetailsAndActionsTests.swift
 need ios/EglViewerTests/AddingTests.swift
+need ios/EglViewerTests/OrganizeTests.swift
+need ios/EglViewerUITests/OrganizeUITests.swift
 need ios/EglViewerUITests/PreviewUITests.swift
 need ios/EglCore/Package.swift
 need ios/EglCore/Sources/CEglLibrary/egl_library.h
 need ios/EglCore/Sources/CEglLibrary/module.modulemap
 need ios/EglCore/Sources/EglCore/Library.swift
 need ios/EglCore/Sources/EglCore/PlatformDecoder.swift
+need ios/EglCore/Sources/EglCore/JSONValue.swift
 need android/README.md
 need android/gradlew
 need android/app/build.gradle.kts

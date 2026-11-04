@@ -198,6 +198,7 @@ final class OpenLibrary {
     private(set) var counts: LibraryCounts?
     private(set) var folders: [Folder] = []
     private(set) var smartFolders: [SmartFolder] = []
+    private(set) var tagGroups: [TagGroup] = []
     /// Imports that run now.
     private(set) var imports: [UInt64: ImportProgress] = [:]
     /// The sort, look and last place, saved per library (D-094).
@@ -237,13 +238,15 @@ final class OpenLibrary {
     /// Counts, info, folders and smart folders, read again.
     func refresh() async {
         let library = library
-        let read = await Task.detached { () -> (LibraryCounts?, LibraryInfo?, [Folder]?, [SmartFolder]?) in
-            (try? library.counts(), try? library.info(), try? library.folders(), try? library.smartFolders())
+        let read = await Task.detached { () -> (LibraryCounts?, LibraryInfo?, [Folder]?, [SmartFolder]?, [TagGroup]?) in
+            (try? library.counts(), try? library.info(), try? library.folders(), try? library.smartFolders(),
+             try? library.tagGroups())
         }.value
         if let counts = read.0 { self.counts = counts }
         if let info = read.1 { self.info = info }
         if let folders = read.2 { self.folders = folders }
         if let smart = read.3 { smartFolders = smart }
+        if let groups = read.4 { tagGroups = groups }
     }
 
     func close() async {
@@ -375,6 +378,130 @@ final class OpenLibrary {
         return parts.joined(separator: " · ")
     }
 
+    // MARK: Organizing (D-097)
+
+    /// One edit of the folder tree; false when the core refused it (the alert says why).
+    @discardableResult
+    func saveFolder(_ change: FolderChange) async -> Bool {
+        guard let tree = await perform({ try $0.saveFolder(change) }) else { return false }
+        folders = tree
+        return true
+    }
+
+    func deleteFolder(_ id: String, trashItems: Bool) async {
+        guard let tree = await perform({ try $0.deleteFolder(id, trashItems: trashItems) }) else { return }
+        folders = tree
+        forgetIfSaved(.folder(id: id, name: ""))
+        await refresh()
+        show(String(localized: "toast.folderDeleted"), undoable: false)
+    }
+
+    /// The new parent's position for a move: after its last child.
+    func endIndex(under parent: String?) -> Int {
+        guard let parent else { return folders.count }
+        return Self.find(parent, in: folders)?.children.count ?? 0
+    }
+
+    /// The folder and its descendants: where it cannot move.
+    func subtree(of id: String) -> Set<String> {
+        guard let folder = Self.find(id, in: folders) else { return [id] }
+        var ids: Set<String> = []
+        func walk(_ folder: Folder) {
+            ids.insert(folder.id)
+            folder.children.forEach(walk)
+        }
+        walk(folder)
+        return ids
+    }
+
+    func parent(of id: String) -> String? {
+        func search(_ folders: [Folder], _ parent: String?) -> String?? {
+            for folder in folders {
+                if folder.id == id { return .some(parent) }
+                if let found = search(folder.children, folder.id) { return found }
+            }
+            return nil
+        }
+        return search(folders, nil) ?? nil
+    }
+
+    @discardableResult
+    func renameTag(_ from: String, to: String) async -> Bool {
+        let to = to.trimmingCharacters(in: .whitespacesAndNewlines)
+        guard !to.isEmpty, to != from else { return false }
+        guard await perform({ try $0.renameTag(from, to: to) }) != nil else { return false }
+        await refresh()
+        return true
+    }
+
+    @discardableResult
+    func mergeTag(_ source: String, into target: String) async -> Bool {
+        guard source != target, await perform({ try $0.mergeTag(source, into: target) }) != nil else { return false }
+        await refresh()
+        return true
+    }
+
+    func deleteTag(_ name: String) async {
+        guard await perform({ try $0.deleteTag(name) }) != nil else { return }
+        await refresh()
+        show(String(localized: "toast.tagDeleted"), undoable: false)
+    }
+
+    @discardableResult
+    func saveTagGroup(_ change: TagGroupChange) async -> Bool {
+        guard let groups = await perform({ try $0.saveTagGroup(change) }) else { return false }
+        tagGroups = groups
+        return true
+    }
+
+    func deleteTagGroup(_ id: String) async {
+        if let groups = await perform({ try $0.deleteTagGroup(id) }) {
+            tagGroups = groups
+        }
+    }
+
+    @discardableResult
+    func saveSmartFolder(_ change: SmartFolderChange) async -> Bool {
+        guard let tree = await perform({ try $0.saveSmartFolder(change) }) else { return false }
+        smartFolders = tree
+        return true
+    }
+
+    func deleteSmartFolder(_ id: String) async {
+        guard let tree = await perform({ try $0.deleteSmartFolder(id) }) else { return }
+        smartFolders = tree
+        forgetIfSaved(.smart(id: id, name: ""))
+        show(String(localized: "toast.smartFolderDeleted"), undoable: false)
+    }
+
+    /// The rules of a view's query, for "Save as Smart Folder".
+    func smartDraft(for query: LibraryQuery) async -> SmartRulesDraft? {
+        await perform { try $0.smartRules(of: query) }
+    }
+
+    func smartFolder(_ id: String) -> SmartFolder? {
+        Self.find(id, in: smartFolders)
+    }
+
+    /// Smart folders in tree order with their depth, for the parent picker.
+    var smartFolderList: [(folder: SmartFolder, depth: Int)] {
+        var list: [(folder: SmartFolder, depth: Int)] = []
+        func walk(_ folders: [SmartFolder], _ depth: Int) {
+            for folder in folders {
+                list.append((folder, depth))
+                walk(folder.children, depth + 1)
+            }
+        }
+        walk(smartFolders, 0)
+        return list
+    }
+
+    /// A deleted folder is not the place the library opens in next time.
+    private func forgetIfSaved(_ place: Place) {
+        guard let saved = savedView.place, saved.key == place.key else { return }
+        forgetPlace()
+    }
+
     // MARK: Folders
 
     /// Folders in tree order with their depth, for pickers; locked ones only when open.
@@ -414,7 +541,7 @@ final class OpenLibrary {
     /// Whether `place` still exists: a saved folder may have been deleted since.
     func exists(_ place: Place) -> Bool {
         switch place {
-        case .all, .uncategorized, .untagged, .trash:
+        case .all, .uncategorized, .untagged, .trash, .tag:
             return true
         case let .folder(id, _):
             return Self.find(id, in: folders).map { !$0.isLocked || $0.isUnlocked } ?? false

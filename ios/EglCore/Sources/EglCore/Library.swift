@@ -204,15 +204,68 @@ public final class Library: @unchecked Sendable {
 
     @discardableResult
     public func createFolder(named name: String, parent: String? = nil) throws -> [Folder] {
-        struct Create: Encodable {
-            let type = "create"
-            let name: String
-            let parent: String?
-            let description = ""
-            let iconColor: String? = nil
-        }
-        let change = try encode(Create(name: name, parent: parent))
+        try saveFolder(.create(name: name, parent: parent))
+    }
+
+    /// One edit of the folder tree; returns the new tree.
+    @discardableResult
+    public func saveFolder(_ change: FolderChange) throws -> [Folder] {
+        let change = try encode(change)
         return try change.withCString { change in try json { egl_save_folder($0, change, $1) } }
+    }
+
+    /// Deletes a folder with its subfolders; `trashItems` also moves their items to the trash.
+    @discardableResult
+    public func deleteFolder(_ id: String, trashItems: Bool) throws -> [Folder] {
+        try id.withCString { id in try json { egl_delete_folder($0, id, trashItems ? 1 : 0, $1) } }
+    }
+
+    /// Renames a tag on every item; onto an existing name the two merge.
+    public func renameTag(_ from: String, to: String) throws {
+        let lib = try live()
+        try check(from.withCString { from in to.withCString { egl_rename_tag(lib, from, $0) } })
+    }
+
+    /// Moves `source` onto `target` on every item.
+    public func mergeTag(_ source: String, into target: String) throws {
+        let lib = try live()
+        try check(source.withCString { source in target.withCString { egl_merge_tags(lib, source, $0) } })
+    }
+
+    /// Removes a tag from every item.
+    public func deleteTag(_ name: String) throws {
+        let lib = try live()
+        try check(name.withCString { egl_delete_tag(lib, $0) })
+    }
+
+    public func tagGroups() throws -> [TagGroup] { try json { egl_tag_groups($0, $1) } }
+
+    @discardableResult
+    public func saveTagGroup(_ change: TagGroupChange) throws -> [TagGroup] {
+        let change = try encode(change)
+        return try change.withCString { change in try json { egl_save_tag_group($0, change, $1) } }
+    }
+
+    @discardableResult
+    public func deleteTagGroup(_ id: String) throws -> [TagGroup] {
+        try id.withCString { id in try json { egl_delete_tag_group($0, id, $1) } }
+    }
+
+    @discardableResult
+    public func saveSmartFolder(_ change: SmartFolderChange) throws -> [SmartFolder] {
+        let change = try encode(change)
+        return try change.withCString { change in try json { egl_save_smart_folder($0, change, $1) } }
+    }
+
+    @discardableResult
+    public func deleteSmartFolder(_ id: String) throws -> [SmartFolder] {
+        try id.withCString { id in try json { egl_delete_smart_folder($0, id, $1) } }
+    }
+
+    /// The rules of `query`, for "Save as smart folder".
+    public func smartRules(of query: LibraryQuery) throws -> SmartRulesDraft {
+        let query = try encode(query)
+        return try query.withCString { query in try json { egl_smart_rules($0, query, $1) } }
     }
 
     public func tags() throws -> [Tag] { try json { egl_tags($0, $1) } }

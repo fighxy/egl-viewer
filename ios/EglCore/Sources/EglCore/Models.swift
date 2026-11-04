@@ -81,12 +81,66 @@ public struct Folder: Codable, Equatable, Identifiable, Sendable {
     public var hasPassword: Bool
     public var lockLabel: String?
     public var lockColor: String?
+    /// The sort the folder opens with; nil follows the library's sort.
+    public var orderBy: SortKey?
+    public var sortAscending: Bool?
+}
+
+/// The colours a folder or a tag group may be given (library-core `FOLDER_COLORS`); stored as
+/// their raw names.
+public enum LabelColor: String, Codable, CaseIterable, Sendable {
+    case red, orange, yellow, green, aqua, blue, purple, pink
+}
+
+/// One edit of the folder tree; the answer is the new tree.
+public enum FolderChange: Encodable, Equatable, Sendable {
+    /// After the last child of `parent` (nil: the top level).
+    case create(name: String, parent: String?, description: String = "", iconColor: String? = nil)
+    /// The folder's own properties; folder tags are labels on the folder, not item tags.
+    case update(
+        id: String, name: String, description: String, tags: [String], iconColor: String?,
+        orderBy: SortKey?, sortAscending: Bool?
+    )
+    /// Under `parent` (nil: the top level) at `index` among its other children.
+    case move(id: String, parent: String?, index: Int)
+
+    private enum Keys: String, CodingKey {
+        case type, id, name, parent, description, tags, iconColor, orderBy, sortAscending, index
+    }
+
+    public func encode(to encoder: Encoder) throws {
+        var c = encoder.container(keyedBy: Keys.self)
+        switch self {
+        case let .create(name, parent, description, iconColor):
+            try c.encode("create", forKey: .type)
+            try c.encode(name, forKey: .name)
+            try c.encodeIfPresent(parent, forKey: .parent)
+            try c.encode(description, forKey: .description)
+            try c.encodeIfPresent(iconColor, forKey: .iconColor)
+        case let .update(id, name, description, tags, iconColor, orderBy, sortAscending):
+            try c.encode("update", forKey: .type)
+            try c.encode(id, forKey: .id)
+            try c.encode(name, forKey: .name)
+            try c.encode(description, forKey: .description)
+            try c.encode(tags, forKey: .tags)
+            try c.encodeIfPresent(iconColor, forKey: .iconColor)
+            try c.encodeIfPresent(orderBy, forKey: .orderBy)
+            try c.encodeIfPresent(sortAscending, forKey: .sortAscending)
+        case let .move(id, parent, index):
+            try c.encode("move", forKey: .type)
+            try c.encode(id, forKey: .id)
+            try c.encodeIfPresent(parent, forKey: .parent)
+            try c.encode(index, forKey: .index)
+        }
+    }
 }
 
 public struct SmartFolder: Codable, Equatable, Identifiable, Sendable {
     public var id: String
     public var name: String
     public var children: [SmartFolder]
+    /// Eagle's rule language, as stored.
+    public var conditions: JSONValue?
     /// Rules this build cannot evaluate: they never match.
     public var unsupported: [String]
 }
@@ -99,6 +153,69 @@ public struct ExtensionCount: Codable, Equatable, Hashable, Sendable {
     public init(ext: String, count: Int) {
         self.ext = ext
         self.count = count
+    }
+}
+
+/// A smart folder edit; `conditions` is Eagle's array, stored unchanged.
+public enum SmartFolderChange: Encodable, Equatable, Sendable {
+    case create(name: String, parent: String?, conditions: JSONValue)
+    case update(id: String, name: String, conditions: JSONValue)
+
+    private enum Keys: String, CodingKey { case type, id, name, parent, conditions }
+
+    public func encode(to encoder: Encoder) throws {
+        var c = encoder.container(keyedBy: Keys.self)
+        switch self {
+        case let .create(name, parent, conditions):
+            try c.encode("create", forKey: .type)
+            try c.encode(name, forKey: .name)
+            try c.encodeIfPresent(parent, forKey: .parent)
+            try c.encode(conditions, forKey: .conditions)
+        case let .update(id, name, conditions):
+            try c.encode("update", forKey: .type)
+            try c.encode(id, forKey: .id)
+            try c.encode(name, forKey: .name)
+            try c.encode(conditions, forKey: .conditions)
+        }
+    }
+}
+
+/// "Save as smart folder": the rules of a view's query.
+public struct SmartRulesDraft: Codable, Equatable, Sendable {
+    public var parent: String?
+    public var conditions: JSONValue
+}
+
+/// A named set of tags, for the tag list.
+public struct TagGroup: Codable, Equatable, Identifiable, Sendable {
+    public var id: String
+    public var name: String
+    /// One of `LabelColor`, or what an imported library holds.
+    public var color: String?
+    public var tags: [String]
+}
+
+public enum TagGroupChange: Encodable, Equatable, Sendable {
+    case create(name: String, color: String?, tags: [String])
+    case update(id: String, name: String, color: String?, tags: [String])
+
+    private enum Keys: String, CodingKey { case type, id, name, color, tags }
+
+    public func encode(to encoder: Encoder) throws {
+        var c = encoder.container(keyedBy: Keys.self)
+        switch self {
+        case let .create(name, color, tags):
+            try c.encode("create", forKey: .type)
+            try c.encode(name, forKey: .name)
+            try c.encodeIfPresent(color, forKey: .color)
+            try c.encode(tags, forKey: .tags)
+        case let .update(id, name, color, tags):
+            try c.encode("update", forKey: .type)
+            try c.encode(id, forKey: .id)
+            try c.encode(name, forKey: .name)
+            try c.encodeIfPresent(color, forKey: .color)
+            try c.encode(tags, forKey: .tags)
+        }
     }
 }
 
