@@ -16,6 +16,7 @@ struct LibraryScreen: View {
     @State private var deletingFolder: Folder? = nil
     @State private var smartEditing: SmartEditing? = nil
     @State private var deletingSmart: SmartFolder? = nil
+    @State private var lockAction: LockAction? = nil
 
     var body: some View {
         NavigationStack(path: $path) {
@@ -40,12 +41,17 @@ struct LibraryScreen: View {
                 if !open.folders.isEmpty || !open.readOnly {
                     Section("library.folders") {
                         OutlineGroup(open.folders, children: \.subfolders) { folder in
-                            FolderRow(folder: folder)
-                                .contextMenu {
-                                    if !open.readOnly, !folder.isLocked || folder.isUnlocked {
-                                        folderMenu(folder)
-                                    }
+                            FolderRow(folder: folder) {
+                                lockAction = .unlock(folder)
+                            }
+                            .contextMenu {
+                                if folder.isLocked, !folder.isUnlocked {
+                                    lockedMenu(folder)
+                                } else if !open.readOnly {
+                                    folderMenu(folder)
+                                    lockMenu(folder)
                                 }
+                            }
                         }
                         if !open.readOnly {
                             Button {
@@ -112,6 +118,16 @@ struct LibraryScreen: View {
                     }
                     .accessibilityIdentifier("library.close")
                 }
+                if open.hasUnlockedFolders {
+                    ToolbarItem(placement: .topBarTrailing) {
+                        Button {
+                            Task { await open.relockAll() }
+                        } label: {
+                            Label("lock.lockAll", systemImage: "lock")
+                        }
+                        .accessibilityIdentifier("lock.lockAll")
+                    }
+                }
                 if !open.readOnly {
                     ToolbarItem(placement: .topBarTrailing) {
                         AddMenu(open: open, folder: nil, source: $adding)
@@ -127,6 +143,9 @@ struct LibraryScreen: View {
         }
         .sheet(item: $movingFolder) { folder in
             FolderMovePicker(open: open, folder: folder)
+        }
+        .sheet(item: $lockAction) { action in
+            LockSheet(open: open, action: action)
         }
         .sheet(item: $smartEditing) { editing in
             SmartFolderEditor(open: open, editing: editing)
@@ -202,6 +221,72 @@ struct LibraryScreen: View {
         }
     }
 
+    /// A closed lock: open it, with the password or the recovery key.
+    @ViewBuilder
+    private func lockedMenu(_ folder: Folder) -> some View {
+        Button {
+            lockAction = .unlock(folder)
+        } label: {
+            Label("lock.unlock", systemImage: "lock.open")
+        }
+        Button {
+            lockAction = .recover(folder)
+        } label: {
+            Label("lock.recover", systemImage: "key")
+        }
+        if !open.readOnly, !folder.hasPassword {
+            // A lock imported without a password (an Eagle folder): give it one or take it off.
+            Button {
+                lockAction = .lock(folder)
+            } label: {
+                Label("lock.setPassword", systemImage: "lock.rotation")
+            }
+            Button(role: .destructive) {
+                lockAction = .removeLock(folder)
+            } label: {
+                Label("lock.removeLock", systemImage: "lock.slash")
+            }
+        }
+    }
+
+    /// An open folder: lock it; an open lock: close it again or manage it.
+    @ViewBuilder
+    private func lockMenu(_ folder: Folder) -> some View {
+        if !folder.isLocked {
+            Button {
+                lockAction = .lock(folder)
+            } label: {
+                Label("lock.lock", systemImage: "lock")
+            }
+        } else {
+            Button {
+                Task { _ = await open.lockWork { try $0.relock(folder.id) } }
+            } label: {
+                Label("lock.lockNow", systemImage: "lock")
+            }
+            Button {
+                lockAction = .changePassword(folder)
+            } label: {
+                Label("lock.changePassword", systemImage: "key")
+            }
+            Button {
+                lockAction = .renewKey(folder)
+            } label: {
+                Label("lock.renewKey", systemImage: "key.viewfinder")
+            }
+            Button {
+                lockAction = .label(folder)
+            } label: {
+                Label("lock.labelTitle", systemImage: "tag")
+            }
+            Button(role: .destructive) {
+                lockAction = .removeLock(folder)
+            } label: {
+                Label("lock.removeLock", systemImage: "lock.slash")
+            }
+        }
+    }
+
     @ViewBuilder
     private func smartMenu(_ folder: SmartFolder) -> some View {
         Button {
@@ -261,25 +346,27 @@ private struct PlaceLink: View {
     }
 }
 
-/// A folder of the tree. A locked folder shows its lock and does not open; unlocking arrives
-/// with the locks PR.
+/// A folder of the tree. A closed lock shows its label and opens the unlock sheet.
 private struct FolderRow: View {
     let folder: Folder
+    let unlock: () -> Void
 
     var body: some View {
         if folder.isLocked, !folder.isUnlocked {
-            HStack {
-                Label {
-                    Text(verbatim: folder.lockLabel ?? folder.name)
-                } icon: {
-                    Image(systemName: "lock.fill")
+            Button(action: unlock) {
+                HStack {
+                    Label {
+                        Text(verbatim: folder.lockLabel ?? folder.name)
+                    } icon: {
+                        Image(systemName: "lock.fill")
+                            .foregroundStyle(folder.lockColor.map(LabelColors.color) ?? EglTokens.mutedForeground)
+                    }
+                    Spacer()
+                    Text("folder.locked")
+                        .font(.caption)
                 }
-                Spacer()
-                Text("folder.locked")
-                    .font(.caption)
-                    .foregroundStyle(EglTokens.mutedForeground)
+                .foregroundStyle(EglTokens.mutedForeground)
             }
-            .foregroundStyle(EglTokens.mutedForeground)
             .accessibilityIdentifier("folder.\(folder.name)")
         } else {
             NavigationLink(value: Place.folder(id: folder.id, name: folder.name)) {

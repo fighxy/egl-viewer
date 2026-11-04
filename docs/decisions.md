@@ -1891,3 +1891,39 @@ The fifth app PR of the iOS series (D-093–D-096).
   grouped, browsed and deleted, a view saved as a smart folder; UI tests for a new folder and a
   tag's items.
 
+## D-098 iOS locked folders, locking on leaving, and the app's login with Face ID (2026-11-04)
+
+The sixth app PR of the iOS series (D-093–D-097). YubiKey stays a desktop feature.
+
+- **Locked folders.** A closed lock shows its label (and colour) instead of the folder; a tap
+  opens the unlock sheet. Its long-press menu offers Unlock and Use Recovery Key (the key or
+  its twelve words open the folder and set a new password); a lock imported without a password
+  (from Eagle) also offers Set Password and Remove Lock. An open folder offers Lock (password
+  twice, an optional label and colour); an open lock offers Lock Now, Change Password, New
+  Recovery Key, Lock Label and Remove Lock. Lock All sits in the library's toolbar while any
+  folder is open. The recovery key is shown once after locking or renewing, with copy buttons
+  (the clipboard keeps it for this device only, for two minutes) and an "I have saved it"
+  switch before Done. Every lock call runs off the main thread (Argon2id). A wrong password is
+  said in the sheet; other failures go to the alert. The library's views and counts follow.
+- **Leaving the app locks again.** When the app goes to the background every open folder is
+  locked again (`egl_relock_folder(NULL)`), and the decoded originals and thumbnails in memory
+  are dropped.
+- **The app's login.** App Lock (on the Welcome screen for now; Settings arrive with the next
+  PR) sets a password or PIN, changes it and turns it off. It is kept as a PBKDF2-HMAC-SHA256
+  hash (310,000 rounds, a salt of its own) in the Keychain, on this device only, readable while
+  the phone is unlocked. Face ID or Touch ID, when the device has it, is a Keychain item that
+  only biometry can read (`.biometryCurrentSet`): a new face or finger needs the password
+  again. The app locks when it goes to the background and asks at launch; from the fifth wrong
+  try each one makes the next wait longer (30 s, 60 s, …). The login and, while a login is
+  set, a privacy cover for the app switcher live in a window above every other one, so sheets
+  and the preview never show behind them. UI tests keep the login in memory.
+- **Strings.** `NSFaceIDUsageDescription` is localized through `InfoPlist.xcstrings`; the
+  strings check skips lines marked `// not a key`.
+- **EglCore:** `lockFolder(_:password:label:labelColor:)`, `recoverFolder`,
+  `changeFolderPassword`, `renewRecoveryKey`, `removeFolderLock`, `setLockLabel`; a public
+  `EglError(code:message:)`.
+- **Tests.** EglCore on macOS: a lock's whole life (label, recovery, change, renew, label,
+  remove). The app on the simulator: hashes, the app lock (set, change, turn off, waiting after
+  wrong tries), the Keychain store, a folder locked, a wrong password kept out of the alert,
+  unlocked and locked again by Lock All; a UI test of the login after the app comes back.
+

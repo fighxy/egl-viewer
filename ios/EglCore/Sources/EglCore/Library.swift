@@ -18,6 +18,11 @@ public struct EglError: Error, Equatable, CustomStringConvertible, Sendable {
 
     public var description: String { message.isEmpty ? "\(code)" : message }
 
+    public init(code: Code, message: String) {
+        self.code = code
+        self.message = message
+    }
+
     init(status: EglStatus, message: String) {
         code = Code(rawValue: Int(status.rawValue)) ?? .other
         self.message = message
@@ -304,13 +309,64 @@ public final class Library: @unchecked Sendable {
 
     // MARK: Locked folders
 
-    /// Locks a folder and returns its recovery key, to be shown once.
-    public func lockFolder(_ id: String, password: String) throws -> RecoveryKey {
-        struct Request: Encodable { let password: String }
-        let request = try encode(Request(password: password))
+    /// Locks a folder (or sets the first password of a lock imported without one) and returns
+    /// its recovery key, to be shown once. The label and its colour stay readable while locked.
+    public func lockFolder(_ id: String, password: String, label: String? = nil, labelColor: String? = nil) throws -> RecoveryKey {
+        struct Request: Encodable {
+            let password: String
+            let label: String?
+            let labelColor: String?
+        }
+        let request = try encode(Request(password: password, label: label, labelColor: labelColor))
         return try id.withCString { id in
             try request.withCString { request in try json { egl_lock_folder($0, id, request, $1) } }
         }
+    }
+
+    /// Opens a folder with its recovery key or phrase and sets a new password.
+    public func recoverFolder(_ id: String, recovery: String, newPassword: String) throws {
+        let lib = try live()
+        try check(id.withCString { id in
+            recovery.withCString { recovery in
+                newPassword.withCString { egl_recover_folder(lib, id, recovery, $0) }
+            }
+        })
+    }
+
+    public func changeFolderPassword(_ id: String, current: String, new: String) throws {
+        let lib = try live()
+        try check(id.withCString { id in
+            current.withCString { current in new.withCString { egl_change_folder_password(lib, id, current, $0) } }
+        })
+    }
+
+    /// A new recovery key; the old one stops working.
+    public func renewRecoveryKey(_ id: String, password: String) throws -> RecoveryKey {
+        try id.withCString { id in
+            try password.withCString { password in try json { egl_renew_recovery_key($0, id, password, $1) } }
+        }
+    }
+
+    /// Decrypts the folder and takes the lock off ("" for a lock imported without password).
+    public func removeFolderLock(_ id: String, password: String) throws {
+        let lib = try live()
+        try check(id.withCString { id in password.withCString { egl_remove_folder_lock(lib, id, $0) } })
+    }
+
+    /// The plaintext label of a locked folder; nil clears a part.
+    public func setLockLabel(_ id: String, label: String?, color: String?) throws {
+        let lib = try live()
+        let status: EglStatus = id.withCString { id in
+            Self.withOptionalCString(label) { label in
+                Self.withOptionalCString(color) { egl_set_lock_label(lib, id, label, $0) }
+            }
+        }
+        try check(status)
+    }
+
+    private static func withOptionalCString<T>(_ text: String?, _ body: (UnsafePointer<CChar>?) -> T) -> T {
+        guard let text else { return body(nil) }
+        return text.withCString { body($0) }
     }
 
     public func unlockFolder(_ id: String, password: String) throws {

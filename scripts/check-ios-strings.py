@@ -40,7 +40,8 @@ def main() -> int:
     for path in (ROOT / "EglViewer").rglob("*.swift"):
         for line in path.read_text(encoding="utf-8").splitlines():
             # Identifiers and SF Symbol names (`Image(systemName:)`, also in a ternary).
-            if "accessibilityIdentifier" in line or "systemName:" in line:
+            # A line can say it holds no keys: `// not a key` (a Keychain service, a symbol).
+            if "accessibilityIdentifier" in line or "systemName:" in line or "// not a key" in line:
                 continue
             for match in LITERAL.finditer(line):
                 before = line[: match.start()].rstrip()
