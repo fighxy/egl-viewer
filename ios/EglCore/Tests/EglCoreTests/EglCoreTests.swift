@@ -268,6 +268,41 @@ final class EglCoreTests: XCTestCase {
         XCTAssertEqual(try library.deleteSmartFolder(folder.id), [])
     }
 
+    func testALockCanBeRecoveredChangedAndRemoved() throws {
+        let library = try openNew()
+        try seeded(library, count: 1)
+        let folder = try XCTUnwrap(try library.createFolder(named: "Diary").first)
+        let view = try library.openView()
+        let id = try library.ids(of: view.viewId, start: 0, count: 1)[0]
+        try library.edit(ItemsTarget(ids: [id]), .addToFolders([folder.id]))
+
+        let key = try library.lockFolder(folder.id, password: "one", label: "Private", labelColor: "purple")
+        var locked = try XCTUnwrap(try library.folders().first)
+        XCTAssertTrue(locked.isLocked)
+        XCTAssertFalse(locked.isUnlocked)
+        XCTAssertEqual(locked.lockLabel, "Private")
+        XCTAssertEqual(locked.lockColor, "purple")
+
+        try library.recoverFolder(folder.id, recovery: key.phrase, newPassword: "two")
+        XCTAssertEqual(try library.counts().all, 1, "recovery opens the folder")
+        try library.relock(folder.id)
+        XCTAssertThrowsError(try library.unlockFolder(folder.id, password: "one"))
+        try library.unlockFolder(folder.id, password: "two")
+        try library.changeFolderPassword(folder.id, current: "two", new: "three")
+        let renewed = try library.renewRecoveryKey(folder.id, password: "three")
+        XCTAssertNotEqual(renewed.key, key.key)
+        try library.setLockLabel(folder.id, label: nil, color: "green")
+        locked = try XCTUnwrap(try library.folders().first)
+        XCTAssertNil(locked.lockLabel)
+        XCTAssertEqual(locked.lockColor, "green")
+        XCTAssertThrowsError(try library.removeFolderLock(folder.id, password: "two")) { error in
+            XCTAssertEqual((error as! EglError).code, .wrongPassword)
+        }
+        try library.removeFolderLock(folder.id, password: "three")
+        XCTAssertFalse(try XCTUnwrap(try library.folders().first).isLocked)
+        XCTAssertEqual(try library.originalBytes(id)?.dropFirst().prefix(3), Data("PNG".utf8))
+    }
+
     func testALockedFolderHidesItsItemsUntilUnlocked() throws {
         let library = try openNew()
         try seeded(library, count: 1)

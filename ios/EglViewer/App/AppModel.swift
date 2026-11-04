@@ -502,6 +502,44 @@ final class OpenLibrary {
         forgetPlace()
     }
 
+    // MARK: Locked folders (D-098)
+
+    /// Any folder open now: what "Lock All" and leaving the app lock again.
+    var hasUnlockedFolders: Bool {
+        func any(_ folders: [Folder]) -> Bool {
+            folders.contains { ($0.isLocked && $0.isUnlocked) || any($0.children) }
+        }
+        return any(folders)
+    }
+
+    /// Runs a lock operation (Argon2id: slow, off the main thread) and reads the tree again,
+    /// since a lock changes what the views show. A wrong password is reported to the caller,
+    /// not the alert.
+    func lockWork<T: Sendable>(_ work: @escaping @Sendable (Library) throws -> T) async -> Result<T, EglError> {
+        let library = library
+        let result: Result<T, Error> = await Task.detached {
+            Result(catching: { try work(library) })
+        }.value
+        await refresh()
+        switch result {
+        case let .success(value):
+            return .success(value)
+        case let .failure(error as EglError) where error.code == .wrongPassword:
+            return .failure(error)
+        case let .failure(error):
+            report(error)
+            return .failure(error as? EglError ?? EglError(code: .other, message: error.localizedDescription))
+        }
+    }
+
+    /// Locks every open folder again: the Lock All button, and when the app leaves the screen.
+    func relockAll() async {
+        guard hasUnlockedFolders else { return }
+        _ = await lockWork { try $0.relock() }
+        originals.removeAll()
+        thumbnails.removeAll()
+    }
+
     // MARK: Folders
 
     /// Folders in tree order with their depth, for pickers; locked ones only when open.
