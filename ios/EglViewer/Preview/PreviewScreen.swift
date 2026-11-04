@@ -43,6 +43,7 @@ struct PreviewScreen: View {
                 }
                 .scrollTargetBehavior(.paging)
                 .scrollPosition(id: $position)
+                .modifier(VisiblePage(position: $position))
                 .scrollDisabled(zoomed)
                 .scrollIndicators(.hidden)
                 .accessibilityIdentifier("preview.pager")
@@ -219,5 +220,23 @@ private struct PreviewPage: View {
         }
         .accessibilityElement(children: .contain)
         .accessibilityIdentifier(cell.map { "preview.page.\($0.name)" } ?? "preview.page")
+    }
+}
+
+/// The page that fills the screen, from the system on iOS 18 and later, as a second source
+/// for the position next to `scrollPosition`.
+private struct VisiblePage: ViewModifier {
+    @Binding var position: Int?
+
+    func body(content: Content) -> some View {
+        if #available(iOS 18.0, *) {
+            content.onScrollTargetVisibilityChange(idType: Int.self, threshold: 0.6) { visible in
+                if let page = visible.first, page != position {
+                    position = page
+                }
+            }
+        } else {
+            content
+        }
     }
 }

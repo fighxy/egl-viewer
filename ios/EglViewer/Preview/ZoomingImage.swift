@@ -74,6 +74,8 @@ struct ZoomingImage: UIViewRepresentable {
         scroll.showsVerticalScrollIndicator = false
         scroll.contentInsetAdjustmentBehavior = .never
         scroll.backgroundColor = .clear
+        // At the fitting size the image does not pan, so swipes reach the pager around it.
+        scroll.isScrollEnabled = false
         let view = UIImageView(image: image)
         view.contentMode = .scaleAspectFit
         view.isUserInteractionEnabled = true
@@ -123,6 +125,7 @@ struct ZoomingImage: UIViewRepresentable {
 
         func scrollViewDidZoom(_ scrollView: UIScrollView) {
             let now = scrollView.zoomScale > 1.01
+            scrollView.isScrollEnabled = now
             if zoomed.wrappedValue != now {
                 zoomed.wrappedValue = now
             }
