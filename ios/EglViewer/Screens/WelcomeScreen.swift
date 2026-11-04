@@ -5,8 +5,7 @@ struct WelcomeScreen: View {
     @Environment(AppModel.self) private var model
     @State private var creating = false
     @State private var picking = false
-    @State private var appLock = false
-    @Environment(AppLock.self) private var lock
+    @State private var settings = false
 
     var body: some View {
         NavigationStack {
@@ -68,15 +67,15 @@ struct WelcomeScreen: View {
             .toolbar {
                 ToolbarItem(placement: .topBarTrailing) {
                     Button {
-                        appLock = true
+                        settings = true
                     } label: {
-                        Label("appLock.title", systemImage: "lock.shield")
+                        Label("settings.title", systemImage: "gearshape")
                     }
-                    .accessibilityIdentifier("welcome.appLock")
+                    .accessibilityIdentifier("welcome.settings")
                 }
             }
-            .sheet(isPresented: $appLock) {
-                AppLockSettings(lock: lock)
+            .sheet(isPresented: $settings) {
+                SettingsScreen(open: nil)
             }
             .overlay {
                 if model.busy { ProgressView().controlSize(.large) }

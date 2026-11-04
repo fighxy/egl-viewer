@@ -41,9 +41,11 @@ need ios/EglViewer/Organize/SmartFolderEditor.swift
 need ios/EglViewer/Organize/SmartRules.swift
 need ios/EglViewer/Organize/TagsScreen.swift
 need ios/EglViewer/Locks/AppLock.swift
-need ios/EglViewer/Locks/AppLockSettings.swift
+need ios/EglViewer/Locks/AppLockForm.swift
 need ios/EglViewer/Locks/LockSheets.swift
 need ios/EglViewer/Locks/LoginScreen.swift
+need ios/EglViewer/Settings/SettingsScreen.swift
+need ios/EglViewer/Settings/ExportScreen.swift
 need ios/EglViewer/Resources/InfoPlist.xcstrings
 need ios/EglViewer/Screens/WelcomeScreen.swift
 need ios/EglViewer/Screens/LibraryScreen.swift
@@ -59,6 +61,8 @@ need ios/EglViewerTests/OrganizeTests.swift
 need ios/EglViewerUITests/OrganizeUITests.swift
 need ios/EglViewerTests/LocksTests.swift
 need ios/EglViewerUITests/LocksUITests.swift
+need ios/EglViewerTests/MaintenanceTests.swift
+need ios/EglViewerUITests/SettingsUITests.swift
 need ios/EglViewerUITests/PreviewUITests.swift
 need ios/EglCore/Package.swift
 need ios/EglCore/Sources/CEglLibrary/egl_library.h

@@ -17,6 +17,7 @@ struct LibraryScreen: View {
     @State private var smartEditing: SmartEditing? = nil
     @State private var deletingSmart: SmartFolder? = nil
     @State private var lockAction: LockAction? = nil
+    @State private var settings = false
 
     var body: some View {
         NavigationStack(path: $path) {
@@ -118,6 +119,14 @@ struct LibraryScreen: View {
                     }
                     .accessibilityIdentifier("library.close")
                 }
+                ToolbarItem(placement: .topBarLeading) {
+                    Button {
+                        settings = true
+                    } label: {
+                        Label("settings.title", systemImage: "gearshape")
+                    }
+                    .accessibilityIdentifier("library.settings")
+                }
                 if open.hasUnlockedFolders {
                     ToolbarItem(placement: .topBarTrailing) {
                         Button {
@@ -143,6 +152,9 @@ struct LibraryScreen: View {
         }
         .sheet(item: $movingFolder) { folder in
             FolderMovePicker(open: open, folder: folder)
+        }
+        .sheet(isPresented: $settings) {
+            SettingsScreen(open: open)
         }
         .sheet(item: $lockAction) { action in
             LockSheet(open: open, action: action)

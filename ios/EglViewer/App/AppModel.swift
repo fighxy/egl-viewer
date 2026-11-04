@@ -201,6 +201,8 @@ final class OpenLibrary {
     private(set) var tagGroups: [TagGroup] = []
     /// Imports that run now.
     private(set) var imports: [UInt64: ImportProgress] = [:]
+    /// Exports, by id, with their last progress (finished ones too, until the sheet clears them).
+    private(set) var exports: [UInt64: ExportProgress] = [:]
     /// The sort, look and last place, saved per library (D-094).
     private(set) var savedView: SavedView
     /// Shown in an alert over the library; cleared when the user dismisses it.
@@ -502,6 +504,46 @@ final class OpenLibrary {
         forgetPlace()
     }
 
+    // MARK: Maintenance and export (D-099)
+
+    func forgetExport(_ id: UInt64) {
+        exports[id] = nil
+    }
+
+    /// Starts an export; its progress arrives as events.
+    func startExport(_ request: ExportRequest) async -> ExportProgress? {
+        guard let started = await perform({ try $0.startExport(request) }) else { return nil }
+        if exports[started.id] == nil {
+            exports[started.id] = started
+        }
+        return started
+    }
+
+    /// A restored backup is another database: views and undo start over, so every open
+    /// screen asks for its view again and the tree is read anew.
+    func restoreBackup(_ name: String) async -> Bool {
+        guard let info = await perform({ try $0.restoreBackup(name) }) else { return false }
+        self.info = info
+        for browser in browsers {
+            if let model = browser.model {
+                Task { await model.reload() }
+            }
+        }
+        thumbnails.removeAll()
+        originals.removeAll()
+        await refresh()
+        show(String(localized: "toast.restored"), undoable: false)
+        return true
+    }
+
+    /// Renames the library: its folder keeps its name, the library's own name changes.
+    func rename(to name: String) async -> Bool {
+        let name = name.trimmingCharacters(in: .whitespacesAndNewlines)
+        guard !name.isEmpty, let info = await perform({ try $0.rename(to: name) }) else { return false }
+        self.info = info
+        return true
+    }
+
     // MARK: Locked folders (D-098)
 
     /// Any folder open now: what "Lock All" and leaving the app lock again.
@@ -635,8 +677,8 @@ final class OpenLibrary {
                 browser.model?.invalidated(views)
             }
             scheduleRefresh()
-        case .exportProgress:
-            break
+        case let .exportProgress(progress):
+            exports[progress.id] = progress
         }
     }
 

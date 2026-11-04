@@ -1927,3 +1927,33 @@ The sixth app PR of the iOS series (D-093–D-097). YubiKey stays a desktop feat
   wrong tries), the Keychain store, a folder locked, a wrong password kept out of the alert,
   unlocked and locked again by Lock All; a UI test of the login after the app comes back.
 
+## D-099 iOS Settings: library upkeep, backups, check and repair, export (2026-11-04)
+
+The seventh app PR of the iOS series (D-093–D-098).
+
+- **Settings** opens from the library screen (gear) and from Welcome. The library part:
+  - **Library**: the name (renaming changes the library's own name, not its folder), where it
+    lives, what it takes on disk (originals, thumbnails, database, backups) and Rebuild
+    Thumbnails (the core's preview task in the background, its progress in the import banner);
+  - **Backups**: Back Up Now and the list (daily, by hand, before an update, before a restore)
+    with Restore, confirmed. A restore is another database: views and undo start over, so every
+    open browse screen asks for its view again and the tree is read anew;
+  - **Check and Repair**: the core's check (database, missing originals, files and thumbnails
+    without an item) and Repair with the desktop's two choices; the core backs up first;
+  - **Export**: the whole library, or folders (with or without their subfolders) and tags; a
+    ZIP archive (four compression levels, optionally encrypted with an age passphrase, never
+    stored) or a folder tree; the preview counts items, bytes and items a closed locked folder
+    leaves out. The export is written into the app's temporary folder, then saved to Files
+    (`fileMover`) or shared; the temporary copy goes when the screen closes or a new export
+    starts. Eagle is not a destination on the phone.
+  The app part: App Lock (moved here from Welcome), the version, the language with a link to the
+  system settings, where iOS keeps the app's language.
+- **EglCore:** `stats`, `backups`, `backUpNow`, `restoreBackup`, `check`, `repair`,
+  `generatePreviews(rebuild:)`, `exportPreview`, `startExport`, `exports`, `cancelExport`, and
+  their models (`LibraryStats`, `Backup.kind`, `LibraryCheck`, `RepairOptions`,
+  `PreviewsTicket`, `ExportSelection`, `ExportFormat`, `ExportRequest`, `ExportPreview`).
+- **Tests.** EglCore on macOS: stats, a backup, a clean check and repair, a rebuild, an
+  encrypted ZIP export that is not a plain ZIP. The app on the simulator: rename, back up, trash,
+  restore (the view comes back, the state before the restore is kept), a clean check, a ZIP and
+  a folder export; a UI test of Check Library and an export from Settings.
+
