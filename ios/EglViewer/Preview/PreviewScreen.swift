@@ -45,6 +45,7 @@ struct PreviewScreen: View {
                 .scrollPosition(id: $position)
                 .scrollDisabled(zoomed)
                 .scrollIndicators(.hidden)
+                .accessibilityIdentifier("preview.pager")
                 .onAppear { proxy.scrollTo(start) }
             }
         }
@@ -59,7 +60,6 @@ struct PreviewScreen: View {
         .toast(model.open, alignment: .bottom, padding: chrome ? 88 : 24)
         .statusBarHidden(!chrome)
         .preferredColorScheme(.dark)
-        .accessibilityIdentifier("preview.screen")
         .onChange(of: model.total) { _, total in
             if total == 0 { dismiss() }
         }

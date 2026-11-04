@@ -45,10 +45,11 @@ final class PreviewUITests: XCTestCase {
         XCTAssertTrue(first.waitForExistence(timeout: 10))
         first.tap()
 
+        XCTAssertTrue(app.buttons["preview.close"].waitForExistence(timeout: 10), "the preview opens")
         let position = element("preview.position", in: app)
         XCTAssertTrue(position.waitForExistence(timeout: 10))
         waitForLabel("1 of 12", of: position)
-        element("preview.screen", in: app).swipeLeft()
+        element("preview.pager", in: app).swipeLeft()
         waitForLabel("2 of 12", of: position)
 
         app.buttons["preview.info"].tap()
