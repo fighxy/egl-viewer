@@ -26,9 +26,11 @@ final class SettingsUITests: XCTestCase {
         check.tap()
         app.buttons["check.run"].tap()
         XCTAssertTrue(element("check.clean", in: app).waitForExistence(timeout: 20))
-        app.navigationBars.buttons.element(boundBy: 0).tap()
-
-        element("settings.export", in: app).tap()
+        // Back from the Check page to the list of Settings.
+        app.buttons["BackButton"].firstMatch.tap()
+        let export = element("settings.export", in: app)
+        XCTAssertTrue(export.waitForExistence(timeout: 5))
+        export.tap()
         let start = app.buttons["export.start"]
         XCTAssertTrue(start.waitForExistence(timeout: 10))
         let enabled = XCTNSPredicateExpectation(predicate: NSPredicate(format: "isEnabled == true"), object: start)
