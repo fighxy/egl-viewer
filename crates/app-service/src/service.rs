@@ -10,10 +10,10 @@ use library_core::{
     Backup, DecryptedArchive, DuplicateNotice, ExportPreview, ExportProgress, ExportRequest,
     ExportSelection, ExportState, ExtensionCount, Folder, FolderChange, FolderIndex, ImportKind,
     ImportPreview, ImportProgress, ImportTicket, Item, ItemCell, ItemEdit, ItemId, LibraryCheck,
-    LibraryCounts, LibraryInfo, LibraryQuery, LibrarySource, LibraryStats, PivPrompt, PivWrap,
-    Progress, RecoveryKey, RepairOptions, SelectionTags, SmartFolder, SmartFolderChange,
-    SourceError, Tag, TagGroup, TagGroupChange, Thumbnail, TrashInfo, UndoStack, UndoStatus, View,
-    Views, rules_from_query,
+    LibraryCounts, LibraryInfo, LibraryQuery, LibrarySource, LibraryStats, MIN_PASSPHRASE_CHARS,
+    PivPrompt, PivWrap, Progress, RecoveryKey, RepairOptions, SelectionTags, SmartFolder,
+    SmartFolderChange, SourceError, Tag, TagGroup, TagGroupChange, Thumbnail, TrashInfo, UndoStack,
+    UndoStatus, View, Views, rules_from_query,
 };
 use library_native::{
     DuplicateChoice, DuplicatePolicy, ImportFilter, ImportObserver, ImportTarget, Library,
@@ -651,6 +651,14 @@ impl LibraryService {
             return Err(SourceError::NotSupported(
                 "an export into Eagle is the desktop app's".into(),
             ));
+        }
+        // Refused at once, not as a failed task: the app shows it next to the passphrase.
+        if let Some(passphrase) = &request.encrypt
+            && passphrase.chars().count() < MIN_PASSPHRASE_CHARS
+        {
+            return Err(SourceError::Invalid(format!(
+                "The passphrase needs at least {MIN_PASSPHRASE_CHARS} characters."
+            )));
         }
         let library = self.current_library().ok_or_else(no_library)?;
         self.exports.spawn(Arc::clone(&self.emit), move |context| {

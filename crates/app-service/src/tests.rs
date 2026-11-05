@@ -266,6 +266,29 @@ fn an_export_reports_its_progress_and_only_its_output_may_be_revealed() {
     ));
 }
 
+/// D-110: a short passphrase is refused when the export starts, not after.
+#[test]
+fn a_short_passphrase_is_refused_before_the_export_starts() {
+    let f = fixture();
+    let request = ExportRequest {
+        selection: ExportSelection {
+            whole: true,
+            folders: Vec::new(),
+            tags: Vec::new(),
+        },
+        include_subfolders: true,
+        format: ExportFormat::Zip {
+            compression: library_core::Compression::Fast,
+        },
+        destination: f.dir.path().join("out").to_string_lossy().into_owned(),
+        encrypt: Some("1234567".into()),
+        eagle: None,
+    };
+    let error = f.service.start_export(request).unwrap_err();
+    assert!(error.to_string().contains("8 characters"), "{error}");
+    assert!(f.service.exports().list().is_empty(), "no task started");
+}
+
 #[test]
 fn an_export_into_eagle_is_not_the_services() {
     let f = fixture();
