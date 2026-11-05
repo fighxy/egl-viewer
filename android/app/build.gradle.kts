@@ -8,18 +8,25 @@ android {
     namespace = "app.eglviewer"
     compileSdk = 35
 
+    // A tag `android-vX.Y.Z` sets these in CI (D-108); local builds keep 0.2.3 / 1.
+    val releaseVersionName = System.getenv("ANDROID_VERSION_NAME") ?: "0.2.3"
+    val releaseVersionCode = System.getenv("ANDROID_VERSION_CODE")?.toIntOrNull() ?: 1
+
     defaultConfig {
         applicationId = "app.eglviewer"
         minSdk = 26
         targetSdk = 35
-        versionCode = 1
-        versionName = "0.2.3"
+        versionCode = releaseVersionCode
+        versionName = releaseVersionName
         testInstrumentationRunner = "androidx.test.runner.AndroidJUnitRunner"
     }
 
     buildTypes {
         release {
             isMinifyEnabled = false
+            // Sideload / CI artifacts: the debug key. Play Store upload uses Ivan's keystore
+            // outside this workflow (see android/README.md, Releasing).
+            signingConfig = signingConfigs.getByName("debug")
         }
     }
 

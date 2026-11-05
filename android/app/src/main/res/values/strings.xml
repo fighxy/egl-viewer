@@ -60,6 +60,11 @@
     <string name="action_restore">Restore</string>
     <string name="action_delete_for_good">Delete permanently</string>
     <string name="rating_none">No rating</string>
+    <plurals name="details_stars">
+        <item quantity="one">%d star</item>
+        <item quantity="other">%d stars</item>
+    </plurals>
+    <string name="browse_loading_item">Loading</string>
     <string name="details_title">Details</string>
     <string name="details_name">Name</string>
     <string name="details_rating">Rating</string>
@@ -315,6 +320,15 @@
     <string name="settings_version">Version</string>
     <string name="settings_language">Language</string>
     <string name="settings_change_language">Language and Permissions</string>
+    <string name="settings_privacy">Privacy</string>
+    <string name="privacy_title">Privacy</string>
+    <string name="privacy_intro">egl-viewer keeps your libraries on this phone. It does not track you, sell data or open an account.</string>
+    <string name="privacy_data_heading">Your libraries</string>
+    <string name="privacy_data_body">Items, tags, folders, ratings, notes and backups live in the library folder you create or open. Nothing is uploaded to egl-viewer servers. Eagle is not used on Android.</string>
+    <string name="privacy_device_heading">On this device</string>
+    <string name="privacy_device_body">App Lock stays in this app\'s private storage and the system Keystore. Folder recovery keys are shown once. Export passphrases are never stored. Cloud backup skips the login and library files.</string>
+    <string name="privacy_network_heading">Network</string>
+    <string name="privacy_network_body">The Android app makes no network calls of its own. Sharing and saving an export use the system share sheet or Files picker you choose.</string>
     <string name="settings_library_title">Library</string>
     <string name="settings_name">Name</string>
     <string name="settings_location">Location</string>

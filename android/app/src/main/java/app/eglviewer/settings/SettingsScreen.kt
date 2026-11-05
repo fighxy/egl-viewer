@@ -23,6 +23,7 @@ import androidx.compose.material.icons.automirrored.filled.MenuBook
 import androidx.compose.material.icons.filled.Build
 import androidx.compose.material.icons.filled.HealthAndSafety
 import androidx.compose.material.icons.filled.Lock
+import androidx.compose.material.icons.filled.Policy
 import androidx.compose.material.icons.filled.Share
 import androidx.compose.material3.HorizontalDivider
 import androidx.compose.material3.Icon
@@ -54,6 +55,7 @@ private sealed class SettingsDest {
     data object Backups : SettingsDest()
     data object Check : SettingsDest()
     data object Export : SettingsDest()
+    data object Privacy : SettingsDest()
 }
 
 /**
@@ -82,12 +84,16 @@ fun SettingsScreen(
                 onCheck = { dest = SettingsDest.Check },
                 onExport = { dest = SettingsDest.Export },
                 onAppLock = { showAppLock = true },
+                onPrivacy = { dest = SettingsDest.Privacy },
                 onChangeLanguage = {
                     val intent = languageSettingsIntent(context.packageName)
                     runCatching { context.startActivity(intent) }
                 },
                 onBack = onBack,
             )
+        }
+        SettingsDest.Privacy -> {
+            PrivacyScreen(onBack = { dest = SettingsDest.Hub })
         }
         SettingsDest.LibraryInfo -> {
             if (open != null) {
@@ -138,6 +144,7 @@ private fun SettingsHub(
     onCheck: () -> Unit,
     onExport: () -> Unit,
     onAppLock: () -> Unit,
+    onPrivacy: () -> Unit,
     onChangeLanguage: () -> Unit,
     onBack: () -> Unit,
 ) {
@@ -210,6 +217,11 @@ private fun SettingsHub(
                     if (lock.enabled) R.string.settings_on else R.string.settings_off,
                 ),
                 onClick = onAppLock,
+            )
+            SettingsRow(
+                icon = Icons.Default.Policy,
+                title = stringResource(R.string.settings_privacy),
+                onClick = onPrivacy,
             )
             LabeledValue(
                 title = stringResource(R.string.settings_version),

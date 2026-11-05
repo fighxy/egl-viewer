@@ -2005,8 +2005,8 @@ The last PR of the iOS series (D-093–D-099).
   `_amd64.AppImage`; Tauri names the macOS archive without the version), their `.sig` files and
   `latest.json` written by `scripts/write-latest-json.mjs`, marked as the latest release. It
   refuses a tag that differs from `tauri.conf.json` and needs the notes in
-  `docs/releases/X.Y.Z.md`, which the iOS release of the same version shows too. Android is
-  not released: its shell is a draft over a mock core (D-083).
+  `docs/releases/X.Y.Z.md`, which the iOS release of the same version shows too. Android
+  releases ship later under `android-vX.Y.Z` (D-108).
 
 
 ## D-101 Android A1 foundation: unfreeze, Kotlin eglcore, real core, app storage + SAF (2026-11-05)
@@ -2274,3 +2274,40 @@ The seventh PR of the Android series (D-101…D-106), mirroring iOS D-099. Stack
   `:eglcore:testDebugUnitTest` / `:app:testDebugUnitTest` of the Mobile workflow.
 - **Docs.** `android/README.md`, the README status table, and this decision.
 - **Out of scope.** Release: icon, privacy, a11y, 10k, tagged APK/AAB (A8).
+
+
+## D-108 Android A8 release: icon, privacy, accessibility, 10,000 items, tagged APK/AAB (2026-11-05)
+
+The last PR of the Android series (D-101–D-107), mirroring iOS D-100. Stacked on
+`feat/android-a7-settings` (A7 / D-107). Completes A1–A8.
+
+- **Icon.** Adaptive launcher icons (`mipmap-*` + `mipmap-anydpi-v26`) drawn from the desktop
+  Android set under `src-tauri/icons/android`, wired on the application; a 512×512 Play Store
+  icon at `android/app/ic_launcher-playstore.png`. `scripts/check-mobile-shell.sh` checks the
+  Play icon size.
+- **Privacy.** In-app Privacy screen (Settings) in en / ru / zh: no tracking, libraries stay
+  on the phone, App Lock / recovery keys / export passphrases never leave the device, no
+  network of the app's own. `android/PRIVACY.md` for the store listing. Auto Backup and
+  device-to-device transfer exclude the login, recents, saved views and library files
+  (`backup_rules.xml`, `data_extraction_rules.xml`).
+- **Accessibility.** Ratings read as "3 stars" (`StarsText` / `details_stars` plurals), not
+  the symbols; grid and list cells say their name, rating and "Loading" until they arrive;
+  folder pickers mark the chosen folder as selected. JVM tests cover the label helpers.
+- **10,000 items.** A JVM unit test fills a `FakeViewSession` with 10,000 cells and times the
+  paths that must not grow with the library: opening the view, a window at the end, the name
+  sort, a search, a tag filter, Select All (a rule over the view, no id list). The budgets
+  (3–5 s) are loose for shared CI; the timings go to the log as `perf:` lines.
+- **Releases.** A tag `android-vX.Y.Z` runs the Mobile workflow (path filters do not apply to
+  tags): the release build takes `X.Y.Z` as `versionName` and the run number as `versionCode`,
+  and checks that the APK says so; once `library-ffi` and `android` pass, `android-release`
+  publishes a GitHub Release `android-vX.Y.Z` with `EglViewer-X.Y.Z.apk`,
+  `EglViewer-X.Y.Z.aab` and `SHA256SUMS`, and the changes since the previous `android-v` tag.
+  It is created with `--latest=false`: the desktop updater reads `releases/latest` (D-062).
+  `scripts/android-release-version.sh` turns the tag into the version and refuses anything
+  else. The APK is signed with the CI debug key for sideloading; the AAB is for Play Console
+  after re-signing with the upload keystore. The first Android release tag is
+  `android-v0.2.3` (cut by Ivan when ready).
+- **Tests.** `AccessibilityLabelsTest`, `ReleaseTest`, `PerformanceTest` in
+  `:app:testDebugUnitTest` of the Mobile workflow.
+- **Docs.** `android/README.md`, `android/PRIVACY.md`, the README status table, and this
+  decision.

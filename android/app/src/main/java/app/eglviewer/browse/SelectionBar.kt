@@ -36,10 +36,13 @@ import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
 import app.eglviewer.R
+import app.eglviewer.a11y.StarsText
 import app.eglviewer.core.ItemsTarget
 import app.eglviewer.core.SelectionTags
 import app.eglviewer.theme.EglTokens
 import kotlinx.coroutines.launch
+import androidx.compose.ui.semantics.selected
+import androidx.compose.ui.semantics.semantics
 
 /** Bottom bar under a selection: rate / tags / folder / share / trash (or restore / delete). */
 @Composable
@@ -185,13 +188,11 @@ fun RatingMenu(
         listOf(5, 4, 3, 2, 1, 0).forEach { stars ->
             DropdownMenuItem(
                 text = {
-                    Text(
-                        if (stars == 0) {
-                            stringResource(R.string.rating_none)
-                        } else {
-                            "★".repeat(stars)
-                        },
-                    )
+                    if (stars == 0) {
+                        Text(stringResource(R.string.rating_none))
+                    } else {
+                        StarsText(stars = stars)
+                    }
                 },
                 onClick = {
                     open = false
@@ -278,11 +279,14 @@ fun FolderPickerSheet(
                     Text(stringResource(R.string.folders_empty), color = EglTokens.MutedForeground)
                 } else {
                     folders.forEach { entry ->
+                        val isChosen = entry.folder.id in chosen
                         TextButton(
                             onClick = { onPick(entry.folder.id) },
-                            modifier = Modifier.padding(start = (entry.depth * 12).dp),
+                            modifier = Modifier
+                                .padding(start = (entry.depth * 12).dp)
+                                .semantics { selected = isChosen },
                         ) {
-                            val mark = if (entry.folder.id in chosen) " ✓" else ""
+                            val mark = if (isChosen) " ✓" else ""
                             Text(entry.folder.name + mark)
                         }
                     }
