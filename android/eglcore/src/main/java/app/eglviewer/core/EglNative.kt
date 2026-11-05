@@ -65,4 +65,17 @@ internal object EglNative {
         pixelHeight: Int,
         rgba: ByteArray,
     )
+
+    // Organizing (Android A5 ≈ D-097)
+    external fun saveFolder(handle: Long, changeJson: String): String?
+    external fun deleteFolder(handle: Long, id: String, trashItems: Boolean): String?
+    external fun renameTag(handle: Long, from: String, to: String): Int
+    external fun mergeTags(handle: Long, source: String, target: String): Int
+    external fun deleteTag(handle: Long, name: String): Int
+    external fun tagGroups(handle: Long): String?
+    external fun saveTagGroup(handle: Long, changeJson: String): String?
+    external fun deleteTagGroup(handle: Long, id: String): String?
+    external fun saveSmartFolder(handle: Long, changeJson: String): String?
+    external fun deleteSmartFolder(handle: Long, id: String): String?
+    external fun smartRules(handle: Long, queryJson: String): String?
 }

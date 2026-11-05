@@ -103,3 +103,5 @@ interface BrowseHost {
 data class ActionToast(val message: String, val undoable: Boolean)
 
 data class PickableFolder(val folder: app.eglviewer.core.Folder, val depth: Int)
+
+data class PickableSmart(val folder: app.eglviewer.core.SmartFolder, val depth: Int)

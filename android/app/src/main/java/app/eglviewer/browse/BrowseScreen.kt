@@ -92,6 +92,7 @@ fun BrowseScreen(
     open: BrowseHost,
     place: Place,
     onBack: () -> Unit,
+    onSaveAsSmart: ((app.eglviewer.core.JSONValue) -> Unit)? = null,
 ) {
     val model = remember(open, place) { BrowseModel(open = open, place = place) }
     val scope = rememberCoroutineScope()
@@ -183,6 +184,15 @@ fun BrowseScreen(
                 onDone = { model.setSelecting(false) },
                 onFilter = { showFilters = true },
                 onEmptyTrash = { emptyTrashConfirm = true },
+                canSaveAsSmart = onSaveAsSmart != null && openLibrary != null && !open.readOnly && place != Place.Trash,
+                onSaveAsSmart = onSaveAsSmart?.let { callback ->
+                    {
+                        scope.launch {
+                            val draft = model.saveAsSmartFolder()
+                            if (draft != null) callback(draft.conditions)
+                        }
+                    }
+                },
                 onToggleLayout = {
                     model.change {
                         it.copy(
@@ -330,6 +340,8 @@ private fun BrowseTopBar(
     onDone: () -> Unit,
     onFilter: () -> Unit,
     onEmptyTrash: () -> Unit,
+    canSaveAsSmart: Boolean = false,
+    onSaveAsSmart: (() -> Unit)? = null,
     onToggleLayout: () -> Unit,
     layout: BrowseLayout,
     showSort: Boolean,
@@ -419,6 +431,11 @@ private fun BrowseTopBar(
                             )
                         }
                     }
+                }
+            }
+            if (canSaveAsSmart && onSaveAsSmart != null) {
+                TextButton(onClick = onSaveAsSmart) {
+                    Text(stringResource(R.string.smart_save_view), fontSize = 12.sp, maxLines = 1)
                 }
             }
             if (isTrash && total > 0) {
