@@ -4,7 +4,8 @@ import Foundation
 import UIKit
 
 /// Generated images for tests and UI tests (`-sampleLibrary N`): PNGs of their own colour,
-/// so none is a duplicate, named `sample-0` … `sample-<N-1>`, the first four tagged `Red`.
+/// so none is a duplicate (up to 10,920 of them, the period of the colours, bars and sizes
+/// below), named `sample-0` … `sample-<N-1>`, the first four tagged `Red`.
 enum SampleLibrary {
     static let name = "Sample"
     static let tag = "Red"
@@ -52,7 +53,8 @@ enum SampleLibrary {
         try await Task.detached {
             let files = try SampleLibrary.images(count)
             let ticket = try library.addFiles(files)
-            let deadline = Date().addingTimeInterval(60)
+            // About 50 tiny images a second on a slow simulator, and never less than a minute.
+            let deadline = Date().addingTimeInterval(max(60, Double(count) / 50))
             while true {
                 if let progress = try library.importStatus(ticket.id), progress.isFinished {
                     break
@@ -63,10 +65,18 @@ enum SampleLibrary {
             try? FileManager.default.removeItem(at: files[0].deletingLastPathComponent())
             let view = try library.openView(LibraryQuery(sort: .name, ascending: true))
             defer { library.closeView(view.viewId) }
-            let names = try library.range(of: view.viewId, start: 0, count: count)
-            let first = names
-                .filter { (Int($0.name.dropFirst("sample-".count)) ?? .max) < SampleLibrary.tagged }
-                .map(\.id)
+            // The core serves windows of at most 200 cells; with a large library the first
+            // few names are spread over several (sample-1, sample-10, …, sample-2).
+            var first: [String] = []
+            var start = 0
+            while start < view.total, first.count < SampleLibrary.tagged {
+                let cells = try library.range(of: view.viewId, start: start, count: 200)
+                if cells.isEmpty { break }
+                first += cells
+                    .filter { (Int($0.name.dropFirst("sample-".count)) ?? .max) < SampleLibrary.tagged }
+                    .map(\.id)
+                start += cells.count
+            }
             if !first.isEmpty {
                 try library.edit(ItemsTarget(ids: first), .addTags([SampleLibrary.tag]))
             }

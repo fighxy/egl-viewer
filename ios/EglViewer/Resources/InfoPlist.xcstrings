@@ -23,6 +23,29 @@
           }
         }
       }
+    },
+    "NSPhotoLibraryAddUsageDescription": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "egl-viewer saves the images you share to Photos only when you choose Save Image."
+          }
+        },
+        "ru": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "egl-viewer сохраняет изображения в «Фото» только когда вы выбираете «Сохранить изображение»."
+          }
+        },
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "仅当你选择“存储图像”时，egl-viewer 才会将分享的图像存入“照片”。"
+          }
+        }
+      }
     }
   },
   "version": "1.0"

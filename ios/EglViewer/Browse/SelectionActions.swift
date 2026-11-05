@@ -111,7 +111,7 @@ struct RatingMenu: View {
                     if stars == 0 {
                         Text("rating.none")
                     } else {
-                        Text(verbatim: String(repeating: "★", count: stars))
+                        StarsText(stars: stars)
                     }
                 }
                 .accessibilityIdentifier("rating.\(stars)")
@@ -119,6 +119,16 @@ struct RatingMenu: View {
         } label: {
             Label("action.rate", systemImage: "star")
         }
+    }
+}
+
+/// A rating as stars, read by VoiceOver as "3 stars" rather than the symbols.
+struct StarsText: View {
+    let stars: Int
+
+    var body: some View {
+        Text(verbatim: String(repeating: "★", count: stars))
+            .accessibilityLabel(Text("details.stars \(stars)"))
     }
 }
 
@@ -311,6 +321,7 @@ struct FolderPicker: View {
                         }
                         .foregroundStyle(EglTokens.foreground)
                     }
+                    .accessibilityAddTraits(chosen.contains(entry.folder.id) ? .isSelected : [])
                     .accessibilityIdentifier("folderPicker.\(entry.folder.name)")
                 }
             }

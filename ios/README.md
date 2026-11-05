@@ -2,7 +2,8 @@
 
 A SwiftUI app over the same native `.eglib` core as the desktop: `crates/app-service` through
 the C ABI of `crates/library-ffi`, wrapped for Swift by the `EglCore` package (D-091, D-092,
-D-093–D-099). **No Eagle.** The plan is the desktop's features in a series of PRs.
+D-093–D-100). **No Eagle.** It has the desktop's features for native libraries, except
+auto-update and the YubiKey.
 
 ## What works
 
@@ -17,7 +18,7 @@ D-093–D-099). **No Eagle.** The plan is the desktop's features in a series of 
 | Organizing (D-097) | Folders: new, subfolder, edit (name, description, colour), move, delete with or without their items; the tag list by group with rename, merge, delete and tag groups; a tag's items; smart folders: new, subfolder, edit, delete, Save as Smart Folder, and the rule editor (Eagle's rules kept as JSON, unknown rules preserved) |
 | Locks and login (D-098) | Locked folders: unlock, recovery key, lock with a label, change password, new recovery key, remove lock, Lock All; every open folder locks again when the app leaves the screen; the app's login (password or PIN, Face ID / Touch ID through the Keychain) with a privacy cover |
 | Settings (D-099) | Library name, location and storage, Rebuild Thumbnails; backups (Back Up Now, Restore); Check and Repair; export of the library, folders or tags as ZIP (compression, optional age passphrase) or a folder tree, saved to Files or shared; App Lock, version and language |
-| Release | The last PR of the series |
+| Release (D-100) | The icon, a privacy manifest and translated privacy strings; VoiceOver descriptions checked by Xcode's accessibility audit; a 10,000-item library timed in a test; a GitHub Release with the unsigned IPA for each tag `ios-vX.Y.Z` |
 
 ## Layout
 
@@ -41,12 +42,15 @@ ios/
     Settings/              SettingsScreen (+ library, backups, check), ExportScreen
     Screens/               WelcomeScreen (+ CreateLibrarySheet), LibraryScreen (places, folders)
     Theme/Tokens.swift     colours that follow light and dark mode
-    Resources/             Info.plist, Localizable.xcstrings (en, ru, zh-Hans)
+    Resources/             Info.plist (+ InfoPlist.xcstrings), Localizable.xcstrings (en, ru,
+                           zh-Hans), PrivacyInfo.xcprivacy, Assets.xcassets (AppIcon)
   EglViewerTests/          unit tests (locations, recents, AppModel, BrowseModel, details,
-                           actions, sharing, adding, organizing, locks and upkeep with the real core)
+                           actions, sharing, adding, organizing, locks and upkeep with the real
+                           core; 10,000 items; what a release carries)
   EglViewerUITests/        UI tests on a simulator (create, open, close, reopen; Russian;
                            browse, search, filter, select, preview, details, trash and undo
-                           on `-sampleLibrary 12`)
+                           on `-sampleLibrary 12`; organizing, the login, Settings; the
+                           accessibility audit)
 ```
 
 ## Build and run (Mac)
@@ -87,6 +91,26 @@ swift test -Xlinker -L"$PWD/../../target/release" -Xlinker -rpath -Xlinker "$PWD
   tests on an iPhone simulator.
 - `ios-ipa`: a device build, unsigned, packed as `EglViewer.ipa`; published as the rolling
   `ios-latest` pre-release from `main` (sideload only, D-086).
+- `ios-release`: for a tag `ios-vX.Y.Z`, once the three jobs above pass, a GitHub Release with
+  `EglViewer-X.Y.Z.ipa` and `SHA256SUMS` (D-100). Never marked as the latest release, which
+  belongs to the desktop updater.
+
+## Releasing
+
+```bash
+git tag ios-v0.2.3          # X.Y.Z becomes the app's version, the run number its build
+git push origin ios-v0.2.3
+```
+
+The workflow refuses a tag that is not `ios-vX.Y.Z` (`scripts/ios-release-version.sh`). The notes of
+`docs/releases/X.Y.Z.md`, shared with the desktop release `vX.Y.Z`, open the release text.
+
+## Install
+
+The IPA is not signed. Sign it with your own Apple ID while installing it, with AltStore,
+SideStore, Sideloadly, or Xcode (Devices and Simulators). A free Apple ID signs for 7 days; then
+the app has to be signed again, and its libraries in On My iPhone stay. Check the download first:
+`sha256sum -c SHA256SUMS`.
 
 ## Product rules
 

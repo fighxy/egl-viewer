@@ -247,7 +247,7 @@ private struct RuleEditor: View {
             Picker("smart.value", selection: stringBinding) {
                 Text("filter.unrated").tag("none")
                 ForEach(1...5, id: \.self) { stars in
-                    Text(verbatim: String(repeating: "★", count: stars)).tag(String(stars))
+                    StarsText(stars: stars).tag(String(stars))
                 }
             }
         case .shape:

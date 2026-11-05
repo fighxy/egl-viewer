@@ -1614,6 +1614,29 @@
         }
       }
     },
+    "browse.loadingItem": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Loading"
+          }
+        },
+        "ru": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Загрузка"
+          }
+        },
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "正在载入"
+          }
+        }
+      }
+    },
     "browse.noMatches": {
       "extractionState": "manual",
       "localizations": {

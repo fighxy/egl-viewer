@@ -62,7 +62,7 @@ struct FilterSheet: View {
                         Text("filter.any").tag(Int?.none)
                         Text("filter.unrated").tag(Optional(0))
                         ForEach(1...5, id: \.self) { stars in
-                            Text(verbatim: String(repeating: "★", count: stars)).tag(Optional(stars))
+                            StarsText(stars: stars).tag(Optional(stars))
                         }
                     }
                     Picker("filter.shape", selection: model.binding(\.filters.shape)) {

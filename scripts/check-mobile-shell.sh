@@ -50,6 +50,13 @@ need ios/EglViewer/Resources/InfoPlist.xcstrings
 need ios/EglViewer/Screens/WelcomeScreen.swift
 need ios/EglViewer/Screens/LibraryScreen.swift
 need ios/EglViewer/Resources/Info.plist
+need ios/EglViewer/Resources/PrivacyInfo.xcprivacy
+need ios/EglViewer/Resources/Assets.xcassets/AppIcon.appiconset/AppIcon.png
+need ios/EglViewer/Resources/Assets.xcassets/AppIcon.appiconset/Contents.json
+need ios/EglViewerTests/PerformanceTests.swift
+need ios/EglViewerTests/ReleaseTests.swift
+need ios/EglViewerUITests/AccessibilityUITests.swift
+need scripts/ios-release-version.sh
 need ios/EglViewer/Resources/Localizable.xcstrings
 need ios/EglViewerTests/LibraryLocationsTests.swift
 need ios/EglViewerUITests/WelcomeUITests.swift
@@ -83,6 +90,27 @@ need android/app/src/main/java/app/eglviewer/theme/Tokens.kt
 need android/app/src/main/java/app/eglviewer/components/Chrome.kt
 need android/app/src/main/cpp/egl_jni.cpp
 need android/app/src/main/cpp/egl_library.h
+
+# Release tags (D-100): ios-vX.Y.Z gives X.Y.Z; anything else publishes nothing.
+version="$root/scripts/ios-release-version.sh"
+if [[ "$(bash "$version" ios-v1.20.3)" != "1.20.3" ]]; then
+  echo "scripts/ios-release-version.sh: ios-v1.20.3 should give 1.20.3" >&2
+  fail=1
+fi
+for bad in v1.2.3 ios-v1.2 ios-v01.2.3 ios-v1.2.3-beta ios-latest ""; do
+  if bash "$version" "$bad" >/dev/null 2>&1; then
+    echo "scripts/ios-release-version.sh: '$bad' should be refused" >&2
+    fail=1
+  fi
+done
+# The iPhone icon: one 1024 px PNG without transparency (iOS rounds the corners itself).
+python3 - "$root/ios/EglViewer/Resources/Assets.xcassets/AppIcon.appiconset/AppIcon.png" <<'PY' || fail=1
+import struct, sys
+data = open(sys.argv[1], "rb").read(33)
+width, height, depth, colour = struct.unpack(">IIBB", data[16:26])
+if data[:8] != b"\x89PNG\r\n\x1a\n" or (width, height) != (1024, 1024) or colour not in (0, 2):
+    sys.exit(f"AppIcon.png: want a 1024×1024 PNG without alpha, got {width}×{height}, colour type {colour}")
+PY
 
 canon="$root/crates/library-ffi/include/egl_library.h"
 for copy in ios/EglCore/Sources/CEglLibrary/egl_library.h android/app/src/main/cpp/egl_library.h; do
