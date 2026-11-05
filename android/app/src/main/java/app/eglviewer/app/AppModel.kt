@@ -8,18 +8,17 @@ import androidx.compose.runtime.setValue
 import androidx.lifecycle.AndroidViewModel
 import androidx.lifecycle.viewModelScope
 import app.eglviewer.R
+import app.eglviewer.adding.PickedFile
 import app.eglviewer.core.EglError
 import app.eglviewer.core.Library
-import app.eglviewer.core.LibraryCounts
-import app.eglviewer.core.LibraryEvent
-import app.eglviewer.core.LibraryInfo
+import app.eglviewer.core.PlatformDecoder
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.launch
 import kotlinx.coroutines.withContext
 import java.io.File
 
 /**
- * App state for A1: Welcome or one open library, recent list, last error (D-101).
+ * App state: Welcome or one open library, recent list, last error (D-101…D-104).
  * Every core call runs off the main thread.
  */
 class AppModel(application: Application) : AndroidViewModel(application) {
@@ -40,6 +39,7 @@ class AppModel(application: Application) : AndroidViewModel(application) {
 
     val locations = LibraryLocations(application)
     private val recentStore = RecentLibraries(application)
+    private val savedViews = OpenLibrary.savedViews(application)
     val appVersion: String =
         runCatching {
             application.packageManager.getPackageInfo(application.packageName, 0).versionName
@@ -52,6 +52,8 @@ class AppModel(application: Application) : AndroidViewModel(application) {
         get() = Library.isNativeAvailable
 
     init {
+        PlatformDecoder.install()
+        PickedFile.removeLeftovers(application.cacheDir)
         reloadLists()
     }
 
@@ -135,9 +137,9 @@ class AppModel(application: Application) : AndroidViewModel(application) {
         val library = withContext(Dispatchers.IO) {
             Library.open(file, appVersion, syncFolder = syncFolder)
         }
-        val open = OpenLibrary(library, file)
+        val open = OpenLibrary(library, file, savedViews)
         withContext(Dispatchers.IO) { open.refresh() }
-        open.attachEvents()
+        open.attachEvents(getApplication())
         screen = Screen.LibraryOpen(open)
         val hint = locations.locationHint(file, uri)
         recents = recentStore.remember(
@@ -181,50 +183,3 @@ class AppModel(application: Application) : AndroidViewModel(application) {
     }
 }
 
-/**
- * One open library: core handle, counts / info for the places shell (A1).
- * The grid arrives in A2.
- */
-class OpenLibrary(
-    val library: Library,
-    val path: File,
-) {
-    var info: LibraryInfo by mutableStateOf(
-        LibraryInfo(
-            kind = app.eglviewer.core.LibraryKind.NATIVE,
-            id = null,
-            name = path.name.removeSuffix(".eglib"),
-            path = path.absolutePath,
-            readOnly = false,
-        ),
-    )
-        private set
-    var counts: LibraryCounts? by mutableStateOf(null)
-        private set
-    var folderCount: Int by mutableStateOf(0)
-        private set
-
-    val readOnly: Boolean get() = info.readOnly
-
-    fun attachEvents() {
-        library.setEventHandler { event ->
-            if (event is LibraryEvent.ViewsInvalidated || event is LibraryEvent.ImportProgress) {
-                // A1: refresh counts when the core says something changed.
-                // Heavy work stays off the UI thread in [refresh].
-            }
-        }
-    }
-
-    fun refresh() {
-        info = library.info()
-        counts = library.counts()
-        folderCount = runCatching {
-            org.json.JSONArray(library.folderTreeJson()).length()
-        }.getOrDefault(0)
-    }
-
-    fun close() {
-        library.setEventHandler(null)
-        library.close()
-    }
-}

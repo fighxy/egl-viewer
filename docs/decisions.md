@@ -2005,8 +2005,8 @@ The last PR of the iOS series (D-093–D-099).
   `_amd64.AppImage`; Tauri names the macOS archive without the version), their `.sig` files and
   `latest.json` written by `scripts/write-latest-json.mjs`, marked as the latest release. It
   refuses a tag that differs from `tauri.conf.json` and needs the notes in
-  `docs/releases/X.Y.Z.md`, which the iOS release of the same version shows too. Android is
-  not released: its shell is a draft over a mock core (D-083).
+  `docs/releases/X.Y.Z.md`, which the iOS release of the same version shows too. Android
+  releases ship later under `android-vX.Y.Z` (D-108).
 
 
 ## D-101 Android A1 foundation: unfreeze, Kotlin eglcore, real core, app storage + SAF (2026-11-05)
@@ -2054,6 +2054,318 @@ separate PRs after merge:
 - **Next PR after merge: A2 browsing.**
 
 
+
+## D-102 Android A2 browsing: places, lazy grid by view id, saved view per library (2026-11-05)
+
+The second PR of the Android series (D-101), mirroring iOS D-094. Stacked on
+`feat/android-app-foundation` (A1).
+
+- **Places.** The library screen lists All, Uncategorized, Untagged and Trash with counts, the
+  folder tree (a folder shows its subfolders' items) and the smart folders. A locked folder
+  shows its lock label and does not open; unlocking comes with A6. Each place opens
+  `BrowseScreen`.
+- **Windows by view id.** `BrowseModel` opens one core view per query (`egl_open_view`) and
+  asks for cells in windows of 100 around what the user sees (`egl_view_range`; the core serves
+  at most 200). The item list never crosses JNI. `viewsInvalidated` events reach open models
+  through `OpenLibrary`; a model takes the new total and reloads windows near the last cell
+  seen. Answers for an older query or refresh are dropped by generation counters.
+- **Thumbnails** are the core's WebP bytes (`egl_thumbnail_bytes`), decoded by `BitmapFactory`
+  off the main thread at the cell's pixel size and kept in an `LruCache` by cost (64 MB). The
+  key has the thumbnail version. Until it arrives a cell shows its main colour (`palette0`), or
+  the file type when it has no thumbnail.
+- **Controls.** Grid or list, three thumbnail sizes, the sort (desktop keys except manual, tag
+  and duration) with ascending, search debounced 250 ms, and a filter sheet: tags with any /
+  all / none, file type with counts, rating (unrated or exactly 1–5 stars), shape. Each change
+  opens a new view.
+- **Selection.** Select or a long press starts it; Select All is the core's target
+  `{viewId, all: true, ids: exclusions}` (desktop D-089), so it never lists the view's ids.
+  Actions on a selection arrive with A3.
+- **Saved view** (as D-078 / D-094), per library path in `SharedPreferences`: the sort, layout
+  and size for the whole library, and the last place with its filters and search. The library
+  opens in that place again; going back to the list of places forgets it, and filters of one
+  place do not carry over to another.
+- **eglcore.** JNI and `Library` gain `openView` / `viewRange` / `closeView`, tags, extensions,
+  smart folders, thumbnail bytes and `editItems`; `LibraryEvent.ViewsInvalidated` carries
+  typed `ViewOpened` rows.
+- **Tests.** JVM unit tests of `BrowseModel` against an in-memory `FakeViewSession` (windows,
+  sort, search, filters, Select All with a trash refresh, the saved view), in
+  `:app:testDebugUnitTest` of the Mobile workflow.
+- **Docs.** `android/README.md`, the README status table, and this decision.
+- **CI.** Mobile `android` pins `cargo-ndk` **4.1.2** (`--locked`): 3.5.6 / 3.5.7 were yanked
+  on crates.io and broke the A2 PR install step; 4.1.2 is the newest stable older than the
+  supply-chain release age (D-002 / D-003).
+- **Out of scope.** Preview/details/undo (A3), gallery add (A4), organize / locks / settings /
+  release.
+
+## D-103 Android A3 preview, details and actions with undo (2026-11-05)
+
+The third PR of the Android series (D-101, D-102), mirroring iOS D-095. Stacked on
+`feat/android-a2-browsing` (A2).
+
+- **Preview.** A tap opens a full-screen dark stage over the same core view as the grid: a
+  `HorizontalPager` of the view's positions, so a large library costs no more than a short
+  one. The original is decoded by `BitmapFactory` at about 1.5× the screen's long edge (path
+  via `egl_original_path`, else decrypted bytes via `egl_original_bytes`); a few stay in
+  `OriginalCache`. Until it arrives, and for formats the decoder cannot draw, the page shows
+  a spinner or the file type. Pinch / double-tap zooms; paging stops while zoomed; a single
+  tap hides the bars.
+- **Details** (the desktop's right bar): name, rating (the same rating again clears it), tags
+  with suggestions from the library (matched ignoring case, stored exactly as typed), folders
+  (the tree as a picker; locked folders only while open), notes, link, and the file's facts.
+  Each change is one undoable edit through `egl_apply_item_edit`; text fields save on Done and
+  when the sheet closes.
+- **Actions.** On a selection (a bar under the grid), from the preview, and from a long-press
+  start of selection: rate, tags (counts from `egl_view_selection_tags`), add to folder, share,
+  move to trash; in the Trash: restore, delete permanently (confirmed) and Empty Trash. Select
+  All still acts through the view target (D-102).
+- **Undo.** After an action a snackbar shows what happened, with Undo when the core can take
+  it back (`egl_undo`); permanent deletes have none, as on the desktop.
+- **Sharing.** Originals go to the system share sheet under their item names (`name.ext`, with
+  ` (2)` for repeats), at most 100 at once: copied into a temporary cache folder (FileProvider),
+  never hard-linking or mutating the library's own files. The folder is removed when the share
+  returns.
+- **eglcore.** JNI and `Library` gain `item`, `applyItemEdit`, typed `ItemEdit` for
+  `editItems`, `selectionTags`, `undo` / `undoStatus`, `deleteItems`, `emptyTrash`,
+  `trashInfo`, `viewIds`, `originalPath`, `originalBytes`; models `Item`, `SelectionTags`,
+  `UndoStatus`, `TrashInfo`.
+- **Tests.** JVM unit tests of `ItemEdit` JSON, details edits with undo, selection
+  trash/restore/delete, share naming, and preview open state against `FakeViewSession`, in
+  `:eglcore:testDebugUnitTest` / `:app:testDebugUnitTest` of the Mobile workflow.
+- **Docs.** `android/README.md`, the README status table, and this decision.
+- **Out of scope.** Gallery add (A4), organize / locks / settings / release.
+
+## D-104 Android A4 adding: gallery, Files/folders, paste, drops, duplicates, HEIC via ImageDecoder (2026-11-05)
+
+The fourth PR of the Android series (D-101…D-103), mirroring iOS D-096. Stacked on
+`feat/android-a3-preview` (A3).
+
+- **Sources.** The + menu (library screen and every place but the Trash; files added in a
+  folder go into it) offers Gallery (`PickMultipleVisualMedia`, images and videos, original
+  encoding kept), Files (`OpenMultipleDocuments`), Folder (`OpenDocumentTree`) and Paste.
+  Files can also be dropped onto a place. Gallery, paste and drops hand over temporary files:
+  each is copied into a folder of its own (`cache/picked-…`) and removed when its import ends;
+  copies left by a killed run are removed at launch. Files/folders from SAF: when a document
+  resolves to a primary-storage path the app keeps the URI grant until the import ends;
+  otherwise the bytes are copied into `picked-*` while the grant is held (Android content URIs
+  have no durable path the core can read). Paste reads the clipboard only when the user picks
+  Paste.
+- **Import.** One `egl_add_files` per batch; progress shows over the place with Stop; when it
+  ends a toast says what was added, skipped and failed. Closing the library runs the pending
+  clean-ups.
+- **Duplicates.** At the first duplicate of a batch the core waits (`waitingForDecision`); the
+  app asks: skip, add anyway, add the existing item to the folder (when the batch goes into
+  one), or stop. The answer holds for the rest of the batch (`egl_answer_import`).
+- **HEIC on Android.** The Android core is built without libheif (D-101). The app installs
+  `PlatformDecoder` at launch: JNI registers `egl_set_platform_decoder`, and ImageDecoder
+  (API 28+) decodes with orientation applied, reports the displayed size and hands RGBA pixels
+  of at most 2048 on the long side. The core checks the sizes before it uses them. HEIC gets
+  dimensions, a thumbnail and a palette on the phone when the device can decode HEIC; EXIF of
+  HEIC stays a desktop feature.
+- **eglcore.** JNI and `Library` gain `addFiles`, `answerImport`, `cancelImport`,
+  `importStatus`, `setPlatformDecoder` / `decodeSinkPut`; models `ImportTicket`,
+  `ImportProgress`, `DuplicateNotice`, `DuplicateAnswer`; typed `LibraryEvent.ImportProgress`.
+- **Tests.** JVM unit tests of import JSON, picked-copy lifecycle, clipboard file names, the
+  import summary, and platform-decoder constants / rejection of junk, in
+  `:eglcore:testDebugUnitTest` / `:app:testDebugUnitTest` of the Mobile workflow.
+- **Docs.** `android/README.md`, the README status table, and this decision.
+- **Out of scope.** Organizing (A5), locks / login (A6), settings (A7), release (A8).
+
+## D-105 Android A5 organizing: folders, tags, tag groups, the smart folder editor (2026-11-05)
+
+The fifth PR of the Android series (D-101…D-104), mirroring iOS D-097. Stacked on
+`feat/android-a4-adding` (A4).
+
+- **Folders.** The library screen always lists its folder section (when the library is
+  writable), with New Folder; a folder's long-press menu offers New Subfolder, Edit (name,
+  description, one of the eight label colours or none), Move To (the top level or another
+  folder, never into itself; it lands after the new parent's last child) and Delete (keep the
+  items, or move them to the trash too). A folder's tags and its own sort stay as they are:
+  they belong to the desktop's properties panel. A locked folder offers nothing until it is
+  open (the locks PR). A deleted folder is not the place the library reopens in.
+- **Tags.** A Tags row opens the tag list: tags by tag group, then the others, with counts and
+  search. A tag opens its items (a `tag` place: All filtered by the tag). Rename (onto an
+  existing name the two merge), Merge Into, Add to Group, Remove from Group and Delete; tag
+  groups are made, edited (name, colour, tags) and deleted. Names are compared exactly: tags
+  stay case-sensitive.
+- **Smart folders.** New Smart Folder, New Smart Subfolder, Edit and Delete; the browse
+  screen offers Save as Smart Folder (the core's `egl_smart_rules` for the view's query). The
+  editor follows the desktop's (`ui/src/features/smart/rules.ts`): conditions that all must
+  hold, each matching all or any of its rules or negated; the v1 properties (tags, folders,
+  name, notes, link, type, rating, shape, the three dates, width, height, file size) with
+  their methods and value editors. The rules stay Eagle's JSON: `JSONValue` in eglcore keeps
+  every key, so keys and rules this editor does not know survive an edit; such a rule shows as
+  one it cannot edit and can only be removed.
+- **eglcore.** `JSONValue`; `FolderChange`, `saveFolder`, `deleteFolder`; `renameTag`,
+  `mergeTags`, `deleteTag`; `TagGroup`, `TagGroupChange` and their calls; `SmartFolderChange`,
+  `saveSmartFolder`, `deleteSmartFolder`, `smartRules`; `Folder` description / colour / tags /
+  sort; `SmartFolder.conditions` / `unsupported`; `LabelColor`. Stored colours stay strings, so
+  a library imported with another colour still opens.
+- **Tests.** JVM unit tests of organize JSON, `JSONValue` unknown keys, and the smart rule
+  model (round trip with unknown keys, methods keeping their values), in
+  `:eglcore:testDebugUnitTest` / `:app:testDebugUnitTest` of the Mobile workflow.
+- **Docs.** `android/README.md`, the README status table, and this decision.
+- **Out of scope.** Locks / login (A6), settings (A7), release (A8).
+
+## D-106 Android A6 locks + app login: locked folders, lock on background, PIN / biometrics (2026-11-05)
+
+The sixth PR of the Android series (D-101…D-105), mirroring iOS D-098. Stacked on
+`feat/android-a5-organizing` (A5 / D-105). YubiKey stays a desktop feature.
+
+- **Locked folders.** A closed lock shows its label (and colour) instead of the folder; a tap
+  opens the unlock sheet. Its long-press menu offers Unlock and Use Recovery Key (the key or
+  its twelve words open the folder and set a new password); a lock imported without a password
+  (from Eagle) also offers Set Password and Remove Lock. An open folder offers Lock (password
+  twice, an optional label and colour); an open lock offers Lock Now, Change Password, New
+  Recovery Key, Lock Label and Remove Lock. Lock All sits in the library's toolbar while any
+  folder is open. The recovery key is shown once after locking or renewing, with copy buttons
+  and an "I have saved it" switch before Done. Every lock call runs off the main thread
+  (Argon2id). A wrong password is said in the sheet; other failures go to the toast. The
+  library's views and counts follow.
+- **Leaving the app locks again.** When the activity stops, every open folder is locked again
+  (`egl_relock_folder(NULL)`), and the decoded originals and thumbnails in memory are dropped.
+- **The app's login.** App Lock (on the Welcome screen for now; Settings arrive with A7) sets a
+  password or PIN, changes it and turns it off. It is kept as a PBKDF2-HMAC-SHA256 hash
+  (310,000 rounds, a salt of its own) in app-private SharedPreferences. Biometrics, when the
+  device has them, use `BiometricPrompt` with a Keystore AES key
+  (`setInvalidatedByBiometricEnrollment(true)`, strong biometrics only): a new enrollment needs
+  the password again. The app locks when it goes to the background and asks at launch; from the
+  fifth wrong try each one makes the next wait longer (30 s, 60 s, …). While a login is set,
+  `FLAG_SECURE` and a privacy cover hide the library in Recents. JVM tests keep the login in
+  memory.
+- **eglcore.** `RecoveryKey`; `lockFolder`, `unlockFolder`, `relock`, `recoverFolder`,
+  `changeFolderPassword`, `renewRecoveryKey`, `removeFolderLock`, `setLockLabel`; JNI forwarders
+  for the matching `egl_*` calls.
+- **Dependencies.** `androidx.biometric:biometric:1.1.0`, `androidx.fragment:fragment-ktx:1.8.5`
+  (`FragmentActivity` for `BiometricPrompt`). `MainActivity` is a `FragmentActivity`.
+- **Tests.** JVM unit tests of `LoginHash` / `AppLock` (set, change, turn off, waiting after
+  wrong tries), `RecoveryKey` / folder lock JSON, in `:eglcore:testDebugUnitTest` /
+  `:app:testDebugUnitTest` of the Mobile workflow.
+- **Docs.** `android/README.md`, the README status table, and this decision.
+- **Out of scope.** Settings (A7), release (A8).
+
+## D-107 Android A7 settings: library upkeep, backups, check/repair, export (2026-11-05)
+
+The seventh PR of the Android series (D-101…D-106), mirroring iOS D-099. Stacked on
+`feat/android-a6-locks` (A6 / D-106). Eagle is not a destination on the phone.
+
+- **Settings** opens from the library screen (gear) and from Welcome. The library part:
+  - **Library**: the name (renaming changes the library's own name, not its folder), where it
+    lives, what it takes on disk (originals, thumbnails, database, backups) and Rebuild
+    Thumbnails (the core's preview task in the background, progress in the import banner);
+  - **Backups**: Back Up Now and the list (daily, by hand, before an update, before a restore)
+    with Restore, confirmed. A restore is another database: views and undo start over;
+  - **Check and Repair**: the core's check (database, missing originals, files and thumbnails
+    without an item) and Repair with the desktop's two choices; the core backs up first;
+  - **Export**: the whole library, or folders (with or without their subfolders) and tags; a
+    ZIP archive (four compression levels, optionally encrypted with an age passphrase, never
+    stored) or a folder tree; the preview counts items, bytes and items a closed locked folder
+    leaves out. The export is written into the app's temporary folder, then saved via SAF
+    (`CreateDocument`) or shared; the temporary copy goes when the screen closes or a new
+    export starts.
+  The app part: App Lock (moved here from Welcome), the version, the language with a link to
+  the system app-language / app-details settings.
+- **eglcore.** JNI and `Library` gain `rename`, `stats`, `backups`, `backUpNow`,
+  `restoreBackup`, `check`, `repair`, `generatePreviews`, `exportPreview`, `startExport`,
+  `exports`, `cancelExport`; models `LibraryStats`, `Backup` / `BackupKind`, `LibraryCheck`,
+  `RepairOptions`, `PreviewsTicket`, `ExportSelection`, `ExportFormat` / `ExportCompression`,
+  `ExportRequest`, `ExportPreview`, `ExportProgress` / `ExportSummary` / `ExportState`. Typed
+  `LibraryEvent.ExportProgress`.
+- **Tests.** JVM unit tests of settings / export JSON and `formatBytes`, in
+  `:eglcore:testDebugUnitTest` / `:app:testDebugUnitTest` of the Mobile workflow.
+- **Docs.** `android/README.md`, the README status table, and this decision.
+- **Out of scope.** Release: icon, privacy, a11y, 10k, tagged APK/AAB (A8).
+
+
+## D-108 Android A8 release: icon, privacy, accessibility, 10,000 items, tagged APK/AAB (2026-11-05)
+
+The last PR of the Android series (D-101–D-107), mirroring iOS D-100. Stacked on
+`feat/android-a7-settings` (A7 / D-107). Completes A1–A8.
+
+- **Icon.** Adaptive launcher icons (`mipmap-*` + `mipmap-anydpi-v26`) drawn from the desktop
+  Android set under `src-tauri/icons/android`, wired on the application; a 512×512 Play Store
+  icon at `android/app/ic_launcher-playstore.png`. `scripts/check-mobile-shell.sh` checks the
+  Play icon size.
+- **Privacy.** In-app Privacy screen (Settings) in en / ru / zh: no tracking, libraries stay
+  on the phone, App Lock / recovery keys / export passphrases never leave the device, no
+  network of the app's own. `android/PRIVACY.md` for the store listing. Auto Backup and
+  device-to-device transfer exclude the login, recents, saved views and library files
+  (`backup_rules.xml`, `data_extraction_rules.xml`).
+- **Accessibility.** Ratings read as "3 stars" (`StarsText` / `details_stars` plurals), not
+  the symbols; grid and list cells say their name, rating and "Loading" until they arrive;
+  folder pickers mark the chosen folder as selected. JVM tests cover the label helpers.
+- **10,000 items.** A JVM unit test fills a `FakeViewSession` with 10,000 cells and times the
+  paths that must not grow with the library: opening the view, a window at the end, the name
+  sort, a search, a tag filter, Select All (a rule over the view, no id list). The budgets
+  (3–5 s) are loose for shared CI; the timings go to the log as `perf:` lines.
+- **Releases.** A tag `android-vX.Y.Z` runs the Mobile workflow (path filters do not apply to
+  tags): the release build takes `X.Y.Z` as `versionName` and the run number as `versionCode`,
+  and checks that the APK says so; once `library-ffi` and `android` pass, `android-release`
+  publishes a GitHub Release `android-vX.Y.Z` with `EglViewer-X.Y.Z.apk`,
+  `EglViewer-X.Y.Z.aab` and `SHA256SUMS`, and the changes since the previous `android-v` tag.
+  It is created with `--latest=false`: the desktop updater reads `releases/latest` (D-062).
+  `scripts/android-release-version.sh` turns the tag into the version and refuses anything
+  else. The APK is signed with the CI debug key for sideloading; the AAB is for Play Console
+  after re-signing with the upload keystore. The first Android release tag is
+  `android-v0.2.3` (cut by Ivan when ready).
+- **Tests.** `AccessibilityLabelsTest`, `ReleaseTest`, `PerformanceTest` in
+  `:app:testDebugUnitTest` of the Mobile workflow.
+- **Docs.** `android/README.md`, `android/PRIVACY.md`, the README status table, and this
+  decision.
+
+## D-109 Android JNI: callbacks on the core's threads, UTF-8 strings, one release key (2026-11-05)
+
+A review of the Android series (D-101–D-108) found three faults that no test could see: the
+JVM unit tests run fakes, and nothing ran the real `egl_jni.cpp`.
+
+- **Callbacks.** The core reports imports, exports and refreshed views, and asks the platform
+  decoder for HEIC, on threads it started. `egl_jni.cpp` looked the Kotlin classes up there
+  with `FindClass`, which on an attached native thread searches the system class loader and
+  cannot see the app's classes: every event and every HEIC decode was lost
+  (`NoClassDefFoundError`). `JNI_OnLoad` now finds `Library.dispatchEventFromJni` and
+  `PlatformDecoder.decodeFromJni` once and keeps global references; a callback that throws
+  has its exception cleared before the thread returns to the core.
+- **Strings.** `GetStringUTFChars` and `NewStringUTF` speak Java's modified UTF-8: a character
+  outside the BMP (an emoji) became two 3-byte surrogates, the core refused the string as
+  invalid UTF-8 (a library named with an emoji could not be created) and the core's 4-byte
+  sequences were not safe going back. The bridge now converts from and to UTF-16 itself
+  (`Utf8`, `new_string`); an unpaired surrogate or a broken sequence becomes U+FFFD. The note
+  in `egl_library.h` says so (all three copies).
+- **Host check.** `scripts/check-android-jni.sh` compiles `egl_jni.cpp` with the JDK's
+  `jni.h`, links the core built for the host and runs `android/eglcore/src/hostTest` with
+  `-Xcheck:jni`, loading the app classes through a class loader of their own, as Android does:
+  a library and an item named with emoji, an emoji tag, import events from the core's
+  threads, the platform decoder called for a HEIC. It failed on the code before this change
+  (first the emoji name, then with ASCII names the events and the decoder) and passes now. The
+  Mobile workflow runs it in the `library-ffi` job.
+- **Release key.** D-108 signed the release APK with the runner's debug key, which is new on
+  every runner: an update could not install over the previous release, and uninstalling first
+  removes the libraries in the app's storage. Release builds now take one keystore from
+  repository secrets (`ANDROID_KEYSTORE_BASE64`, `ANDROID_KEYSTORE_PASSWORD`,
+  `ANDROID_KEY_ALIAS`, `ANDROID_KEY_PASSWORD`); a release tag fails without them and fails if
+  `apksigner` shows a debug certificate. Without `ANDROID_KEYSTORE_FILE` a local release build
+  stays unsigned. The AAB is signed with the same key, the upload key for Play App Signing.
+- **Events on the main thread.** Now that events arrive, `OpenLibrary` hands a refreshed
+  view to the browse models on the main thread and reads the tree again on the IO
+  dispatcher, instead of doing both on the core's thread. The host check also reads the
+  library from inside the callback, as `OpenLibrary` does, to show the core takes that
+  without a deadlock.
+- **Backups.** The backup rules left out `Libraries/` in the `file` domain, but libraries
+  live in `getExternalFilesDir(null)/libraries`, the `external` domain (or
+  `filesDir/libraries` without external storage): Auto Backup and device transfer carried
+  whole libraries, against D-021. Both rule files now exclude `libraries/` in both domains;
+  `ReleaseTest` checks them against `LibraryLocations`.
+- **Names from other apps.** A provider's `DISPLAY_NAME`, a document name in a picked tree
+  or a clipboard suggestion went straight into `File(folder, name)`: "../../shared_prefs/…"
+  would write outside the copy's folder ("Dirty Stream"). `PickedFile.safeName` keeps the
+  last segment only, never "." or "..", at most 255 bytes, and `PickedFile.child` refuses a
+  path that leaves the folder.
+- **Biometric unlock.** Turning it on encrypted a token with a Keystore key that needs a
+  strong biometric for every use (`setUserAuthenticationRequired`, timeout 0) outside any
+  prompt, so it failed and the switch showed an error. Turning it on now only makes the
+  key; the unlock prompt authorises one encryption of random bytes with it, which
+  succeeds only after a match, and an invalidated key (biometrics changed) turns the
+  option off. This needs a device to confirm: the unit tests use the in-memory store.
+
 ## D-110 Exports: encrypted while written, cancel while encrypting, passphrase length, Decrypt Archive (2026-11-05)
 
 A review of the archive export (D-064 to D-066) found three faults, and a gap: an `.age` file is
@@ -2086,6 +2398,7 @@ of little use to someone who has never used a command line.
   and this command's shape follow a parallel attempt at the same change (PR #69, closed),
   which wrote straight over a chosen file and deleted it on a failure. iPhone: Settings → Decrypt
   Archive, from Files into a temporary folder, then Save to Files or Share. C ABI:
-  `egl_decrypt_archive` (no library handle), in the three header copies. The Android app
-  gets it with its export screen: the core already refuses a short passphrase there.
+  `egl_decrypt_archive` (no library handle), in the three header copies. Android's export
+  screen (D-107) checks the length too (`passphraseLongEnough`, code points); its Decrypt
+  Archive and the JNI forwarder come later.
 - Outside the app the archive still opens with `age -d -o name.zip name.zip.age` (or `rage`).
