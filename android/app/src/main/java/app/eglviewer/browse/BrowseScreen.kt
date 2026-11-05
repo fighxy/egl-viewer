@@ -27,11 +27,13 @@ import androidx.compose.material.icons.automirrored.filled.ArrowBack
 import androidx.compose.material.icons.automirrored.filled.Sort
 import androidx.compose.material.icons.filled.CheckCircle
 import androidx.compose.material.icons.filled.Close
+import androidx.compose.material.icons.filled.DeleteSweep
 import androidx.compose.material.icons.filled.FilterList
 import androidx.compose.material.icons.filled.GridView
 import androidx.compose.material.icons.filled.RadioButtonUnchecked
 import androidx.compose.material.icons.filled.Search
 import androidx.compose.material.icons.filled.ViewList
+import androidx.compose.material3.AlertDialog
 import androidx.compose.material3.DropdownMenu
 import androidx.compose.material3.DropdownMenuItem
 import androidx.compose.material3.Icon
@@ -45,33 +47,45 @@ import androidx.compose.runtime.getValue
 import androidx.compose.runtime.mutableIntStateOf
 import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.remember
+import androidx.compose.runtime.rememberCoroutineScope
 import androidx.compose.runtime.setValue
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.graphics.asImageBitmap
 import androidx.compose.ui.layout.ContentScale
+import androidx.compose.ui.platform.LocalContext
 import androidx.compose.ui.platform.LocalDensity
+import androidx.compose.ui.res.stringResource
 import androidx.compose.ui.text.TextStyle
 import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.text.style.TextOverflow
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
+import app.eglviewer.R
+import app.eglviewer.app.OpenLibrary
+import app.eglviewer.components.UndoSnackbar
 import app.eglviewer.core.ItemCell
 import app.eglviewer.core.SortKey
+import app.eglviewer.details.DetailsSheet
+import app.eglviewer.details.ShareLauncher
+import app.eglviewer.preview.PreviewScreen
 import app.eglviewer.theme.EglTokens
+import kotlinx.coroutines.launch
 
 @Composable
 fun BrowseScreen(
     open: BrowseHost,
     place: Place,
     onBack: () -> Unit,
-    onOpenPreview: (ItemCell, Int) -> Unit = { _, _ -> },
 ) {
     val model = remember(open, place) { BrowseModel(open = open, place = place) }
+    val scope = rememberCoroutineScope()
+    val context = LocalContext.current
     var tick by remember { mutableIntStateOf(0) }
     var showFilters by remember { mutableStateOf(false) }
     var showSort by remember { mutableStateOf(false) }
+    var emptyTrashConfirm by remember { mutableStateOf(false) }
 
     DisposableEffect(model) {
         val listener: () -> Unit = { tick += 1 }
@@ -79,86 +93,152 @@ fun BrowseScreen(
         model.start()
         onDispose {
             model.removeListener(listener)
+            // Preview is hosted in this screen; stop always closes the view when leaving the place.
             model.stop()
         }
     }
     @Suppress("UNUSED_EXPRESSION")
     tick
 
-    Column(
-        modifier = Modifier
-            .fillMaxSize()
-            .background(EglTokens.Background),
-    ) {
-        BrowseTopBar(
-            title = placeTitle(place),
-            selecting = model.selecting,
-            selectedCount = model.selectedCount,
-            total = model.total,
-            filtersActive = model.settings.filters.isActive,
-            onBack = {
-                if (model.selecting) {
-                    model.setSelecting(false)
-                } else {
-                    open.forgetPlace()
-                    onBack()
-                }
-            },
-            onSelect = { model.setSelecting(true) },
-            onSelectAll = { model.selectAll() },
-            onDeselectAll = { model.deselectAll() },
-            onDone = { model.setSelecting(false) },
-            onFilter = { showFilters = true },
-            onToggleLayout = {
-                model.change {
-                    it.copy(
-                        layout = if (it.layout == BrowseLayout.Grid) {
-                            BrowseLayout.List
-                        } else {
-                            BrowseLayout.Grid
-                        },
-                    )
-                }
-            },
-            layout = model.settings.layout,
-            showSort = showSort,
-            onShowSort = { showSort = it },
-            sort = model.settings.sort,
-            ascending = model.settings.ascending,
-            size = model.settings.size,
-            onSort = { key -> model.change { it.copy(sort = key) } },
-            onAscending = { model.change { it.copy(ascending = !it.ascending) } },
-            onSize = { size -> model.change { it.copy(size = size) } },
-        )
-
-        SearchField(
-            query = model.settings.search,
-            onQuery = { q -> model.change { it.copy(search = q) } },
-        )
-
-        if (!model.loading) {
-            Text(
-                text = "${model.total} items",
-                color = EglTokens.MutedForeground,
-                fontSize = 12.sp,
-                modifier = Modifier.padding(horizontal = 12.dp, vertical = 4.dp),
+    Box(modifier = Modifier.fillMaxSize()) {
+        Column(
+            modifier = Modifier
+                .fillMaxSize()
+                .background(EglTokens.Background),
+        ) {
+            BrowseTopBar(
+                title = placeTitle(place),
+                selecting = model.selecting,
+                selectedCount = model.selectedCount,
+                total = model.total,
+                filtersActive = model.settings.filters.isActive,
+                isTrash = place == Place.Trash,
+                onBack = {
+                    if (model.selecting) {
+                        model.setSelecting(false)
+                    } else {
+                        open.forgetPlace()
+                        onBack()
+                    }
+                },
+                onSelect = { model.setSelecting(true) },
+                onSelectAll = { model.selectAll() },
+                onDeselectAll = { model.deselectAll() },
+                onDone = { model.setSelecting(false) },
+                onFilter = { showFilters = true },
+                onEmptyTrash = { emptyTrashConfirm = true },
+                onToggleLayout = {
+                    model.change {
+                        it.copy(
+                            layout = if (it.layout == BrowseLayout.Grid) {
+                                BrowseLayout.List
+                            } else {
+                                BrowseLayout.Grid
+                            },
+                        )
+                    }
+                },
+                layout = model.settings.layout,
+                showSort = showSort,
+                onShowSort = { showSort = it },
+                sort = model.settings.sort,
+                ascending = model.settings.ascending,
+                size = model.settings.size,
+                onSort = { key -> model.change { it.copy(sort = key) } },
+                onAscending = { model.change { it.copy(ascending = !it.ascending) } },
+                onSize = { size -> model.change { it.copy(size = size) } },
             )
+
+            SearchField(
+                query = model.settings.search,
+                onQuery = { q -> model.change { it.copy(search = q) } },
+            )
+
+            if (!model.loading) {
+                Text(
+                    text = stringResource(R.string.browse_item_count, model.total),
+                    color = EglTokens.MutedForeground,
+                    fontSize = 12.sp,
+                    modifier = Modifier.padding(horizontal = 12.dp, vertical = 4.dp),
+                )
+            }
+
+            Box(modifier = Modifier.weight(1f)) {
+                when (model.settings.layout) {
+                    BrowseLayout.Grid -> BrowseGrid(model = model)
+                    BrowseLayout.List -> BrowseList(model = model)
+                }
+            }
+
+            if (model.selecting) {
+                SelectionBar(model = model)
+            }
         }
 
-        when (model.settings.layout) {
-            BrowseLayout.Grid -> BrowseGrid(
-                model = model,
-                onOpenPreview = onOpenPreview,
+        if (model.previewing == null) {
+            UndoSnackbar(
+                toast = open.toast,
+                onUndo = { scope.launch { open.undo() } },
+                modifier = Modifier
+                    .align(Alignment.BottomCenter)
+                    .padding(bottom = if (model.selecting) 96.dp else 16.dp),
             )
-            BrowseLayout.List -> BrowseList(
-                model = model,
-                onOpenPreview = onOpenPreview,
-            )
+        }
+    }
+
+    model.previewing?.let { start ->
+        val originals = (open as? OpenLibrary)?.originals
+            ?: OriginalCache(open.session)
+        PreviewScreen(
+            model = model,
+            start = start,
+            originals = originals,
+            onClose = { model.closePreview() },
+            onShare = { files ->
+                context.startActivity(ShareLauncher.intent(context, files))
+                files.clean()
+            },
+        )
+    }
+
+    model.details?.let { cell ->
+        DetailsSheet(
+            open = open,
+            cell = cell,
+            onDismiss = { model.closeDetails() },
+        )
+    }
+
+    model.sharing?.let { files ->
+        LaunchedEffect(files) {
+            context.startActivity(ShareLauncher.intent(context, files))
+            model.clearSharing()
         }
     }
 
     if (showFilters) {
         FilterSheet(model = model, onDismiss = { showFilters = false })
+    }
+
+    if (emptyTrashConfirm) {
+        AlertDialog(
+            onDismissRequest = { emptyTrashConfirm = false },
+            title = { Text(stringResource(R.string.trash_empty_confirm)) },
+            text = { Text(stringResource(R.string.trash_no_undo)) },
+            confirmButton = {
+                TextButton(
+                    onClick = {
+                        emptyTrashConfirm = false
+                        scope.launch { model.emptyTrash() }
+                    },
+                ) { Text(stringResource(R.string.trash_empty)) }
+            },
+            dismissButton = {
+                TextButton(onClick = { emptyTrashConfirm = false }) {
+                    Text(stringResource(R.string.common_cancel))
+                }
+            },
+        )
     }
 }
 
@@ -169,12 +249,14 @@ private fun BrowseTopBar(
     selectedCount: Int,
     total: Int,
     filtersActive: Boolean,
+    isTrash: Boolean,
     onBack: () -> Unit,
     onSelect: () -> Unit,
     onSelectAll: () -> Unit,
     onDeselectAll: () -> Unit,
     onDone: () -> Unit,
     onFilter: () -> Unit,
+    onEmptyTrash: () -> Unit,
     onToggleLayout: () -> Unit,
     layout: BrowseLayout,
     showSort: Boolean,
@@ -266,7 +348,12 @@ private fun BrowseTopBar(
                     }
                 }
             }
-            TextButton(onClick = onSelect, enabled = total > 0) { Text("Select") }
+            if (isTrash && total > 0) {
+                IconButton(onClick = onEmptyTrash) {
+                    Icon(Icons.Default.DeleteSweep, contentDescription = stringResource(R.string.trash_empty))
+                }
+            }
+            TextButton(onClick = onSelect, enabled = total > 0) { Text(stringResource(R.string.browse_select)) }
         }
     }
 }
@@ -300,7 +387,7 @@ private fun SearchField(query: String, onQuery: (String) -> Unit) {
 }
 
 @Composable
-private fun BrowseGrid(model: BrowseModel, onOpenPreview: (ItemCell, Int) -> Unit) {
+private fun BrowseGrid(model: BrowseModel) {
     val minWidth = model.settings.size.minimumWidthDp.dp
     val density = LocalDensity.current
     val pixels = with(density) { (minWidth * 1.6f).roundToPx() }
@@ -320,14 +407,7 @@ private fun BrowseGrid(model: BrowseModel, onOpenPreview: (ItemCell, Int) -> Uni
                 selecting = model.selecting,
                 pixels = pixels,
                 cache = model.open.thumbnails,
-                onClick = {
-                    if (cell != null) {
-                        when (val tap = model.tap(cell, index)) {
-                            is BrowseTap.OpenPreview -> onOpenPreview(cell, tap.index)
-                            BrowseTap.Toggled -> Unit
-                        }
-                    }
-                },
+                onClick = { cell?.let { model.tap(it, index) } },
                 onLongClick = { cell?.let { model.startSelecting(it) } },
             )
         }
@@ -335,7 +415,7 @@ private fun BrowseGrid(model: BrowseModel, onOpenPreview: (ItemCell, Int) -> Uni
 }
 
 @Composable
-private fun BrowseList(model: BrowseModel, onOpenPreview: (ItemCell, Int) -> Unit) {
+private fun BrowseList(model: BrowseModel) {
     val density = LocalDensity.current
     val pixels = with(density) { 48.dp.roundToPx() }
     LazyColumn(modifier = Modifier.fillMaxSize()) {
@@ -348,14 +428,7 @@ private fun BrowseList(model: BrowseModel, onOpenPreview: (ItemCell, Int) -> Uni
                 selecting = model.selecting,
                 pixels = pixels,
                 cache = model.open.thumbnails,
-                onClick = {
-                    if (cell != null) {
-                        when (val tap = model.tap(cell, index)) {
-                            is BrowseTap.OpenPreview -> onOpenPreview(cell, tap.index)
-                            BrowseTap.Toggled -> Unit
-                        }
-                    }
-                },
+                onClick = { cell?.let { model.tap(it, index) } },
                 onLongClick = { cell?.let { model.startSelecting(it) } },
             )
         }

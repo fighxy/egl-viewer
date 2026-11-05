@@ -2,11 +2,16 @@ package app.eglviewer.browse
 
 import app.eglviewer.core.ExtensionCount
 import app.eglviewer.core.ItemCell
+import app.eglviewer.core.ItemEdit
 import app.eglviewer.core.ItemsTarget
 import app.eglviewer.core.LibraryQuery
 import app.eglviewer.core.Tag
 import app.eglviewer.core.TagMode
 import app.eglviewer.core.ViewOpened
+import app.eglviewer.details.ShareFiles
+import java.io.File
+import java.util.concurrent.ConcurrentHashMap
+import java.util.concurrent.atomic.AtomicInteger
 import kotlinx.coroutines.CoroutineScope
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.Job
@@ -17,13 +22,10 @@ import kotlinx.coroutines.launch
 import kotlinx.coroutines.sync.Mutex
 import kotlinx.coroutines.sync.withLock
 import kotlinx.coroutines.withContext
-import java.util.concurrent.ConcurrentHashMap
-import java.util.concurrent.atomic.AtomicInteger
 
 /**
- * One place on screen: a core view for the place, sort/filters/search, cells in windows, and
- * selection (Android A2 ≈ iOS D-094). The whole item list never crosses JNI: cells come in
- * windows of [WINDOW] around what the user sees.
+ * One place on screen: a core view for the place, sort/filters/search, cells in windows,
+ * selection, preview and actions with undo (Android A2–A3 ≈ iOS D-094 / D-095).
  */
 class BrowseModel(
     val open: BrowseHost,
@@ -323,19 +325,145 @@ class BrowseModel(
         notifyChanged()
     }
 
+    fun startSelecting(with: ItemCell) {
+        if (!selecting) selecting = true
+        if (!isSelected(with.id)) toggle(with.id)
+        notifyChanged()
+    }
+
+    // MARK: Preview / details / share (A3 ≈ D-095)
+
+    @Volatile
+    var previewing: Int? = null
+        private set
+
+    @Volatile
+    var details: ItemCell? = null
+        private set
+
+    @Volatile
+    var sharing: ShareFiles? = null
+        private set
+
+    fun openPreview(index: Int) {
+        previewing = index
+        notifyChanged()
+    }
+
+    fun closePreview() {
+        previewing = null
+        notifyChanged()
+    }
+
+    fun openDetails(cell: ItemCell) {
+        details = cell
+        notifyChanged()
+    }
+
+    fun closeDetails() {
+        details = null
+        notifyChanged()
+    }
+
+    fun clearSharing() {
+        sharing?.clean()
+        sharing = null
+        notifyChanged()
+    }
+
     fun tap(cell: ItemCell, at: Int): BrowseTap {
         return if (selecting) {
             toggle(cell.id)
             BrowseTap.Toggled
         } else {
+            openPreview(at)
             BrowseTap.OpenPreview(at)
         }
     }
 
-    fun startSelecting(with: ItemCell) {
-        if (!selecting) selecting = true
-        if (!isSelected(with.id)) toggle(with.id)
+    // MARK: Actions (A3 ≈ D-095)
+
+    suspend fun trash(target: ItemsTarget) {
+        val count = open.perform { it.editItems(target, ItemEdit.Trash) } ?: return
+        finished()
+        open.show("Moved $count to Trash", undoable = true)
+    }
+
+    suspend fun restore(target: ItemsTarget) {
+        val count = open.perform { it.editItems(target, ItemEdit.Restore) } ?: return
+        finished()
+        open.show("Restored $count", undoable = true)
+    }
+
+    suspend fun deleteForGood(target: ItemsTarget) {
+        val count = open.perform { it.deleteItems(target) } ?: return
+        finished()
+        open.show("Deleted $count", undoable = false)
+    }
+
+    suspend fun emptyTrash() {
+        val count = open.perform { it.emptyTrash() } ?: return
+        open.show("Deleted $count", undoable = false)
+    }
+
+    suspend fun rate(target: ItemsTarget, stars: Int) {
+        val count = open.perform { it.editItems(target, ItemEdit.SetStar(stars)) } ?: return
+        finished()
+        open.show("Rated $count", undoable = true)
+    }
+
+    suspend fun addTags(target: ItemsTarget, tags: List<String>) {
+        if (tags.isEmpty()) return
+        open.perform { it.editItems(target, ItemEdit.AddTags(tags)) } ?: return
+        open.show("Tagged", undoable = true)
+    }
+
+    suspend fun removeTags(target: ItemsTarget, tags: List<String>) {
+        open.perform { it.editItems(target, ItemEdit.RemoveTags(tags)) } ?: return
+        open.show("Untagged", undoable = true)
+    }
+
+    suspend fun addToFolder(target: ItemsTarget, folder: String) {
+        val count = open.perform {
+            it.editItems(target, ItemEdit.AddToFolders(listOf(folder)))
+        } ?: return
+        finished()
+        open.show("Filed $count", undoable = true)
+    }
+
+    suspend fun share(target: ItemsTarget, cacheDir: File) {
+        val files = shareFiles(target, cacheDir) ?: return
+        sharing = files
         notifyChanged()
+    }
+
+    suspend fun shareFiles(target: ItemsTarget, cacheDir: File): ShareFiles? {
+        val chosen = ids(of = target, limit = ShareFiles.LIMIT)
+        if (chosen.isEmpty()) return null
+        return open.perform { ShareFiles.prepare(chosen, from = it, cacheDir = cacheDir) }
+    }
+
+    /** Ids a target names, in view order, at most [limit]. Select All reads them in windows. */
+    suspend fun ids(of: ItemsTarget, limit: Int): List<String> {
+        val viewId = of.viewId
+        if (!of.all || viewId == null) return of.ids.take(limit)
+        val excluded = of.ids.toSet()
+        val total = total
+        return open.perform { session ->
+            val ids = mutableListOf<String>()
+            var start = 0
+            while (start < total && ids.size < limit) {
+                val window = session.viewIds(viewId, start, 200)
+                if (window.isEmpty()) break
+                ids += window.filter { it !in excluded }
+                start += window.size
+            }
+            ids.take(limit)
+        } ?: emptyList()
+    }
+
+    private fun finished() {
+        if (selecting) setSelecting(false)
     }
 
     suspend fun loadVocabulary() {

@@ -1,7 +1,8 @@
 /**
- * Thin JNI forwarder to the library-ffi C ABI (D-083 / D-101 / D-102).
+ * Thin JNI forwarder to the library-ffi C ABI (D-083 / D-101 / D-102 / D-103).
  * A1: create / open / close, info, counts, folder tree, event callback.
  * A2: open_view / view_range / close_view, tags, extensions, smart folders, thumbs, edit_items.
+ * A3: item, apply_item_edit, selection tags, undo, delete, empty trash, view ids, originals.
  * Package: app.eglviewer.core.EglNative
  */
 
@@ -398,5 +399,258 @@ Java_app_eglviewer_core_EglNative_editItems(JNIEnv *env, jclass, jlong handle,
   (void)editJson;
   set_status(6);
   return -1;
+#endif
+}
+
+/* ---- Preview / details / actions (Android A3 ≈ iOS D-095) ---------------- */
+
+extern "C" JNIEXPORT jstring JNICALL
+Java_app_eglviewer_core_EglNative_item(JNIEnv *env, jclass, jlong handle,
+                                       jstring id) {
+#if defined(EGL_HAS_RUST)
+  const char *id_utf = env->GetStringUTFChars(id, nullptr);
+  char *json = nullptr;
+  EglStatus status =
+      egl_item(reinterpret_cast<EglLibrary *>(handle), id_utf, &json);
+  env->ReleaseStringUTFChars(id, id_utf);
+  set_status(static_cast<int>(status));
+  if (status != EGL_OK || json == nullptr) {
+    return nullptr;
+  }
+  return take_c_string(env, json);
+#else
+  (void)env;
+  (void)handle;
+  (void)id;
+  set_status(6);
+  return nullptr;
+#endif
+}
+
+extern "C" JNIEXPORT jstring JNICALL
+Java_app_eglviewer_core_EglNative_applyItemEdit(JNIEnv *env, jclass, jlong handle,
+                                                jstring id, jstring editJson) {
+#if defined(EGL_HAS_RUST)
+  const char *id_utf = env->GetStringUTFChars(id, nullptr);
+  const char *edit = env->GetStringUTFChars(editJson, nullptr);
+  char *json = nullptr;
+  EglStatus status = egl_apply_item_edit(reinterpret_cast<EglLibrary *>(handle),
+                                         id_utf, edit, &json);
+  env->ReleaseStringUTFChars(id, id_utf);
+  env->ReleaseStringUTFChars(editJson, edit);
+  set_status(static_cast<int>(status));
+  if (status != EGL_OK || json == nullptr) {
+    return nullptr;
+  }
+  return take_c_string(env, json);
+#else
+  (void)env;
+  (void)handle;
+  (void)id;
+  (void)editJson;
+  set_status(6);
+  return nullptr;
+#endif
+}
+
+extern "C" JNIEXPORT jstring JNICALL
+Java_app_eglviewer_core_EglNative_viewSelectionTags(JNIEnv *env, jclass,
+                                                    jlong handle,
+                                                    jstring targetJson) {
+#if defined(EGL_HAS_RUST)
+  const char *target = env->GetStringUTFChars(targetJson, nullptr);
+  char *json = nullptr;
+  EglStatus status = egl_view_selection_tags(
+      reinterpret_cast<EglLibrary *>(handle), target, &json);
+  env->ReleaseStringUTFChars(targetJson, target);
+  set_status(static_cast<int>(status));
+  if (status != EGL_OK || json == nullptr) {
+    return nullptr;
+  }
+  return take_c_string(env, json);
+#else
+  (void)env;
+  (void)handle;
+  (void)targetJson;
+  set_status(6);
+  return nullptr;
+#endif
+}
+
+extern "C" JNIEXPORT jstring JNICALL
+Java_app_eglviewer_core_EglNative_undo(JNIEnv *env, jclass, jlong handle) {
+#if defined(EGL_HAS_RUST)
+  char *json = nullptr;
+  EglStatus status = egl_undo(reinterpret_cast<EglLibrary *>(handle), &json);
+  set_status(static_cast<int>(status));
+  if (status != EGL_OK) {
+    return nullptr;
+  }
+  /* null JSON means nothing to undo — return the string "null". */
+  if (json == nullptr) {
+    return env->NewStringUTF("null");
+  }
+  return take_c_string(env, json);
+#else
+  (void)env;
+  (void)handle;
+  set_status(6);
+  return nullptr;
+#endif
+}
+
+extern "C" JNIEXPORT jstring JNICALL
+Java_app_eglviewer_core_EglNative_undoStatus(JNIEnv *env, jclass, jlong handle) {
+#if defined(EGL_HAS_RUST)
+  char *json = nullptr;
+  EglStatus status =
+      egl_undo_status(reinterpret_cast<EglLibrary *>(handle), &json);
+  set_status(static_cast<int>(status));
+  if (status != EGL_OK) {
+    return nullptr;
+  }
+  if (json == nullptr) {
+    return env->NewStringUTF("null");
+  }
+  return take_c_string(env, json);
+#else
+  (void)env;
+  (void)handle;
+  set_status(6);
+  return nullptr;
+#endif
+}
+
+extern "C" JNIEXPORT jint JNICALL
+Java_app_eglviewer_core_EglNative_deleteItems(JNIEnv *env, jclass, jlong handle,
+                                              jstring targetJson) {
+#if defined(EGL_HAS_RUST)
+  const char *target = env->GetStringUTFChars(targetJson, nullptr);
+  uint32_t count = 0;
+  EglStatus status = egl_delete_items(reinterpret_cast<EglLibrary *>(handle),
+                                      target, &count);
+  env->ReleaseStringUTFChars(targetJson, target);
+  set_status(static_cast<int>(status));
+  if (status != EGL_OK) {
+    return -1;
+  }
+  return static_cast<jint>(count);
+#else
+  (void)env;
+  (void)handle;
+  (void)targetJson;
+  set_status(6);
+  return -1;
+#endif
+}
+
+extern "C" JNIEXPORT jint JNICALL
+Java_app_eglviewer_core_EglNative_emptyTrash(JNIEnv *, jclass, jlong handle) {
+#if defined(EGL_HAS_RUST)
+  uint32_t count = 0;
+  EglStatus status =
+      egl_empty_trash(reinterpret_cast<EglLibrary *>(handle), &count);
+  set_status(static_cast<int>(status));
+  if (status != EGL_OK) {
+    return -1;
+  }
+  return static_cast<jint>(count);
+#else
+  (void)handle;
+  set_status(6);
+  return -1;
+#endif
+}
+
+extern "C" JNIEXPORT jstring JNICALL
+Java_app_eglviewer_core_EglNative_trashInfo(JNIEnv *env, jclass, jlong handle) {
+#if defined(EGL_HAS_RUST)
+  return call_json(env, reinterpret_cast<EglLibrary *>(handle), egl_trash_info);
+#else
+  (void)env;
+  (void)handle;
+  set_status(6);
+  return nullptr;
+#endif
+}
+
+extern "C" JNIEXPORT jstring JNICALL
+Java_app_eglviewer_core_EglNative_viewIds(JNIEnv *env, jclass, jlong handle,
+                                          jlong viewId, jint start, jint len) {
+#if defined(EGL_HAS_RUST)
+  char *json = nullptr;
+  EglStatus status = egl_view_ids(
+      reinterpret_cast<EglLibrary *>(handle), static_cast<uint64_t>(viewId),
+      static_cast<uint32_t>(start), static_cast<uint32_t>(len), &json);
+  set_status(static_cast<int>(status));
+  if (status != EGL_OK || json == nullptr) {
+    return nullptr;
+  }
+  return take_c_string(env, json);
+#else
+  (void)env;
+  (void)handle;
+  (void)viewId;
+  (void)start;
+  (void)len;
+  set_status(6);
+  return nullptr;
+#endif
+}
+
+extern "C" JNIEXPORT jstring JNICALL
+Java_app_eglviewer_core_EglNative_originalPath(JNIEnv *env, jclass, jlong handle,
+                                               jstring id) {
+#if defined(EGL_HAS_RUST)
+  const char *id_utf = env->GetStringUTFChars(id, nullptr);
+  char *path = nullptr;
+  EglStatus status =
+      egl_original_path(reinterpret_cast<EglLibrary *>(handle), id_utf, &path);
+  env->ReleaseStringUTFChars(id, id_utf);
+  set_status(static_cast<int>(status));
+  if (status != EGL_OK || path == nullptr) {
+    return nullptr;
+  }
+  return take_c_string(env, path);
+#else
+  (void)env;
+  (void)handle;
+  (void)id;
+  set_status(6);
+  return nullptr;
+#endif
+}
+
+extern "C" JNIEXPORT jbyteArray JNICALL
+Java_app_eglviewer_core_EglNative_originalBytes(JNIEnv *env, jclass, jlong handle,
+                                                jstring id) {
+#if defined(EGL_HAS_RUST)
+  const char *id_utf = env->GetStringUTFChars(id, nullptr);
+  uint8_t *bytes = nullptr;
+  size_t len = 0;
+  char *content_type = nullptr;
+  EglStatus status = egl_original_bytes(
+      reinterpret_cast<EglLibrary *>(handle), id_utf, &bytes, &len, &content_type);
+  env->ReleaseStringUTFChars(id, id_utf);
+  if (content_type != nullptr) {
+    egl_string_free(content_type);
+  }
+  set_status(static_cast<int>(status));
+  if (status != EGL_OK || bytes == nullptr || len == 0) {
+    return nullptr;
+  }
+  jbyteArray out = env->NewByteArray(static_cast<jsize>(len));
+  if (out != nullptr) {
+    env->SetByteArrayRegion(out, 0, static_cast<jsize>(len),
+                            reinterpret_cast<const jbyte *>(bytes));
+  }
+  egl_bytes_free(bytes, len);
+  return out;
+#else
+  (void)env;
+  (void)handle;
+  (void)id;
+  set_status(6);
+  return nullptr;
 #endif
 }

@@ -6,8 +6,8 @@ import java.util.concurrent.atomic.AtomicReference
 
 /**
  * Typed Kotlin face of the C ABI (`crates/library-ffi`), one [Library] per open `.eglib`.
- * Mirrors Swift `EglCore.Library` for the A1 surface: create / open / close, info, counts,
- * folder tree, and an event-callback stub. Calls may block — run them off the main thread.
+ * Mirrors Swift `EglCore.Library` for A1–A3: create / open / close, views, thumbs, item edits,
+ * undo, trash and originals. Calls may block — run them off the main thread.
  */
 class Library private constructor(private var handle: Long) : AutoCloseable {
     private val eventHandler = AtomicReference<((LibraryEvent) -> Unit)?>(null)
@@ -107,12 +107,102 @@ class Library private constructor(private var handle: Long) : AutoCloseable {
         return EglNative.thumbnailBytes(handle, id)
     }
 
-    fun editItems(target: ItemsTarget, editType: String): Int {
+    fun item(id: String): Item {
         ensureOpen()
-        val edit = org.json.JSONObject().put("type", editType).toString()
-        val count = EglNative.editItems(handle, target.toJson().toString(), edit)
+        val json = EglNative.item(handle, id)
+        val status = EglNative.lastStatus()
+        if (json.isNullOrEmpty()) throw error(status)
+        return Item.fromJson(json)
+    }
+
+    fun applyItemEdit(id: String, edit: ItemEdit): Item {
+        ensureOpen()
+        val json = EglNative.applyItemEdit(handle, id, edit.toJson().toString())
+        val status = EglNative.lastStatus()
+        if (json.isNullOrEmpty()) throw error(status)
+        return Item.fromJson(json)
+    }
+
+    fun editItems(target: ItemsTarget, edit: ItemEdit): Int {
+        ensureOpen()
+        val count = EglNative.editItems(
+            handle,
+            target.toJson().toString(),
+            edit.toJson().toString(),
+        )
         if (count < 0) throw error(EglNative.lastStatus())
         return count
+    }
+
+    fun selectionTags(target: ItemsTarget): SelectionTags {
+        ensureOpen()
+        val json = EglNative.viewSelectionTags(handle, target.toJson().toString())
+        val status = EglNative.lastStatus()
+        if (json.isNullOrEmpty()) throw error(status)
+        return SelectionTags.fromJson(json)
+    }
+
+    fun undo(): UndoStatus? {
+        ensureOpen()
+        val json = EglNative.undo(handle)
+        val status = EglNative.lastStatus()
+        if (status != 0) throw error(status)
+        return UndoStatus.fromJson(json)
+    }
+
+    fun undoStatus(): UndoStatus? {
+        ensureOpen()
+        val json = EglNative.undoStatus(handle)
+        val status = EglNative.lastStatus()
+        if (status != 0) throw error(status)
+        return UndoStatus.fromJson(json)
+    }
+
+    fun deleteItems(target: ItemsTarget): Int {
+        ensureOpen()
+        val count = EglNative.deleteItems(handle, target.toJson().toString())
+        if (count < 0) throw error(EglNative.lastStatus())
+        return count
+    }
+
+    fun emptyTrash(): Int {
+        ensureOpen()
+        val count = EglNative.emptyTrash(handle)
+        if (count < 0) throw error(EglNative.lastStatus())
+        return count
+    }
+
+    fun trashInfo(): TrashInfo {
+        ensureOpen()
+        val json = EglNative.trashInfo(handle)
+        val status = EglNative.lastStatus()
+        if (json.isNullOrEmpty()) throw error(status)
+        return TrashInfo.fromJson(json)
+    }
+
+    fun viewIds(viewId: Long, start: Int, count: Int): List<String> {
+        ensureOpen()
+        val json = EglNative.viewIds(handle, viewId, start, count)
+        val status = EglNative.lastStatus()
+        if (json.isNullOrEmpty()) throw error(status)
+        val arr = org.json.JSONArray(json)
+        return (0 until arr.length()).map { arr.getString(it) }
+    }
+
+    fun originalPath(id: String): String? {
+        ensureOpen()
+        val path = EglNative.originalPath(handle, id)
+        val status = EglNative.lastStatus()
+        if (path.isNullOrEmpty()) {
+            if (status == 0 || status == EglError.Code.NOT_FOUND.raw) return null
+            throw error(status)
+        }
+        return path
+    }
+
+    fun originalBytes(id: String): ByteArray? {
+        ensureOpen()
+        return EglNative.originalBytes(handle, id)
     }
 
     override fun close() {

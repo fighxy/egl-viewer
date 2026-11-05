@@ -37,4 +37,17 @@ internal object EglNative {
     external fun smartFolders(handle: Long): String?
     external fun thumbnailBytes(handle: Long, id: String): ByteArray?
     external fun editItems(handle: Long, targetJson: String, editJson: String): Int
+
+    // Preview / details / actions (Android A3 ≈ D-095)
+    external fun item(handle: Long, id: String): String?
+    external fun applyItemEdit(handle: Long, id: String, editJson: String): String?
+    external fun viewSelectionTags(handle: Long, targetJson: String): String?
+    external fun undo(handle: Long): String?
+    external fun undoStatus(handle: Long): String?
+    external fun deleteItems(handle: Long, targetJson: String): Int
+    external fun emptyTrash(handle: Long): Int
+    external fun trashInfo(handle: Long): String?
+    external fun viewIds(handle: Long, viewId: Long, start: Int, len: Int): String?
+    external fun originalPath(handle: Long, id: String): String?
+    external fun originalBytes(handle: Long, id: String): ByteArray?
 }

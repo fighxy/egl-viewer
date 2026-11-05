@@ -1,5 +1,6 @@
 package app.eglviewer.browse
 
+import app.eglviewer.core.ItemEdit
 import app.eglviewer.core.SortKey
 import kotlinx.coroutines.CoroutineScope
 import kotlinx.coroutines.Dispatchers
@@ -158,7 +159,7 @@ class BrowseModelTest {
         assertTrue(model.target.all)
         assertEquals(listOf(kept.id), model.target.ids)
 
-        val trashed = session.editItems(model.target, "trash")
+        val trashed = session.editItems(model.target, ItemEdit.Trash)
         assertEquals(11, trashed)
         assertTrue(model.waitUntil { model.total == 1 })
         assertTrue(model.waitUntil { model.cell(at = 0)?.id == kept.id })
