@@ -1,13 +1,12 @@
-# egl-viewer Android (A1–A7)
+# egl-viewer Android (A1–A8)
 
 Jetpack Compose phone client over the native `.eglib` core. **No Eagle. No Canvas.**
 Desktop Tauri remains the default product. Shares the same C ABI as iOS
 (`crates/library-ffi`, D-082 / D-092), wrapped for Kotlin by the `eglcore` module
-(D-101 foundation, D-102 browsing, D-103 preview / details / actions, D-104 adding,
-D-105 organizing, D-106 locks + app login, D-107 settings).
+(D-101 foundation through D-108 release).
 
 Stages: **A1** foundation → **A2** browsing → **A3** preview/details → **A4** adding →
-**A5** organizing → **A6** locks → **A7** settings (this README) → A8 release.
+**A5** organizing → **A6** locks → **A7** settings → **A8** release (this README).
 
 ## What works
 
@@ -21,12 +20,11 @@ Stages: **A1** foundation → **A2** browsing → **A3** preview/details → **A
 | Organizing (A5) | Folder CRUD (create / rename / move / delete); Tags screen with groups, rename / merge / delete; smart folder editor (conditions + v1 rules); Save as Smart Folder from browse |
 | Locks + app login (A6) | Locked folders (lock / unlock / recover / Lock All / label); relock on background; App Lock PIN/password (PBKDF2) + BiometricPrompt / Keystore; login overlay + Recents privacy cover |
 | Settings (A7) | Library name / storage / rebuild thumbnails; backups + restore; check and repair; export (ZIP or folder, optional age passphrase) via SAF / share; App Lock, version, language link; no Eagle |
+| Release (A8) | Adaptive launcher + Play Store icon; Privacy screen + `PRIVACY.md` + backup exclusions; TalkBack labels for cells and ratings; 10,000-item JVM perf test; tagged APK/AAB by `android-vX.Y.Z` |
 | Where libraries live | App-specific storage + SAF; cloud-looking path opens **read-only** (D-021) |
 | Strings | English / Russian / Simplified Chinese |
 | Native core | Real `libegl_library.so` when built with cargo-ndk; **no mock fallback** |
-| Host tests | `./gradlew :eglcore:testDebugUnitTest :app:testDebugUnitTest` (BrowseModel, details/actions/share, adding / picked copies, smart rules / organize JSON, AppLock / RecoveryKey, settings / export JSON; no device) |
-
-**Not yet:** release (A8).
+| Host tests | `./gradlew :eglcore:testDebugUnitTest :app:testDebugUnitTest` (BrowseModel, details/actions/share, adding / picked copies, smart rules / organize JSON, AppLock / RecoveryKey, settings / export JSON, a11y labels, release assets, 10k perf; no device) |
 
 ## Layout
 
@@ -41,7 +39,11 @@ android/
     …/adding/                  AddMenu, PickedFiles, import banner / duplicate dialog
     …/organize/                FolderEditor, TagsScreen, SmartFolderEditor, SmartRules
     …/locks/                   AppLock, LoginScreen, LockSheets, AppLockForm
-    …/settings/                SettingsScreen, LibraryInfo, Backups, Check, Export
+    …/settings/                SettingsScreen, LibraryInfo, Backups, Check, Export, Privacy
+    …/a11y/                    StarsText, AccessibilityLabels
+    res/mipmap-*               Adaptive launcher icons
+    ic_launcher-playstore.png  512×512 Play Store icon
+  PRIVACY.md                   Store / data-handling notes
 crates/library-ffi/            C ABI (staticlib iOS, cdylib Android)
 ```
 
@@ -56,14 +58,28 @@ cargo ndk -t arm64-v8a -o android/eglcore/src/main/jniLibs \
 
 Output: `android/eglcore/src/main/jniLibs/arm64-v8a/libegl_library.so`
 
-## CI (D-084 / D-101…D-107)
+## CI (D-084 / D-101…D-108)
 
 Workflow: [`.github/workflows/mobile.yml`](../.github/workflows/mobile.yml).
 
 | Job | What it runs |
 |---|---|
 | `library-ffi` | Layout/header sync, `cargo test` / clippy for `library-ffi` |
-| `android` | NDK + cargo-ndk `.so` (cargo-ndk **4.1.2**), JVM unit tests, `assembleDebug` |
+| `android` | NDK + cargo-ndk `.so` (cargo-ndk **4.1.2**), JVM unit tests, `assembleDebug`; on `android-v*` also `assembleRelease` + `bundleRelease` |
+| `android-release` | For a tag `android-vX.Y.Z`: GitHub Release with APK, AAB and `SHA256SUMS` (never latest) |
+
+## Releasing
+
+```bash
+git tag android-v0.2.3          # X.Y.Z becomes versionName, the run number versionCode
+git push origin android-v0.2.3
+```
+
+The workflow refuses a tag that is not `android-vX.Y.Z`
+(`scripts/android-release-version.sh`). Notes from `docs/releases/X.Y.Z.md` (shared with the
+desktop and iOS releases of the same version) open the release text. The APK is signed with
+the CI debug key for sideloading; re-sign the AAB with your Play upload keystore before
+Console upload. Check the download: `sha256sum -c SHA256SUMS`.
 
 ## Product constraints
 
@@ -75,3 +91,4 @@ Workflow: [`.github/workflows/mobile.yml`](../.github/workflows/mobile.yml).
 - UI stays thin; logic lives in Rust.
 - Locked-folder passwords and the app login never leave the device; recovery keys are shown once.
 - Export passphrases are never stored; Eagle is not an export destination.
+- No tracking / analytics; see [`PRIVACY.md`](PRIVACY.md).

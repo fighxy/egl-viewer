@@ -56,7 +56,11 @@ import androidx.compose.ui.graphics.asImageBitmap
 import androidx.compose.ui.layout.ContentScale
 import androidx.compose.ui.platform.LocalContext
 import androidx.compose.ui.platform.LocalDensity
+import androidx.compose.ui.platform.testTag
+import androidx.compose.ui.res.pluralStringResource
 import androidx.compose.ui.res.stringResource
+import androidx.compose.ui.semantics.contentDescription
+import androidx.compose.ui.semantics.semantics
 import androidx.compose.ui.text.TextStyle
 import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.text.style.TextOverflow
@@ -69,6 +73,8 @@ import androidx.compose.ui.draganddrop.DragAndDropEvent
 import androidx.compose.ui.draganddrop.DragAndDropTarget
 import androidx.compose.ui.draganddrop.toAndroidDragEvent
 import app.eglviewer.R
+import app.eglviewer.a11y.AccessibilityLabels
+import app.eglviewer.a11y.StarsText
 import app.eglviewer.adding.AddMenuButton
 import app.eglviewer.adding.DuplicateQuestionDialog
 import app.eglviewer.adding.ImportBanner
@@ -537,8 +543,12 @@ private fun GridTile(
     onClick: () -> Unit,
     onLongClick: () -> Unit,
 ) {
+    val label = itemCellDescription(cell)
     Column(
-        modifier = Modifier.combinedClickable(onClick = onClick, onLongClick = onLongClick),
+        modifier = Modifier
+            .then(if (cell != null) Modifier.testTag("item.${cell.name}") else Modifier)
+            .semantics(mergeDescendants = true) { contentDescription = label }
+            .combinedClickable(onClick = onClick, onLongClick = onLongClick),
         horizontalAlignment = Alignment.CenterHorizontally,
     ) {
         Box(
@@ -589,9 +599,12 @@ private fun ListRow(
     onClick: () -> Unit,
     onLongClick: () -> Unit,
 ) {
+    val label = itemCellDescription(cell)
     Row(
         modifier = Modifier
             .fillMaxWidth()
+            .then(if (cell != null) Modifier.testTag("item.${cell.name}") else Modifier)
+            .semantics(mergeDescendants = true) { contentDescription = label }
             .combinedClickable(onClick = onClick, onLongClick = onLongClick)
             .padding(horizontal = 12.dp, vertical = 8.dp),
         verticalAlignment = Alignment.CenterVertically,
@@ -629,9 +642,25 @@ private fun ListRow(
             }
         }
         if (cell != null && cell.star > 0) {
-            Text("${cell.star}★", color = EglTokens.MutedForeground, fontSize = 12.sp)
+            StarsText(stars = cell.star, fontSize = 12.sp)
         }
     }
+}
+
+@Composable
+private fun itemCellDescription(cell: ItemCell?): String {
+    val loading = stringResource(R.string.browse_loading_item)
+    val starsLabel = if (cell != null && cell.star > 0) {
+        pluralStringResource(R.plurals.details_stars, cell.star, cell.star)
+    } else {
+        ""
+    }
+    return AccessibilityLabels.itemCell(
+        name = cell?.name,
+        star = cell?.star ?: 0,
+        loading = loading,
+        starsLabel = starsLabel,
+    )
 }
 
 @Composable
@@ -644,7 +673,7 @@ private fun ItemThumbnail(cell: ItemCell?, pixels: Int, cache: ThumbnailCache) {
     when {
         bitmap != null -> Image(
             bitmap = bitmap!!.asImageBitmap(),
-            contentDescription = cell?.name,
+            contentDescription = null, // parent cell merges the TalkBack label (A8)
             contentScale = ContentScale.Fit,
             modifier = Modifier.fillMaxSize().padding(4.dp),
         )

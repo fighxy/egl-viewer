@@ -59,6 +59,13 @@
     <string name="action_restore">Восстановить</string>
     <string name="action_delete_for_good">Удалить навсегда</string>
     <string name="rating_none">Без оценки</string>
+    <plurals name="details_stars">
+        <item quantity="one">%d звезда</item>
+        <item quantity="few">%d звезды</item>
+        <item quantity="many">%d звёзд</item>
+        <item quantity="other">%d звёзд</item>
+    </plurals>
+    <string name="browse_loading_item">Загрузка</string>
     <string name="details_title">Сведения</string>
     <string name="details_name">Имя</string>
     <string name="details_rating">Оценка</string>
@@ -323,6 +330,15 @@
     <string name="settings_version">Версия</string>
     <string name="settings_language">Язык</string>
     <string name="settings_change_language">Язык и разрешения</string>
+    <string name="settings_privacy">Конфиденциальность</string>
+    <string name="privacy_title">Конфиденциальность</string>
+    <string name="privacy_intro">egl-viewer хранит ваши библиотеки на этом телефоне. Он вас не отслеживает, не продаёт данные и не создаёт учётную запись.</string>
+    <string name="privacy_data_heading">Ваши библиотеки</string>
+    <string name="privacy_data_body">Элементы, теги, папки, оценки, заметки и резервные копии живут в папке библиотеки, которую вы создаёте или открываете. На серверы egl-viewer ничего не загружается. Eagle на Android не используется.</string>
+    <string name="privacy_device_heading">На этом устройстве</string>
+    <string name="privacy_device_body">Вход в приложение хранится в закрытом хранилище приложения и в Keystore системы. Ключи восстановления папок показываются один раз. Пароли экспорта нигде не сохраняются. Облачная резервная копия пропускает вход и файлы библиотек.</string>
+    <string name="privacy_network_heading">Сеть</string>
+    <string name="privacy_network_body">Приложение для Android само по себе сетевых запросов не делает. Обмен и сохранение экспорта идут через системный лист «Поделиться» или выбор в «Файлах».</string>
     <string name="settings_library_title">Библиотека</string>
     <string name="settings_name">Имя</string>
     <string name="settings_location">Расположение</string>

@@ -28,6 +28,7 @@ import androidx.compose.ui.Modifier
 import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
+import app.eglviewer.a11y.StarsText
 import app.eglviewer.core.TagMode
 import app.eglviewer.theme.EglTokens
 
@@ -165,7 +166,7 @@ fun FilterSheet(
                         onClick = {
                             model.change { it.copy(filters = it.filters.copy(rating = stars)) }
                         },
-                        label = { Text("$stars★") },
+                        label = { StarsText(stars = stars) },
                     )
                 }
             }

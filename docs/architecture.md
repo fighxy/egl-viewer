@@ -2,7 +2,7 @@
 
 Companion to [`spec.md`](spec.md). The spec describes behaviour. This document describes **how the app is built**, and records the corrections to the original spec that came out of reverse engineering Eagle.
 
-The app is a Tauri 2 application with a Rust core and a React UI. **It is a standalone asset manager with its own library format** (§15.3); compatibility with Eagle (import, a live connection to a running Eagle, export) is a secondary feature (D-013). **The current priority is the Windows desktop app, without AI features.** **Mobile:** the iPhone app (`ios/`, D-093–D-100) and the Android app (`android/`, unfrozen in D-101 / A1) are thin Compose / SwiftUI shells over the same native `.eglib` core via `crates/library-ffi` and platform wrappers (`ios/EglCore`, `android/eglcore`) — no Eagle, no Canvas. They do not change the desktop default. CI for those shells is a separate path-filtered workflow (D-084). Other targets stay possible later: the core stays portable, and platform shells stay thin.
+The app is a Tauri 2 application with a Rust core and a React UI. **It is a standalone asset manager with its own library format** (§15.3); compatibility with Eagle (import, a live connection to a running Eagle, export) is a secondary feature (D-013). **The current priority is the Windows desktop app, without AI features.** **Mobile:** the iPhone app (`ios/`, D-093–D-100) and the Android app (`android/`, D-101–D-108) are thin Compose / SwiftUI shells over the same native `.eglib` core via `crates/library-ffi` and platform wrappers (`ios/EglCore`, `android/eglcore`) — no Eagle, no Canvas. They do not change the desktop default. CI for those shells is a separate path-filtered workflow (D-084). Other targets stay possible later: the core stays portable, and platform shells stay thin.
 
 The core talks to every kind of library through one `LibrarySource` trait (§15.2): the native library, an Eagle library folder (read only, for the import) and a running Eagle. Sections 4, 5, 7.2 and 12 describe the Eagle parts; everything else applies to every source, and the native library is the one built first.
 
@@ -19,7 +19,7 @@ Live verification (2026-10-27): two test JPEGs were added to the open library th
 | Question | Decision |
 |---|---|
 | Product | **A standalone asset manager** with its own library; Eagle compatibility is secondary (D-013) |
-| Targets | **Windows 10/11 now** (desktop default). iOS app (D-093–D-100) and Android series from A1 (D-101) over native `.eglib` only. Nothing in the core may depend on Windows |
+| Targets | **Windows 10/11 now** (desktop default). iOS app (D-093–D-100) and Android app (D-101–D-108) over native `.eglib` only. Nothing in the core may depend on Windows |
 | Shell | **Tauri 2.12** (stable) on desktop. Not Tauri 3, which is in alpha (§2). Mobile: SwiftUI / Compose + C ABI (`library-ffi`) through `EglCore` / `eglcore` (D-092, D-101), not Tauri Mobile |
 | Core | Rust workspace: `library-core` (no IO), `library-native` (the native library), `media` (thumbnails, palettes, hashes), `app-service` (the open native library as an app uses it: views, undo, edits, background tasks; D-091), `app-store` (settings, recent libraries, secrets), `library-ffi` (C ABI for iOS/Android, D-082 / D-092 / D-101), and for Eagle `eagle-folder` and `eagle-api`; the Tauri app crate is a thin layer of commands |
 | Library sources | One `LibrarySource` trait in `library-core`. Implementations: the native library, an Eagle library folder on disk (read only), a running Eagle (API) (§15.2) |

@@ -59,6 +59,10 @@
     <string name="action_restore">还原</string>
     <string name="action_delete_for_good">永久删除</string>
     <string name="rating_none">无评分</string>
+    <plurals name="details_stars">
+        <item quantity="other">%d 星</item>
+    </plurals>
+    <string name="browse_loading_item">加载中</string>
     <string name="details_title">详情</string>
     <string name="details_name">名称</string>
     <string name="details_rating">评分</string>
@@ -309,6 +313,15 @@
     <string name="settings_version">版本</string>
     <string name="settings_language">语言</string>
     <string name="settings_change_language">语言和权限</string>
+    <string name="settings_privacy">隐私</string>
+    <string name="privacy_title">隐私</string>
+    <string name="privacy_intro">egl-viewer 将资料库保存在本机。不会跟踪你、出售数据或要求注册账号。</string>
+    <string name="privacy_data_heading">你的资料库</string>
+    <string name="privacy_data_body">项目、标签、文件夹、评分、备注和备份都保存在你创建或打开的资料库文件夹中。不会上传到 egl-viewer 服务器。Android 版不使用 Eagle。</string>
+    <string name="privacy_device_heading">本机</string>
+    <string name="privacy_device_body">应用锁保存在本应用的私有存储和系统密钥库中。文件夹恢复密钥只显示一次。导出口令不会被保存。云备份会跳过登录和资料库文件。</string>
+    <string name="privacy_network_heading">网络</string>
+    <string name="privacy_network_body">Android 应用本身不发起网络请求。分享和保存导出通过你选择的系统分享面板或“文件”选择器完成。</string>
     <string name="settings_library_title">资料库</string>
     <string name="settings_name">名称</string>
     <string name="settings_location">位置</string>

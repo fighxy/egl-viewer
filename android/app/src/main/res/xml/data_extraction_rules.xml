@@ -1,0 +1,21 @@
+<?xml version="1.0" encoding="utf-8"?>
+<!-- Cloud backup / transfer: keep app login and library paths off device-to-device copies
+     (A8 ≈ D-100). Libraries themselves live as folders the user manages. -->
+<data-extraction-rules>
+    <cloud-backup>
+        <exclude domain="sharedpref" path="app.eglviewer.login.xml" />
+        <exclude domain="sharedpref" path="egl_library_access.xml" />
+        <exclude domain="sharedpref" path="egl.saved.views.xml" />
+        <exclude domain="database" />
+        <exclude domain="file" path="Libraries/" />
+        <exclude domain="cache" />
+    </cloud-backup>
+    <device-transfer>
+        <exclude domain="sharedpref" path="app.eglviewer.login.xml" />
+        <exclude domain="sharedpref" path="egl_library_access.xml" />
+        <exclude domain="sharedpref" path="egl.saved.views.xml" />
+        <exclude domain="database" />
+        <exclude domain="file" path="Libraries/" />
+        <exclude domain="cache" />
+    </device-transfer>
+</data-extraction-rules>
