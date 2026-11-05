@@ -2091,5 +2091,8 @@ The second PR of the Android series (D-101), mirroring iOS D-094. Stacked on
   sort, search, filters, Select All with a trash refresh, the saved view), in
   `:app:testDebugUnitTest` of the Mobile workflow.
 - **Docs.** `android/README.md`, the README status table, and this decision.
+- **CI.** Mobile `android` pins `cargo-ndk` **4.1.2** (`--locked`): 3.5.6 / 3.5.7 were yanked
+  on crates.io and broke the A2 PR install step; 4.1.2 is the newest stable older than the
+  supply-chain release age (D-002 / D-003).
 - **Out of scope.** Preview/details/undo (A3), gallery add (A4), organize / locks / settings /
   release.
