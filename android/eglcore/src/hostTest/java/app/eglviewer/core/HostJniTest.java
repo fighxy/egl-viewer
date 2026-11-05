@@ -70,6 +70,7 @@ public final class HostJniTest {
         boolean progress = false;
         for (String event : Library.EVENTS) progress |= event.contains("\"importProgress\"");
         check(progress, "import progress arrives as an event");
+        check(Library.FAILED_READS.isEmpty(), "the callback can read the library again: " + Library.FAILED_READS);
         check(!PlatformDecoder.CALLS.isEmpty(), "the platform decoder is asked for the HEIC: " + PlatformDecoder.CALLS);
 
         String opened = EglNative.openView(handle, "{\"sort\":\"name\",\"ascending\":true}");
@@ -82,6 +83,9 @@ public final class HostJniTest {
             "{\"all\":false,\"ids\":[" + quote(itemId) + "]}",
             "{\"type\":\"addTags\",\"value\":[\"🔥 Огонь\",\"fire\"]}");
         check(edited == 1, "an emoji tag is added to the item (" + edited + ")");
+        boolean invalidated = false;
+        for (String event : Library.EVENTS) invalidated |= event.contains("\"viewsInvalidated\"");
+        check(invalidated && Library.FAILED_READS.isEmpty(), "an edit refreshes the open view, read again in the callback");
         String tags = EglNative.tags(handle);
         check(tags != null && tags.contains("\"🔥 Огонь\""), "the tag comes back as typed: " + tags);
         EglNative.closeView(handle, view);

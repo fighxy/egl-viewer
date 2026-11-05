@@ -29,6 +29,27 @@ class AddingTest {
         assertFalse(picked.file.parentFile!!.exists())
     }
 
+    /** A name from another app never leaves the copy's folder (D-109). */
+    @Test
+    fun namesFromOtherAppsStayInTheirFolder() {
+        assertEquals("x.xml", PickedFile.safeName("../../shared_prefs/x.xml"))
+        assertEquals("evil.png", PickedFile.safeName("..\\..\\evil.png"))
+        assertEquals("Imported", PickedFile.safeName(".."))
+        assertEquals("Imported", PickedFile.safeName("/"))
+        assertEquals("Imported", PickedFile.safeName(null))
+        assertEquals("кот 🐱.png", PickedFile.safeName("кот 🐱.png"))
+        assertTrue(PickedFile.safeName("a".repeat(400) + ".png").toByteArray().size <= 255)
+
+        val cache = tmp.newFolder("cache")
+        val folder = PickedFile.newFolder(cache)
+        val target = PickedFile.child(folder, "../../shared_prefs/app.eglviewer.login.xml")
+        assertEquals(folder.canonicalFile, target.canonicalFile.parentFile)
+        val picked = PickedFile.writing(cache, byteArrayOf(7), "../escape.png")
+        assertEquals("escape.png", picked.file.name)
+        assertTrue(picked.file.parentFile!!.name.startsWith(PickedFile.FOLDER_PREFIX))
+        assertFalse(File(cache, "escape.png").exists())
+    }
+
     @Test
     fun leftoversAreRemovedAtLaunch() {
         val cache = tmp.newFolder("cache")

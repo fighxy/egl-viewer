@@ -11,6 +11,8 @@ final class EglNative {
     static native long open(String path, String appVersion, boolean syncFolder);
     static native void close(long handle);
     static native String libraryInfo(long handle);
+    static native String counts(long handle);
+    static native String folderTree(long handle);
     static native int setEventCallback(long handle, boolean enabled);
     static native int lastStatus();
     static native String lastErrorGlobal();

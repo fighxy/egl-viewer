@@ -2344,3 +2344,18 @@ JVM unit tests run fakes, and nothing ran the real `egl_jni.cpp`.
   `ANDROID_KEY_ALIAS`, `ANDROID_KEY_PASSWORD`); a release tag fails without them and fails if
   `apksigner` shows a debug certificate. Without `ANDROID_KEYSTORE_FILE` a local release build
   stays unsigned. The AAB is signed with the same key, the upload key for Play App Signing.
+- **Events on the main thread.** Now that events arrive, `OpenLibrary` hands a refreshed
+  view to the browse models on the main thread and reads the tree again on the IO
+  dispatcher, instead of doing both on the core's thread. The host check also reads the
+  library from inside the callback, as `OpenLibrary` does, to show the core takes that
+  without a deadlock.
+- **Backups.** The backup rules left out `Libraries/` in the `file` domain, but libraries
+  live in `getExternalFilesDir(null)/libraries`, the `external` domain (or
+  `filesDir/libraries` without external storage): Auto Backup and device transfer carried
+  whole libraries, against D-021. Both rule files now exclude `libraries/` in both domains;
+  `ReleaseTest` checks them against `LibraryLocations`.
+- **Names from other apps.** A provider's `DISPLAY_NAME`, a document name in a picked tree
+  or a clipboard suggestion went straight into `File(folder, name)`: "../../shared_prefs/…"
+  would write outside the copy's folder ("Dirty Stream"). `PickedFile.safeName` keeps the
+  last segment only, never "." or "..", at most 255 bytes, and `PickedFile.child` refuses a
+  path that leaves the folder.

@@ -1,10 +1,13 @@
 <?xml version="1.0" encoding="utf-8"?>
-<!-- Auto Backup (API ≤ 30): same exclusions as data_extraction_rules (A8 ≈ D-100). -->
+<!-- Auto Backup (API ≤ 30): same exclusions as data_extraction_rules (A8 ≈ D-100).
+     Libraries live in getExternalFilesDir(null)/libraries (the "external" domain), or in
+     filesDir/libraries when there is no external storage (D-109). -->
 <full-backup-content>
     <exclude domain="sharedpref" path="app.eglviewer.login.xml" />
     <exclude domain="sharedpref" path="egl_library_access.xml" />
     <exclude domain="sharedpref" path="egl.saved.views.xml" />
     <exclude domain="database" />
-    <exclude domain="file" path="Libraries/" />
+    <exclude domain="external" path="libraries/" />
+        <exclude domain="file" path="libraries/" />
     <exclude domain="cache" />
 </full-backup-content>
