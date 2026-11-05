@@ -1,6 +1,6 @@
 name: Mobile
 
-# Experimental iOS / Android shells + library-ffi (D-082–D-084).
+# iOS app + Android A1 foundation + library-ffi (D-082–D-084, D-092–D-101).
 # Parallel to the Windows desktop `CI` workflow; does not replace it.
 # A tag `ios-vX.Y.Z` builds and tests the iPhone app and publishes a GitHub Release with the
 # unsigned IPA (D-100); path filters do not apply to tag pushes.
@@ -85,8 +85,15 @@ jobs:
       - name: library-ffi tests
         run: cargo test -p library-ffi
 
+  # Android A1 (D-101): eglcore unit tests + assembleDebug with a real arm64 .so
+  # (cargo-ndk). No mock core. NDK is required only when the .so is present.
   android:
     runs-on: ubuntu-24.04
+    env:
+      ANDROID_NDK_VERSION: "27.2.12479018"
+      # 3.5.6 / 3.5.7 yanked on crates.io; 4.1.2 is the newest stable older than the
+      # supply-chain release age (D-002 / D-003).
+      CARGO_NDK_VERSION: "4.1.2"
     steps:
       - uses: actions/checkout@v7
 
@@ -99,7 +106,7 @@ jobs:
       # Hosted ubuntu runners already ship an Android SDK. Avoid
       # android-actions/setup-android's default `sdkmanager tools` install —
       # the legacy `tools` package was removed from the repository.
-      - name: Android SDK env + platform 35
+      - name: Android SDK + NDK
         run: |
           set -euo pipefail
           SDK="${ANDROID_HOME:-${ANDROID_SDK_ROOT:-/usr/local/lib/android/sdk}}"
@@ -112,7 +119,6 @@ jobs:
           echo "$SDK/cmdline-tools/latest/bin" >> "$GITHUB_PATH"
           echo "$SDK/cmdline-tools/16.0/bin" >> "$GITHUB_PATH"
           echo "$SDK/platform-tools" >> "$GITHUB_PATH"
-          # Prefer cmdline-tools/*/bin/sdkmanager when present.
           SDKMANAGER="$(find "$SDK/cmdline-tools" -type f -name sdkmanager 2>/dev/null | head -n1 || true)"
           if [[ -z "$SDKMANAGER" && -x "$SDK/tools/bin/sdkmanager" ]]; then
             SDKMANAGER="$SDK/tools/bin/sdkmanager"
@@ -122,13 +128,46 @@ jobs:
             exit 1
           fi
           yes | "$SDKMANAGER" --licenses >/dev/null || true
-          "$SDKMANAGER" "platforms;android-35" "build-tools;35.0.0" "platform-tools"
+          "$SDKMANAGER" "platforms;android-35" "build-tools;35.0.0" "platform-tools" \
+            "ndk;${ANDROID_NDK_VERSION}"
+          NDK="$SDK/ndk/${ANDROID_NDK_VERSION}"
+          if [[ ! -d "$NDK" ]]; then
+            echo "NDK not installed at $NDK" >&2
+            exit 1
+          fi
+          echo "ANDROID_NDK_HOME=$NDK" >> "$GITHUB_ENV"
+          echo "ANDROID_NDK_ROOT=$NDK" >> "$GITHUB_ENV"
 
-      - name: Gradle assembleDebug (mock FFI, no NDK)
+      - name: Rust toolchain + Android target
+        run: |
+          set -euo pipefail
+          if ! command -v rustup >/dev/null 2>&1; then
+            curl --proto '=https' --tlsv1.2 -fsSL https://sh.rustup.rs | sh -s -- -y --default-toolchain none
+            echo "$HOME/.cargo/bin" >> "$GITHUB_PATH"
+            export PATH="$HOME/.cargo/bin:$PATH"
+          fi
+          rustup toolchain install
+          rustup target add aarch64-linux-android
+          cargo install cargo-ndk --version "$CARGO_NDK_VERSION" --locked
+
+      - uses: Swatinem/rust-cache@v2
+        with:
+          prefix-key: mobile-android-ffi-v1
+          workspaces: ". -> target"
+
+      - name: Build libegl_library.so (arm64-v8a)
+        run: |
+          set -euo pipefail
+          cargo ndk -t arm64-v8a -o android/eglcore/src/main/jniLibs \
+            build -p library-ffi --release
+          test -f android/eglcore/src/main/jniLibs/arm64-v8a/libegl_library.so
+
+      - name: Gradle unit tests + assembleDebug (real core)
         working-directory: android
         run: |
           chmod +x gradlew
-          ./gradlew :app:assembleDebug --no-daemon --stacktrace
+          ./gradlew :eglcore:testDebugUnitTest :app:testDebugUnitTest \
+            :app:assembleDebug --no-daemon --stacktrace
 
       - name: Upload debug APK
         uses: actions/upload-artifact@v4

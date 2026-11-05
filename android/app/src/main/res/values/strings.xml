@@ -1,4 +1,44 @@
 <?xml version="1.0" encoding="utf-8"?>
 <resources>
     <string name="app_name">egl-viewer</string>
+
+    <string name="welcome_hint_before">Open a native library on this phone. Libraries live as </string>
+    <string name="welcome_hint_after"> packages in Files or app storage.</string>
+    <string name="welcome_create">Create library</string>
+    <string name="welcome_open">Open .eglib…</string>
+    <string name="welcome_recent">Recent</string>
+    <string name="welcome_recent_empty">No recent libraries yet.</string>
+    <string name="welcome_on_this_phone">On this phone</string>
+    <string name="welcome_forget">Forget</string>
+    <string name="welcome_missing">Missing</string>
+    <string name="welcome_footer">Native .eglib only · same product as desktop</string>
+    <string name="hint_app_storage">App storage</string>
+
+    <string name="create_title">New library</string>
+    <string name="create_name">Name</string>
+    <string name="create_hint">Created in this app\'s storage as Name.eglib.</string>
+    <string name="create_confirm">Create</string>
+
+    <string name="library_close">Close</string>
+    <string name="library_places">Places</string>
+    <string name="library_folders">Folders</string>
+    <string name="library_read_only">This library is read-only.</string>
+    <string name="library_read_only_other">Opened by another instance — read-only.</string>
+    <string name="library_read_only_synced">Cloud-synced path — read-only.</string>
+    <string name="library_a1_hint">The item grid arrives in the next Android PR (A2).</string>
+
+    <string name="place_all">All</string>
+    <string name="place_uncategorized">Uncategorized</string>
+    <string name="place_untagged">Untagged</string>
+    <string name="place_trash">Trash</string>
+
+    <string name="error_title">Could not open</string>
+    <string name="error_generic">Something went wrong.</string>
+    <string name="error_name_required">Enter a library name.</string>
+    <string name="error_not_a_library">That folder is not a native library.</string>
+    <string name="error_read_only">The library is read-only.</string>
+    <string name="error_wrong_password">Wrong password.</string>
+    <string name="error_core_missing">Native core is not linked. Build libegl_library.so with cargo-ndk (see android/README.md).</string>
+    <string name="error_saf_path">SAF URI has no filesystem path for Rust (pick a local primary-storage .eglib folder).</string>
+    <string name="error_missing_library">That library is no longer on this phone.</string>
 </resources>

@@ -1,0 +1,44 @@
+<?xml version="1.0" encoding="utf-8"?>
+<resources>
+    <string name="app_name">egl-viewer</string>
+
+    <string name="welcome_hint_before">在本机打开原生资源库。资源库是 </string>
+    <string name="welcome_hint_after"> 包，位于文件应用或本应用存储中。</string>
+    <string name="welcome_create">新建资源库</string>
+    <string name="welcome_open">打开 .eglib…</string>
+    <string name="welcome_recent">最近</string>
+    <string name="welcome_recent_empty">暂无最近的资源库。</string>
+    <string name="welcome_on_this_phone">本机</string>
+    <string name="welcome_forget">忘记</string>
+    <string name="welcome_missing">缺失</string>
+    <string name="welcome_footer">仅原生 .eglib · 与桌面版同一产品</string>
+    <string name="hint_app_storage">应用存储</string>
+
+    <string name="create_title">新建资源库</string>
+    <string name="create_name">名称</string>
+    <string name="create_hint">将在本应用存储中创建为「名称.eglib」。</string>
+    <string name="create_confirm">创建</string>
+
+    <string name="library_close">关闭</string>
+    <string name="library_places">位置</string>
+    <string name="library_folders">文件夹</string>
+    <string name="library_read_only">此资源库为只读。</string>
+    <string name="library_read_only_other">已被其他实例打开 — 只读。</string>
+    <string name="library_read_only_synced">云同步路径 — 只读。</string>
+    <string name="library_a1_hint">项目网格将在下一个 Android PR（A2）中提供。</string>
+
+    <string name="place_all">全部</string>
+    <string name="place_uncategorized">未分类</string>
+    <string name="place_untagged">无标签</string>
+    <string name="place_trash">回收站</string>
+
+    <string name="error_title">无法打开</string>
+    <string name="error_generic">出了点问题。</string>
+    <string name="error_name_required">请输入资源库名称。</string>
+    <string name="error_not_a_library">该文件夹不是原生资源库。</string>
+    <string name="error_read_only">资源库为只读。</string>
+    <string name="error_wrong_password">密码错误。</string>
+    <string name="error_core_missing">未链接原生核心。请用 cargo-ndk 构建 libegl_library.so（见 android/README.md）。</string>
+    <string name="error_saf_path">SAF URI 没有可供 Rust 使用的文件系统路径（请选择本地主存储上的 .eglib 文件夹）。</string>
+    <string name="error_missing_library">该资源库已不在本机。</string>
+</resources>

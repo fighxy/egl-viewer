@@ -25,6 +25,30 @@ final class PreviewUITests: XCTestCase {
         XCTAssertEqual(XCTWaiter.wait(for: [expectation], timeout: timeout), .completed, "expected “\(label)”")
     }
 
+    /// Swipes the pager until `position` shows `label`. A quick swipe on a busy simulator
+    /// sometimes does not move the page (D-099); retry instead of failing the wait once.
+    private func swipePager(
+        _ pager: XCUIElement,
+        until label: String,
+        of position: XCUIElement,
+        attempts: Int = 4,
+        timeout: TimeInterval = 8
+    ) {
+        for attempt in 1...attempts {
+            pager.swipeLeft()
+            let expectation = XCTNSPredicateExpectation(
+                predicate: NSPredicate(format: "label == %@", label),
+                object: position
+            )
+            if XCTWaiter.wait(for: [expectation], timeout: timeout) == .completed {
+                return
+            }
+            if attempt == attempts {
+                XCTFail("expected “\(label)” after \(attempts) swipes; last label was “\(position.label)”")
+            }
+        }
+    }
+
     /// Opens All once the twelve images are in.
     private func openAll(_ app: XCUIApplication) -> XCUIElement {
         XCTAssertTrue(app.navigationBars["Sample"].waitForExistence(timeout: 30))
@@ -49,8 +73,7 @@ final class PreviewUITests: XCTestCase {
         let position = element("preview.position", in: app)
         XCTAssertTrue(position.waitForExistence(timeout: 10))
         waitForLabel("1 of 12", of: position)
-        element("preview.pager", in: app).swipeLeft()
-        waitForLabel("2 of 12", of: position)
+        swipePager(element("preview.pager", in: app), until: "2 of 12", of: position)
 
         app.buttons["preview.info"].tap()
         let star = element("details.star.3", in: app)

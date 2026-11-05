@@ -5,13 +5,14 @@
  * background tasks. Native `.eglib` only — no Eagle. Strings and JSON buffers are
  * UTF-8, heap-allocated by Rust; free them with egl_string_free / egl_bytes_free.
  * A panic inside Rust never crosses this boundary: the call returns EGL_ERR_OTHER.
- * Kept identical in ios/EglCore/Sources/CEglLibrary and android/app/src/main/cpp
- * (scripts/check-mobile-shell.sh); a host test checks it against the exports.
+ * Kept identical in ios/EglCore/Sources/CEglLibrary and
+ * android/eglcore/src/main/cpp (scripts/check-mobile-shell.sh); a host test
+ * checks it against the exports.
  *
  * Build:
  *   iOS (Mac):  cargo build -p library-ffi --release --target aarch64-apple-ios
  *               → libegl_library.a (see ios/README.md)
- *   Android:    cargo ndk -t arm64-v8a -o android/app/src/main/jniLibs \
+ *   Android:    cargo ndk -t arm64-v8a -o android/eglcore/src/main/jniLibs \
  *                 build -p library-ffi --release
  *               → libegl_library.so (see android/README.md)
  */
@@ -385,7 +386,7 @@ EglStatus egl_cancel_export(EglLibrary *lib, uint64_t id);
 EglStatus egl_preview_import(EglLibrary *lib, const char *path_utf8, char **out_json);
 
 /*
- * JNI notes (android/app/src/main/cpp/egl_jni.cpp forwards these 1:1):
+ * JNI notes (android/eglcore/src/main/cpp/egl_jni.cpp forwards A1 and later):
  *  - Pass the EglLibrary* as jlong; uint64_t import ids as jlong.
  *  - JSON in: GetStringUTFChars / ReleaseStringUTFChars; JSON out: take_c_string
  *    (NewStringUTF + egl_string_free). Return null on status != EGL_OK and let

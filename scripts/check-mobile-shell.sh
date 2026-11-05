@@ -1,5 +1,5 @@
 #!/usr/bin/env bash
-# Lightweight validation for the experimental mobile shells (D-084 / D-085).
+# Lightweight validation for the mobile shells (D-084 / D-101).
 # Runs on Linux: layout + header copies stay in sync with library-ffi.
 set -euo pipefail
 
@@ -77,19 +77,32 @@ need ios/EglCore/Sources/CEglLibrary/module.modulemap
 need ios/EglCore/Sources/EglCore/Library.swift
 need ios/EglCore/Sources/EglCore/PlatformDecoder.swift
 need ios/EglCore/Sources/EglCore/JSONValue.swift
+
+# Android A1 foundation (D-101): eglcore + Welcome / places shell.
 need android/README.md
 need android/gradlew
+need android/settings.gradle.kts
 need android/app/build.gradle.kts
+need android/eglcore/build.gradle.kts
+need android/eglcore/src/main/cpp/egl_jni.cpp
+need android/eglcore/src/main/cpp/egl_library.h
+need android/eglcore/src/main/cpp/CMakeLists.txt
+need android/eglcore/src/main/java/app/eglviewer/core/Library.kt
+need android/eglcore/src/main/java/app/eglviewer/core/EglError.kt
+need android/eglcore/src/main/java/app/eglviewer/core/Models.kt
+need android/eglcore/src/main/java/app/eglviewer/core/EglNative.kt
+need android/eglcore/src/test/java/app/eglviewer/core/EglCoreUnitTest.kt
 need android/app/src/main/java/app/eglviewer/MainActivity.kt
+need android/app/src/main/java/app/eglviewer/app/AppModel.kt
+need android/app/src/main/java/app/eglviewer/app/LibraryLocations.kt
 need android/app/src/main/java/app/eglviewer/screens/WelcomeScreen.kt
-need android/app/src/main/java/app/eglviewer/screens/BrowseScreen.kt
-need android/app/src/main/java/app/eglviewer/screens/PreviewScreen.kt
-need android/app/src/main/java/app/eglviewer/screens/EditSheet.kt
-need android/app/src/main/java/app/eglviewer/bridge/LibraryAccess.kt
+need android/app/src/main/java/app/eglviewer/screens/LibraryScreen.kt
 need android/app/src/main/java/app/eglviewer/theme/Tokens.kt
 need android/app/src/main/java/app/eglviewer/components/Chrome.kt
-need android/app/src/main/cpp/egl_jni.cpp
-need android/app/src/main/cpp/egl_library.h
+need android/app/src/main/res/values/strings.xml
+need android/app/src/main/res/values-ru/strings.xml
+need android/app/src/main/res/values-zh-rCN/strings.xml
+need android/app/src/test/java/app/eglviewer/app/LibraryLocationsTest.kt
 
 # Release tags (D-100): ios-vX.Y.Z gives X.Y.Z; anything else publishes nothing.
 version="$root/scripts/ios-release-version.sh"
@@ -113,27 +126,33 @@ if data[:8] != b"\x89PNG\r\n\x1a\n" or (width, height) != (1024, 1024) or colour
 PY
 
 canon="$root/crates/library-ffi/include/egl_library.h"
-for copy in ios/EglCore/Sources/CEglLibrary/egl_library.h android/app/src/main/cpp/egl_library.h; do
+for copy in ios/EglCore/Sources/CEglLibrary/egl_library.h android/eglcore/src/main/cpp/egl_library.h; do
   if ! cmp -s "$canon" "$root/$copy"; then
     echo "header drift: $copy differs from crates/library-ffi/include/egl_library.h" >&2
     fail=1
   fi
 done
 
-# CMake must stay gated on libegl_library.so / -Pegl.ffi so CI mock builds need no NDK.
-gradle="$root/android/app/build.gradle.kts"
+# CMake stays gated on libegl_library.so / -Pegl.ffi so a Kotlin-only assemble needs no NDK;
+# Mobile CI builds the .so with cargo-ndk first (D-101).
+gradle="$root/android/eglcore/build.gradle.kts"
 if ! grep -q 'libegl_library.so' "$gradle"; then
-  echo "android/app/build.gradle.kts: expected libegl_library.so gate for native FFI" >&2
+  echo "android/eglcore/build.gradle.kts: expected libegl_library.so gate for native FFI" >&2
   fail=1
 fi
 if ! grep -q 'enableNativeFfi' "$gradle"; then
-  echo "android/app/build.gradle.kts: expected enableNativeFfi guard around externalNativeBuild" >&2
+  echo "android/eglcore/build.gradle.kts: expected enableNativeFfi guard around externalNativeBuild" >&2
   fail=1
 fi
-# Reject always-on (ungated) externalNativeBuild at the android { } top level.
 if grep -E '^[[:space:]]*externalNativeBuild[[:space:]]*\{' "$gradle" >/dev/null \
   && ! grep -q 'if (enableNativeFfi)' "$gradle"; then
-  echo "android/app/build.gradle.kts: ungated externalNativeBuild — wrap with enableNativeFfi" >&2
+  echo "android/eglcore/build.gradle.kts: ungated externalNativeBuild — wrap with enableNativeFfi" >&2
+  fail=1
+fi
+
+# No mock-as-default: the draft MockLibraryStore must stay gone.
+if grep -R --include='*.kt' -n 'MockLibraryStore\|usingMockData' "$root/android" >/dev/null 2>&1; then
+  echo "android: mock library fallback must stay removed (D-101)" >&2
   fail=1
 fi
 

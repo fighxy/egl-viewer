@@ -7,7 +7,7 @@ use std::path::Path;
 use std::sync::{Arc, OnceLock};
 
 use image::{DynamicImage, ImageDecoder, ImageReader, Limits, Rgba, RgbaImage};
-#[cfg(not(target_os = "ios"))]
+#[cfg(not(any(target_os = "ios", target_os = "android")))]
 use libheif_rs::{ColorSpace, HeifContext, LibHeif, RgbChroma};
 use resvg::{tiny_skia, usvg};
 
@@ -137,7 +137,7 @@ pub(crate) fn psd_bytes(bytes: &[u8]) -> Result<Decoded, MediaError> {
 /// libheif applies the file's geometric transforms (irot/imir), so the pixels come out
 /// display-oriented, like EXIF orientation for raster files.
 /// A platform decoder (ImageIO on iOS, D-096) goes first when the host set one.
-#[cfg(not(target_os = "ios"))]
+#[cfg(not(any(target_os = "ios", target_os = "android")))]
 pub(crate) fn heic_bytes(bytes: &[u8]) -> Result<Decoded, MediaError> {
     if bytes.len() as u64 > MAX_WHOLE_FILE {
         return Err(MediaError::TooLarge);
@@ -170,9 +170,9 @@ pub(crate) fn heic_bytes(bytes: &[u8]) -> Result<Decoded, MediaError> {
     })
 }
 
-/// iOS builds carry no libheif: HEIC goes through the platform decoder the app sets (ImageIO,
-/// D-096); without one it keeps the extension placeholder.
-#[cfg(target_os = "ios")]
+/// iOS / Android builds carry no libheif: HEIC goes through the platform decoder the app
+/// sets (ImageIO on iOS, D-096; Android A4); without one it keeps the extension placeholder.
+#[cfg(any(target_os = "ios", target_os = "android"))]
 pub(crate) fn heic_bytes(bytes: &[u8]) -> Result<Decoded, MediaError> {
     if bytes.len() as u64 > MAX_WHOLE_FILE {
         return Err(MediaError::TooLarge);

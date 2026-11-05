@@ -2007,3 +2007,49 @@ The last PR of the iOS series (D-093–D-099).
   refuses a tag that differs from `tauri.conf.json` and needs the notes in
   `docs/releases/X.Y.Z.md`, which the iOS release of the same version shows too. Android is
   not released: its shell is a draft over a mock core (D-083).
+
+
+## D-101 Android A1 foundation: unfreeze, Kotlin eglcore, real core, app storage + SAF (2026-11-05)
+
+Android was frozen while the iOS app landed on `EglCore` (D-092). iOS is done (D-093–D-100).
+This is the first PR of the Android series — the mirror of D-093. Later stages ship as
+separate PRs after merge:
+
+| Stage | Theme (≈ iOS) |
+| --- | --- |
+| **A1** (this PR) | Foundation: Kotlin core, real `.so`, Welcome, places/counts |
+| **A2** | Browsing (D-094): places, lazy grid by view id, thumbs, filters, selection |
+| **A3** | Preview / details / undo (D-095) |
+| **A4** | Adding from gallery / folders, duplicates, HEIC platform decoder (D-096) |
+| **A5** | Organizing: folders, tags, smart folders (D-097) |
+| **A6** | Locked folders + app login / biometrics (D-098) |
+| **A7** | Settings: backups, check/repair, export (D-099) |
+| **A8** | Release: icon, privacy, a11y, 10k, `android-vX.Y.Z` (D-100) |
+
+- **Unfreeze.** The draft Compose shell (D-083 / D-085) is no longer the product path. The
+  mock library fallback is gone: create/open always go through the real core, or fail with
+  `EglError`.
+- **Kotlin `eglcore` module** (`android/eglcore`, package `app.eglviewer.core`): typed
+  `Library`, `EglError` (status codes 1–9), JSON models (`LibraryInfo`, `LibraryCounts`,
+  event stub), JNI forwarder for create / open / close / info / counts / folder tree / event
+  callback. Host JVM unit tests run without a device.
+- **Real `.so` in CI.** Mobile `android` installs the NDK, builds
+  `libegl_library.so` with cargo-ndk (`arm64-v8a`) into `eglcore/src/main/jniLibs`, then
+  `testDebugUnitTest` + `assembleDebug`. CMake stays gated on the `.so` (or `-Pegl.ffi=true`)
+  so a local Kotlin-only assemble still needs no NDK; without the `.so` the APK starts but
+  refuses to open a library.
+- **No libheif on Android targets** (same idea as iOS D-086): `media` skips `libheif-rs` for
+  `target_os = "android"` so the NDK link does not need a system HEIF. A4 will add a platform
+  decoder for gallery HEIC.
+- **Where libraries live.** New libraries go to app-specific storage (`files/libraries`). A
+  library picked through SAF (`OpenDocumentTree`) keeps a persistable URI grant and a recent
+  entry (last 10). A path or provider URI that looks cloud-synced opens read-only (`syncFolder`,
+  D-021).
+- **`AppModel`.** Welcome or one `OpenLibrary`; every core call off the main thread. The open
+  library screen shows places with counts (and a folders count); the item grid is A2.
+- **Strings** in English, Russian and Simplified Chinese (the desktop's three languages,
+  D-069), under `res/values*`.
+- **Docs.** `android/README.md`, the README status table, and this decision. Architecture notes
+  the unfrozen Android app on `eglcore`.
+- **Next PR after merge: A2 browsing.**
+
