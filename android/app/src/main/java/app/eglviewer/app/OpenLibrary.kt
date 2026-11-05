@@ -4,10 +4,13 @@ import android.content.Context
 import androidx.compose.runtime.getValue
 import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.setValue
+import app.eglviewer.browse.ActionToast
+import app.eglviewer.browse.BrowseFilters
 import app.eglviewer.browse.BrowseHost
 import app.eglviewer.browse.BrowseModel
-import app.eglviewer.browse.BrowseFilters
 import app.eglviewer.browse.LiveViewSession
+import app.eglviewer.browse.OriginalCache
+import app.eglviewer.browse.PickableFolder
 import app.eglviewer.browse.Place
 import app.eglviewer.browse.SavedView
 import app.eglviewer.browse.SavedViews
@@ -24,20 +27,29 @@ import app.eglviewer.core.ViewOpened
 import java.io.File
 import java.lang.ref.WeakReference
 import java.util.concurrent.CopyOnWriteArrayList
+import kotlinx.coroutines.CoroutineScope
+import kotlinx.coroutines.Dispatchers
+import kotlinx.coroutines.Job
+import kotlinx.coroutines.SupervisorJob
+import kotlinx.coroutines.delay
+import kotlinx.coroutines.launch
+import kotlinx.coroutines.withContext
 
 /**
- * One open library: core handle, places/counts/folders/smart folders, saved view, and
- * browse-model registration (A1 foundation + A2 browsing, D-101 / D-102).
+ * One open library: core handle, places/counts/folders, saved view, toast / undo, and
+ * browse-model registration (A1–A3, D-101 / D-102 / D-103).
  */
 class OpenLibrary(
     val library: Library,
     val path: File,
     private val savedViews: SavedViews,
     sessionOverride: ViewSession? = null,
+    private val scope: CoroutineScope = CoroutineScope(SupervisorJob() + Dispatchers.Main.immediate),
 ) : BrowseHost {
     override val libraryPath: String = path.absolutePath
     override val session: ViewSession = sessionOverride ?: LiveViewSession(library)
     override val thumbnails: ThumbnailCache = ThumbnailCache(session)
+    val originals: OriginalCache = OriginalCache(session)
 
     var info: LibraryInfo by mutableStateOf(
         LibraryInfo(
@@ -71,7 +83,27 @@ class OpenLibrary(
     var lastError: String? by mutableStateOf(null)
         private set
 
+    override var toast: ActionToast? by mutableStateOf(null)
+        private set
+
+    private var hidingToast: Job? = null
+
     private val browsers = CopyOnWriteArrayList<WeakReference<BrowseModel>>()
+
+    override val pickableFolders: List<PickableFolder>
+        get() {
+            val list = mutableListOf<PickableFolder>()
+            fun walk(nodes: List<Folder>, depth: Int) {
+                for (folder in nodes) {
+                    if (!folder.isLocked || folder.isUnlocked) {
+                        list += PickableFolder(folder = folder, depth = depth)
+                        walk(folder.children, depth + 1)
+                    }
+                }
+            }
+            walk(folders, 0)
+            return list
+        }
 
     fun attachEvents() {
         library.setEventHandler { event ->
@@ -122,6 +154,37 @@ class OpenLibrary(
         browsers.removeAll { it.get() == null || it.get() === browser }
     }
 
+    override suspend fun <T> perform(block: (ViewSession) -> T): T? =
+        try {
+            withContext(Dispatchers.IO) { block(session) }
+        } catch (error: Exception) {
+            report(error.message ?: error.toString())
+            null
+        }
+
+    override fun show(message: String, undoable: Boolean) {
+        val next = ActionToast(message = message, undoable = undoable)
+        toast = next
+        hidingToast?.cancel()
+        hidingToast = scope.launch {
+            delay(5_000)
+            if (toast == next) toast = null
+        }
+    }
+
+    fun dismissToast() {
+        hidingToast?.cancel()
+        toast = null
+    }
+
+    override suspend fun undo() {
+        dismissToast()
+        val status = perform { it.undo() }
+        if (status != null) {
+            show("Undone", undoable = false)
+        }
+    }
+
     fun notifyViewsInvalidated(views: List<ViewOpened>) {
         browsers.mapNotNull { it.get() }.forEach { it.invalidated(views) }
     }
@@ -135,6 +198,8 @@ class OpenLibrary(
     fun close() {
         browsers.clear()
         thumbnails.removeAll()
+        originals.removeAll()
+        dismissToast()
         runCatching { library.setEventHandler(null) }
         library.close()
     }

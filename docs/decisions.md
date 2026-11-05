@@ -2096,3 +2096,40 @@ The second PR of the Android series (D-101), mirroring iOS D-094. Stacked on
   supply-chain release age (D-002 / D-003).
 - **Out of scope.** Preview/details/undo (A3), gallery add (A4), organize / locks / settings /
   release.
+
+## D-103 Android A3 preview, details and actions with undo (2026-11-05)
+
+The third PR of the Android series (D-101, D-102), mirroring iOS D-095. Stacked on
+`feat/android-a2-browsing` (A2).
+
+- **Preview.** A tap opens a full-screen dark stage over the same core view as the grid: a
+  `HorizontalPager` of the view's positions, so a large library costs no more than a short
+  one. The original is decoded by `BitmapFactory` at about 1.5× the screen's long edge (path
+  via `egl_original_path`, else decrypted bytes via `egl_original_bytes`); a few stay in
+  `OriginalCache`. Until it arrives, and for formats the decoder cannot draw, the page shows
+  a spinner or the file type. Pinch / double-tap zooms; paging stops while zoomed; a single
+  tap hides the bars.
+- **Details** (the desktop's right bar): name, rating (the same rating again clears it), tags
+  with suggestions from the library (matched ignoring case, stored exactly as typed), folders
+  (the tree as a picker; locked folders only while open), notes, link, and the file's facts.
+  Each change is one undoable edit through `egl_apply_item_edit`; text fields save on Done and
+  when the sheet closes.
+- **Actions.** On a selection (a bar under the grid), from the preview, and from a long-press
+  start of selection: rate, tags (counts from `egl_view_selection_tags`), add to folder, share,
+  move to trash; in the Trash: restore, delete permanently (confirmed) and Empty Trash. Select
+  All still acts through the view target (D-102).
+- **Undo.** After an action a snackbar shows what happened, with Undo when the core can take
+  it back (`egl_undo`); permanent deletes have none, as on the desktop.
+- **Sharing.** Originals go to the system share sheet under their item names (`name.ext`, with
+  ` (2)` for repeats), at most 100 at once: copied into a temporary cache folder (FileProvider),
+  never hard-linking or mutating the library's own files. The folder is removed when the share
+  returns.
+- **eglcore.** JNI and `Library` gain `item`, `applyItemEdit`, typed `ItemEdit` for
+  `editItems`, `selectionTags`, `undo` / `undoStatus`, `deleteItems`, `emptyTrash`,
+  `trashInfo`, `viewIds`, `originalPath`, `originalBytes`; models `Item`, `SelectionTags`,
+  `UndoStatus`, `TrashInfo`.
+- **Tests.** JVM unit tests of `ItemEdit` JSON, details edits with undo, selection
+  trash/restore/delete, share naming, and preview open state against `FakeViewSession`, in
+  `:eglcore:testDebugUnitTest` / `:app:testDebugUnitTest` of the Mobile workflow.
+- **Docs.** `android/README.md`, the README status table, and this decision.
+- **Out of scope.** Gallery add (A4), organize / locks / settings / release.

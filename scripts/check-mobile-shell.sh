@@ -91,18 +91,31 @@ need android/eglcore/src/main/java/app/eglviewer/core/Library.kt
 need android/eglcore/src/main/java/app/eglviewer/core/EglError.kt
 need android/eglcore/src/main/java/app/eglviewer/core/Models.kt
 need android/eglcore/src/main/java/app/eglviewer/core/EglNative.kt
+need android/eglcore/src/main/java/app/eglviewer/core/ItemModels.kt
 need android/eglcore/src/test/java/app/eglviewer/core/EglCoreUnitTest.kt
+need android/eglcore/src/test/java/app/eglviewer/core/ItemModelsTest.kt
 need android/app/src/main/java/app/eglviewer/MainActivity.kt
 need android/app/src/main/java/app/eglviewer/app/AppModel.kt
 need android/app/src/main/java/app/eglviewer/app/LibraryLocations.kt
+need android/app/src/main/java/app/eglviewer/app/OpenLibrary.kt
+need android/app/src/main/java/app/eglviewer/browse/BrowseModel.kt
+need android/app/src/main/java/app/eglviewer/browse/BrowseScreen.kt
+need android/app/src/main/java/app/eglviewer/browse/SelectionBar.kt
+need android/app/src/main/java/app/eglviewer/preview/PreviewScreen.kt
+need android/app/src/main/java/app/eglviewer/preview/ZoomingImage.kt
+need android/app/src/main/java/app/eglviewer/details/DetailsSheet.kt
+need android/app/src/main/java/app/eglviewer/details/ItemDetailsModel.kt
+need android/app/src/main/java/app/eglviewer/details/ShareFiles.kt
 need android/app/src/main/java/app/eglviewer/screens/WelcomeScreen.kt
 need android/app/src/main/java/app/eglviewer/screens/LibraryScreen.kt
 need android/app/src/main/java/app/eglviewer/theme/Tokens.kt
 need android/app/src/main/java/app/eglviewer/components/Chrome.kt
+need android/app/src/main/java/app/eglviewer/components/UndoSnackbar.kt
 need android/app/src/main/res/values/strings.xml
 need android/app/src/main/res/values-ru/strings.xml
 need android/app/src/main/res/values-zh-rCN/strings.xml
 need android/app/src/test/java/app/eglviewer/app/LibraryLocationsTest.kt
+need android/app/src/test/java/app/eglviewer/browse/DetailsAndActionsTest.kt
 
 # Release tags (D-100): ios-vX.Y.Z gives X.Y.Z; anything else publishes nothing.
 version="$root/scripts/ios-release-version.sh"
