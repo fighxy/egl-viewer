@@ -1978,7 +1978,9 @@ The last PR of the iOS series (D-093–D-099).
 - **Accessibility.** Ratings read as "3 stars", not the symbols (a shared `StarsText`); grid
   cells say their rating and "Loading" until they arrive; the folder pickers mark the chosen
   folder as selected. A UI test runs Xcode's accessibility audit (sufficient element
-  descriptions) over the library, the grid, the preview and the details.
+  descriptions) over the library, the grid, the preview and the details. Its first run on
+  `main` found the item image at the top of the details without a description; it is named
+  after the item now.
 - **10,000 items.** A unit test fills a library with 10,000 generated images (D-096's sample
   generator, now walking all windows to tag its first four) and times the paths that must not
   grow with the library: opening the view, a window at the end, the name sort, a search, a tag

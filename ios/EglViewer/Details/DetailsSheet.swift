@@ -26,6 +26,10 @@ struct DetailsSheet: View {
                         Spacer()
                         ItemThumbnail(cell: cell, cache: model.open.thumbnails, pixels: 480)
                             .frame(height: 160)
+                            // VoiceOver names the image after its item (D-100).
+                            .accessibilityElement(children: .ignore)
+                            .accessibilityLabel(Text(verbatim: cell.name))
+                            .accessibilityAddTraits(.isImage)
                         Spacer()
                     }
                     .listRowBackground(Color.clear)
