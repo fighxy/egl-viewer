@@ -2402,3 +2402,8 @@ of little use to someone who has never used a command line.
   screen (D-107) checks the length too (`passphraseLongEnough`, code points); its Decrypt
   Archive and the JNI forwarder come later.
 - Outside the app the archive still opens with `age -d -o name.zip name.zip.age` (or `rage`).
+- **UI tests open All after the import.** BrowseUITests failed on this PR's CI with no change
+  to browsing: the tap on All landed while the sample library was still importing and the
+  list of places redrew, on a simulator that took 19 s to find the row. `openAll(expecting:)`
+  (EglViewerUITests/UITestSupport.swift) waits for the row to show the full count, then
+  taps, and taps once more if no browse screen came; Browse, Preview and Accessibility use it.

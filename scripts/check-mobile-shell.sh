@@ -72,6 +72,7 @@ need ios/EglViewerUITests/LocksUITests.swift
 need ios/EglViewerTests/MaintenanceTests.swift
 need ios/EglViewerUITests/SettingsUITests.swift
 need ios/EglViewerUITests/PreviewUITests.swift
+need ios/EglViewerUITests/UITestSupport.swift
 need ios/EglCore/Package.swift
 need ios/EglCore/Sources/CEglLibrary/egl_library.h
 need ios/EglCore/Sources/CEglLibrary/module.modulemap

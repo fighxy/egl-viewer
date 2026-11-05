@@ -30,9 +30,7 @@ final class AccessibilityUITests: XCTestCase {
         XCTAssertTrue(app.navigationBars["Sample"].waitForExistence(timeout: 30))
         try audit(app, "library")
 
-        element("place.all", in: app).tap()
-        let count = app.staticTexts["browse.count"]
-        XCTAssertTrue(count.waitForExistence(timeout: 15))
+        let count = app.openAll(expecting: 6)
         let six = XCTNSPredicateExpectation(predicate: NSPredicate(format: "label == %@", "6 items"), object: count)
         XCTAssertEqual(XCTWaiter.wait(for: [six], timeout: 30), .completed)
         try audit(app, "browse")
