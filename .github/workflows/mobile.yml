@@ -91,7 +91,9 @@ jobs:
     runs-on: ubuntu-24.04
     env:
       ANDROID_NDK_VERSION: "27.2.12479018"
-      CARGO_NDK_VERSION: "3.5.6"
+      # 3.5.6 / 3.5.7 yanked on crates.io; 4.1.2 is the newest stable older than the
+      # supply-chain release age (D-002 / D-003).
+      CARGO_NDK_VERSION: "4.1.2"
     steps:
       - uses: actions/checkout@v7
 
