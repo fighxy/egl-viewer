@@ -469,6 +469,18 @@ public struct ExportPreview: Codable, Equatable, Sendable {
     public var hidden: Int
 }
 
+/// An age archive opened with its passphrase (D-110): the plaintext file it was written to.
+public struct DecryptedArchive: Codable, Equatable, Sendable {
+    public var path: String
+    public var bytes: Int
+
+    public var url: URL { URL(fileURLWithPath: path) }
+}
+
+/// The shortest passphrase an encrypted export takes (library-core `MIN_PASSPHRASE_CHARS`,
+/// D-110); the core refuses a shorter one.
+public let minPassphraseCharacters = 8
+
 /// Where a view looks.
 public enum Scope: Codable, Equatable, Hashable, Sendable {
     case all

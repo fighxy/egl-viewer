@@ -2053,3 +2053,39 @@ separate PRs after merge:
   the unfrozen Android app on `eglcore`.
 - **Next PR after merge: A2 browsing.**
 
+
+## D-110 Exports: encrypted while written, cancel while encrypting, passphrase length, Decrypt Archive (2026-11-05)
+
+A review of the archive export (D-064 to D-066) found three faults, and a gap: an `.age` file is
+of little use to someone who has never used a command line.
+
+- **No plaintext on disk.** An encrypted export wrote the whole ZIP as `<base>.zip.part` into
+  the destination and encrypted it afterwards. While it ran, the originals of unlocked locked
+  folders lay there in the clear, a synced destination (Dropbox, OneDrive) could upload the
+  part file, and a deleted file can be recovered. The ZIP now streams into the age writer
+  (`zip::ZipWriter::new_stream`, data descriptors; ZIP64 for entries of 4 GiB or more, which a
+  stream must know up front): only `<base>.zip.age.part` is written, renamed to
+  `<base>.zip.age` when complete, and removed on a failure or a cancel. The name is made
+  unique against an existing `.zip.age`, not only `.zip`.
+- **Cancel while encrypting.** Encryption was a second pass that never looked at the cancel
+  flag. With the stream there is one pass, and the copy checks the flag every megabyte, so a
+  cancel also stops a single large original. `ExportState::Encrypting` is no longer reported;
+  the variant stays so older clients still read every state.
+- **Passphrase length.** Any non-empty passphrase was taken. The core now refuses one under
+  `MIN_PASSPHRASE_CHARS` = 8 characters (counted as characters, not bytes); the desktop dialog
+  and the iPhone export screen say so before they start. scrypt slows guessing; it does not
+  make a short passphrase strong.
+- **Decrypt Archive.** `library_native::decrypt_archive` opens a passphrase age file into
+  `name.zip` (or `name (2).zip`, or `name.decrypted` for a file without `.age`) in a chosen
+  folder, never inside a native or an Eagle library. The plaintext is written as `.part` and
+  renamed only after the whole stream authenticated: a wrong passphrase, a truncated or
+  damaged file, a file encrypted for a key or not an age file at all gives a plain reason and
+  leaves nothing. Desktop: **File → Decrypt Archive…** (`decrypt_archive` command with a
+  progress channel over the archive bytes read, `cancel_decrypt`, one at a time; the result
+  next to the archive by default, Show in Explorer allowed for it). The progress, the cancel
+  and this command's shape follow a parallel attempt at the same change (PR #69, closed),
+  which wrote straight over a chosen file and deleted it on a failure. iPhone: Settings → Decrypt
+  Archive, from Files into a temporary folder, then Save to Files or Share. C ABI:
+  `egl_decrypt_archive` (no library handle), in the three header copies. The Android app
+  gets it with its export screen: the core already refuses a short passphrase there.
+- Outside the app the archive still opens with `age -d -o name.zip name.zip.age` (or `rage`).

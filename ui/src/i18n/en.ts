@@ -33,6 +33,7 @@ export const en = {
       importEagle: "Import Eagle Library…",
       settings: "Settings…",
       exit: "Exit",
+      decryptArchive: "Decrypt Archive…",
     },
     edit: {
       paste: "Paste",
@@ -942,6 +943,7 @@ export const en = {
     encrypt: "Encrypt with a password",
     typePassword: "Type a password.",
     passwordMismatch: "The passwords do not match.",
+    passwordTooShort: "The password needs at least {{count}} characters.",
     noItems: "The selection has no items.",
     preview: "{{items}} items · {{bytes}}",
     previewHidden: " · {{hidden}} hidden in locked folders",
@@ -960,6 +962,22 @@ export const en = {
     skippedMissing: "Skipped {{count}} missing: {{list}}",
     exportFailed: "The export failed.",
     exportCancelled: "The export was cancelled; the partial output was removed.",
+  },
+  decryptUi: {
+    title: "Decrypt Archive",
+    description:
+      "Opens an encrypted export (.zip.age) with its password. You get the ordinary ZIP archive back, saved where you choose.",
+    archive: "Archive",
+    saveIn: "Save in",
+    choose: "Choose…",
+    chooseArchive: "Choose the archive.",
+    chooseFolder: "Choose where to save it.",
+    decrypt: "Decrypt",
+    decrypting: "Decrypting…",
+    cancelled: "The decryption was cancelled; nothing was left behind.",
+    done: "Decrypted to {{name}} ({{bytes}}).",
+    pickTitle: "Choose an encrypted archive",
+    archives: "Encrypted archives",
   },
 } as const;
 

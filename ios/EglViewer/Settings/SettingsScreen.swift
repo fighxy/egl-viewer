@@ -63,6 +63,12 @@ struct SettingsScreen: View {
                         }
                     }
                     .accessibilityIdentifier("settings.appLock")
+                    NavigationLink {
+                        DecryptArchiveScreen()
+                    } label: {
+                        Label("settings.decrypt", systemImage: "key")
+                    }
+                    .accessibilityIdentifier("settings.decrypt")
                     LabeledContent("settings.version") {
                         Text(verbatim: Self.version)
                     }

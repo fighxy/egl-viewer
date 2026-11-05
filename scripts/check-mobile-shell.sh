@@ -46,6 +46,7 @@ need ios/EglViewer/Locks/LockSheets.swift
 need ios/EglViewer/Locks/LoginScreen.swift
 need ios/EglViewer/Settings/SettingsScreen.swift
 need ios/EglViewer/Settings/ExportScreen.swift
+need ios/EglViewer/Settings/DecryptArchiveScreen.swift
 need ios/EglViewer/Resources/InfoPlist.xcstrings
 need ios/EglViewer/Screens/WelcomeScreen.swift
 need ios/EglViewer/Screens/LibraryScreen.swift

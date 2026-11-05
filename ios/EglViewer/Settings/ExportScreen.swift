@@ -126,7 +126,12 @@ struct ExportScreen: View {
             .accessibilityIdentifier("export.start")
         } footer: {
             if zip, encrypt {
-                Text("export.encryptHint")
+                if !passphrase.isEmpty, passphrase.count < minPassphraseCharacters {
+                    Text("export.passphraseTooShort \(minPassphraseCharacters)")
+                        .foregroundStyle(.orange)
+                } else {
+                    Text("export.encryptHint")
+                }
             }
         }
     }
@@ -134,7 +139,7 @@ struct ExportScreen: View {
     private var ready: Bool {
         guard !selection.isEmpty, (preview?.items ?? 0) > 0 else { return false }
         if zip, encrypt {
-            return !passphrase.isEmpty && passphrase == confirm
+            return passphrase.count >= minPassphraseCharacters && passphrase == confirm
         }
         return true
     }

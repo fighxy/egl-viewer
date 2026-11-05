@@ -47,6 +47,25 @@ public final class Library: @unchecked Sendable {
     // MARK: Opening
 
     /// Creates `<parent>/<name>.eglib` and returns its path.
+    /// Opens an age archive (an encrypted export, `name.zip.age`) with its passphrase into
+    /// the existing folder `destination`, as `name.zip` (D-110). Needs no open library.
+    /// Blocking: call it off the main thread.
+    public static func decryptArchive(at source: URL, into destination: URL, passphrase: String) throws
+        -> DecryptedArchive
+    {
+        var out: UnsafeMutablePointer<CChar>?
+        let status = source.path.withCString { source in
+            destination.path.withCString { destination in
+                passphrase.withCString { passphrase in
+                    egl_decrypt_archive(source, destination, passphrase, &out)
+                }
+            }
+        }
+        guard status == EGL_OK, let out else { throw globalError(status) }
+        defer { egl_string_free(out) }
+        return try JSONDecoder().decode(DecryptedArchive.self, from: Data(String(cString: out).utf8))
+    }
+
     public static func create(in parent: URL, name: String, appVersion: String) throws -> URL {
         var out: UnsafeMutablePointer<CChar>?
         let status = parent.path.withCString { parent in

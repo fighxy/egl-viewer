@@ -39,4 +39,19 @@ final class SettingsUITests: XCTestCase {
         XCTAssertTrue(element("export.done", in: app).waitForExistence(timeout: 60))
         XCTAssertTrue(app.buttons["export.saveToFiles"].exists)
     }
+
+    /// D-110: Decrypt Archive opens from the app's settings and waits for an archive.
+    func testDecryptArchiveWaitsForAnArchiveAndAPassphrase() {
+        let app = XCUIApplication()
+        app.launchArguments = ["-uiTesting", "-AppleLanguages", "(en)", "-AppleLocale", "en_US"]
+        app.launch()
+        app.buttons["welcome.settings"].tap()
+        let decrypt = element("settings.decrypt", in: app)
+        XCTAssertTrue(decrypt.waitForExistence(timeout: 5))
+        decrypt.tap()
+        let start = app.buttons["decrypt.start"]
+        XCTAssertTrue(start.waitForExistence(timeout: 5))
+        XCTAssertFalse(start.isEnabled, "no archive picked yet")
+        XCTAssertTrue(element("decrypt.choose", in: app).exists)
+    }
 }

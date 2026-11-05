@@ -382,6 +382,14 @@ EglStatus egl_start_export(EglLibrary *lib, const char *request_json, char **out
 /** ExportProgress[] of running exports. */
 EglStatus egl_exports(EglLibrary *lib, char **out_json);
 EglStatus egl_cancel_export(EglLibrary *lib, uint64_t id);
+/**
+ * Opens an age archive (an encrypted export, name.zip.age) with its passphrase into the
+ * existing folder destination_utf8 as name.zip (D-110); no library handle needed.
+ * *out_json: {"path":"…","bytes":N}. EGL_ERR_INVALID for a wrong passphrase, a damaged
+ * file or a file that is not an age archive; nothing is left behind. Blocking.
+ */
+EglStatus egl_decrypt_archive(const char *source_utf8, const char *destination_utf8,
+                              const char *passphrase_utf8, char **out_json);
 /** ImportPreview of a folder for a reviewed import. */
 EglStatus egl_preview_import(EglLibrary *lib, const char *path_utf8, char **out_json);
 

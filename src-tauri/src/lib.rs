@@ -156,6 +156,8 @@ pub fn run() {
             commands::export_preview,
             commands::start_export,
             commands::cancel_export,
+            commands::decrypt_archive,
+            commands::cancel_decrypt,
             commands::exports,
             commands::reveal_path,
             commands::rename_library,
