@@ -382,6 +382,12 @@ EglStatus egl_start_export(EglLibrary *lib, const char *request_json, char **out
 /** ExportProgress[] of running exports. */
 EglStatus egl_exports(EglLibrary *lib, char **out_json);
 EglStatus egl_cancel_export(EglLibrary *lib, uint64_t id);
+/** Decrypts a passphrase .age archive to a ZIP path; *out_path on success (egl_string_free). */
+EglStatus egl_decrypt_age_archive(EglLibrary *lib, const char *source_utf8,
+                                  const char *destination_utf8, const char *password_utf8,
+                                  char **out_path);
+/** Stops a running egl_decrypt_age_archive between buffers. */
+EglStatus egl_cancel_decrypt_age(EglLibrary *lib);
 /** ImportPreview of a folder for a reviewed import. */
 EglStatus egl_preview_import(EglLibrary *lib, const char *path_utf8, char **out_json);
 

@@ -4,6 +4,85 @@
 use serde::{Deserialize, Serialize};
 use ts_rs::TS;
 
+/// Minimum length of an age passphrase that wraps an export archive (D-102).
+pub const ARCHIVE_PASSWORD_MIN_LEN: usize = 8;
+
+/// Refuses an empty or too-short archive passphrase. Match and non-empty checks stay in the UI;
+/// this is the hard floor shared by export and decrypt.
+pub fn check_archive_password(password: &str) -> Result<(), crate::SourceError> {
+    if password.is_empty() {
+        return Err(crate::SourceError::Invalid("Type a password.".into()));
+    }
+    if password.chars().count() < ARCHIVE_PASSWORD_MIN_LEN {
+        return Err(crate::SourceError::Invalid(format!(
+            "The password must be at least {ARCHIVE_PASSWORD_MIN_LEN} characters."
+        )));
+    }
+    Ok(())
+}
+
+/// Soft warning for the UI: short, one character class, or a well-known weak string. Export is
+/// still allowed once [`check_archive_password`] passes (D-102).
+pub fn archive_password_is_weak(password: &str) -> bool {
+    let len = password.chars().count();
+    if len < 12 {
+        return true;
+    }
+    let lower = password.chars().any(|c| c.is_lowercase());
+    let upper = password.chars().any(|c| c.is_uppercase());
+    let digit = password.chars().any(|c| c.is_ascii_digit());
+    let other = password.chars().any(|c| !c.is_alphanumeric());
+    let classes = usize::from(lower) + usize::from(upper) + usize::from(digit) + usize::from(other);
+    if classes < 2 {
+        return true;
+    }
+    const COMMON: &[&str] = &[
+        "password",
+        "password1",
+        "password12",
+        "password123",
+        "12345678",
+        "123456789",
+        "1234567890",
+        "qwertyui",
+        "qwerty123",
+        "abcdefgh",
+        "letmein1",
+        "iloveyou",
+        "admin123",
+        "welcome1",
+        "monkey12",
+        "dragon12",
+        "master12",
+        "login123",
+        "passw0rd",
+        "changeme",
+    ];
+    let folded = password.to_ascii_lowercase();
+    COMMON.iter().any(|word| folded == *word)
+}
+
+#[cfg(test)]
+mod password_tests {
+    use super::{ARCHIVE_PASSWORD_MIN_LEN, archive_password_is_weak, check_archive_password};
+
+    #[test]
+    fn short_passwords_are_refused() {
+        assert!(check_archive_password("").is_err());
+        assert!(check_archive_password("1234567").is_err());
+        assert!(check_archive_password("12345678").is_ok());
+        assert_eq!(ARCHIVE_PASSWORD_MIN_LEN, 8);
+    }
+
+    #[test]
+    fn weak_passwords_are_flagged_but_allowed() {
+        assert!(archive_password_is_weak("12345678"));
+        assert!(archive_password_is_weak("password12"));
+        assert!(archive_password_is_weak("abcdefghijkl"));
+        assert!(!archive_password_is_weak("Correct-Horse-1"));
+    }
+}
+
 /// What an export covers: the whole library, some folders, some tags, or any mix.
 /// An item is exported once even when several selections cover it.
 #[derive(Debug, Clone, PartialEq, Eq, Default, Serialize, Deserialize, TS)]
@@ -78,7 +157,8 @@ pub struct ExportRequest {
     /// An existing folder the export is written into.
     pub destination: String,
     /// An age passphrase protecting the archive; only valid with [`ExportFormat::Zip`].
-    /// The UI sends it like a lock password and Rust never stores it.
+    /// At least [`ARCHIVE_PASSWORD_MIN_LEN`] characters (D-102). The UI sends it like a
+    /// lock password and is never stored.
     pub encrypt: Option<String>,
     /// A running Eagle to export into instead of a folder or archive (docs/spec.md §8.4).
     /// When set, `format`, `destination` and `encrypt` are ignored.
@@ -120,7 +200,7 @@ pub enum ExportState {
     Preparing,
     /// Copying files into the folder tree or the archive.
     Copying,
-    /// Wrapping the archive in an age passphrase.
+    /// Writing the ZIP through an age passphrase (no plaintext archive on disk).
     Encrypting,
     /// Everything written; `ExportProgress::summary` is set.
     Done,

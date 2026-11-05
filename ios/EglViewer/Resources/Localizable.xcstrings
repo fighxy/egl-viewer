@@ -3728,19 +3728,19 @@
         "en": {
           "stringUnit": {
             "state": "translated",
-            "value": "The archive is encrypted with age. Without the passphrase it cannot be opened; it is not stored anywhere."
+            "value": "The ZIP is encrypted with age while it is written (no plaintext archive on disk). Decrypt it in the app or with age. The passphrase is not stored."
           }
         },
         "ru": {
           "stringUnit": {
             "state": "translated",
-            "value": "Архив шифруется age. Без пароля его не открыть; пароль нигде не сохраняется."
+            "value": "ZIP шифруется age прямо при записи (на диске нет открытого архива). Расшифруйте в приложении или через age. Пароль нигде не хранится."
           }
         },
         "zh-Hans": {
           "stringUnit": {
             "state": "translated",
-            "value": "归档将使用 age 加密。没有密码将无法打开；密码不会被保存。"
+            "value": "ZIP 在写入时即用 age 加密（磁盘上不会留下明文归档）。可在应用内或用 age 解密。密码不会被保存。"
           }
         }
       }
@@ -10386,6 +10386,213 @@
           "stringUnit": {
             "state": "translated",
             "value": "最近"
+          }
+        }
+      }
+    },
+    "settings.decryptAge": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Decrypt .age Archive"
+          }
+        },
+        "ru": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Расшифровать архив .age"
+          }
+        },
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "解密 .age 归档"
+          }
+        }
+      }
+    },
+    "decrypt.title": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Decrypt .age Archive"
+          }
+        },
+        "ru": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Расшифровать архив .age"
+          }
+        },
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "解密 .age 归档"
+          }
+        }
+      }
+    },
+    "decrypt.hint": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Opens a passphrase-protected export (Name.zip.age) to a ZIP. The passphrase is not stored."
+          }
+        },
+        "ru": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Открывает экспорт с паролем (Name.zip.age) в ZIP. Пароль нигде не хранится."
+          }
+        },
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "将带密码的导出（Name.zip.age）解密为 ZIP。密码不会被保存。"
+          }
+        }
+      }
+    },
+    "decrypt.chooseArchive": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Choose .age Archive…"
+          }
+        },
+        "ru": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Выбрать архив .age…"
+          }
+        },
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "选择 .age 归档…"
+          }
+        }
+      }
+    },
+    "decrypt.start": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Decrypt"
+          }
+        },
+        "ru": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Расшифровать"
+          }
+        },
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "解密"
+          }
+        }
+      }
+    },
+    "decrypt.working": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Decrypting…"
+          }
+        },
+        "ru": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Расшифровка…"
+          }
+        },
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "正在解密…"
+          }
+        }
+      }
+    },
+    "decrypt.done": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "The archive was decrypted."
+          }
+        },
+        "ru": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Архив расшифрован."
+          }
+        },
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "归档已解密。"
+          }
+        }
+      }
+    },
+    "decrypt.another": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Decrypt Another"
+          }
+        },
+        "ru": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Расшифровать другой"
+          }
+        },
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "解密另一个"
+          }
+        }
+      }
+    },
+    "export.passwordWeak": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "This password is weak. Prefer at least 12 characters with mixed kinds of characters."
+          }
+        },
+        "ru": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Слабый пароль. Лучше не меньше 12 символов и разные виды символов."
+          }
+        },
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "此密码较弱。建议至少 12 个字符，并混合不同类型的字符。"
           }
         }
       }

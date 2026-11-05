@@ -20,6 +20,7 @@ import { Progress } from "@/components/ui/progress";
 import { Switch } from "@/components/ui/switch";
 import { formatBytes } from "@/features/browse/format";
 import { isValid, validateConnectForm } from "@/features/connect/validation";
+import { ARCHIVE_PASSWORD_MIN_LEN, archivePasswordIsWeak } from "@/features/export/password";
 import { allRows, FOLDER_COLORS, withoutLockedFolders } from "@/features/folders/tree";
 import { countText } from "@/features/tags/match";
 import type {
@@ -244,6 +245,9 @@ function ExportDialogContent({
     }
     if (formatKind === "zip" && encrypt) {
       if (password === "") return t("exportUi.typePassword");
+      if ([...password].length < ARCHIVE_PASSWORD_MIN_LEN) {
+        return t("exportUi.passwordTooShort", { min: ARCHIVE_PASSWORD_MIN_LEN });
+      }
       if (password !== confirm) return t("exportUi.passwordMismatch");
     }
     if (preview.data && preview.data.items === 0) return t("exportUi.noItems");
@@ -475,21 +479,28 @@ function ExportDialogContent({
                 </div>
               )}
               {formatKind === "zip" && encrypt && (
-                <div className="grid grid-cols-2 gap-2">
-                  <Input
-                    type="password"
-                    placeholder={t("commonExtra.password")}
-                    aria-label={t("commonExtra.password")}
-                    value={password}
-                    onChange={(event) => setPassword(event.target.value)}
-                  />
-                  <Input
-                    type="password"
-                    placeholder={t("locksUi.repeatPassword")}
-                    aria-label={t("locksUi.repeatPassword")}
-                    value={confirm}
-                    onChange={(event) => setConfirm(event.target.value)}
-                  />
+                <div className="grid gap-2">
+                  <div className="grid grid-cols-2 gap-2">
+                    <Input
+                      type="password"
+                      placeholder={t("commonExtra.password")}
+                      aria-label={t("commonExtra.password")}
+                      value={password}
+                      onChange={(event) => setPassword(event.target.value)}
+                    />
+                    <Input
+                      type="password"
+                      placeholder={t("locksUi.repeatPassword")}
+                      aria-label={t("locksUi.repeatPassword")}
+                      value={confirm}
+                      onChange={(event) => setConfirm(event.target.value)}
+                    />
+                  </div>
+                  {password !== "" &&
+                    [...password].length >= ARCHIVE_PASSWORD_MIN_LEN &&
+                    archivePasswordIsWeak(password) && (
+                      <p className="text-xs text-muted-foreground">{t("exportUi.passwordWeak")}</p>
+                    )}
                 </div>
               )}
               {formatKind === "eagle" && (

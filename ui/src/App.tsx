@@ -31,6 +31,7 @@ import { fetchCell, useView } from "@/features/browse/useView";
 import { ConnectScreen } from "@/features/connect/ConnectScreen";
 import { type DragPayload, DragProvider, type DropTarget } from "@/features/dnd/drag";
 import { EagleImportDialog } from "@/features/eagle-import/EagleImportDialog";
+import { DecryptAgeDialog } from "@/features/export/DecryptAgeDialog";
 import { ExportDialog, type ExportTarget } from "@/features/export/ExportDialog";
 import { type FolderDialog, FolderDialogs } from "@/features/folders/FolderDialogs";
 import { FolderProperties } from "@/features/folders/FolderProperties";
@@ -319,6 +320,7 @@ function AppShell() {
   const [dialog, setDialog] = useState<DialogKind | null>(null);
   /** The Backup / Export dialog: `target` presets the scope for a context-menu export. */
   const [exportDialog, setExportDialog] = useState<{ target: ExportTarget | null } | null>(null);
+  const [decryptAgeOpen, setDecryptAgeOpen] = useState(false);
   const [fullscreen, setFullscreenState] = useState(false);
   const [builtInLocation, setBuiltInLocation] = useState("");
   const [counts, setCounts] = useState<LibraryCounts | null>(null);
@@ -1555,6 +1557,7 @@ function AppShell() {
         place.kind === "trash" ? itemActions.onDeletePermanently() : itemActions.onTrash(),
       librarySettings: () => setDialog("librarySettings"),
       backup: () => setExportDialog({ target: null }),
+      decryptAge: () => setDecryptAgeOpen(true),
       backUpNow: () => {
         ipc
           .backUpNow()
@@ -2127,6 +2130,7 @@ function AppShell() {
             }}
           />
         )}
+        <DecryptAgeDialog open={decryptAgeOpen} onOpenChange={setDecryptAgeOpen} />
         <CheckLibraryDialog
           open={dialog === "checkLibrary"}
           onOpenChange={closeDialog}

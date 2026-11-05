@@ -165,6 +165,26 @@ public final class Library: @unchecked Sendable {
         try check(egl_cancel_export(try live(), id))
     }
 
+    /// Decrypts a passphrase `.age` archive to a ZIP. `nil` when cancelled.
+    public func decryptAgeArchive(source: URL, destination: URL, password: String) throws -> URL? {
+        try source.path.withCString { source in
+            try destination.path.withCString { destination in
+                try password.withCString { password in
+                    let lib = try live()
+                    var out: UnsafeMutablePointer<CChar>?
+                    try check(egl_decrypt_age_archive(lib, source, destination, password, &out))
+                    guard let out else { return nil }
+                    defer { egl_string_free(out) }
+                    return URL(fileURLWithPath: String(cString: out))
+                }
+            }
+        }
+    }
+
+    public func cancelDecryptAge() throws {
+        try check(egl_cancel_decrypt_age(try live()))
+    }
+
     // MARK: Views
 
     public func openView(_ query: LibraryQuery = LibraryQuery()) throws -> ViewOpened {

@@ -1132,8 +1132,9 @@ entry does not collide.
   file copy keeps its metadata. There is no restore from an export in v1.
 - **Protection.** The archive option encrypts the ZIP with an **age passphrase**
   (`Encryptor::with_user_passphrase`, scrypt) into `<name>.zip.age`; the password goes over
-  IPC like a lock password and is never stored. Decrypting is age CLI territory
-  (`age -d -p file.zip.age`). An export refuses a destination inside the library folder.
+  IPC like a lock password and is never stored. **Superseded for how the wrap is written and
+  opened by D-102** (stream encrypt while writing; in-app decrypt). An export refuses a
+  destination inside the library folder.
 - **Reads only.** A read-only library exports fine. Items of a locked folder are hidden like
   everywhere else (`VISIBLE`); items of a folder unlocked in this session export decrypted,
   streaming through the vault — plaintext never sits on disk inside the library.
@@ -1145,12 +1146,13 @@ entry does not collide.
   uses for `.eaglepack` (architecture §17), so the archives read everywhere.
 - **Compression levels.** None (Stored), Fast (deflate 1), Balanced (6, the default), Smallest
   (9). Media is usually pre-compressed, so None is a first-class choice; v1 has no zstd.
-- **Writing.** `ZipWriter` over a `.zip.part` file in the destination (auto-large-file for
-  entries above 4 GiB), renamed on success — a crash or a cancel never leaves a half-written
-  archive under its final name. `set_auto_large_file` keeps zip64 entry sizes honest.
+- **Writing.** Plain ZIP: `ZipWriter` over a `.zip.part` file in the destination
+  (auto-large-file for entries above 4 GiB), renamed on success — a crash or a cancel never
+  leaves a half-written archive under its final name. `set_auto_large_file` keeps zip64 entry
+  sizes honest. Age-wrapped ZIP: stream into age (D-102), no plaintext `.zip.part`.
 - **Rejected.** `tar` + external gzip: no entry index without reading to the end, worse for
   partial restores later. Per-entry AES of the zip crate: nonstandard readers; age over the
-  whole archive (D-064) is one well-audited construction instead.
+  whole archive (D-064, D-102) is one well-audited construction instead.
 
 ## D-066 Export progress and tasks (2026-10-31)
 
@@ -2053,3 +2055,30 @@ separate PRs after merge:
   the unfrozen Android app on `eglcore`.
 - **Next PR after merge: A2 browsing.**
 
+
+## D-102 Stream age encryption for export archives; in-app decrypt (2026-11-05)
+
+Hardens Backup / Export ZIP encryption (D-064 / D-065) so locked-folder originals never sit as
+an open ZIP on disk mid-export, and so a cancelled encrypt stops promptly.
+
+- **Stream encrypt.** When an age passphrase is set, `ZipWriter::new_stream` writes the ZIP
+  straight into `Encryptor::with_user_passphrase` → `<name>.zip.age.part`, then renames to
+  `<name>.zip.age`. There is no plaintext `.zip.part` (and no finished `.zip`) in the
+  destination — sync folders and deleted-file recovery cannot pick up an open archive of
+  unlocked locked-folder contents. Plain ZIP exports still use a seekable `.zip.part` as in
+  D-065.
+- **Cancel during encrypt.** The cancel flag is checked between files and inside the buffered
+  copy that feeds the age writer; large encrypted exports stop without waiting for a separate
+  post-ZIP encrypt pass (that pass is gone).
+- **Password policy.** Archive passphrases must be at least **8** characters
+  (`ARCHIVE_PASSWORD_MIN_LEN` / `check_archive_password`). The UI still requires a non-empty
+  match; it warns on weak passwords (`archive_password_is_weak`: short, one character class, or
+  a known weak string) without blocking once the floor is met.
+- **In-app decrypt.** Library → Decrypt .age Archive… (desktop) and Settings → Decrypt .age
+  Archive (iOS) decrypt a passphrase `.zip.age` to a ZIP with progress and cancel. Android has
+  no export UI yet (A7), so no decrypt UI there. Core: `decrypt_age_archive`; FFI:
+  `egl_decrypt_age_archive` / `egl_cancel_decrypt_age`.
+- **Deferred.** ZIP with AES-256 password as the primary encrypted format, 7z (hide filenames),
+  and tar.zst stay out of this PR.
+- **Docs.** Spec §7.4 item 12 and architecture archives note stream age + in-app decrypt; this
+  decision supersedes D-064's "decrypting is age CLI territory".

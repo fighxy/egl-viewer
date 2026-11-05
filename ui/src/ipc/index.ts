@@ -5,6 +5,7 @@ import type { AppInfo } from "./generated/AppInfo";
 import type { Backup } from "./generated/Backup";
 import type { BackupKind } from "./generated/BackupKind";
 import type { BrowsePreferences } from "./generated/BrowsePreferences";
+import type { ByteProgress } from "./generated/ByteProgress";
 import type { Compression } from "./generated/Compression";
 import type { ConnectionSettings } from "./generated/ConnectionSettings";
 import type { DuplicateAnswer } from "./generated/DuplicateAnswer";
@@ -89,6 +90,7 @@ export type {
   Backup,
   BackupKind,
   BrowsePreferences,
+  ByteProgress,
   Compression,
   ConnectionSettings,
   DuplicateAnswer,
@@ -305,6 +307,25 @@ export const ipc = {
   cancelExport: (id: number) => invoke<void>("cancel_export", { id }),
   exports: () => invoke<ExportProgress[]>("exports"),
   revealPath: (path: string) => invoke<void>("reveal_path", { path }),
+  /** Decrypts a passphrase `.zip.age` to a ZIP (D-102). `null` when cancelled. */
+  decryptAgeArchive: (
+    source: string,
+    destination: string,
+    password: string,
+    onProgress?: (progress: ByteProgress) => void,
+  ) => {
+    const channel = new Channel<ByteProgress>();
+    if (onProgress) channel.onmessage = onProgress;
+    return invoke<string | null>("decrypt_age_archive", {
+      source,
+      destination,
+      password,
+      onProgress: channel,
+    });
+  },
+  cancelDecryptAge: () => invoke<void>("cancel_decrypt_age"),
+  archivePasswordIsWeak: (password: string) =>
+    invoke<boolean>("archive_password_is_weak", { password }),
   renameLibrary: (name: string) => invoke<LibraryInfo>("rename_library", { name }),
   checkLibrary: () => invoke<LibraryCheck>("check_library"),
   repairLibrary: (options: RepairOptions) => invoke<LibraryCheck>("repair_library", { options }),

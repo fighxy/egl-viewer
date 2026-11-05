@@ -257,6 +257,14 @@ pub struct LockProgress {
     pub total: u32,
 }
 
+/// Byte progress for decrypting a `.zip.age` archive (D-102).
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, TS)]
+#[ts(export)]
+pub struct ByteProgress {
+    pub done: u64,
+    pub total: u64,
+}
+
 /// Puts a lock on a folder (docs/age-locked-folders.md). The password is used once and never
 /// stored; the recovery key comes back to be shown once.
 #[tauri::command]
@@ -678,6 +686,40 @@ pub async fn exports(app: AppHandle) -> Result<Vec<ExportProgress>, SourceError>
 pub async fn reveal_path(app: AppHandle, path: String) -> Result<(), SourceError> {
     let path = app.state::<Session>().may_reveal(&path)?;
     tauri_plugin_opener::reveal_items_in_dir([path]).map_err(opener_error)
+}
+
+/// Decrypts a passphrase `.age` archive (typically `.zip.age`) to a ZIP path (D-102).
+#[tauri::command]
+pub async fn decrypt_age_archive(
+    app: AppHandle,
+    source: String,
+    destination: String,
+    password: String,
+    on_progress: Channel<ByteProgress>,
+) -> Result<Option<String>, SourceError> {
+    blocking(app, move |session| {
+        let written =
+            session.decrypt_age_archive(&source, &destination, password, &|done, total| {
+                let _ = on_progress.send(ByteProgress { done, total });
+            })?;
+        Ok(written.map(|path| path.to_string_lossy().into_owned()))
+    })
+    .await
+}
+
+#[tauri::command]
+pub async fn cancel_decrypt_age(app: AppHandle) -> Result<(), SourceError> {
+    blocking(app, |session| {
+        session.cancel_decrypt_age();
+        Ok(())
+    })
+    .await
+}
+
+/// Whether an archive passphrase is weak enough to warn about (still allowed at ≥ 8 chars).
+#[tauri::command]
+pub fn archive_password_is_weak(password: String) -> bool {
+    library_core::archive_password_is_weak(&password)
 }
 
 #[tauri::command]

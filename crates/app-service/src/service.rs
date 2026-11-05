@@ -17,8 +17,8 @@ use library_core::{
 };
 use library_native::{
     DuplicateChoice, DuplicatePolicy, ImportFilter, ImportObserver, ImportTarget, Library,
-    NativeSource, OpenOptions, PivCard, create_library, export_items, export_preview, import_files,
-    make_pending_previews, utc_file_stamp,
+    NativeSource, OpenOptions, PivCard, create_library, decrypt_age_archive, export_items,
+    export_preview, import_files, make_pending_previews, utc_file_stamp,
 };
 use serde::Serialize;
 use ts_rs::TS;
@@ -56,6 +56,8 @@ pub struct LibraryService {
     undo: Mutex<UndoStack>,
     /// Set by `cancel_empty_trash` while Empty Trash runs (D-074).
     empty_trash_cancel: AtomicBool,
+    /// Set by `cancel_decrypt_age` while an in-app decrypt of a `.zip.age` runs (D-102).
+    decrypt_age_cancel: AtomicBool,
     imports: ImportTasks,
     /// Export tasks of the open library (docs/spec.md §7.4 item 12).
     exports: ExportTasks,
@@ -90,6 +92,7 @@ impl LibraryService {
             views: Arc::new(Mutex::new(Views::default())),
             undo: Mutex::new(UndoStack::default()),
             empty_trash_cancel: AtomicBool::new(false),
+            decrypt_age_cancel: AtomicBool::new(false),
             imports: ImportTasks::default(),
             exports: ExportTasks::default(),
             emit,
@@ -664,6 +667,35 @@ impl LibraryService {
                 .and_then(|progress| progress.summary)
                 .map(|summary| PathBuf::from(summary.path))
         })
+    }
+
+    /// Decrypts a passphrase `.age` archive to a ZIP path. Needs no open library; `progress` is
+    /// `(done, total)` over ciphertext bytes. Cancel with [`Self::cancel_decrypt_age`]. A
+    /// finished path is remembered for Show in Explorer like an export (D-102).
+    pub fn decrypt_age_archive(
+        &self,
+        source: &Path,
+        destination: &Path,
+        password: String,
+        progress: &dyn Fn(u64, u64),
+    ) -> Result<Option<PathBuf>, SourceError> {
+        self.decrypt_age_cancel.store(false, Ordering::SeqCst);
+        let written = decrypt_age_archive(
+            source,
+            destination,
+            &password,
+            &self.decrypt_age_cancel,
+            &mut |done, total| progress(done, total),
+        )?;
+        if let Some(path) = &written {
+            self.exports.remember_written(path.clone());
+        }
+        Ok(written)
+    }
+
+    /// Stops a running [`Self::decrypt_age_archive`] between buffers; the partial ZIP is removed.
+    pub fn cancel_decrypt_age(&self) {
+        self.decrypt_age_cancel.store(true, Ordering::SeqCst);
     }
 
     // --- Locked folders ---

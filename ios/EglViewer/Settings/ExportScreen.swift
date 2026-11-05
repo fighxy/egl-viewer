@@ -105,6 +105,11 @@ struct ExportScreen: View {
                 if encrypt {
                     SecureField("export.passphrase", text: $passphrase)
                     SecureField("export.confirmPassphrase", text: $confirm)
+                    if passphrase.count >= 8, passphrase.count < 12 {
+                        Text("export.passwordWeak")
+                            .font(.footnote)
+                            .foregroundStyle(EglTokens.mutedForeground)
+                    }
                 }
             }
         }
@@ -134,7 +139,7 @@ struct ExportScreen: View {
     private var ready: Bool {
         guard !selection.isEmpty, (preview?.items ?? 0) > 0 else { return false }
         if zip, encrypt {
-            return !passphrase.isEmpty && passphrase == confirm
+            return passphrase.count >= 8 && passphrase == confirm
         }
         return true
     }

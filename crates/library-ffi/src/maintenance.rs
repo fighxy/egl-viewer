@@ -6,7 +6,10 @@ use std::path::Path;
 
 use library_core::{ExportRequest, ExportSelection, RepairOptions};
 
-use crate::{EglLibrary, EglStatus, arg, parse, reply, reply_unit, tri, with_lib};
+use crate::{
+    EglLibrary, EglStatus, arg, fail, fail_source, parse, reply, reply_unit, tri, with_lib,
+    write_string,
+};
 
 /// Renames the library (the name inside it; the folder keeps its name). `*out_json` is the
 /// `LibraryInfo` afterwards.
@@ -245,6 +248,64 @@ pub unsafe extern "C" fn egl_cancel_export(lib: *mut EglLibrary, id: u64) -> Egl
     unsafe {
         with_lib(lib, |handle| {
             reply_unit(handle, handle.service.exports().cancel(id))
+        })
+    }
+}
+
+/// Decrypts a passphrase `.age` archive at `source_utf8` to `destination_utf8` (typically a
+/// `.zip`). Blocks; call [`egl_cancel_decrypt_age`] from another thread to stop. On success
+/// `*out_path` is the written path (free with `egl_string_free`); on cancel both status and
+/// path are OK / NULL.
+///
+/// # Safety
+/// `lib` is a live handle; the strings are NUL-terminated UTF-8; `out_path` is writable.
+#[unsafe(no_mangle)]
+pub unsafe extern "C" fn egl_decrypt_age_archive(
+    lib: *mut EglLibrary,
+    source_utf8: *const c_char,
+    destination_utf8: *const c_char,
+    password_utf8: *const c_char,
+    out_path: *mut *mut c_char,
+) -> EglStatus {
+    // SAFETY: the caller's handle, strings and out pointer.
+    unsafe {
+        with_lib(lib, |handle| {
+            let source = tri!(arg(handle, source_utf8, "source path"));
+            let destination = tri!(arg(handle, destination_utf8, "destination path"));
+            let password = tri!(arg(handle, password_utf8, "password"));
+            match handle.service.decrypt_age_archive(
+                Path::new(source),
+                Path::new(destination),
+                password.to_owned(),
+                &|_, _| {},
+            ) {
+                Ok(Some(path)) => match write_string(out_path, path.to_string_lossy()) {
+                    Ok(()) => EglStatus::Ok,
+                    Err(status) => fail(handle, status, "failed to hand over the path"),
+                },
+                Ok(None) => {
+                    if !out_path.is_null() {
+                        *out_path = std::ptr::null_mut();
+                    }
+                    EglStatus::Ok
+                }
+                Err(error) => fail_source(handle, error),
+            }
+        })
+    }
+}
+
+/// Stops a running [`egl_decrypt_age_archive`] between buffers.
+///
+/// # Safety
+/// `lib` is a live handle.
+#[unsafe(no_mangle)]
+pub unsafe extern "C" fn egl_cancel_decrypt_age(lib: *mut EglLibrary) -> EglStatus {
+    // SAFETY: the caller's handle.
+    unsafe {
+        with_lib(lib, |handle| {
+            handle.service.cancel_decrypt_age();
+            reply_unit(handle, Ok(()))
         })
     }
 }

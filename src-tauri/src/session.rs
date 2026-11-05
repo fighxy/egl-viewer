@@ -765,6 +765,26 @@ impl Session {
         self.service.cancel_empty_trash();
     }
 
+    /// Decrypts a passphrase `.age` archive to a ZIP (D-102). Needs no open library.
+    pub fn decrypt_age_archive(
+        &self,
+        source: &str,
+        destination: &str,
+        password: String,
+        progress: &dyn Fn(u64, u64),
+    ) -> Result<Option<PathBuf>, SourceError> {
+        self.service.decrypt_age_archive(
+            Path::new(source),
+            Path::new(destination),
+            password,
+            progress,
+        )
+    }
+
+    pub fn cancel_decrypt_age(&self) {
+        self.service.cancel_decrypt_age();
+    }
+
     /// Items and bytes of the trash, for the context menu of its row. Native libraries only:
     /// Eagle's API lists no trashed items.
     pub fn trash_info(&self) -> Result<TrashInfo, SourceError> {

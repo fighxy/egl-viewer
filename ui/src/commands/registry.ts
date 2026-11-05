@@ -91,6 +91,8 @@ export type CommandActions = {
   librarySettings: () => void;
   /** The Backup dialog: what to back up, in which format, where (docs/spec.md §7.4 item 12). */
   backup: () => void;
+  /** Decrypt a passphrase `.zip.age` export to a ZIP (D-102). */
+  decryptAge: () => void;
   backUpNow: () => void;
   checkLibrary: () => void;
   rebuildThumbnails: () => void;
@@ -506,6 +508,13 @@ export const COMMANDS: readonly Command[] = [
     group: 2,
     available: needsLibrary,
     run: (actions) => actions.backup(),
+  },
+  {
+    id: "library.decryptAge",
+    label: "Decrypt .age Archive…",
+    menu: "library",
+    group: 2,
+    run: (actions) => actions.decryptAge(),
   },
   {
     id: "library.backUp",

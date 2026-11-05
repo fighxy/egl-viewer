@@ -47,6 +47,12 @@ struct SettingsScreen: View {
                             Label("settings.export", systemImage: "square.and.arrow.up.on.square")
                         }
                         .accessibilityIdentifier("settings.export")
+                        NavigationLink {
+                            DecryptAgeScreen(open: open)
+                        } label: {
+                            Label("settings.decryptAge", systemImage: "lock.open")
+                        }
+                        .accessibilityIdentifier("settings.decryptAge")
                     } header: {
                         Text("settings.librarySection")
                     }

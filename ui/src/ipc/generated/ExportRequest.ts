@@ -17,7 +17,8 @@ includeSubfolders: boolean, format: ExportFormat,
 destination: string, 
 /**
  * An age passphrase protecting the archive; only valid with [`ExportFormat::Zip`].
- * The UI sends it like a lock password and Rust never stores it.
+ * At least [`ARCHIVE_PASSWORD_MIN_LEN`] characters (D-102). The UI sends it like a
+ * lock password and is never stored.
  */
 encrypt: string | null, 
 /**

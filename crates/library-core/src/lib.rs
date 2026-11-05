@@ -19,8 +19,9 @@ pub mod undo;
 pub use edit::{ItemEdit, is_web_link};
 pub use error::{LocationProblem, NetworkError, SourceError};
 pub use export::{
-    Compression, EagleExportTarget, ExportFormat, ExportPreview, ExportProgress, ExportRequest,
-    ExportSelection, ExportState, ExportSummary,
+    ARCHIVE_PASSWORD_MIN_LEN, Compression, EagleExportTarget, ExportFormat, ExportPreview,
+    ExportProgress, ExportRequest, ExportSelection, ExportState, ExportSummary,
+    archive_password_is_weak, check_archive_password,
 };
 pub use folder::{FOLDER_COLORS, FolderChange, order_key_between};
 pub use maintenance::{
