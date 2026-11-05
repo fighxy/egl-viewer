@@ -2169,3 +2169,39 @@ The fourth PR of the Android series (D-101…D-103), mirroring iOS D-096. Stacke
   `:eglcore:testDebugUnitTest` / `:app:testDebugUnitTest` of the Mobile workflow.
 - **Docs.** `android/README.md`, the README status table, and this decision.
 - **Out of scope.** Organizing (A5), locks / login (A6), settings (A7), release (A8).
+
+## D-105 Android A5 organizing: folders, tags, tag groups, the smart folder editor (2026-11-05)
+
+The fifth PR of the Android series (D-101…D-104), mirroring iOS D-097. Stacked on
+`feat/android-a4-adding` (A4).
+
+- **Folders.** The library screen always lists its folder section (when the library is
+  writable), with New Folder; a folder's long-press menu offers New Subfolder, Edit (name,
+  description, one of the eight label colours or none), Move To (the top level or another
+  folder, never into itself; it lands after the new parent's last child) and Delete (keep the
+  items, or move them to the trash too). A folder's tags and its own sort stay as they are:
+  they belong to the desktop's properties panel. A locked folder offers nothing until it is
+  open (the locks PR). A deleted folder is not the place the library reopens in.
+- **Tags.** A Tags row opens the tag list: tags by tag group, then the others, with counts and
+  search. A tag opens its items (a `tag` place: All filtered by the tag). Rename (onto an
+  existing name the two merge), Merge Into, Add to Group, Remove from Group and Delete; tag
+  groups are made, edited (name, colour, tags) and deleted. Names are compared exactly: tags
+  stay case-sensitive.
+- **Smart folders.** New Smart Folder, New Smart Subfolder, Edit and Delete; the browse
+  screen offers Save as Smart Folder (the core's `egl_smart_rules` for the view's query). The
+  editor follows the desktop's (`ui/src/features/smart/rules.ts`): conditions that all must
+  hold, each matching all or any of its rules or negated; the v1 properties (tags, folders,
+  name, notes, link, type, rating, shape, the three dates, width, height, file size) with
+  their methods and value editors. The rules stay Eagle's JSON: `JSONValue` in eglcore keeps
+  every key, so keys and rules this editor does not know survive an edit; such a rule shows as
+  one it cannot edit and can only be removed.
+- **eglcore.** `JSONValue`; `FolderChange`, `saveFolder`, `deleteFolder`; `renameTag`,
+  `mergeTags`, `deleteTag`; `TagGroup`, `TagGroupChange` and their calls; `SmartFolderChange`,
+  `saveSmartFolder`, `deleteSmartFolder`, `smartRules`; `Folder` description / colour / tags /
+  sort; `SmartFolder.conditions` / `unsupported`; `LabelColor`. Stored colours stay strings, so
+  a library imported with another colour still opens.
+- **Tests.** JVM unit tests of organize JSON, `JSONValue` unknown keys, and the smart rule
+  model (round trip with unknown keys, methods keeping their values), in
+  `:eglcore:testDebugUnitTest` / `:app:testDebugUnitTest` of the Mobile workflow.
+- **Docs.** `android/README.md`, the README status table, and this decision.
+- **Out of scope.** Locks / login (A6), settings (A7), release (A8).

@@ -2,6 +2,8 @@ package app.eglviewer.screens
 
 import androidx.compose.foundation.background
 import androidx.compose.foundation.clickable
+import androidx.compose.foundation.combinedClickable
+import androidx.compose.foundation.ExperimentalFoundationApi
 import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Column
 import androidx.compose.foundation.layout.Row
@@ -14,22 +16,29 @@ import androidx.compose.foundation.rememberScrollState
 import androidx.compose.foundation.verticalScroll
 import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.automirrored.filled.ArrowBack
+import androidx.compose.material.icons.automirrored.filled.Label
 import androidx.compose.material.icons.automirrored.filled.LabelOff
+import androidx.compose.material.icons.filled.CreateNewFolder
 import androidx.compose.material.icons.filled.Delete
 import androidx.compose.material.icons.filled.Folder
 import androidx.compose.material.icons.filled.GridView
 import androidx.compose.material.icons.filled.Inventory2
 import androidx.compose.material.icons.filled.Lock
 import androidx.compose.material.icons.filled.Settings
+import androidx.compose.material3.AlertDialog
+import androidx.compose.material3.DropdownMenu
+import androidx.compose.material3.DropdownMenuItem
 import androidx.compose.material3.HorizontalDivider
 import androidx.compose.material3.Icon
 import androidx.compose.material3.IconButton
 import androidx.compose.material3.Text
+import androidx.compose.material3.TextButton
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.LaunchedEffect
 import androidx.compose.runtime.getValue
 import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.remember
+import androidx.compose.runtime.rememberCoroutineScope
 import androidx.compose.runtime.setValue
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
@@ -48,13 +57,20 @@ import app.eglviewer.browse.Place
 import app.eglviewer.core.Folder
 import app.eglviewer.core.ReadOnlyReason
 import app.eglviewer.core.SmartFolder
+import app.eglviewer.organize.FolderEditing
+import app.eglviewer.organize.FolderEditorDialog
+import app.eglviewer.organize.FolderMoveDialog
+import app.eglviewer.organize.SmartEditing
+import app.eglviewer.organize.SmartFolderEditorDialog
+import app.eglviewer.organize.TagsScreen
 import app.eglviewer.theme.EglTokens
 import kotlinx.coroutines.Dispatchers
+import kotlinx.coroutines.launch
 import kotlinx.coroutines.withContext
 
 /**
  * Open library: places with counts, folder tree and smart folders. A place opens
- * [BrowseScreen] (Android A2 ≈ D-094 / D-102).
+ * [BrowseScreen] (Android A2–A5 ≈ D-094 / D-105).
  */
 @Composable
 fun LibraryScreen(
@@ -62,7 +78,14 @@ fun LibraryScreen(
     onClose: () -> Unit,
 ) {
     var place by remember { mutableStateOf<Place?>(null) }
+    var showTags by remember { mutableStateOf(false) }
     var restored by remember(open) { mutableStateOf(false) }
+    var folderEditing by remember { mutableStateOf<FolderEditing?>(null) }
+    var movingFolder by remember { mutableStateOf<Folder?>(null) }
+    var deletingFolder by remember { mutableStateOf<Folder?>(null) }
+    var smartEditing by remember { mutableStateOf<SmartEditing?>(null) }
+    var deletingSmart by remember { mutableStateOf<SmartFolder?>(null) }
+    val scope = rememberCoroutineScope()
 
     LaunchedEffect(open) {
         withContext(Dispatchers.IO) { open.refresh() }
@@ -75,6 +98,18 @@ fun LibraryScreen(
         }
     }
 
+    if (showTags) {
+        TagsScreen(
+            open = open,
+            onOpenPlace = {
+                showTags = false
+                place = it
+            },
+            onBack = { showTags = false },
+        )
+        return
+    }
+
     if (place != null) {
         BrowseScreen(
             open = open,
@@ -83,7 +118,18 @@ fun LibraryScreen(
                 open.forgetPlace()
                 place = null
             },
+            onSaveAsSmart = { draft ->
+                smartEditing = SmartEditing.Create(parent = null, conditions = draft)
+            },
         )
+        // Smart editor can open from browse "Save as Smart Folder".
+        smartEditing?.let { editing ->
+            SmartFolderEditorDialog(
+                open = open,
+                editing = editing,
+                onDismiss = { smartEditing = null },
+            )
+        }
         return
     }
 
@@ -177,8 +223,14 @@ fun LibraryScreen(
                 count = open.counts?.trash,
                 onClick = { place = Place.Trash },
             )
+            PlaceRow(
+                icon = Icons.AutoMirrored.Filled.Label,
+                title = stringResource(R.string.library_tags),
+                count = null,
+                onClick = { showTags = true },
+            )
 
-            if (open.folders.isNotEmpty()) {
+            if (open.folders.isNotEmpty() || !open.readOnly) {
                 HorizontalDivider(modifier = Modifier.padding(vertical = 8.dp))
                 Text(
                     text = stringResource(R.string.library_folders),
@@ -187,10 +239,26 @@ fun LibraryScreen(
                     fontWeight = FontWeight.SemiBold,
                     modifier = Modifier.padding(bottom = 4.dp),
                 )
-                FolderTree(folders = open.folders, onOpen = { place = it })
+                FolderTree(
+                    folders = open.folders,
+                    readOnly = open.readOnly,
+                    onOpen = { place = it },
+                    onNewSubfolder = { folderEditing = FolderEditing.Create(parent = it.id) },
+                    onEdit = { folderEditing = FolderEditing.Edit(it) },
+                    onMove = { movingFolder = it },
+                    onDelete = { deletingFolder = it },
+                )
+                if (!open.readOnly) {
+                    PlaceRow(
+                        icon = Icons.Default.CreateNewFolder,
+                        title = stringResource(R.string.folder_new),
+                        count = null,
+                        onClick = { folderEditing = FolderEditing.Create(parent = null) },
+                    )
+                }
             }
 
-            if (open.smartFolders.isNotEmpty()) {
+            if (open.smartFolders.isNotEmpty() || !open.readOnly) {
                 HorizontalDivider(modifier = Modifier.padding(vertical = 8.dp))
                 Text(
                     text = stringResource(R.string.library_smart_folders),
@@ -199,7 +267,26 @@ fun LibraryScreen(
                     fontWeight = FontWeight.SemiBold,
                     modifier = Modifier.padding(bottom = 4.dp),
                 )
-                SmartTree(folders = open.smartFolders, onOpen = { place = it })
+                SmartTree(
+                    folders = open.smartFolders,
+                    readOnly = open.readOnly,
+                    onOpen = { place = it },
+                    onNewChild = {
+                        smartEditing = SmartEditing.Create(parent = it.id, conditions = null)
+                    },
+                    onEdit = { smartEditing = SmartEditing.Edit(it) },
+                    onDelete = { deletingSmart = it },
+                )
+                if (!open.readOnly) {
+                    PlaceRow(
+                        icon = Icons.Default.Settings,
+                        title = stringResource(R.string.smart_new),
+                        count = null,
+                        onClick = {
+                            smartEditing = SmartEditing.Create(parent = null, conditions = null)
+                        },
+                    )
+                }
             }
 
             Spacer(modifier = Modifier.height(24.dp))
@@ -207,37 +294,259 @@ fun LibraryScreen(
     }
 
     DuplicateQuestionDialog(open = open)
-}
 
-@Composable
-private fun FolderTree(folders: List<Folder>, onOpen: (Place) -> Unit) {
-    for (folder in folders) {
-        val lockedClosed = folder.isLocked && !folder.isUnlocked
-        PlaceRow(
-            icon = if (lockedClosed) Icons.Default.Lock else Icons.Default.Folder,
-            title = folder.name,
-            count = folder.descendantImageCount ?: folder.imageCount,
-            subtitle = if (lockedClosed) folder.lockLabel else null,
-            onClick = if (lockedClosed) {
-                null
-            } else {
-                { onOpen(Place.Folder(id = folder.id, name = folder.name)) }
+    folderEditing?.let { editing ->
+        FolderEditorDialog(
+            open = open,
+            editing = editing,
+            onDismiss = { folderEditing = null },
+        )
+    }
+    movingFolder?.let { folder ->
+        FolderMoveDialog(
+            open = open,
+            folder = folder,
+            onDismiss = { movingFolder = null },
+        )
+    }
+    deletingFolder?.let { folder ->
+        AlertDialog(
+            onDismissRequest = { deletingFolder = null },
+            title = { Text(stringResource(R.string.folder_delete_title)) },
+            text = { Text(folder.name) },
+            confirmButton = {
+                Column {
+                    TextButton(
+                        onClick = {
+                            scope.launch {
+                                open.deleteFolder(folder.id, trashItems = false)
+                                deletingFolder = null
+                            }
+                        },
+                    ) { Text(stringResource(R.string.folder_delete_keep_items)) }
+                    TextButton(
+                        onClick = {
+                            scope.launch {
+                                open.deleteFolder(folder.id, trashItems = true)
+                                deletingFolder = null
+                            }
+                        },
+                    ) { Text(stringResource(R.string.folder_delete_trash_items)) }
+                }
+            },
+            dismissButton = {
+                TextButton(onClick = { deletingFolder = null }) {
+                    Text(stringResource(R.string.common_cancel))
+                }
             },
         )
-        FolderTree(folders = folder.children, onOpen = onOpen)
+    }
+    smartEditing?.let { editing ->
+        SmartFolderEditorDialog(
+            open = open,
+            editing = editing,
+            onDismiss = { smartEditing = null },
+        )
+    }
+    deletingSmart?.let { folder ->
+        AlertDialog(
+            onDismissRequest = { deletingSmart = null },
+            title = { Text(stringResource(R.string.smart_delete_title)) },
+            text = {
+                Text(
+                    if (folder.children.isEmpty()) {
+                        stringResource(R.string.smart_delete_hint)
+                    } else {
+                        stringResource(R.string.smart_delete_hint_children)
+                    },
+                )
+            },
+            confirmButton = {
+                TextButton(
+                    onClick = {
+                        scope.launch {
+                            open.deleteSmartFolder(folder.id)
+                            deletingSmart = null
+                        }
+                    },
+                ) { Text(stringResource(R.string.smart_delete)) }
+            },
+            dismissButton = {
+                TextButton(onClick = { deletingSmart = null }) {
+                    Text(stringResource(R.string.common_cancel))
+                }
+            },
+        )
     }
 }
 
+@OptIn(ExperimentalFoundationApi::class)
 @Composable
-private fun SmartTree(folders: List<SmartFolder>, onOpen: (Place) -> Unit) {
+private fun FolderTree(
+    folders: List<Folder>,
+    readOnly: Boolean,
+    depth: Int = 0,
+    onOpen: (Place) -> Unit,
+    onNewSubfolder: (Folder) -> Unit,
+    onEdit: (Folder) -> Unit,
+    onMove: (Folder) -> Unit,
+    onDelete: (Folder) -> Unit,
+) {
     for (folder in folders) {
-        PlaceRow(
-            icon = Icons.Default.Settings,
-            title = folder.name,
-            count = null,
-            onClick = { onOpen(Place.Smart(id = folder.id, name = folder.name)) },
+        val lockedClosed = folder.isLocked && !folder.isUnlocked
+        var menu by remember(folder.id) { mutableStateOf(false) }
+        Row(
+            modifier = Modifier
+                .fillMaxWidth()
+                .padding(start = (depth * 16).dp)
+                .combinedClickable(
+                    onClick = {
+                        if (!lockedClosed) {
+                            onOpen(Place.Folder(id = folder.id, name = folder.name))
+                        }
+                    },
+                    onLongClick = {
+                        if (!lockedClosed && !readOnly) menu = true
+                    },
+                )
+                .padding(vertical = 10.dp),
+            verticalAlignment = Alignment.CenterVertically,
+            horizontalArrangement = Arrangement.spacedBy(12.dp),
+        ) {
+            Icon(
+                if (lockedClosed) Icons.Default.Lock else Icons.Default.Folder,
+                contentDescription = null,
+                tint = EglTokens.MutedForeground,
+            )
+            Column(modifier = Modifier.weight(1f)) {
+                Text(
+                    text = folder.name,
+                    color = EglTokens.Foreground,
+                    fontSize = 15.sp,
+                    fontWeight = FontWeight.Medium,
+                )
+                if (lockedClosed && !folder.lockLabel.isNullOrBlank()) {
+                    Text(
+                        text = folder.lockLabel!!,
+                        color = EglTokens.MutedForeground,
+                        fontSize = 12.sp,
+                    )
+                }
+            }
+            val count = folder.descendantImageCount ?: folder.imageCount
+            if (count != null) {
+                Text(text = count.toString(), color = EglTokens.MutedForeground, fontSize = 14.sp)
+            }
+            DropdownMenu(expanded = menu, onDismissRequest = { menu = false }) {
+                DropdownMenuItem(
+                    text = { Text(stringResource(R.string.folder_new_subfolder)) },
+                    onClick = {
+                        menu = false
+                        onNewSubfolder(folder)
+                    },
+                )
+                DropdownMenuItem(
+                    text = { Text(stringResource(R.string.folder_edit)) },
+                    onClick = {
+                        menu = false
+                        onEdit(folder)
+                    },
+                )
+                DropdownMenuItem(
+                    text = { Text(stringResource(R.string.folder_move)) },
+                    onClick = {
+                        menu = false
+                        onMove(folder)
+                    },
+                )
+                DropdownMenuItem(
+                    text = { Text(stringResource(R.string.folder_delete)) },
+                    onClick = {
+                        menu = false
+                        onDelete(folder)
+                    },
+                )
+            }
+        }
+        FolderTree(
+            folders = folder.children,
+            readOnly = readOnly,
+            depth = depth + 1,
+            onOpen = onOpen,
+            onNewSubfolder = onNewSubfolder,
+            onEdit = onEdit,
+            onMove = onMove,
+            onDelete = onDelete,
         )
-        SmartTree(folders = folder.children, onOpen = onOpen)
+    }
+}
+
+@OptIn(ExperimentalFoundationApi::class)
+@Composable
+private fun SmartTree(
+    folders: List<SmartFolder>,
+    readOnly: Boolean,
+    depth: Int = 0,
+    onOpen: (Place) -> Unit,
+    onNewChild: (SmartFolder) -> Unit,
+    onEdit: (SmartFolder) -> Unit,
+    onDelete: (SmartFolder) -> Unit,
+) {
+    for (folder in folders) {
+        var menu by remember(folder.id) { mutableStateOf(false) }
+        Row(
+            modifier = Modifier
+                .fillMaxWidth()
+                .padding(start = (depth * 16).dp)
+                .combinedClickable(
+                    onClick = { onOpen(Place.Smart(id = folder.id, name = folder.name)) },
+                    onLongClick = { if (!readOnly) menu = true },
+                )
+                .padding(vertical = 10.dp),
+            verticalAlignment = Alignment.CenterVertically,
+            horizontalArrangement = Arrangement.spacedBy(12.dp),
+        ) {
+            Icon(Icons.Default.Settings, contentDescription = null, tint = EglTokens.MutedForeground)
+            Text(
+                text = folder.name,
+                color = EglTokens.Foreground,
+                fontSize = 15.sp,
+                fontWeight = FontWeight.Medium,
+                modifier = Modifier.weight(1f),
+            )
+            DropdownMenu(expanded = menu, onDismissRequest = { menu = false }) {
+                DropdownMenuItem(
+                    text = { Text(stringResource(R.string.smart_new_child)) },
+                    onClick = {
+                        menu = false
+                        onNewChild(folder)
+                    },
+                )
+                DropdownMenuItem(
+                    text = { Text(stringResource(R.string.smart_edit)) },
+                    onClick = {
+                        menu = false
+                        onEdit(folder)
+                    },
+                )
+                DropdownMenuItem(
+                    text = { Text(stringResource(R.string.smart_delete)) },
+                    onClick = {
+                        menu = false
+                        onDelete(folder)
+                    },
+                )
+            }
+        }
+        SmartTree(
+            folders = folder.children,
+            readOnly = readOnly,
+            depth = depth + 1,
+            onOpen = onOpen,
+            onNewChild = onNewChild,
+            onEdit = onEdit,
+            onDelete = onDelete,
+        )
     }
 }
 

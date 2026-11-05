@@ -4,6 +4,7 @@
  * A2: open_view / view_range / close_view, tags, extensions, smart folders, thumbs, edit_items.
  * A3: item, apply_item_edit, selection tags, undo, delete, empty trash, view ids, originals.
  * A4: add_files, answer/cancel import, import_status, platform decoder (HEIC via ImageDecoder).
+ * A5: save/delete folder, tags/groups, save/delete smart folder, smart_rules.
  * Package: app.eglviewer.core.EglNative
  */
 
@@ -844,5 +845,245 @@ Java_app_eglviewer_core_EglNative_decodeSinkPut(JNIEnv *env, jclass,
   (void)pixelWidth;
   (void)pixelHeight;
   (void)rgba;
+#endif
+}
+
+/* ---- Organizing (Android A5 ≈ iOS D-097) --------------------------------- */
+
+extern "C" JNIEXPORT jstring JNICALL
+Java_app_eglviewer_core_EglNative_saveFolder(JNIEnv *env, jclass, jlong handle,
+                                             jstring changeJson) {
+#if defined(EGL_HAS_RUST)
+  const char *change = env->GetStringUTFChars(changeJson, nullptr);
+  char *json = nullptr;
+  EglStatus status = egl_save_folder(reinterpret_cast<EglLibrary *>(handle),
+                                     change, &json);
+  env->ReleaseStringUTFChars(changeJson, change);
+  set_status(static_cast<int>(status));
+  if (status != EGL_OK || json == nullptr) {
+    return nullptr;
+  }
+  return take_c_string(env, json);
+#else
+  (void)env;
+  (void)handle;
+  (void)changeJson;
+  set_status(6);
+  return nullptr;
+#endif
+}
+
+extern "C" JNIEXPORT jstring JNICALL
+Java_app_eglviewer_core_EglNative_deleteFolder(JNIEnv *env, jclass, jlong handle,
+                                               jstring id, jboolean trashItems) {
+#if defined(EGL_HAS_RUST)
+  const char *id_utf = env->GetStringUTFChars(id, nullptr);
+  char *json = nullptr;
+  EglStatus status = egl_delete_folder(reinterpret_cast<EglLibrary *>(handle),
+                                       id_utf, trashItems ? 1 : 0, &json);
+  env->ReleaseStringUTFChars(id, id_utf);
+  set_status(static_cast<int>(status));
+  if (status != EGL_OK || json == nullptr) {
+    return nullptr;
+  }
+  return take_c_string(env, json);
+#else
+  (void)env;
+  (void)handle;
+  (void)id;
+  (void)trashItems;
+  set_status(6);
+  return nullptr;
+#endif
+}
+
+extern "C" JNIEXPORT jint JNICALL
+Java_app_eglviewer_core_EglNative_renameTag(JNIEnv *env, jclass, jlong handle,
+                                            jstring from, jstring to) {
+#if defined(EGL_HAS_RUST)
+  const char *from_utf = env->GetStringUTFChars(from, nullptr);
+  const char *to_utf = env->GetStringUTFChars(to, nullptr);
+  EglStatus status = egl_rename_tag(reinterpret_cast<EglLibrary *>(handle),
+                                    from_utf, to_utf);
+  env->ReleaseStringUTFChars(from, from_utf);
+  env->ReleaseStringUTFChars(to, to_utf);
+  set_status(static_cast<int>(status));
+  return static_cast<jint>(status);
+#else
+  (void)env;
+  (void)handle;
+  (void)from;
+  (void)to;
+  set_status(6);
+  return 6;
+#endif
+}
+
+extern "C" JNIEXPORT jint JNICALL
+Java_app_eglviewer_core_EglNative_mergeTags(JNIEnv *env, jclass, jlong handle,
+                                            jstring source, jstring target) {
+#if defined(EGL_HAS_RUST)
+  const char *source_utf = env->GetStringUTFChars(source, nullptr);
+  const char *target_utf = env->GetStringUTFChars(target, nullptr);
+  EglStatus status = egl_merge_tags(reinterpret_cast<EglLibrary *>(handle),
+                                    source_utf, target_utf);
+  env->ReleaseStringUTFChars(source, source_utf);
+  env->ReleaseStringUTFChars(target, target_utf);
+  set_status(static_cast<int>(status));
+  return static_cast<jint>(status);
+#else
+  (void)env;
+  (void)handle;
+  (void)source;
+  (void)target;
+  set_status(6);
+  return 6;
+#endif
+}
+
+extern "C" JNIEXPORT jint JNICALL
+Java_app_eglviewer_core_EglNative_deleteTag(JNIEnv *env, jclass, jlong handle,
+                                            jstring name) {
+#if defined(EGL_HAS_RUST)
+  const char *name_utf = env->GetStringUTFChars(name, nullptr);
+  EglStatus status =
+      egl_delete_tag(reinterpret_cast<EglLibrary *>(handle), name_utf);
+  env->ReleaseStringUTFChars(name, name_utf);
+  set_status(static_cast<int>(status));
+  return static_cast<jint>(status);
+#else
+  (void)env;
+  (void)handle;
+  (void)name;
+  set_status(6);
+  return 6;
+#endif
+}
+
+extern "C" JNIEXPORT jstring JNICALL
+Java_app_eglviewer_core_EglNative_tagGroups(JNIEnv *env, jclass, jlong handle) {
+#if defined(EGL_HAS_RUST)
+  return call_json(env, reinterpret_cast<EglLibrary *>(handle), egl_tag_groups);
+#else
+  (void)env;
+  (void)handle;
+  set_status(6);
+  return nullptr;
+#endif
+}
+
+extern "C" JNIEXPORT jstring JNICALL
+Java_app_eglviewer_core_EglNative_saveTagGroup(JNIEnv *env, jclass, jlong handle,
+                                               jstring changeJson) {
+#if defined(EGL_HAS_RUST)
+  const char *change = env->GetStringUTFChars(changeJson, nullptr);
+  char *json = nullptr;
+  EglStatus status = egl_save_tag_group(reinterpret_cast<EglLibrary *>(handle),
+                                        change, &json);
+  env->ReleaseStringUTFChars(changeJson, change);
+  set_status(static_cast<int>(status));
+  if (status != EGL_OK || json == nullptr) {
+    return nullptr;
+  }
+  return take_c_string(env, json);
+#else
+  (void)env;
+  (void)handle;
+  (void)changeJson;
+  set_status(6);
+  return nullptr;
+#endif
+}
+
+extern "C" JNIEXPORT jstring JNICALL
+Java_app_eglviewer_core_EglNative_deleteTagGroup(JNIEnv *env, jclass,
+                                                 jlong handle, jstring id) {
+#if defined(EGL_HAS_RUST)
+  const char *id_utf = env->GetStringUTFChars(id, nullptr);
+  char *json = nullptr;
+  EglStatus status = egl_delete_tag_group(reinterpret_cast<EglLibrary *>(handle),
+                                          id_utf, &json);
+  env->ReleaseStringUTFChars(id, id_utf);
+  set_status(static_cast<int>(status));
+  if (status != EGL_OK || json == nullptr) {
+    return nullptr;
+  }
+  return take_c_string(env, json);
+#else
+  (void)env;
+  (void)handle;
+  (void)id;
+  set_status(6);
+  return nullptr;
+#endif
+}
+
+extern "C" JNIEXPORT jstring JNICALL
+Java_app_eglviewer_core_EglNative_saveSmartFolder(JNIEnv *env, jclass,
+                                                  jlong handle,
+                                                  jstring changeJson) {
+#if defined(EGL_HAS_RUST)
+  const char *change = env->GetStringUTFChars(changeJson, nullptr);
+  char *json = nullptr;
+  EglStatus status = egl_save_smart_folder(
+      reinterpret_cast<EglLibrary *>(handle), change, &json);
+  env->ReleaseStringUTFChars(changeJson, change);
+  set_status(static_cast<int>(status));
+  if (status != EGL_OK || json == nullptr) {
+    return nullptr;
+  }
+  return take_c_string(env, json);
+#else
+  (void)env;
+  (void)handle;
+  (void)changeJson;
+  set_status(6);
+  return nullptr;
+#endif
+}
+
+extern "C" JNIEXPORT jstring JNICALL
+Java_app_eglviewer_core_EglNative_deleteSmartFolder(JNIEnv *env, jclass,
+                                                    jlong handle, jstring id) {
+#if defined(EGL_HAS_RUST)
+  const char *id_utf = env->GetStringUTFChars(id, nullptr);
+  char *json = nullptr;
+  EglStatus status = egl_delete_smart_folder(
+      reinterpret_cast<EglLibrary *>(handle), id_utf, &json);
+  env->ReleaseStringUTFChars(id, id_utf);
+  set_status(static_cast<int>(status));
+  if (status != EGL_OK || json == nullptr) {
+    return nullptr;
+  }
+  return take_c_string(env, json);
+#else
+  (void)env;
+  (void)handle;
+  (void)id;
+  set_status(6);
+  return nullptr;
+#endif
+}
+
+extern "C" JNIEXPORT jstring JNICALL
+Java_app_eglviewer_core_EglNative_smartRules(JNIEnv *env, jclass, jlong handle,
+                                             jstring queryJson) {
+#if defined(EGL_HAS_RUST)
+  const char *query = env->GetStringUTFChars(queryJson, nullptr);
+  char *json = nullptr;
+  EglStatus status = egl_smart_rules(reinterpret_cast<EglLibrary *>(handle),
+                                     query, &json);
+  env->ReleaseStringUTFChars(queryJson, query);
+  set_status(static_cast<int>(status));
+  if (status != EGL_OK || json == nullptr) {
+    return nullptr;
+  }
+  return take_c_string(env, json);
+#else
+  (void)env;
+  (void)handle;
+  (void)queryJson;
+  set_status(6);
+  return nullptr;
 #endif
 }

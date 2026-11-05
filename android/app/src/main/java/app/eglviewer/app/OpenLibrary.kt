@@ -13,6 +13,7 @@ import app.eglviewer.browse.BrowseModel
 import app.eglviewer.browse.LiveViewSession
 import app.eglviewer.browse.OriginalCache
 import app.eglviewer.browse.PickableFolder
+import app.eglviewer.browse.PickableSmart
 import app.eglviewer.browse.Place
 import app.eglviewer.browse.SavedView
 import app.eglviewer.browse.SavedViews
@@ -21,6 +22,7 @@ import app.eglviewer.browse.ViewSession
 import app.eglviewer.R
 import app.eglviewer.core.DuplicateAnswer
 import app.eglviewer.core.Folder
+import app.eglviewer.core.FolderChange
 import app.eglviewer.core.ImportProgress
 import app.eglviewer.core.ImportState
 import app.eglviewer.core.Library
@@ -28,7 +30,12 @@ import app.eglviewer.core.LibraryCounts
 import app.eglviewer.core.LibraryEvent
 import app.eglviewer.core.LibraryInfo
 import app.eglviewer.core.LibraryKind
+import app.eglviewer.core.LibraryQuery
 import app.eglviewer.core.SmartFolder
+import app.eglviewer.core.SmartFolderChange
+import app.eglviewer.core.SmartRulesDraft
+import app.eglviewer.core.TagGroup
+import app.eglviewer.core.TagGroupChange
 import app.eglviewer.core.ViewOpened
 import java.io.File
 import java.lang.ref.WeakReference
@@ -44,7 +51,7 @@ import kotlinx.coroutines.withContext
 
 /**
  * One open library: core handle, places/counts/folders, saved view, toast / undo,
- * browse-model registration, and adding (A1–A4, D-101…D-104).
+ * browse-model registration, adding, and organizing (A1–A5, D-101…D-105).
  */
 class OpenLibrary(
     val library: Library,
@@ -76,6 +83,9 @@ class OpenLibrary(
         private set
 
     var smartFolders: List<SmartFolder> by mutableStateOf(emptyList())
+        private set
+
+    var tagGroups: List<TagGroup> by mutableStateOf(emptyList())
         private set
 
     /** Kept for A1 callers that only need a folders count. */
@@ -258,6 +268,166 @@ class OpenLibrary(
         counts = library.counts()
         folders = runCatching { library.folders() }.getOrDefault(emptyList())
         smartFolders = runCatching { library.smartFolders() }.getOrDefault(emptyList())
+        tagGroups = runCatching { library.tagGroups() }.getOrDefault(emptyList())
+    }
+
+    /** One edit of the folder tree; false when the core refused it. */
+    suspend fun saveFolder(change: FolderChange): Boolean {
+        val tree = withContext(Dispatchers.IO) {
+            runCatching { library.saveFolder(change) }.onFailure {
+                report(it.message ?: it.toString())
+            }.getOrNull()
+        } ?: return false
+        folders = tree
+        return true
+    }
+
+    suspend fun deleteFolder(id: String, trashItems: Boolean) {
+        val tree = withContext(Dispatchers.IO) {
+            runCatching { library.deleteFolder(id, trashItems) }.onFailure {
+                report(it.message ?: it.toString())
+            }.getOrNull()
+        } ?: return
+        folders = tree
+        forgetIfSaved(Place.Folder(id = id, name = ""))
+        withContext(Dispatchers.IO) { runCatching { refresh() } }
+        val ctx = appContext
+        show(ctx?.getString(R.string.toast_folder_deleted) ?: "Folder deleted", undoable = false)
+    }
+
+    /** The new parent's position for a move: after its last child. */
+    fun endIndex(under: String?): Int {
+        if (under == null) return folders.size
+        return findFolder(under, folders)?.children?.size ?: 0
+    }
+
+    /** The folder and its descendants: where it cannot move. */
+    fun subtree(of: String): Set<String> {
+        val folder = findFolder(of, folders) ?: return setOf(of)
+        val ids = mutableSetOf<String>()
+        fun walk(node: Folder) {
+            ids += node.id
+            node.children.forEach(::walk)
+        }
+        walk(folder)
+        return ids
+    }
+
+    fun parentOf(id: String): String? {
+        fun search(nodes: List<Folder>, parent: String?): String? {
+            for (folder in nodes) {
+                if (folder.id == id) return parent
+                search(folder.children, folder.id)?.let { return it }
+            }
+            return null
+        }
+        return search(folders, null)
+    }
+
+    suspend fun renameTag(from: String, to: String): Boolean {
+        val trimmed = to.trim()
+        if (trimmed.isEmpty() || trimmed == from) return false
+        val ok = withContext(Dispatchers.IO) {
+            runCatching { library.renameTag(from, trimmed) }.onFailure {
+                report(it.message ?: it.toString())
+            }.isSuccess
+        }
+        if (!ok) return false
+        withContext(Dispatchers.IO) { runCatching { refresh() } }
+        return true
+    }
+
+    suspend fun mergeTag(source: String, into: String): Boolean {
+        if (source == into) return false
+        val ok = withContext(Dispatchers.IO) {
+            runCatching { library.mergeTags(source, into) }.onFailure {
+                report(it.message ?: it.toString())
+            }.isSuccess
+        }
+        if (!ok) return false
+        withContext(Dispatchers.IO) { runCatching { refresh() } }
+        return true
+    }
+
+    suspend fun deleteTag(name: String) {
+        val ok = withContext(Dispatchers.IO) {
+            runCatching { library.deleteTag(name) }.onFailure {
+                report(it.message ?: it.toString())
+            }.isSuccess
+        }
+        if (!ok) return
+        withContext(Dispatchers.IO) { runCatching { refresh() } }
+        val ctx = appContext
+        show(ctx?.getString(R.string.toast_tag_deleted) ?: "Tag removed from every item", undoable = false)
+    }
+
+    suspend fun saveTagGroup(change: TagGroupChange): Boolean {
+        val groups = withContext(Dispatchers.IO) {
+            runCatching { library.saveTagGroup(change) }.onFailure {
+                report(it.message ?: it.toString())
+            }.getOrNull()
+        } ?: return false
+        tagGroups = groups
+        return true
+    }
+
+    suspend fun deleteTagGroup(id: String) {
+        val groups = withContext(Dispatchers.IO) {
+            runCatching { library.deleteTagGroup(id) }.onFailure {
+                report(it.message ?: it.toString())
+            }.getOrNull()
+        } ?: return
+        tagGroups = groups
+    }
+
+    suspend fun saveSmartFolder(change: SmartFolderChange): Boolean {
+        val tree = withContext(Dispatchers.IO) {
+            runCatching { library.saveSmartFolder(change) }.onFailure {
+                report(it.message ?: it.toString())
+            }.getOrNull()
+        } ?: return false
+        smartFolders = tree
+        return true
+    }
+
+    suspend fun deleteSmartFolder(id: String) {
+        val tree = withContext(Dispatchers.IO) {
+            runCatching { library.deleteSmartFolder(id) }.onFailure {
+                report(it.message ?: it.toString())
+            }.getOrNull()
+        } ?: return
+        smartFolders = tree
+        forgetIfSaved(Place.Smart(id = id, name = ""))
+        val ctx = appContext
+        show(ctx?.getString(R.string.toast_smart_folder_deleted) ?: "Smart folder deleted", undoable = false)
+    }
+
+    /** The rules of a view's query, for "Save as Smart Folder". */
+    suspend fun smartDraft(forQuery: LibraryQuery): SmartRulesDraft? =
+        withContext(Dispatchers.IO) {
+            runCatching { library.smartRules(forQuery) }.onFailure {
+                report(it.message ?: it.toString())
+            }.getOrNull()
+        }
+
+    /** Smart folders in tree order with their depth, for the parent picker. */
+    val smartFolderList: List<PickableSmart>
+        get() {
+            val list = mutableListOf<PickableSmart>()
+            fun walk(nodes: List<SmartFolder>, depth: Int) {
+                for (folder in nodes) {
+                    list += PickableSmart(folder = folder, depth = depth)
+                    walk(folder.children, depth + 1)
+                }
+            }
+            walk(smartFolders, 0)
+            return list
+        }
+
+    /** A deleted folder is not the place the library opens in next time. */
+    private fun forgetIfSaved(place: Place) {
+        val saved = savedView.place ?: return
+        if (saved.key == place.key) forgetPlace()
     }
 
     override fun remember(view: SavedView) {

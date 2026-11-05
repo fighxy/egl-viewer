@@ -1,10 +1,12 @@
 package app.eglviewer.browse
 
+import app.eglviewer.app.OpenLibrary
 import app.eglviewer.core.ExtensionCount
 import app.eglviewer.core.ItemCell
 import app.eglviewer.core.ItemEdit
 import app.eglviewer.core.ItemsTarget
 import app.eglviewer.core.LibraryQuery
+import app.eglviewer.core.SmartRulesDraft
 import app.eglviewer.core.Tag
 import app.eglviewer.core.TagMode
 import app.eglviewer.core.ViewOpened
@@ -404,6 +406,12 @@ class BrowseModel(
     suspend fun emptyTrash() {
         val count = open.perform { it.emptyTrash() } ?: return
         open.show("Deleted $count", undoable = false)
+    }
+
+    /** The rules of this view's query, for "Save as Smart Folder" (A5 ≈ D-097). */
+    suspend fun saveAsSmartFolder(): SmartRulesDraft? {
+        val host = open as? OpenLibrary ?: return null
+        return host.smartDraft(query)
     }
 
     suspend fun rate(target: ItemsTarget, stars: Int) {

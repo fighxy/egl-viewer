@@ -6,8 +6,9 @@ import java.util.concurrent.atomic.AtomicReference
 
 /**
  * Typed Kotlin face of the C ABI (`crates/library-ffi`), one [Library] per open `.eglib`.
- * Mirrors Swift `EglCore.Library` for A1–A4: create / open / close, views, thumbs, item edits,
- * undo, trash, originals, and adding files. Calls may block — run them off the main thread.
+ * Mirrors Swift `EglCore.Library` for A1–A5: create / open / close, views, thumbs, item edits,
+ * undo, trash, originals, adding files, and organizing (folders / tags / smart folders).
+ * Calls may block — run them off the main thread.
  */
 class Library private constructor(private var handle: Long) : AutoCloseable {
     private val eventHandler = AtomicReference<((LibraryEvent) -> Unit)?>(null)
@@ -237,6 +238,90 @@ class Library private constructor(private var handle: Long) : AutoCloseable {
         ensureOpen()
         val status = EglNative.cancelImport(handle, id)
         if (status != 0) throw error(status)
+    }
+
+    // --- Folders and tags (Android A5 ≈ D-097) --------------------------------
+
+    fun saveFolder(change: FolderChange): List<Folder> {
+        ensureOpen()
+        val json = EglNative.saveFolder(handle, change.toJson().toString())
+        val status = EglNative.lastStatus()
+        if (json.isNullOrEmpty()) throw error(status)
+        return Folder.listFromJson(json)
+    }
+
+    fun deleteFolder(id: String, trashItems: Boolean): List<Folder> {
+        ensureOpen()
+        val json = EglNative.deleteFolder(handle, id, trashItems)
+        val status = EglNative.lastStatus()
+        if (json.isNullOrEmpty()) throw error(status)
+        return Folder.listFromJson(json)
+    }
+
+    fun renameTag(from: String, to: String) {
+        ensureOpen()
+        val status = EglNative.renameTag(handle, from, to)
+        if (status != 0) throw error(status)
+    }
+
+    fun mergeTags(source: String, target: String) {
+        ensureOpen()
+        val status = EglNative.mergeTags(handle, source, target)
+        if (status != 0) throw error(status)
+    }
+
+    fun deleteTag(name: String) {
+        ensureOpen()
+        val status = EglNative.deleteTag(handle, name)
+        if (status != 0) throw error(status)
+    }
+
+    fun tagGroups(): List<TagGroup> {
+        ensureOpen()
+        val json = EglNative.tagGroups(handle)
+        val status = EglNative.lastStatus()
+        if (json.isNullOrEmpty()) throw error(status)
+        return TagGroup.listFromJson(json)
+    }
+
+    fun saveTagGroup(change: TagGroupChange): List<TagGroup> {
+        ensureOpen()
+        val json = EglNative.saveTagGroup(handle, change.toJson().toString())
+        val status = EglNative.lastStatus()
+        if (json.isNullOrEmpty()) throw error(status)
+        return TagGroup.listFromJson(json)
+    }
+
+    fun deleteTagGroup(id: String): List<TagGroup> {
+        ensureOpen()
+        val json = EglNative.deleteTagGroup(handle, id)
+        val status = EglNative.lastStatus()
+        if (json.isNullOrEmpty()) throw error(status)
+        return TagGroup.listFromJson(json)
+    }
+
+    fun saveSmartFolder(change: SmartFolderChange): List<SmartFolder> {
+        ensureOpen()
+        val json = EglNative.saveSmartFolder(handle, change.toJson().toString())
+        val status = EglNative.lastStatus()
+        if (json.isNullOrEmpty()) throw error(status)
+        return SmartFolder.listFromJson(json)
+    }
+
+    fun deleteSmartFolder(id: String): List<SmartFolder> {
+        ensureOpen()
+        val json = EglNative.deleteSmartFolder(handle, id)
+        val status = EglNative.lastStatus()
+        if (json.isNullOrEmpty()) throw error(status)
+        return SmartFolder.listFromJson(json)
+    }
+
+    fun smartRules(query: LibraryQuery): SmartRulesDraft {
+        ensureOpen()
+        val json = EglNative.smartRules(handle, query.toJson().toString())
+        val status = EglNative.lastStatus()
+        if (json.isNullOrEmpty()) throw error(status)
+        return SmartRulesDraft.fromJson(json)
     }
 
     override fun close() {

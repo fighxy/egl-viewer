@@ -48,25 +48,46 @@ data class ViewOpened(val viewId: Long, val total: Int) {
 data class Folder(
     val id: String,
     val name: String,
+    val description: String = "",
+    val iconColor: String? = null,
+    val tags: List<String> = emptyList(),
     val children: List<Folder> = emptyList(),
     val imageCount: Int? = null,
     val descendantImageCount: Int? = null,
     val isLocked: Boolean = false,
     val isUnlocked: Boolean = false,
+    val hasPassword: Boolean = false,
     val lockLabel: String? = null,
+    val lockColor: String? = null,
+    /** The sort the folder opens with; null follows the library's sort. */
+    val orderBy: SortKey? = null,
+    val sortAscending: Boolean? = null,
 ) {
     companion object {
         fun fromJson(o: JSONObject): Folder {
             val children = o.optJSONArray("children") ?: JSONArray()
+            val tags = o.optJSONArray("tags") ?: JSONArray()
+            val order = o.optString("orderBy").ifEmpty { null }
             return Folder(
                 id = o.getString("id"),
                 name = o.getString("name"),
+                description = o.optString("description"),
+                iconColor = o.optString("iconColor").ifEmpty { null },
+                tags = (0 until tags.length()).map { tags.getString(it) },
                 children = (0 until children.length()).map { fromJson(children.getJSONObject(it)) },
                 imageCount = o.optIntOrNull("imageCount"),
                 descendantImageCount = o.optIntOrNull("descendantImageCount"),
                 isLocked = o.optBoolean("isLocked", false),
                 isUnlocked = o.optBoolean("isUnlocked", false),
+                hasPassword = o.optBoolean("hasPassword", false),
                 lockLabel = o.optString("lockLabel").ifEmpty { null },
+                lockColor = o.optString("lockColor").ifEmpty { null },
+                orderBy = order?.let(SortKey::fromWire),
+                sortAscending = if (o.has("sortAscending") && !o.isNull("sortAscending")) {
+                    o.getBoolean("sortAscending")
+                } else {
+                    null
+                },
             )
         }
 
@@ -81,14 +102,25 @@ data class SmartFolder(
     val id: String,
     val name: String,
     val children: List<SmartFolder> = emptyList(),
+    /** Eagle's rule language, as stored. */
+    val conditions: JSONValue? = null,
+    /** Rules this build cannot evaluate: they never match. */
+    val unsupported: List<String> = emptyList(),
 ) {
     companion object {
         fun fromJson(o: JSONObject): SmartFolder {
             val children = o.optJSONArray("children") ?: JSONArray()
+            val unsupported = o.optJSONArray("unsupported") ?: JSONArray()
             return SmartFolder(
                 id = o.getString("id"),
                 name = o.getString("name"),
                 children = (0 until children.length()).map { fromJson(children.getJSONObject(it)) },
+                conditions = if (o.has("conditions") && !o.isNull("conditions")) {
+                    JSONValue.from(o.get("conditions"))
+                } else {
+                    null
+                },
+                unsupported = (0 until unsupported.length()).map { unsupported.getString(it) },
             )
         }
 
