@@ -4,15 +4,16 @@
 
 use std::collections::{HashMap, HashSet};
 use std::fs::{self, File};
-use std::io::{self, BufReader, ErrorKind, Read, Write};
+use std::io::{self, BufReader, BufWriter, ErrorKind, Read, Write};
 use std::path::{Path, PathBuf};
-use std::sync::atomic::{AtomicBool, Ordering};
+use std::sync::Arc;
+use std::sync::atomic::{AtomicBool, AtomicU64, Ordering};
 use std::time::{Duration, Instant};
 
 use age::Encryptor;
 use library_core::{
-    Compression, ExportFormat, ExportPreview, ExportProgress, ExportRequest, ExportSelection,
-    ExportState, ExportSummary, SourceError,
+    Compression, DecryptedArchive, ExportFormat, ExportPreview, ExportProgress, ExportRequest,
+    ExportSelection, ExportState, ExportSummary, MIN_PASSPHRASE_CHARS, SourceError,
 };
 use rusqlite::{Connection, OptionalExtension, params, types::Value};
 use secrecy::SecretString;
@@ -364,6 +365,13 @@ fn validate(request: &ExportRequest, library: &Library) -> Result<()> {
         return Err(SourceError::Invalid(
             "Encryption needs the ZIP format.".into(),
         ));
+    }
+    if let Some(passphrase) = &request.encrypt
+        && passphrase.chars().count() < MIN_PASSPHRASE_CHARS
+    {
+        return Err(SourceError::Invalid(format!(
+            "The passphrase needs at least {MIN_PASSPHRASE_CHARS} characters."
+        )));
     }
     if request.destination.trim().is_empty() {
         return Err(SourceError::Invalid("Choose where to export.".into()));
@@ -808,7 +816,7 @@ enum Outcome {
     Done(ExportSummary),
 }
 
-/// Removes a partial export (a folder tree, a `.zip.part`, a half-written `.age`) when it is
+/// Removes a partial export (a folder tree, a `.zip.part`, a `.zip.age.part`) when it is
 /// dropped, unless the export finished and called [`Leftovers::keep`]. A cancelled, failed or
 /// panicking export leaves nothing behind, decrypted copies of locked items included.
 struct Leftovers {
@@ -889,8 +897,11 @@ fn write_mirror(
     }))
 }
 
-/// Writes the placements and the manifest into `<destination>/<base>.zip`, wrapped in an age
-/// passphrase as `<base>.zip.age` when `encrypt` is set.
+/// Writes the placements and the manifest into `<destination>/<base>.zip`, or with `encrypt`
+/// into `<destination>/<base>.zip.age`. The encrypted archive is encrypted while it is
+/// written (D-110): the ZIP streams into the age writer, so no plaintext archive touches the
+/// disk, not even for a moment in a synced destination. Either way the output is written as
+/// `.part` and renamed when complete.
 #[allow(clippy::too_many_arguments)]
 fn write_zip(
     library: &Library,
@@ -904,37 +915,255 @@ fn write_zip(
     cancel: &AtomicBool,
     reporter: &mut Reporter,
 ) -> Result<Outcome> {
-    let archive = unique_child(destination, base, "zip");
-    let part = archive.with_extension("zip.part");
-    let encrypted = archive.with_file_name(format!(
-        "{}.age",
-        archive
-            .file_name()
-            .and_then(|name| name.to_str())
-            .unwrap_or("export.zip")
-    ));
-    let leftovers = Leftovers::new(vec![part.clone(), encrypted.clone()]);
-    let outcome = (|| -> Result<Outcome> {
-        let file = File::create(&part).context("create the archive")?;
-        let mut zip = zip::ZipWriter::new(file).set_auto_large_file();
+    let archive = unique_child(
+        destination,
+        base,
+        if encrypt.is_some() { "zip.age" } else { "zip" },
+    );
+    let part = part_path(&archive);
+    let leftovers = Leftovers::new(vec![part.clone()]);
+    let entries = Entries {
+        library,
+        base,
+        planned,
+        manifest_items,
+        library_name: &library_name,
+        compression,
+    };
+    let outcome = match encrypt {
+        None => {
+            let file = File::create(&part).context("create the archive")?;
+            let mut zip = zip::ZipWriter::new(file).set_auto_large_file();
+            let outcome = entries.write(&mut zip, cancel, reporter)?;
+            if let Outcome::Done(_) = outcome {
+                zip.finish()
+                    .map_err(zip_error)?
+                    .sync_all()
+                    .context("finish the archive")?;
+            }
+            outcome
+        }
+        Some(password) => {
+            let file = File::create(&part).context("create the encrypted archive")?;
+            let encryptor =
+                Encryptor::with_user_passphrase(SecretString::from(password.to_owned()));
+            let writer = encryptor
+                .wrap_output(BufWriter::with_capacity(BUFFER, file))
+                .context("start encrypting the archive")?;
+            let mut zip = zip::ZipWriter::new_stream(writer);
+            let outcome = entries.write(&mut zip, cancel, reporter)?;
+            if let Outcome::Done(_) = outcome {
+                zip.finish()
+                    .map_err(zip_error)?
+                    .into_inner()
+                    .finish()
+                    .context("finish the encrypted archive")?
+                    .into_inner()
+                    .map_err(|error| error.into_error())
+                    .context("finish the encrypted archive")?
+                    .sync_all()
+                    .context("finish the encrypted archive")?;
+            }
+            outcome
+        }
+    };
+    let Outcome::Done(mut summary) = outcome else {
+        return Ok(Outcome::Cancelled);
+    };
+    rename_with_retry(&part, &archive).context("finish the archive")?;
+    summary.path = archive.to_string_lossy().into_owned();
+    leftovers.keep();
+    Ok(Outcome::Done(summary))
+}
+
+/// Opens an age archive (an encrypted export, `name.zip.age`) with its passphrase into
+/// `destination`, as `name.zip` or `name (2).zip` beside one that exists (D-110). The
+/// plaintext is written as `.part` and renamed only once the whole stream has authenticated,
+/// so a wrong passphrase, a damaged file or a cancel leaves nothing behind. `Ok(None)` when
+/// cancelled. Never writes into a native or an Eagle library.
+pub fn decrypt_archive(
+    source: &Path,
+    destination: &Path,
+    passphrase: &str,
+    cancel: &AtomicBool,
+    on_progress: &mut dyn FnMut(u64, u64),
+) -> Result<Option<DecryptedArchive>> {
+    if !destination.is_dir() {
+        return Err(SourceError::Invalid(
+            "Choose a folder to save it in.".into(),
+        ));
+    }
+    let destination = fs::canonicalize(destination)
+        .map_err(|_| SourceError::Storage("resolve the destination".into()))?;
+    check_not_inside_a_library(&destination)?;
+    let input = match File::open(source) {
+        Ok(file) => file,
+        Err(error) if error.kind() == ErrorKind::NotFound => {
+            return Err(SourceError::Invalid("The archive is not there.".into()));
+        }
+        Err(error) => return Err(error).context("read the archive"),
+    };
+    // Progress is the share of the archive read: the plaintext size is not known up front.
+    let total = input.metadata().map(|metadata| metadata.len()).unwrap_or(0);
+    let read = Arc::new(AtomicU64::new(0));
+    let counted = Counted {
+        inner: input,
+        read: Arc::clone(&read),
+    };
+    let decryptor = age::Decryptor::new_buffered(BufReader::with_capacity(BUFFER, counted))
+        .map_err(age_error)?;
+    if !decryptor.is_scrypt() {
+        return Err(SourceError::Invalid(
+            "This archive is encrypted for a key, not with a passphrase.".into(),
+        ));
+    }
+    let identity = age::scrypt::Identity::new(SecretString::from(passphrase.to_owned()));
+    let mut reader = decryptor
+        .decrypt(std::iter::once(&identity as &dyn age::Identity))
+        .map_err(age_error)?;
+
+    let name = source
+        .file_name()
+        .map(|name| name.to_string_lossy().into_owned())
+        .unwrap_or_default();
+    let plain = match name.len().checked_sub(4) {
+        Some(cut) if cut > 0 && name[cut..].eq_ignore_ascii_case(".age") => name[..cut].to_owned(),
+        _ => format!("{name}.decrypted"),
+    };
+    let (stem, ext) = match plain.rsplit_once('.') {
+        Some((stem, ext)) if !stem.is_empty() => (stem.to_owned(), ext.to_owned()),
+        _ => (plain.clone(), String::new()),
+    };
+    let target = unique_child(&destination, &stem, &ext);
+    let part = part_path(&target);
+    let leftovers = Leftovers::new(vec![part.clone()]);
+    let mut output = BufWriter::with_capacity(
+        BUFFER,
+        File::create(&part).context("create the decrypted file")?,
+    );
+    // age authenticates every chunk: a bad or missing one reads as invalid data.
+    let read_archive = |error: io::Error| match error.kind() {
+        ErrorKind::InvalidData | ErrorKind::UnexpectedEof => {
+            SourceError::Invalid("The archive is damaged or incomplete.".into())
+        }
+        _ => SourceError::Storage(format!("read the archive: {error}")),
+    };
+    let mut last = Instant::now() - PROGRESS_EVERY;
+    let mut report = |_: u64| {
+        if last.elapsed() >= PROGRESS_EVERY {
+            last = Instant::now();
+            on_progress(read.load(Ordering::Relaxed).min(total), total);
+        }
+    };
+    let copied = copy_cancellable(&mut reader, &mut output, cancel, &read_archive, &mut report)?;
+    let Some(bytes) = copied else {
+        return Ok(None);
+    };
+    on_progress(total, total);
+    output
+        .into_inner()
+        .map_err(|error| error.into_error())
+        .context("write the decrypted file")?
+        .sync_all()
+        .context("write the decrypted file")?;
+    rename_with_retry(&part, &target).context("finish the decrypted file")?;
+    leftovers.keep();
+    Ok(Some(DecryptedArchive {
+        path: target.to_string_lossy().into_owned(),
+        bytes,
+    }))
+}
+
+/// A reader that counts the bytes it hands out, for progress.
+struct Counted<R> {
+    inner: R,
+    read: Arc<AtomicU64>,
+}
+
+impl<R: Read> Read for Counted<R> {
+    fn read(&mut self, buf: &mut [u8]) -> io::Result<usize> {
+        let read = self.inner.read(buf)?;
+        self.read.fetch_add(read as u64, Ordering::Relaxed);
+        Ok(read)
+    }
+}
+
+/// What a person can act on, for an archive age refuses.
+fn age_error(error: age::DecryptError) -> SourceError {
+    use age::DecryptError;
+    match error {
+        DecryptError::DecryptionFailed
+        | DecryptError::KeyDecryptionFailed
+        | DecryptError::NoMatchingKeys => SourceError::Invalid("Wrong passphrase.".into()),
+        DecryptError::ExcessiveWork { .. } => SourceError::Invalid(
+            "This archive asks for more work to open than this device allows.".into(),
+        ),
+        DecryptError::InvalidHeader | DecryptError::UnknownFormat => {
+            SourceError::Invalid("This is not an age archive.".into())
+        }
+        DecryptError::InvalidMac => {
+            SourceError::Invalid("The archive is damaged or incomplete.".into())
+        }
+        DecryptError::Io(error) => SourceError::Storage(format!("read the archive: {error}")),
+        #[allow(unreachable_patterns)]
+        other => SourceError::Storage(format!("open the archive: {other}")),
+    }
+}
+
+/// `<name>.part` next to `path`.
+fn part_path(path: &Path) -> PathBuf {
+    let name = path
+        .file_name()
+        .map(|name| name.to_string_lossy().into_owned())
+        .unwrap_or_else(|| "export".to_owned());
+    path.with_file_name(format!("{name}.part"))
+}
+
+/// What goes into an archive: the placed originals, then the manifest.
+struct Entries<'a> {
+    library: &'a Library,
+    base: &'a str,
+    planned: &'a [Placement],
+    manifest_items: &'a [ManifestItem],
+    library_name: &'a str,
+    compression: Compression,
+}
+
+impl Entries<'_> {
+    /// Writes every entry into `zip`; `Cancelled` as soon as the flag goes up, between files
+    /// or in the middle of a large one. The caller finishes the archive.
+    fn write<W: Write + io::Seek>(
+        &self,
+        zip: &mut zip::ZipWriter<W>,
+        cancel: &AtomicBool,
+        reporter: &mut Reporter,
+    ) -> Result<Outcome> {
         let mut files = 0u64;
         let mut bytes = 0u64;
         let mut missing = Vec::new();
-        for placement in planned {
+        for placement in self.planned {
             if cancel.load(Ordering::Relaxed) {
-                drop(zip);
                 return Ok(Outcome::Cancelled);
             }
-            let entry = zip_entry(&placement.rel, base);
+            let entry = zip_entry(&placement.rel, self.base);
             reporter.copying(&entry);
-            let Some(mut source) = export_source(library, &placement.item)? else {
+            let Some(mut source) = export_source(self.library, &placement.item)? else {
                 missing.push(placement.item.name.clone());
                 reporter.item_done(0, &entry);
                 continue;
             };
-            zip.start_file(entry.clone(), file_options(compression))
-                .map_err(zip_error)?;
-            let written = io::copy(&mut source, &mut zip).context("write the archive")?;
+            zip.start_file(
+                entry.clone(),
+                file_options(self.compression, placement.item.size),
+            )
+            .map_err(zip_error)?;
+            let read_original =
+                |error: io::Error| SourceError::Storage(format!("read an original: {error}"));
+            let Some(written) =
+                copy_cancellable(&mut source, zip, cancel, &read_original, &mut |_| {})?
+            else {
+                return Ok(Outcome::Cancelled);
+            };
             if written != placement.item.size {
                 return Err(SourceError::Storage(
                     "an original changed while it was exported".into(),
@@ -944,42 +1173,58 @@ fn write_zip(
             bytes += written;
             reporter.item_done(written, &entry);
         }
-        let manifest_items = manifest_with_base(manifest_items, base);
-        zip.start_file(format!("{base}/{MANIFEST}"), file_options(compression))
-            .map_err(zip_error)?;
-        let body = manifest_json(&library_name, &manifest_items)?;
+        let manifest_items = manifest_with_base(self.manifest_items, self.base);
+        let body = manifest_json(self.library_name, &manifest_items)?;
+        zip.start_file(
+            format!("{}/{MANIFEST}", self.base),
+            file_options(self.compression, body.len() as u64),
+        )
+        .map_err(zip_error)?;
         zip.write_all(&body).context("write the archive")?;
         files += 1;
-        zip.finish().map_err(zip_error)?;
         Ok(Outcome::Done(ExportSummary {
             items: manifest_items.len() as u64,
             files,
             bytes,
             missing,
-            path: archive.to_string_lossy().into_owned(),
+            path: String::new(),
         }))
-    })();
-    let mut summary = match outcome? {
-        Outcome::Cancelled => return Ok(Outcome::Cancelled),
-        Outcome::Done(summary) => summary,
-    };
-    if let Some(password) = encrypt {
-        let part_len = fs::metadata(&part)
-            .map(|metadata| metadata.len())
-            .unwrap_or(0);
-        encrypt_file(&part, &encrypted, password, reporter, part_len)?;
-        // The plaintext archive goes with the leftovers; only the encrypted one stays.
-        drop(Leftovers::new(vec![part.clone()]));
-        summary.path = encrypted.to_string_lossy().into_owned();
-    } else {
-        rename_with_retry(&part, &archive).context("finish the archive")?;
     }
-    leftovers.keep();
-    Ok(Outcome::Done(summary))
 }
 
-fn file_options(compression: Compression) -> SimpleFileOptions {
-    let options = SimpleFileOptions::default();
+/// Copies `source` into `target` in [`BUFFER`] chunks; `None` when `cancel` went up first.
+/// `read_error` names a failed read; `on_chunk` hears the bytes copied so far.
+fn copy_cancellable(
+    source: &mut dyn Read,
+    target: &mut dyn Write,
+    cancel: &AtomicBool,
+    read_error: &dyn Fn(io::Error) -> SourceError,
+    on_chunk: &mut dyn FnMut(u64),
+) -> Result<Option<u64>> {
+    let mut buffer = vec![0u8; BUFFER];
+    let mut done = 0u64;
+    loop {
+        if cancel.load(Ordering::Relaxed) {
+            return Ok(None);
+        }
+        let read = match source.read(&mut buffer) {
+            Ok(0) => return Ok(Some(done)),
+            Ok(read) => read,
+            Err(error) if error.kind() == ErrorKind::Interrupted => continue,
+            Err(error) => return Err(read_error(error)),
+        };
+        target
+            .write_all(&buffer[..read])
+            .context("write the output")?;
+        done += read as u64;
+        on_chunk(done);
+    }
+}
+
+/// Entry options; ZIP64 for an entry of 4 GiB or more, which a streamed archive must know
+/// before it writes the entry.
+fn file_options(compression: Compression, size: u64) -> SimpleFileOptions {
+    let options = SimpleFileOptions::default().large_file(size >= u64::from(u32::MAX));
     match compression.level() {
         None => options.compression_method(zip::CompressionMethod::Stored),
         Some(level) => options
@@ -1045,56 +1290,6 @@ fn write_manifest(path: &Path, library_name: &str, items: &[ManifestItem]) -> Re
     Ok(())
 }
 
-/// Encrypts the finished archive into `.zip.age`, with byte progress.
-fn encrypt_file(
-    source: &Path,
-    target: &Path,
-    password: &str,
-    reporter: &mut Reporter,
-    total: u64,
-) -> Result<()> {
-    reporter.report(ExportState::Encrypting);
-    let input = BufReader::with_capacity(BUFFER, File::open(source).context("read the archive")?);
-    let output = File::create(target).context("create the encrypted archive")?;
-    let encryptor = Encryptor::with_user_passphrase(SecretString::from(password.to_owned()));
-    let mut writer = encryptor
-        .wrap_output(output)
-        .context("start encrypting the archive")?;
-    let mut input = input.take(total);
-    let mut buffer = vec![0u8; BUFFER];
-    let mut done = 0u64;
-    let mut last = Instant::now() - PROGRESS_EVERY;
-    loop {
-        let read = input.read(&mut buffer).context("read the archive")?;
-        if read == 0 {
-            break;
-        }
-        writer
-            .write_all(&buffer[..read])
-            .context("write the encrypted archive")?;
-        done += read as u64;
-        if last.elapsed() >= PROGRESS_EVERY {
-            last = Instant::now();
-            (reporter.emit)(ExportProgress {
-                id: reporter.id,
-                state: ExportState::Encrypting,
-                total: reporter.total,
-                done: reporter.done,
-                bytes_total: total,
-                bytes_done: done,
-                current: None,
-                summary: None,
-                error: None,
-            });
-        }
-    }
-    writer
-        .finish()
-        .and_then(|file| file.sync_all())
-        .context("finish the encrypted archive")?;
-    Ok(())
-}
-
 #[cfg(test)]
 mod tests {
     use std::collections::HashSet;
@@ -1107,7 +1302,7 @@ mod tests {
     use media::fixtures;
     use secrecy::SecretString;
 
-    use super::{MANIFEST, export_items, export_preview, unique_rel};
+    use super::{MANIFEST, decrypt_archive, export_items, export_preview, unique_rel};
     use crate::Library;
     use crate::test_support::{add_png, create, files_under, new_library, open, put};
 
@@ -1631,5 +1826,225 @@ mod tests {
         bad.encrypt = Some("password".into());
         let cancel = AtomicBool::new(false);
         assert!(export_items(&library, 1, &bad, &cancel, &mut |_| {}).is_err());
+    }
+
+    fn encrypted_request(out: &std::path::Path, passphrase: &str) -> ExportRequest {
+        let mut request = request(
+            ExportSelection {
+                whole: true,
+                ..Default::default()
+            },
+            true,
+            ExportFormat::Zip {
+                compression: library_core::Compression::None,
+            },
+            out,
+        );
+        request.encrypt = Some(passphrase.into());
+        request
+    }
+
+    fn names_in(dir: &std::path::Path) -> Vec<String> {
+        let mut names: Vec<String> = fs::read_dir(dir)
+            .map(|entries| {
+                entries
+                    .flatten()
+                    .map(|entry| entry.file_name().to_string_lossy().into_owned())
+                    .collect()
+            })
+            .unwrap_or_default();
+        names.sort();
+        names
+    }
+
+    /// D-110: the ZIP streams into the age writer, and the app opens it again.
+    #[test]
+    fn an_encrypted_export_is_streamed_and_decrypt_archive_opens_it() {
+        let dir = tempfile::tempdir().unwrap();
+        let library = open(&new_library(dir.path(), "Age"));
+        let plain = dir.path().join("plain");
+        fs::create_dir(&plain).unwrap();
+        add_png(&library, &plain, "one.png", 1);
+        add_png(&library, &plain, "two.png", 2);
+        let out = dir.path().join("out");
+        let summary = run(&library, &encrypted_request(&out, "correct horse"));
+        assert_eq!(
+            names_in(&out),
+            vec!["Age.zip.age".to_owned()],
+            "no plaintext archive and no part file"
+        );
+        let encrypted = out.join("Age.zip.age");
+        assert_eq!(summary.path, encrypted.to_string_lossy());
+        let header = fs::read(&encrypted).unwrap();
+        assert!(header.starts_with(b"age-encryption.org/v1"));
+
+        let opened = dir.path().join("opened");
+        fs::create_dir(&opened).unwrap();
+        let cancel = AtomicBool::new(false);
+        let mut heard = Vec::new();
+        let decrypted = decrypt_archive(
+            &encrypted,
+            &opened,
+            "correct horse",
+            &cancel,
+            &mut |done, total| {
+                heard.push((done, total));
+            },
+        )
+        .unwrap()
+        .expect("not cancelled");
+        let size = fs::metadata(&encrypted).unwrap().len();
+        assert_eq!(
+            heard.last(),
+            Some(&(size, size)),
+            "progress ends at the whole archive"
+        );
+        let zip_path = std::path::PathBuf::from(&decrypted.path);
+        assert_eq!(zip_path.file_name().unwrap(), "Age.zip");
+        assert_eq!(decrypted.bytes, fs::metadata(&zip_path).unwrap().len());
+        let mut zip = zip::ZipArchive::new(fs::File::open(&zip_path).unwrap()).unwrap();
+        let mut entries: Vec<String> = (0..zip.len())
+            .map(|i| zip.by_index(i).unwrap().name().unwrap().into_owned())
+            .collect();
+        entries.sort();
+        assert_eq!(entries.len(), 3, "two images and the manifest: {entries:?}");
+        assert!(entries.contains(&format!("Age/{MANIFEST}")));
+
+        // A second copy goes beside the first.
+        let again = decrypt_archive(
+            &encrypted,
+            &opened,
+            "correct horse",
+            &cancel,
+            &mut |_, _| {},
+        )
+        .unwrap()
+        .unwrap();
+        assert!(again.path.ends_with("Age (2).zip"), "{}", again.path);
+        assert_eq!(names_in(&opened), vec!["Age (2).zip", "Age.zip"]);
+    }
+
+    #[test]
+    fn a_short_passphrase_is_refused() {
+        let dir = tempfile::tempdir().unwrap();
+        let library = open(&new_library(dir.path(), "Short"));
+        let plain = dir.path().join("plain");
+        fs::create_dir(&plain).unwrap();
+        add_png(&library, &plain, "one.png", 1);
+        let out = dir.path().join("out");
+        let cancel = AtomicBool::new(false);
+        let error = export_items(
+            &library,
+            1,
+            &encrypted_request(&out, "1234567"),
+            &cancel,
+            &mut |_| {},
+        )
+        .unwrap_err();
+        assert!(error.to_string().contains("8 characters"), "{error}");
+        assert!(names_in(&out).is_empty());
+        // Eight characters, counted as characters, not bytes.
+        assert!(
+            export_items(
+                &library,
+                1,
+                &encrypted_request(&out, "пароль12"),
+                &cancel,
+                &mut |_| {}
+            )
+            .is_ok()
+        );
+    }
+
+    /// A cancel while an encrypted archive is written stops it and leaves nothing (D-110).
+    #[test]
+    fn cancel_while_encrypting_leaves_nothing() {
+        let dir = tempfile::tempdir().unwrap();
+        let library = open(&new_library(dir.path(), "Stop"));
+        let plain = dir.path().join("plain");
+        fs::create_dir(&plain).unwrap();
+        add_png(&library, &plain, "one.png", 1);
+        add_png(&library, &plain, "two.png", 2);
+        let out = dir.path().join("out");
+        let cancel = AtomicBool::new(false);
+        let result = export_items(
+            &library,
+            1,
+            &encrypted_request(&out, "correct horse"),
+            &cancel,
+            &mut |progress| {
+                if progress.state == library_core::ExportState::Copying {
+                    cancel.store(true, std::sync::atomic::Ordering::Relaxed);
+                }
+            },
+        );
+        assert!(result.unwrap().is_none(), "cancelled");
+        assert!(names_in(&out).is_empty(), "{:?}", names_in(&out));
+    }
+
+    #[test]
+    fn decrypting_refuses_a_wrong_passphrase_a_damaged_file_and_other_files() {
+        let dir = tempfile::tempdir().unwrap();
+        let root = new_library(dir.path(), "Refuse");
+        let library = open(&root);
+        let plain = dir.path().join("plain");
+        fs::create_dir(&plain).unwrap();
+        add_png(&library, &plain, "one.png", 1);
+        let out = dir.path().join("out");
+        run(&library, &encrypted_request(&out, "correct horse"));
+        let encrypted = out.join("Refuse.zip.age");
+        let opened = dir.path().join("opened");
+        fs::create_dir(&opened).unwrap();
+        let cancel = AtomicBool::new(false);
+
+        let wrong = decrypt_archive(&encrypted, &opened, "wrong horse!", &cancel, &mut |_, _| {})
+            .unwrap_err();
+        assert!(wrong.to_string().contains("Wrong passphrase."), "{wrong}");
+
+        let mut bytes = fs::read(&encrypted).unwrap();
+        bytes.truncate(bytes.len() - 40);
+        let damaged = out.join("Damaged.zip.age");
+        fs::write(&damaged, &bytes).unwrap();
+        let error = decrypt_archive(&damaged, &opened, "correct horse", &cancel, &mut |_, _| {})
+            .unwrap_err();
+        assert!(error.to_string().contains("damaged"), "{error}");
+
+        let other = out.join("notes.txt.age");
+        fs::write(&other, b"just text").unwrap();
+        let error =
+            decrypt_archive(&other, &opened, "correct horse", &cancel, &mut |_, _| {}).unwrap_err();
+        assert!(error.to_string().contains("not an age archive"), "{error}");
+
+        assert!(
+            names_in(&opened).is_empty(),
+            "nothing left: {:?}",
+            names_in(&opened)
+        );
+
+        // Never into a library.
+        let inside = root.join("files");
+        assert!(
+            decrypt_archive(
+                &encrypted,
+                &inside,
+                "correct horse",
+                &cancel,
+                &mut |_, _| {}
+            )
+            .is_err()
+        );
+        let cancelled = AtomicBool::new(true);
+        assert!(
+            decrypt_archive(
+                &encrypted,
+                &opened,
+                "correct horse",
+                &cancelled,
+                &mut |_, _| {}
+            )
+            .unwrap()
+            .is_none()
+        );
+        assert!(names_in(&opened).is_empty());
     }
 }

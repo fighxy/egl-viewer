@@ -12,4 +12,15 @@ class SettingsFormatTest {
         assertTrue(formatBytes(1536).endsWith(" KB"))
         assertTrue(formatBytes(3L * 1024 * 1024).endsWith(" MB"))
     }
+
+    /** D-110: eight characters, counted as the core counts them. */
+    @Test
+    fun aPassphraseNeedsEightCharacters() {
+        assertTrue(!passphraseLongEnough("1234567"))
+        assertTrue(passphraseLongEnough("12345678"))
+        assertTrue(passphraseLongEnough("пароль12"))
+        // Seven emoji are seven characters, though fourteen UTF-16 units.
+        assertTrue(!passphraseLongEnough("🔥🔥🔥🔥🔥🔥🔥"))
+        assertEquals(8, MIN_PASSPHRASE_CHARS)
+    }
 }

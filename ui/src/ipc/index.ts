@@ -5,8 +5,10 @@ import type { AppInfo } from "./generated/AppInfo";
 import type { Backup } from "./generated/Backup";
 import type { BackupKind } from "./generated/BackupKind";
 import type { BrowsePreferences } from "./generated/BrowsePreferences";
+import type { ByteProgress } from "./generated/ByteProgress";
 import type { Compression } from "./generated/Compression";
 import type { ConnectionSettings } from "./generated/ConnectionSettings";
+import type { DecryptedArchive } from "./generated/DecryptedArchive";
 import type { DuplicateAnswer } from "./generated/DuplicateAnswer";
 import type { DuplicateNotice } from "./generated/DuplicateNotice";
 import type { EagleImportRequest } from "./generated/EagleImportRequest";
@@ -89,8 +91,10 @@ export type {
   Backup,
   BackupKind,
   BrowsePreferences,
+  ByteProgress,
   Compression,
   ConnectionSettings,
+  DecryptedArchive,
   DuplicateAnswer,
   DuplicateNotice,
   EagleImportRequest,
@@ -303,6 +307,23 @@ export const ipc = {
     invoke<ExportPreview>("export_preview", { selection, includeSubfolders }),
   startExport: (request: ExportRequest) => invoke<ExportProgress>("start_export", { request }),
   cancelExport: (id: number) => invoke<void>("cancel_export", { id }),
+  /** Opens an age archive (an encrypted export) into `destination`; `null` when cancelled (D-110). */
+  decryptArchive: (
+    source: string,
+    destination: string,
+    passphrase: string,
+    onProgress?: (progress: ByteProgress) => void,
+  ) => {
+    const channel = new Channel<ByteProgress>();
+    if (onProgress) channel.onmessage = onProgress;
+    return invoke<DecryptedArchive | null>("decrypt_archive", {
+      source,
+      destination,
+      passphrase,
+      onProgress: channel,
+    });
+  },
+  cancelDecrypt: () => invoke<void>("cancel_decrypt"),
   exports: () => invoke<ExportProgress[]>("exports"),
   revealPath: (path: string) => invoke<void>("reveal_path", { path }),
   renameLibrary: (name: string) => invoke<LibraryInfo>("rename_library", { name }),

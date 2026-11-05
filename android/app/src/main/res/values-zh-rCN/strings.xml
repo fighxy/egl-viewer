@@ -381,6 +381,7 @@
     <string name="export_passphrase">密码</string>
     <string name="export_confirm_passphrase">再次输入密码</string>
     <string name="export_encrypt_hint">归档将使用 age 加密。没有密码将无法打开；密码不会被保存。</string>
+    <string name="export_passphrase_too_short">密码至少需要 %1$d 个字符。</string>
     <string name="export_start">导出</string>
     <string name="export_preparing">正在准备…</string>
     <string name="export_copying">正在复制…</string>

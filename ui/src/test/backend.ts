@@ -117,6 +117,12 @@ export function mockBackend(overrides: Record<string, Handler> = {}): Call[] {
     }),
     restore_backup: () => LIBRARY,
     rename_library: (args) => ({ ...LIBRARY, name: String(args.name) }),
+    reveal_path: () => null,
+    cancel_decrypt: () => null,
+    decrypt_archive: (args) => ({
+      path: `${String(args.destination)}/Library.zip`,
+      bytes: 2048,
+    }),
     check_library: () => CLEAN_CHECK,
     repair_library: () => CLEAN_CHECK,
     library_stats: () => ({ originals: 1000, thumbnails: 100, database: 50, backups: 25 }),

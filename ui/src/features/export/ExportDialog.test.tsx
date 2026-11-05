@@ -69,6 +69,42 @@ describe("ExportDialog", () => {
     expect(screen.getByRole("button", { name: /Создать копию/ })).toBeInTheDocument();
   });
 
+  it("refuses a password shorter than eight characters before starting (D-110)", async () => {
+    const calls = mockBackend({
+      export_preview: () => ({ items: 2, bytes: 2048, hidden: 0 }),
+      exports: () => [],
+    });
+    const user = userEvent.setup();
+    const client = new QueryClient({ defaultOptions: { queries: { retry: false } } });
+    render(
+      <QueryClientProvider client={client}>
+        <ExportDialog
+          open
+          onOpenChange={vi.fn()}
+          library={LIBRARY}
+          target={null}
+          folders={[]}
+          vocabulary={[]}
+          preferences={{ ...DEFAULT_PREFERENCES, exportDestination: "D:\\Backups" }}
+          onPreferences={vi.fn()}
+        />
+      </QueryClientProvider>,
+    );
+    await user.click(screen.getByLabelText("Encrypt with a password"));
+    await user.type(screen.getByLabelText("Password"), "short");
+    await user.type(screen.getByLabelText("Repeat the password"), "short");
+    // The button says why it waits, like the other reasons it cannot start.
+    const backUp = screen.getByRole("button", { name: /Back up/ });
+    await waitFor(() =>
+      expect(backUp).toHaveAttribute("title", "The password needs at least 8 characters."),
+    );
+    expect(backUp).toBeDisabled();
+    await user.type(screen.getByLabelText("Password"), "-but-long");
+    await user.type(screen.getByLabelText("Repeat the password"), "-but-long");
+    await waitFor(() => expect(backUp).toBeEnabled());
+    expect(called(calls, "start_export")).toEqual([]);
+  });
+
   it("follows an export from its first event to the result, and Close closes", async () => {
     const step = (change: Partial<ExportProgress>): ExportProgress => ({
       id: 7,

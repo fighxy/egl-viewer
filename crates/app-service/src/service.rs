@@ -7,18 +7,18 @@ use std::sync::atomic::{AtomicBool, Ordering};
 use std::sync::{Arc, Mutex};
 
 use library_core::{
-    Backup, DuplicateNotice, ExportPreview, ExportProgress, ExportRequest, ExportSelection,
-    ExportState, ExtensionCount, Folder, FolderChange, FolderIndex, ImportKind, ImportPreview,
-    ImportProgress, ImportTicket, Item, ItemCell, ItemEdit, ItemId, LibraryCheck, LibraryCounts,
-    LibraryInfo, LibraryQuery, LibrarySource, LibraryStats, PivPrompt, PivWrap, Progress,
-    RecoveryKey, RepairOptions, SelectionTags, SmartFolder, SmartFolderChange, SourceError, Tag,
-    TagGroup, TagGroupChange, Thumbnail, TrashInfo, UndoStack, UndoStatus, View, Views,
-    rules_from_query,
+    Backup, DecryptedArchive, DuplicateNotice, ExportPreview, ExportProgress, ExportRequest,
+    ExportSelection, ExportState, ExtensionCount, Folder, FolderChange, FolderIndex, ImportKind,
+    ImportPreview, ImportProgress, ImportTicket, Item, ItemCell, ItemEdit, ItemId, LibraryCheck,
+    LibraryCounts, LibraryInfo, LibraryQuery, LibrarySource, LibraryStats, MIN_PASSPHRASE_CHARS,
+    PivPrompt, PivWrap, Progress, RecoveryKey, RepairOptions, SelectionTags, SmartFolder,
+    SmartFolderChange, SourceError, Tag, TagGroup, TagGroupChange, Thumbnail, TrashInfo, UndoStack,
+    UndoStatus, View, Views, rules_from_query,
 };
 use library_native::{
     DuplicateChoice, DuplicatePolicy, ImportFilter, ImportObserver, ImportTarget, Library,
-    NativeSource, OpenOptions, PivCard, create_library, export_items, export_preview, import_files,
-    make_pending_previews, utc_file_stamp,
+    NativeSource, OpenOptions, PivCard, create_library, decrypt_archive, export_items,
+    export_preview, import_files, make_pending_previews, utc_file_stamp,
 };
 use serde::Serialize;
 use ts_rs::TS;
@@ -624,6 +624,26 @@ impl LibraryService {
         export_preview(&library, &selection, include_subfolders)
     }
 
+    /// Opens an age archive (an encrypted export) with its passphrase into `destination`
+    /// (D-110). Needs no open library; Show in Explorer may then reveal the result. Runs on
+    /// the caller's thread: a multi-gigabyte archive takes a while.
+    /// `None` when `cancel` went up; `on_progress(read, total)` follows the archive read.
+    pub fn decrypt_archive(
+        &self,
+        source: &std::path::Path,
+        destination: &std::path::Path,
+        passphrase: &str,
+        cancel: &std::sync::atomic::AtomicBool,
+        on_progress: &mut dyn FnMut(u64, u64),
+    ) -> Result<Option<DecryptedArchive>, SourceError> {
+        let decrypted = decrypt_archive(source, destination, passphrase, cancel, on_progress)?;
+        if let Some(decrypted) = &decrypted {
+            self.exports
+                .remember_written(std::path::PathBuf::from(&decrypted.path));
+        }
+        Ok(decrypted)
+    }
+
     /// Starts an export into a folder tree or an archive in the background and returns its
     /// first progress.
     pub fn start_export(&self, request: ExportRequest) -> Result<ExportProgress, SourceError> {
@@ -631,6 +651,14 @@ impl LibraryService {
             return Err(SourceError::NotSupported(
                 "an export into Eagle is the desktop app's".into(),
             ));
+        }
+        // Refused at once, not as a failed task: the app shows it next to the passphrase.
+        if let Some(passphrase) = &request.encrypt
+            && passphrase.chars().count() < MIN_PASSPHRASE_CHARS
+        {
+            return Err(SourceError::Invalid(format!(
+                "The passphrase needs at least {MIN_PASSPHRASE_CHARS} characters."
+            )));
         }
         let library = self.current_library().ok_or_else(no_library)?;
         self.exports.spawn(Arc::clone(&self.emit), move |context| {

@@ -4,7 +4,7 @@
 //! D-024).
 
 use std::path::{Path, PathBuf};
-use std::sync::atomic::Ordering;
+use std::sync::atomic::{AtomicBool, Ordering};
 use std::sync::{Arc, Mutex};
 
 use app_service::{LibraryService, no_library};
@@ -15,13 +15,13 @@ use app_store::{
 };
 use eagle_api::EagleSource;
 use library_core::{
-    AddTarget, Backup, ExportPreview, ExportProgress, ExportRequest, ExportSelection,
-    ExtensionCount, Folder, FolderChange, ImportFailure, ImportKind, ImportPreview, ImportProgress,
-    ImportState, ImportTicket, Item, ItemCell, ItemEdit, ItemId, LibraryCheck, LibraryCounts,
-    LibraryInfo, LibraryQuery, LibrarySource, LibraryStats, LocationProblem, NewFile, PivPolicy,
-    PivPrompt, PivWrap, Progress, ReadOnlyReason, RecoveryKey, RepairOptions, SelectionTags,
-    SmartFolder, SmartFolderChange, SourceError, Tag, TagGroup, TagGroupChange, Thumbnail,
-    TrashInfo, UndoStatus,
+    AddTarget, Backup, DecryptedArchive, ExportPreview, ExportProgress, ExportRequest,
+    ExportSelection, ExtensionCount, Folder, FolderChange, ImportFailure, ImportKind,
+    ImportPreview, ImportProgress, ImportState, ImportTicket, Item, ItemCell, ItemEdit, ItemId,
+    LibraryCheck, LibraryCounts, LibraryInfo, LibraryQuery, LibrarySource, LibraryStats,
+    LocationProblem, NewFile, PivPolicy, PivPrompt, PivWrap, Progress, ReadOnlyReason, RecoveryKey,
+    RepairOptions, SelectionTags, SmartFolder, SmartFolderChange, SourceError, Tag, TagGroup,
+    TagGroupChange, Thumbnail, TrashInfo, UndoStatus,
 };
 use library_native::{
     DuplicateChoice, EagleImportOptions, ImportFilter, check_enrollment, import_eagle,
@@ -115,6 +115,8 @@ pub struct Session {
     /// "Importing…" cells of files on their way to a running Eagle (docs/spec.md §8.3);
     /// appended to every open view until the items exist. `Arc`: the add thread holds it.
     pending: Arc<Mutex<Vec<ItemCell>>>,
+    /// The cancel flag of the Decrypt Archive that runs, if one does (D-110).
+    decrypting: Mutex<Option<Arc<AtomicBool>>>,
 }
 
 impl Session {
@@ -144,6 +146,7 @@ impl Session {
             eagle: Mutex::new(None),
             secrets,
             pending: Arc::new(Mutex::new(Vec::new())),
+            decrypting: Mutex::new(None),
         }
     }
 
@@ -885,6 +888,43 @@ impl Session {
                 // Nothing on this PC to show in Explorer.
                 None
             })
+    }
+
+    /// Opens an age archive with its passphrase into `destination` (D-110); `None` when
+    /// `cancel_decrypt` stopped it. One runs at a time.
+    pub fn decrypt_archive(
+        &self,
+        source: &str,
+        destination: &str,
+        passphrase: &str,
+        on_progress: &mut dyn FnMut(u64, u64),
+    ) -> Result<Option<DecryptedArchive>, SourceError> {
+        let cancel = Arc::new(AtomicBool::new(false));
+        {
+            let mut running = lock(&self.decrypting);
+            if running.is_some() {
+                return Err(SourceError::Invalid(
+                    "An archive is being decrypted already.".into(),
+                ));
+            }
+            *running = Some(Arc::clone(&cancel));
+        }
+        let result = self.service.decrypt_archive(
+            Path::new(source),
+            Path::new(destination),
+            passphrase,
+            &cancel,
+            on_progress,
+        );
+        *lock(&self.decrypting) = None;
+        result
+    }
+
+    /// Stops the running Decrypt Archive; it removes what it wrote.
+    pub fn cancel_decrypt(&self) {
+        if let Some(cancel) = lock(&self.decrypting).as_ref() {
+            cancel.store(true, Ordering::Relaxed);
+        }
     }
 
     /// Show in Explorer after an export: only a path an export of this session wrote, so the

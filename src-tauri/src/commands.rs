@@ -7,11 +7,12 @@ use app_store::{
     ConnectionSettings, LibrarySession, LoginProof, LoginStatus, Preferences, RecentLibrary,
 };
 use library_core::{
-    Backup, ExportPreview, ExportProgress, ExportRequest, ExportSelection, ExtensionCount, Folder,
-    FolderChange, ImportPreview, ImportProgress, ImportTicket, Item, ItemCell, ItemEdit, ItemId,
-    LibraryCheck, LibraryCounts, LibraryInfo, LibraryQuery, LibraryStats, PivPolicy, PivPrompt,
-    PivWrap, RecoveryKey, RepairOptions, SelectionTags, SmartFolder, SmartFolderChange,
-    SourceError, Tag, TagGroup, TagGroupChange, TrashInfo, UndoStatus, is_web_link,
+    Backup, ByteProgress, DecryptedArchive, ExportPreview, ExportProgress, ExportRequest,
+    ExportSelection, ExtensionCount, Folder, FolderChange, ImportPreview, ImportProgress,
+    ImportTicket, Item, ItemCell, ItemEdit, ItemId, LibraryCheck, LibraryCounts, LibraryInfo,
+    LibraryQuery, LibraryStats, PivPolicy, PivPrompt, PivWrap, RecoveryKey, RepairOptions,
+    SelectionTags, SmartFolder, SmartFolderChange, SourceError, Tag, TagGroup, TagGroupChange,
+    TrashInfo, UndoStatus, is_web_link,
 };
 use library_native::{DuplicateChoice, ImportFilter};
 use serde::{Deserialize, Serialize};
@@ -659,6 +660,35 @@ pub async fn start_export(
     request: ExportRequest,
 ) -> Result<ExportProgress, SourceError> {
     blocking(app, move |session| session.start_export(request)).await
+}
+
+/// Opens an age archive (an encrypted export) with its passphrase into `destination`, next
+/// to it by default (D-110). The passphrase is never stored.
+/// `null` when `cancel_decrypt` stopped it; `on_progress` follows the archive read.
+#[tauri::command]
+pub async fn decrypt_archive(
+    app: AppHandle,
+    source: String,
+    destination: String,
+    passphrase: String,
+    on_progress: Channel<ByteProgress>,
+) -> Result<Option<DecryptedArchive>, SourceError> {
+    blocking(app, move |session| {
+        session.decrypt_archive(&source, &destination, &passphrase, &mut |done, total| {
+            let _ = on_progress.send(ByteProgress { done, total });
+        })
+    })
+    .await
+}
+
+/// Stops the running Decrypt Archive; what it wrote is removed.
+#[tauri::command]
+pub async fn cancel_decrypt(app: AppHandle) -> Result<(), SourceError> {
+    blocking(app, |session| {
+        session.cancel_decrypt();
+        Ok(())
+    })
+    .await
 }
 
 /// Asks a running export to stop; its partial output is removed.

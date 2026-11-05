@@ -110,7 +110,7 @@ The "Spec said" column quotes the wording of the **first** version of the spec (
 | Storage | `rusqlite` (`bundled`, FTS5 enabled), `ulid` | The native library (§15.3); on a blocking thread pool |
 | Media | `blake3`, `image`, `fast_image_resize`, `resvg`, `psd`, `kamadak-exif`, `webp` (libwebp), `libheif-rs` (system libheif, D-063), `rayon` | The media pipeline (§15.4, D-033) |
 | Passwords | `argon2`, `age`, `secrecy` | Each locked folder wraps its own age identity with Argon2id; files and sensitive columns are age ciphertext (D-018) |
-| Archives | `zip` 9.2 (`deflate-flate2` only) | Backup / Export of originals as a ZIP (D-064, D-065); age passphrase wraps the finished archive |
+| Archives | `zip` 9.2 (`deflate-flate2` only) | Backup / Export of originals as a ZIP (D-064, D-065); the ZIP streams into an age passphrase writer while it is written (D-110) |
 | HTTP | `reqwest` (`rustls-tls`, default features off) | Only for Eagle; one client per endpoint |
 | Serialization | `serde`, `serde_json`, `ciborium` (Eagle offline cache, later), `base64` | |
 | Errors and logs | `thiserror`, `tracing`, `tracing-subscriber` | Logs never contain the token or raw folder bodies |
@@ -810,6 +810,7 @@ Later, for phones: the WebView prepares the image (`createImageBitmap`, long edg
 | `open_link` | url | — (`http` and `https` only) |
 | `backups`, `back_up_now`, `restore_backup` | —, —, file name | `Backup[]`, `Backup`, `LibraryInfo` (D-051) |
 | `export_preview` | `ExportSelection` (whole, folders, tags), include subfolders | `ExportPreview`: items, bytes, hidden in locked folders (D-064) |
+| `decrypt_archive` | source `.age` file, destination folder, passphrase | `DecryptedArchive` (path, bytes); D-110 |
 | `start_export`, `cancel_export`, `exports` | `ExportRequest` (selection, format, destination, optional age passphrase), id, — | `ExportProgress` (the task starts in the background) / — / running tasks |
 | `reveal_path` | an absolute path | — (Explorer) |
 | `rename_library`, `library_stats`, `reveal_library` | name, —, — | `LibraryInfo`, `LibraryStats`, — |

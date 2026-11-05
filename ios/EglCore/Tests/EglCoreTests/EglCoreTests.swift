@@ -342,6 +342,24 @@ final class EglCoreTests: XCTestCase {
         // An age file, not a plain ZIP.
         let head = try FileHandle(forReadingFrom: URL(fileURLWithPath: path)).readData(ofLength: 4)
         XCTAssertNotEqual(head, Data([0x50, 0x4B, 0x03, 0x04]))
+
+        // D-110: the app opens it again; a wrong passphrase leaves nothing behind.
+        let opened = dir.appendingPathComponent("opened", isDirectory: true)
+        try FileManager.default.createDirectory(at: opened, withIntermediateDirectories: true)
+        let archive = URL(fileURLWithPath: path)
+        XCTAssertThrowsError(try Library.decryptArchive(at: archive, into: opened, passphrase: "wrong one")) { error in
+            XCTAssertEqual((error as! EglError).code, .invalid)
+        }
+        XCTAssertEqual(try FileManager.default.contentsOfDirectory(atPath: opened.path), [])
+        let decrypted = try Library.decryptArchive(at: archive, into: opened, passphrase: "pässphrase")
+        XCTAssertTrue(decrypted.path.hasSuffix(".zip"), decrypted.path)
+        let zipHead = try FileHandle(forReadingFrom: decrypted.url).readData(ofLength: 4)
+        XCTAssertEqual(zipHead, Data([0x50, 0x4B, 0x03, 0x04]))
+        // A passphrase shorter than eight characters is refused.
+        XCTAssertThrowsError(try library.startExport(ExportRequest(
+            selection: ExportSelection(whole: true), includeSubfolders: true, format: .zip(.fast),
+            destination: out.path, encrypt: "short"
+        )))
         try library.setEventHandler(nil)
     }
 

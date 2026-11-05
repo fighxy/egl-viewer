@@ -35,6 +35,7 @@ export const ru: MessageCatalog = {
       importEagle: "Импорт библиотеки Eagle…",
       settings: "Параметры…",
       exit: "Выход",
+      decryptArchive: "Расшифровать архив…",
     },
     edit: {
       paste: "Вставить",
@@ -948,6 +949,7 @@ export const ru: MessageCatalog = {
     encrypt: "Шифровать паролем",
     typePassword: "Введите пароль.",
     passwordMismatch: "Пароли не совпадают.",
+    passwordTooShort: "Пароль должен быть не короче {{count}} символов.",
     noItems: "В выборе нет объектов.",
     preview: "{{items}} объектов · {{bytes}}",
     previewHidden: " · {{hidden}} скрыто в запертых папках",
@@ -966,5 +968,21 @@ export const ru: MessageCatalog = {
     skippedMissing: "Пропущено отсутствующих: {{count}}: {{list}}",
     exportFailed: "Экспорт не удался.",
     exportCancelled: "Экспорт отменён; частичный результат удалён.",
+  },
+  decryptUi: {
+    title: "Расшифровать архив",
+    description:
+      "Открывает зашифрованный экспорт (.zip.age) по паролю. Получится обычный ZIP-архив в выбранной папке.",
+    archive: "Архив",
+    saveIn: "Сохранить в",
+    choose: "Выбрать…",
+    chooseArchive: "Выберите архив.",
+    chooseFolder: "Выберите, куда сохранить.",
+    decrypt: "Расшифровать",
+    decrypting: "Расшифровка…",
+    cancelled: "Расшифровка отменена, ничего не осталось.",
+    done: "Расшифровано: {{name}} ({{bytes}}).",
+    pickTitle: "Выберите зашифрованный архив",
+    archives: "Зашифрованные архивы",
   },
 };

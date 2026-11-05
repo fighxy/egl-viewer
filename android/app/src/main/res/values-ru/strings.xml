@@ -398,6 +398,7 @@
     <string name="export_passphrase">Пароль</string>
     <string name="export_confirm_passphrase">Повторите пароль</string>
     <string name="export_encrypt_hint">Архив шифруется age. Без пароля его не открыть; пароль нигде не сохраняется.</string>
+    <string name="export_passphrase_too_short">Пароль должен быть не короче %1$d символов.</string>
     <string name="export_start">Экспортировать</string>
     <string name="export_preparing">Подготовка…</string>
     <string name="export_copying">Копирование…</string>

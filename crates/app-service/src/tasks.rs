@@ -409,8 +409,8 @@ impl ExportTasks {
         }
     }
 
-    /// Allows `path` as if an export had written it; for tests of the callers.
-    #[doc(hidden)]
+    /// Allows `path` as if an export had written it: a decrypted archive (D-110), or a test
+    /// of the callers.
     pub fn remember_written(&self, path: PathBuf) {
         lock(&self.inner).written.push(path);
     }

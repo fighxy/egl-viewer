@@ -14,10 +14,10 @@ final class LocksUITests: XCTestCase {
 
         app.buttons["welcome.settings"].tap()
         let appLock = app.descendants(matching: .any).matching(identifier: "settings.appLock").firstMatch
-        XCTAssertTrue(appLock.waitForExistence(timeout: 5))
+        XCTAssertTrue(appLock.waitForExistence(timeout: 15))
         appLock.tap()
         let new = app.secureTextFields["appLock.new"]
-        XCTAssertTrue(new.waitForExistence(timeout: 5))
+        XCTAssertTrue(new.waitForExistence(timeout: 15))
         new.tap()
         new.typeText("1234")
         let confirm = app.secureTextFields["appLock.confirm"]
@@ -28,14 +28,14 @@ final class LocksUITests: XCTestCase {
         // Back from the App Lock page, then close Settings.
         app.buttons["BackButton"].firstMatch.tap()
         let done = app.buttons["settings.done"]
-        XCTAssertTrue(done.waitForExistence(timeout: 5))
+        XCTAssertTrue(done.waitForExistence(timeout: 15))
         done.tap()
 
         XCUIDevice.shared.press(.home)
         app.activate()
 
         let password = app.secureTextFields["login.password"]
-        if !password.waitForExistence(timeout: 10) {
+        if !password.waitForExistence(timeout: 30) {
             // What the app shows instead, for the log.
             print(app.debugDescription)
             XCTFail("the login covers the app")
@@ -43,11 +43,13 @@ final class LocksUITests: XCTestCase {
         password.tap()
         password.typeText("0000")
         app.buttons["login.unlock"].tap()
-        XCTAssertTrue(app.staticTexts["login.wrong"].waitForExistence(timeout: 5))
+        // A CPU-starved simulator took 15–20 s to go idle between steps on CI; the check
+        // itself is instant (1,000 PBKDF2 rounds under -uiTesting).
+        XCTAssertTrue(app.staticTexts["login.wrong"].waitForExistence(timeout: 30))
         password.tap()
         password.typeText("1234")
         app.buttons["login.unlock"].tap()
-        XCTAssertTrue(app.buttons["welcome.create"].waitForExistence(timeout: 10))
+        XCTAssertTrue(app.buttons["welcome.create"].waitForExistence(timeout: 30))
         XCTAssertFalse(password.exists)
     }
 }

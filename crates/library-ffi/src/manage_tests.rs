@@ -846,6 +846,69 @@ fn backups_checks_and_an_export_into_a_zip() {
     assert!(written[0].file_name().to_string_lossy().ends_with(".zip"));
 }
 
+/// D-110: an encrypted export is written encrypted, and the C ABI opens it again.
+#[test]
+fn an_encrypted_export_decrypts_through_the_c_abi() {
+    let (f, _) = seeded(1);
+    let destination = f.dir.path().join("sealed");
+    std::fs::create_dir_all(&destination).unwrap();
+    let request = cstring(
+        &serde_json::json!({
+            "selection": {"whole": true, "folders": [], "tags": []},
+            "includeSubfolders": true,
+            "format": {"kind": "zip", "compression": "none"},
+            "destination": destination.to_str().unwrap(),
+            "encrypt": "correct horse",
+            "eagle": null
+        })
+        .to_string(),
+    );
+    json(f.lib, |out| unsafe {
+        egl_start_export(f.lib, request.as_ptr(), out)
+    });
+    let deadline = Instant::now() + Duration::from_secs(60);
+    while !json(f.lib, |out| unsafe { egl_exports(f.lib, out) })
+        .as_array()
+        .unwrap()
+        .is_empty()
+    {
+        assert!(Instant::now() < deadline, "the export never ended");
+        std::thread::sleep(Duration::from_millis(20));
+    }
+    let written: Vec<_> = std::fs::read_dir(&destination).unwrap().flatten().collect();
+    assert_eq!(written.len(), 1, "only the encrypted archive");
+    let archive = written[0].path();
+    assert!(archive.to_string_lossy().ends_with(".zip.age"));
+
+    let opened = f.dir.path().join("opened");
+    std::fs::create_dir_all(&opened).unwrap();
+    let (source, into) = (
+        cstring(archive.to_str().unwrap()),
+        cstring(opened.to_str().unwrap()),
+    );
+    let wrong = cstring("not the passphrase");
+    let mut out = ptr::null_mut();
+    let status =
+        unsafe { egl_decrypt_archive(source.as_ptr(), into.as_ptr(), wrong.as_ptr(), &mut out) };
+    assert_eq!(status, EglStatus::Invalid);
+    let reason = unsafe { CStr::from_ptr(crate::egl_last_error_global()) }
+        .to_string_lossy()
+        .into_owned();
+    assert!(reason.contains("Wrong passphrase"), "{reason}");
+    assert!(std::fs::read_dir(&opened).unwrap().next().is_none());
+
+    let right = cstring("correct horse");
+    let mut out = ptr::null_mut();
+    let status =
+        unsafe { egl_decrypt_archive(source.as_ptr(), into.as_ptr(), right.as_ptr(), &mut out) };
+    assert_eq!(status, EglStatus::Ok);
+    let decrypted = take(out);
+    let path = std::path::PathBuf::from(decrypted["path"].as_str().unwrap());
+    assert!(path.to_string_lossy().ends_with(".zip"));
+    assert_eq!(&std::fs::read(&path).unwrap()[..2], b"PK");
+    assert_eq!(decrypted["bytes"], std::fs::metadata(&path).unwrap().len());
+}
+
 #[test]
 fn a_panic_never_crosses_the_boundary() {
     let status = crate::guarded(|_| {}, || panic!("boom"));

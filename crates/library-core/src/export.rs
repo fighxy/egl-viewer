@@ -77,8 +77,9 @@ pub struct ExportRequest {
     pub format: ExportFormat,
     /// An existing folder the export is written into.
     pub destination: String,
-    /// An age passphrase protecting the archive; only valid with [`ExportFormat::Zip`].
-    /// The UI sends it like a lock password and Rust never stores it.
+    /// An age passphrase protecting the archive; only valid with [`ExportFormat::Zip`], at
+    /// least [`MIN_PASSPHRASE_CHARS`] characters. The UI sends it like a lock password and
+    /// Rust never stores it.
     pub encrypt: Option<String>,
     /// A running Eagle to export into instead of a folder or archive (docs/spec.md §8.4).
     /// When set, `format`, `destination` and `encrypt` are ignored.
@@ -96,6 +97,32 @@ pub struct EagleExportTarget {
     pub port: u16,
     /// API token; `None` or empty only works when Eagle runs on the same PC.
     pub token: Option<String>,
+}
+
+/// The shortest passphrase an encrypted export takes, in characters (D-110). A short
+/// passphrase is the only weak part of an age archive: its scrypt key derivation slows down
+/// guessing, it does not stop it.
+pub const MIN_PASSPHRASE_CHARS: usize = 8;
+
+/// An age archive opened with its passphrase (D-110): the plaintext file it was written to.
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize, TS)]
+#[serde(rename_all = "camelCase")]
+#[ts(export)]
+pub struct DecryptedArchive {
+    /// The decrypted file, as an absolute path: `name.zip` for `name.zip.age`.
+    pub path: String,
+    /// Its size in bytes.
+    pub bytes: u64,
+}
+
+/// How far a byte-sized task is: Decrypt Archive reports the bytes of the archive read
+/// (D-110).
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize, TS)]
+#[serde(rename_all = "camelCase")]
+#[ts(export)]
+pub struct ByteProgress {
+    pub done: u64,
+    pub total: u64,
 }
 
 /// What an export would write, computed from the database without touching the files.
@@ -120,7 +147,9 @@ pub enum ExportState {
     Preparing,
     /// Copying files into the folder tree or the archive.
     Copying,
-    /// Wrapping the archive in an age passphrase.
+    /// Wrapping the archive in an age passphrase. Not reported since D-110: an encrypted
+    /// archive is encrypted while it is written, during `Copying`. Kept so clients that
+    /// know it still read every state.
     Encrypting,
     /// Everything written; `ExportProgress::summary` is set.
     Done,

@@ -6,7 +6,12 @@ use std::path::Path;
 
 use library_core::{ExportRequest, ExportSelection, RepairOptions};
 
-use crate::{EglLibrary, EglStatus, arg, parse, reply, reply_unit, tri, with_lib};
+use std::sync::atomic::AtomicBool;
+
+use crate::{
+    EglLibrary, EglStatus, arg, c_str, guarded, map_error, parse, reply, reply_unit,
+    set_global_error, tri, with_lib, write_json,
+};
 
 /// Renames the library (the name inside it; the folder keeps its name). `*out_json` is the
 /// `LibraryInfo` afterwards.
@@ -268,4 +273,62 @@ pub unsafe extern "C" fn egl_preview_import(
             reply(handle, out_json, preview, "import preview")
         })
     }
+}
+
+/// Opens an age archive (an encrypted export, `name.zip.age`) with its passphrase into the
+/// existing folder `destination_utf8`, as `name.zip` (D-110). Needs no library handle.
+/// `*out_json` is `DecryptedArchive` {"path","bytes"}. A wrong passphrase, a damaged file or
+/// a file that is not an age archive is `EGL_ERR_INVALID` with the reason in
+/// `egl_last_error_global()`, and leaves nothing behind. Runs on the caller's thread.
+///
+/// # Safety
+/// The strings are NUL-terminated UTF-8; `out_json` is writable.
+#[unsafe(no_mangle)]
+pub unsafe extern "C" fn egl_decrypt_archive(
+    source_utf8: *const c_char,
+    destination_utf8: *const c_char,
+    passphrase_utf8: *const c_char,
+    out_json: *mut *mut c_char,
+) -> EglStatus {
+    guarded(set_global_error, || {
+        // SAFETY: the caller's strings.
+        let (source, destination, passphrase) = unsafe {
+            (
+                c_str(source_utf8),
+                c_str(destination_utf8),
+                c_str(passphrase_utf8),
+            )
+        };
+        let (Ok(source), Ok(destination), Ok(passphrase)) = (source, destination, passphrase)
+        else {
+            set_global_error("the archive, the folder and the passphrase are required");
+            return EglStatus::Invalid;
+        };
+        let cancel = AtomicBool::new(false);
+        let result = library_native::decrypt_archive(
+            Path::new(source),
+            Path::new(destination),
+            passphrase,
+            &cancel,
+            &mut |_, _| {},
+        );
+        match result {
+            Ok(Some(decrypted)) => match unsafe { write_json(out_json, &decrypted) } {
+                // SAFETY (above): the caller's out pointer.
+                Ok(()) => EglStatus::Ok,
+                Err(status) => {
+                    set_global_error("failed to hand over the decrypted file");
+                    status
+                }
+            },
+            Ok(None) => {
+                set_global_error("the decryption stopped");
+                EglStatus::Other
+            }
+            Err(error) => {
+                set_global_error(error.to_string());
+                map_error(&error)
+            }
+        }
+    })
 }

@@ -388,6 +388,7 @@
     <string name="export_passphrase">Passphrase</string>
     <string name="export_confirm_passphrase">Repeat Passphrase</string>
     <string name="export_encrypt_hint">The archive is encrypted with age. Without the passphrase it cannot be opened; it is not stored anywhere.</string>
+    <string name="export_passphrase_too_short">The passphrase needs at least %1$d characters.</string>
     <string name="export_start">Export</string>
     <string name="export_preparing">Preparing…</string>
     <string name="export_copying">Copying…</string>

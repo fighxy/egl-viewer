@@ -31,6 +31,7 @@ import { fetchCell, useView } from "@/features/browse/useView";
 import { ConnectScreen } from "@/features/connect/ConnectScreen";
 import { type DragPayload, DragProvider, type DropTarget } from "@/features/dnd/drag";
 import { EagleImportDialog } from "@/features/eagle-import/EagleImportDialog";
+import { DecryptArchiveDialog } from "@/features/export/DecryptArchiveDialog";
 import { ExportDialog, type ExportTarget } from "@/features/export/ExportDialog";
 import { type FolderDialog, FolderDialogs } from "@/features/folders/FolderDialogs";
 import { FolderProperties } from "@/features/folders/FolderProperties";
@@ -146,7 +147,8 @@ type DialogKind =
   | "shortcuts"
   | "librarySettings"
   | "checkLibrary"
-  | "eagleImport";
+  | "eagleImport"
+  | "decryptArchive";
 
 async function pickFolder(title: string, defaultPath?: string): Promise<string | null> {
   const picked = await openDialog({ directory: true, multiple: false, title, defaultPath });
@@ -1467,6 +1469,7 @@ function AppShell() {
           .catch((error: unknown) => setStatus(describeError(error)));
       },
       importEagle: () => afterImports(() => setDialog("eagleImport")),
+      decryptArchive: () => setDialog("decryptArchive"),
       settings: () => {
         setDialog("settings");
         if (inTauri() && builtInLocation === "") {
@@ -2127,6 +2130,7 @@ function AppShell() {
             }}
           />
         )}
+        <DecryptArchiveDialog open={dialog === "decryptArchive"} onOpenChange={closeDialog} />
         <CheckLibraryDialog
           open={dialog === "checkLibrary"}
           onOpenChange={closeDialog}

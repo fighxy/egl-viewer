@@ -58,6 +58,8 @@ export type CommandActions = {
   addFolder: () => void;
   /** The Eagle import wizard (docs/spec.md §8.2). */
   importEagle: () => void;
+  /** Opens an encrypted export (`.zip.age`) with its password (D-110). */
+  decryptArchive: () => void;
   paste: () => void;
   settings: () => void;
   exit: () => void;
@@ -286,6 +288,13 @@ export const COMMANDS: readonly Command[] = [
     group: 1,
     available: needsWritableLibrary,
     run: (actions) => actions.importEagle(),
+  },
+  {
+    id: "file.decryptArchive",
+    label: "Decrypt Archive…",
+    menu: "file",
+    group: 1,
+    run: (actions) => actions.decryptArchive(),
   },
   {
     id: "file.settings",

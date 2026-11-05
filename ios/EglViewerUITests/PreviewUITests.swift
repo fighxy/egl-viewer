@@ -52,9 +52,7 @@ final class PreviewUITests: XCTestCase {
     /// Opens All once the twelve images are in.
     private func openAll(_ app: XCUIApplication) -> XCUIElement {
         XCTAssertTrue(app.navigationBars["Sample"].waitForExistence(timeout: 30))
-        element("place.all", in: app).tap()
-        let count = app.staticTexts["browse.count"]
-        XCTAssertTrue(count.waitForExistence(timeout: 15))
+        let count = app.openAll(expecting: 12)
         waitForLabel("12 items", of: count)
         return count
     }

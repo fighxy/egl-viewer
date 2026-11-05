@@ -20,6 +20,7 @@ import androidx.compose.material.icons.filled.Error
 import androidx.compose.material.icons.filled.Folder
 import androidx.compose.material3.Icon
 import androidx.compose.material3.LinearProgressIndicator
+import androidx.compose.material3.MaterialTheme
 import androidx.compose.material3.OutlinedTextField
 import androidx.compose.material3.Switch
 import androidx.compose.material3.Text
@@ -153,7 +154,7 @@ fun ExportScreen(
     }
 
     val ready = !selection.isEmpty && (preview?.items ?: 0) > 0 &&
-        (!zip || !encrypt || (passphrase.isNotEmpty() && passphrase == confirm))
+        (!zip || !encrypt || (passphraseLongEnough(passphrase) && passphrase == confirm))
 
     Column(
         modifier = Modifier
@@ -290,9 +291,14 @@ fun ExportScreen(
                             visualTransformation = PasswordVisualTransformation(),
                             label = { Text(stringResource(R.string.export_confirm_passphrase)) },
                         )
+                        val short = passphrase.isNotEmpty() && !passphraseLongEnough(passphrase)
                         Text(
-                            text = stringResource(R.string.export_encrypt_hint),
-                            color = EglTokens.MutedForeground,
+                            text = if (short) {
+                                stringResource(R.string.export_passphrase_too_short, MIN_PASSPHRASE_CHARS)
+                            } else {
+                                stringResource(R.string.export_encrypt_hint)
+                            },
+                            color = if (short) MaterialTheme.colorScheme.error else EglTokens.MutedForeground,
                             fontSize = 12.sp,
                         )
                     }
@@ -515,3 +521,10 @@ private fun finishExport(
     exportId?.let { open.forgetExport(it) }
     apply(null, null)
 }
+
+/** The core refuses a shorter passphrase (library-core `MIN_PASSPHRASE_CHARS`, D-110). */
+const val MIN_PASSPHRASE_CHARS = 8
+
+/** Counted in characters, as the core counts them, not UTF-16 units. */
+fun passphraseLongEnough(passphrase: String): Boolean =
+    passphrase.codePointCount(0, passphrase.length) >= MIN_PASSPHRASE_CHARS

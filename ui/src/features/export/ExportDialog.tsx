@@ -37,6 +37,9 @@ import { EVENTS, inTauri, ipc } from "@/ipc";
 import { describeError } from "@/lib/errors";
 import { useOpenings } from "@/lib/useOpenings";
 
+/** The core refuses a shorter passphrase (library-core `MIN_PASSPHRASE_CHARS`, D-110). */
+export const MIN_PASSPHRASE_CHARS = 8;
+
 /** What an Export from a context menu starts with; the Backup menu starts free (docs/spec.md §7.4 item 12). */
 export type ExportTarget =
   | { kind: "folder"; id: string; name: string }
@@ -244,6 +247,9 @@ function ExportDialogContent({
     }
     if (formatKind === "zip" && encrypt) {
       if (password === "") return t("exportUi.typePassword");
+      if ([...password].length < MIN_PASSPHRASE_CHARS) {
+        return t("exportUi.passwordTooShort", { count: MIN_PASSPHRASE_CHARS });
+      }
       if (password !== confirm) return t("exportUi.passwordMismatch");
     }
     if (preview.data && preview.data.items === 0) return t("exportUi.noItems");
