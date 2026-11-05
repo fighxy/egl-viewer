@@ -62,7 +62,18 @@ import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.text.style.TextOverflow
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
+import android.content.ClipData
+import android.net.Uri
+import androidx.compose.foundation.draganddrop.dragAndDropTarget
+import androidx.compose.ui.draganddrop.DragAndDropEvent
+import androidx.compose.ui.draganddrop.DragAndDropTarget
+import androidx.compose.ui.draganddrop.toAndroidDragEvent
 import app.eglviewer.R
+import app.eglviewer.adding.AddMenuButton
+import app.eglviewer.adding.DuplicateQuestionDialog
+import app.eglviewer.adding.ImportBanner
+import app.eglviewer.adding.ImportPaths
+import app.eglviewer.app.LibraryLocations
 import app.eglviewer.app.OpenLibrary
 import app.eglviewer.components.UndoSnackbar
 import app.eglviewer.core.ItemCell
@@ -71,8 +82,11 @@ import app.eglviewer.details.DetailsSheet
 import app.eglviewer.details.ShareLauncher
 import app.eglviewer.preview.PreviewScreen
 import app.eglviewer.theme.EglTokens
+import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.launch
+import kotlinx.coroutines.withContext
 
+@OptIn(ExperimentalFoundationApi::class)
 @Composable
 fun BrowseScreen(
     open: BrowseHost,
@@ -86,6 +100,32 @@ fun BrowseScreen(
     var showFilters by remember { mutableStateOf(false) }
     var showSort by remember { mutableStateOf(false) }
     var emptyTrashConfirm by remember { mutableStateOf(false) }
+    val openLibrary = open as? OpenLibrary
+    val addFolder = (place as? Place.Folder)?.id
+    val canAdd = openLibrary != null && !open.readOnly && place != Place.Trash
+    val dropTarget = remember(openLibrary, addFolder, canAdd) {
+        val host = openLibrary.takeIf { canAdd } ?: return@remember null
+        object : DragAndDropTarget {
+            override fun onDrop(event: DragAndDropEvent): Boolean {
+                val clip = event.toAndroidDragEvent().clipData ?: return false
+                val uris = clipUris(clip)
+                if (uris.isEmpty()) return false
+                val locations = LibraryLocations(context)
+                scope.launch {
+                    val batch = withContext(Dispatchers.IO) {
+                        ImportPaths.fromContentUris(
+                            context = context,
+                            uris = uris,
+                            cacheDir = context.cacheDir,
+                            resolvePath = { locations.resolveFilesystemPath(it) },
+                        )
+                    }
+                    host.addPaths(batch.paths, into = addFolder, cleanup = batch.cleanup)
+                }
+                return true
+            }
+        }
+    }
 
     DisposableEffect(model) {
         val listener: () -> Unit = { tick += 1 }
@@ -100,7 +140,20 @@ fun BrowseScreen(
     @Suppress("UNUSED_EXPRESSION")
     tick
 
-    Box(modifier = Modifier.fillMaxSize()) {
+    Box(
+        modifier = Modifier
+            .fillMaxSize()
+            .then(
+                if (dropTarget != null) {
+                    Modifier.dragAndDropTarget(
+                        shouldStartDragAndDrop = { true },
+                        target = dropTarget,
+                    )
+                } else {
+                    Modifier
+                },
+            ),
+    ) {
         Column(
             modifier = Modifier
                 .fillMaxSize()
@@ -113,6 +166,9 @@ fun BrowseScreen(
                 total = model.total,
                 filtersActive = model.settings.filters.isActive,
                 isTrash = place == Place.Trash,
+                addContent = openLibrary?.takeIf { canAdd && !model.selecting }?.let { host ->
+                    { AddMenuButton(open = host, folder = addFolder) }
+                },
                 onBack = {
                     if (model.selecting) {
                         model.setSelecting(false)
@@ -148,6 +204,10 @@ fun BrowseScreen(
                 onAscending = { model.change { it.copy(ascending = !it.ascending) } },
                 onSize = { size -> model.change { it.copy(size = size) } },
             )
+
+            if (openLibrary != null) {
+                ImportBanner(open = openLibrary)
+            }
 
             SearchField(
                 query = model.settings.search,
@@ -240,6 +300,18 @@ fun BrowseScreen(
             },
         )
     }
+
+    if (openLibrary != null) {
+        DuplicateQuestionDialog(open = openLibrary)
+    }
+}
+
+private fun clipUris(clip: ClipData): List<Uri> {
+    val uris = mutableListOf<Uri>()
+    for (i in 0 until clip.itemCount) {
+        clip.getItemAt(i).uri?.let { uris += it }
+    }
+    return uris
 }
 
 @Composable
@@ -250,6 +322,7 @@ private fun BrowseTopBar(
     total: Int,
     filtersActive: Boolean,
     isTrash: Boolean,
+    addContent: (@Composable () -> Unit)? = null,
     onBack: () -> Unit,
     onSelect: () -> Unit,
     onSelectAll: () -> Unit,
@@ -353,6 +426,7 @@ private fun BrowseTopBar(
                     Icon(Icons.Default.DeleteSweep, contentDescription = stringResource(R.string.trash_empty))
                 }
             }
+            addContent?.invoke()
             TextButton(onClick = onSelect, enabled = total > 0) { Text(stringResource(R.string.browse_select)) }
         }
     }

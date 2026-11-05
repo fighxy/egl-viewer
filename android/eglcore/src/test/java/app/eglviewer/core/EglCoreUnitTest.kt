@@ -44,13 +44,29 @@ class EglCoreUnitTest {
     @Test
     fun eventsParseByType() {
         val importEvent = LibraryEvent.fromJson(
-            """{"type":"importProgress","progress":{"id":1}}""",
+            """{"type":"importProgress","progress":{"id":1,"kind":"files","state":"adding","total":3,"processed":1,"added":1,"duplicates":0,"failed":0,"previewsTotal":0,"previewsDone":0}}""",
         )
         assertTrue(importEvent is LibraryEvent.ImportProgress)
+        val progress = (importEvent as LibraryEvent.ImportProgress).progress
+        assertEquals(1L, progress.id)
+        assertEquals(ImportState.ADDING, progress.state)
+        assertEquals(3, progress.total)
         val views = LibraryEvent.fromJson(
             """{"type":"viewsInvalidated","views":[]}""",
         )
         assertTrue(views is LibraryEvent.ViewsInvalidated)
         assertNull(LibraryEvent.fromJson("not-json"))
+    }
+
+    @Test
+    fun importProgressParsesDuplicateNotice() {
+        val progress = ImportProgress.fromJson(
+            """{"id":9,"kind":"files","state":"waitingForDecision","total":2,"processed":1,"added":0,"duplicates":0,"failed":0,"previewsTotal":0,"previewsDone":0,"duplicate":{"path":"/tmp/a.png","existing":"01ABC","inTrash":false,"targetFolder":"folder1"}}""",
+        )
+        assertEquals(ImportState.WAITING_FOR_DECISION, progress.state)
+        assertEquals("/tmp/a.png", progress.duplicate?.path)
+        assertEquals("folder1", progress.duplicate?.targetFolder)
+        assertEquals(DuplicateAnswer.SKIP.wire, "skip")
+        assertEquals(DuplicateAnswer.ADD_TO_FOLDER.wire, "addToFolder")
     }
 }

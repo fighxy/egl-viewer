@@ -4,6 +4,8 @@ import android.content.Context
 import androidx.compose.runtime.getValue
 import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.setValue
+import app.eglviewer.adding.PickedFile
+import app.eglviewer.adding.importSummary
 import app.eglviewer.browse.ActionToast
 import app.eglviewer.browse.BrowseFilters
 import app.eglviewer.browse.BrowseHost
@@ -16,7 +18,11 @@ import app.eglviewer.browse.SavedView
 import app.eglviewer.browse.SavedViews
 import app.eglviewer.browse.ThumbnailCache
 import app.eglviewer.browse.ViewSession
+import app.eglviewer.R
+import app.eglviewer.core.DuplicateAnswer
 import app.eglviewer.core.Folder
+import app.eglviewer.core.ImportProgress
+import app.eglviewer.core.ImportState
 import app.eglviewer.core.Library
 import app.eglviewer.core.LibraryCounts
 import app.eglviewer.core.LibraryEvent
@@ -26,6 +32,7 @@ import app.eglviewer.core.SmartFolder
 import app.eglviewer.core.ViewOpened
 import java.io.File
 import java.lang.ref.WeakReference
+import java.util.concurrent.ConcurrentHashMap
 import java.util.concurrent.CopyOnWriteArrayList
 import kotlinx.coroutines.CoroutineScope
 import kotlinx.coroutines.Dispatchers
@@ -36,8 +43,8 @@ import kotlinx.coroutines.launch
 import kotlinx.coroutines.withContext
 
 /**
- * One open library: core handle, places/counts/folders, saved view, toast / undo, and
- * browse-model registration (A1–A3, D-101 / D-102 / D-103).
+ * One open library: core handle, places/counts/folders, saved view, toast / undo,
+ * browse-model registration, and adding (A1–A4, D-101…D-104).
  */
 class OpenLibrary(
     val library: Library,
@@ -86,9 +93,20 @@ class OpenLibrary(
     override var toast: ActionToast? by mutableStateOf(null)
         private set
 
+    /** Running imports by id (banner). */
+    var imports: Map<Long, ImportProgress> by mutableStateOf(emptyMap())
+        private set
+
+    /** The duplicate an import waits on, shown as a question. */
+    var duplicateQuestion: ImportProgress? by mutableStateOf(null)
+        private set
+
     private var hidingToast: Job? = null
 
     private val browsers = CopyOnWriteArrayList<WeakReference<BrowseModel>>()
+    private val afterImport = ConcurrentHashMap<Long, () -> Unit>()
+    private val answered = ConcurrentHashMap.newKeySet<Long>()
+    private var appContext: Context? = null
 
     override val pickableFolders: List<PickableFolder>
         get() {
@@ -105,16 +123,133 @@ class OpenLibrary(
             return list
         }
 
-    fun attachEvents() {
+    fun attachEvents(context: Context? = null) {
+        if (context != null) appContext = context.applicationContext
         library.setEventHandler { event ->
             when (event) {
                 is LibraryEvent.ViewsInvalidated -> {
                     notifyViewsInvalidated(event.views)
                     runCatching { refresh() }
                 }
-                is LibraryEvent.ImportProgress -> runCatching { refresh() }
+                is LibraryEvent.ImportProgress -> {
+                    scope.launch(Dispatchers.Main.immediate) {
+                        progressed(event.progress)
+                    }
+                    if (event.progress.isFinished ||
+                        event.progress.state == ImportState.ADDING ||
+                        event.progress.state == ImportState.PREVIEWS
+                    ) {
+                        runCatching { refresh() }
+                    }
+                }
                 else -> Unit
             }
+        }
+    }
+
+    /**
+     * Adds filesystem paths into [folder] (or none). [cleanup] runs when the import ends,
+     * or at once when it cannot start.
+     */
+    fun addPaths(paths: List<String>, into: String?, cleanup: () -> Unit = {}) {
+        if (paths.isEmpty() || readOnly) {
+            cleanup()
+            return
+        }
+        scope.launch {
+            val ticket = try {
+                withContext(Dispatchers.IO) { library.addFiles(paths, into) }
+            } catch (error: Exception) {
+                report(error.message ?: error.toString())
+                cleanup()
+                return@launch
+            }
+            afterImport[ticket.id] = cleanup
+            val progress = withContext(Dispatchers.IO) {
+                runCatching { library.importStatus(ticket.id) }.getOrNull()
+            }
+            if (progress != null && progress.isFinished) {
+                finished(progress)
+            } else if (progress != null) {
+                progressed(progress)
+            }
+        }
+    }
+
+    /** Adds temporary copies from gallery / paste / drops; they are removed afterwards. */
+    fun addPicked(files: List<PickedFile>, into: String?) {
+        addPaths(files.map { it.file.absolutePath }, into) {
+            files.forEach { it.remove() }
+        }
+    }
+
+    fun answer(answer: DuplicateAnswer) {
+        val question = duplicateQuestion ?: return
+        duplicateQuestion = null
+        answered.add(question.id)
+        scope.launch {
+            withContext(Dispatchers.IO) {
+                runCatching { library.answerImport(question.id, answer) }
+                    .onFailure { report(it.message ?: it.toString()) }
+            }
+        }
+    }
+
+    fun showUnreadable(count: Int) {
+        val ctx = appContext
+        val message = if (ctx != null) {
+            ctx.resources.getQuantityString(R.plurals.add_unreadable, count, count)
+        } else {
+            "$count item(s) could not be read from Gallery"
+        }
+        show(message, undoable = false)
+    }
+
+    private fun progressed(progress: ImportProgress) {
+        if (progress.isFinished) {
+            finished(progress)
+            return
+        }
+        imports = imports + (progress.id to progress)
+        if (progress.state == ImportState.WAITING_FOR_DECISION &&
+            progress.duplicate != null &&
+            progress.id !in answered &&
+            duplicateQuestion?.id != progress.id
+        ) {
+            duplicateQuestion = progress
+        }
+    }
+
+    private fun finished(progress: ImportProgress) {
+        if (duplicateQuestion?.id == progress.id) {
+            duplicateQuestion = null
+        }
+        answered.remove(progress.id)
+        imports = imports - progress.id
+        val cleanup = afterImport.remove(progress.id) ?: return
+        cleanup()
+        show(summaryOf(progress), undoable = false)
+        runCatching { refresh() }
+    }
+
+    private fun summaryOf(progress: ImportProgress): String {
+        val ctx = appContext
+        return if (ctx != null) {
+            importSummary(
+                progress = progress,
+                addedLabel = { n -> ctx.resources.getQuantityString(R.plurals.add_done, n, n) },
+                duplicatesLabel = { n -> ctx.resources.getQuantityString(R.plurals.add_duplicates, n, n) },
+                failedLabel = { n -> ctx.resources.getQuantityString(R.plurals.add_failed, n, n) },
+                cancelledLabel = ctx.getString(R.string.add_cancelled),
+            )
+        } else {
+            importSummary(
+                progress = progress,
+                addedLabel = { n -> "Added $n items" },
+                duplicatesLabel = { n -> "$n duplicates skipped" },
+                failedLabel = { n -> "$n failed" },
+                cancelledLabel = "stopped",
+            )
         }
     }
 
@@ -200,6 +335,11 @@ class OpenLibrary(
         thumbnails.removeAll()
         originals.removeAll()
         dismissToast()
+        duplicateQuestion = null
+        imports = emptyMap()
+        val cleanups = afterImport.values.toList()
+        afterImport.clear()
+        cleanups.forEach { runCatching { it() } }
         runCatching { library.setEventHandler(null) }
         library.close()
     }

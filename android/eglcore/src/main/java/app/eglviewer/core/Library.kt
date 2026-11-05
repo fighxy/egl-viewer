@@ -6,8 +6,8 @@ import java.util.concurrent.atomic.AtomicReference
 
 /**
  * Typed Kotlin face of the C ABI (`crates/library-ffi`), one [Library] per open `.eglib`.
- * Mirrors Swift `EglCore.Library` for A1–A3: create / open / close, views, thumbs, item edits,
- * undo, trash and originals. Calls may block — run them off the main thread.
+ * Mirrors Swift `EglCore.Library` for A1–A4: create / open / close, views, thumbs, item edits,
+ * undo, trash, originals, and adding files. Calls may block — run them off the main thread.
  */
 class Library private constructor(private var handle: Long) : AutoCloseable {
     private val eventHandler = AtomicReference<((LibraryEvent) -> Unit)?>(null)
@@ -203,6 +203,40 @@ class Library private constructor(private var handle: Long) : AutoCloseable {
     fun originalBytes(id: String): ByteArray? {
         ensureOpen()
         return EglNative.originalBytes(handle, id)
+    }
+
+    /** Starts adding files and folders in the background; progress comes as events. */
+    fun addFiles(paths: List<String>, folder: String? = null): ImportTicket {
+        ensureOpen()
+        require(paths.isNotEmpty()) { "paths must not be empty" }
+        val request = org.json.JSONObject()
+            .put("paths", org.json.JSONArray(paths))
+            .put("folder", folder ?: org.json.JSONObject.NULL)
+        val json = EglNative.addFiles(handle, request.toString())
+        val status = EglNative.lastStatus()
+        if (json.isNullOrEmpty()) throw error(status)
+        return ImportTicket.fromJson(json)
+    }
+
+    fun importStatus(id: Long): ImportProgress? {
+        ensureOpen()
+        val json = EglNative.importStatus(handle, id)
+        val status = EglNative.lastStatus()
+        if (status != 0) throw error(status)
+        if (json.isNullOrEmpty() || json == "null") return null
+        return ImportProgress.fromJson(json)
+    }
+
+    fun answerImport(id: Long, answer: DuplicateAnswer) {
+        ensureOpen()
+        val status = EglNative.answerImport(handle, id, answer.wire)
+        if (status != 0) throw error(status)
+    }
+
+    fun cancelImport(id: Long) {
+        ensureOpen()
+        val status = EglNative.cancelImport(handle, id)
+        if (status != 0) throw error(status)
     }
 
     override fun close() {

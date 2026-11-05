@@ -39,6 +39,9 @@ import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
 import app.eglviewer.R
+import app.eglviewer.adding.AddMenuButton
+import app.eglviewer.adding.DuplicateQuestionDialog
+import app.eglviewer.adding.ImportBanner
 import app.eglviewer.app.OpenLibrary
 import app.eglviewer.browse.BrowseScreen
 import app.eglviewer.browse.Place
@@ -109,7 +112,12 @@ fun LibraryScreen(
                 fontWeight = FontWeight.SemiBold,
                 modifier = Modifier.weight(1f),
             )
+            if (!open.readOnly) {
+                AddMenuButton(open = open, folder = null)
+            }
         }
+
+        ImportBanner(open = open)
 
         Column(
             modifier = Modifier
@@ -197,6 +205,8 @@ fun LibraryScreen(
             Spacer(modifier = Modifier.height(24.dp))
         }
     }
+
+    DuplicateQuestionDialog(open = open)
 }
 
 @Composable

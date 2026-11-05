@@ -1,27 +1,28 @@
-# egl-viewer Android (A1–A3)
+# egl-viewer Android (A1–A4)
 
 Jetpack Compose phone client over the native `.eglib` core. **No Eagle. No Canvas.**
 Desktop Tauri remains the default product. Shares the same C ABI as iOS
 (`crates/library-ffi`, D-082 / D-092), wrapped for Kotlin by the `eglcore` module
-(D-101 foundation, D-102 browsing, D-103 preview / details / actions).
+(D-101 foundation, D-102 browsing, D-103 preview / details / actions, D-104 adding).
 
-Stages: **A1** foundation → **A2** browsing → **A3** preview/details (this README) → A4
-adding → A5 organizing → A6 locks → A7 settings → A8 release.
+Stages: **A1** foundation → **A2** browsing → **A3** preview/details → **A4** adding
+(this README) → A5 organizing → A6 locks → A7 settings → A8 release.
 
 ## What works
 
 | Layer | State |
 |---|---|
-| `eglcore` | Typed `Library`, view-id APIs, tags, extensions, smart folders, thumbs, `Item` / `ItemEdit`, selection tags, undo, delete / empty trash, view ids, original path / bytes |
+| `eglcore` | Typed `Library`, view-id APIs, tags, extensions, smart folders, thumbs, `Item` / `ItemEdit`, selection tags, undo, delete / empty trash, view ids, original path / bytes, `addFiles` / import progress / duplicate answer, platform ImageDecoder for HEIC |
 | App foundation (A1) | `AppModel`, Welcome (create, SAF open, recent), open library |
 | Browsing (A2) | Places, folder tree + smart folders (locked folders label-only), lazy grid/list by view id, thumbs, sort / search / filters, selection + Select All via view target, saved view per library |
-| Preview / details / actions (A3) | Full-screen pager + zoom + chrome toggle; details sheet (name, rating, tags, folders, notes, link, facts); selection / preview actions (rate, tags, folder, share, trash; Trash restore / delete / empty); undo snackbar; share originals as temp copies (≤100) |
+| Preview / details / actions (A3) | Full-screen pager + zoom + chrome toggle; details sheet; selection / preview actions; undo snackbar; share originals as temp copies (≤100) |
+| Adding (A4) | + menu: Gallery, Files, Folder, Paste; drops onto places; Trash excluded; folder context adds into folder; temp `picked-*` copies; SAF grants held for resolvable paths; progress + Stop; duplicate dialog; HEIC via ImageDecoder platform decoder |
 | Where libraries live | App-specific storage + SAF; cloud-looking path opens **read-only** (D-021) |
 | Strings | English / Russian / Simplified Chinese |
 | Native core | Real `libegl_library.so` when built with cargo-ndk; **no mock fallback** |
-| Host tests | `./gradlew :eglcore:testDebugUnitTest :app:testDebugUnitTest` (BrowseModel + details/actions/share against an in-memory fake; no device) |
+| Host tests | `./gradlew :eglcore:testDebugUnitTest :app:testDebugUnitTest` (BrowseModel, details/actions/share, adding / picked copies; no device) |
 
-**Not yet:** gallery add (A4), organize / locks / settings / release.
+**Not yet:** organize / locks / settings / release (A5–A8).
 
 ## Layout
 
@@ -29,10 +30,11 @@ adding → A5 organizing → A6 locks → A7 settings → A8 release.
 android/
   eglcore/                     Kotlin core over JNI (parallel to ios/EglCore)
   app/
-    …/app/                     AppModel, OpenLibrary (toast / undo / originals), LibraryLocations
+    …/app/                     AppModel, OpenLibrary (toast / undo / imports), LibraryLocations
     …/browse/                  BrowseModel, SelectionBar, Place, SavedViews, FilterSheet, BrowseScreen
     …/preview/                 PreviewScreen, ZoomingImage, OriginalCache
     …/details/                 DetailsSheet, ItemDetailsModel, ShareFiles
+    …/adding/                  AddMenu, PickedFiles, import banner / duplicate dialog
 crates/library-ffi/            C ABI (staticlib iOS, cdylib Android)
 ```
 
@@ -47,7 +49,7 @@ cargo ndk -t arm64-v8a -o android/eglcore/src/main/jniLibs \
 
 Output: `android/eglcore/src/main/jniLibs/arm64-v8a/libegl_library.so`
 
-## CI (D-084 / D-101 / D-102 / D-103)
+## CI (D-084 / D-101 / D-102 / D-103 / D-104)
 
 Workflow: [`.github/workflows/mobile.yml`](../.github/workflows/mobile.yml).
 
@@ -62,4 +64,5 @@ Workflow: [`.github/workflows/mobile.yml`](../.github/workflows/mobile.yml).
 - Writer lock / sync-folder read-only (`syncFolder` on open, D-021).
 - Tags stay case-sensitive.
 - Permanent deletes have no undo; share uses temp copies, never mutates library files.
+- File bytes never pass through the WebView; Rust reads files by path (temp copies / SAF paths).
 - UI stays thin; logic lives in Rust.

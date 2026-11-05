@@ -83,4 +83,33 @@
     <string name="trash_no_undo">此操作无法撤销。</string>
     <string name="toast_undo">撤销</string>
     <string name="toast_undone">已撤销</string>
+
+    <string name="add_title">添加</string>
+    <string name="add_photos">从图库</string>
+    <string name="add_files">从“文件”</string>
+    <string name="add_folder">从文件夹</string>
+    <string name="add_paste">粘贴</string>
+    <string name="add_preparing">正在准备…</string>
+    <string name="add_stop">停止添加</string>
+    <string name="add_cancelled">已停止</string>
+    <string name="library_adding">已添加 %1$d / %2$d</string>
+    <string name="duplicate_title">已在资料库中</string>
+    <string name="duplicate_message">资料库中已有此文件。你的选择也将用于这批中的其他重复项。</string>
+    <string name="duplicate_in_trash">废纸篓中有相同的文件。你的选择也将用于这批中的其他重复项。</string>
+    <string name="duplicate_skip">跳过</string>
+    <string name="duplicate_add_anyway">仍然添加</string>
+    <string name="duplicate_add_to_folder">将已有项目加入文件夹</string>
+    <string name="duplicate_stop">停止添加</string>
+    <plurals name="add_done">
+        <item quantity="other">已添加 %d 项</item>
+    </plurals>
+    <plurals name="add_duplicates">
+        <item quantity="other">已跳过 %d 个重复项</item>
+    </plurals>
+    <plurals name="add_failed">
+        <item quantity="other">%d 项失败</item>
+    </plurals>
+    <plurals name="add_unreadable">
+        <item quantity="other">有 %d 项无法从图库读取</item>
+    </plurals>
 </resources>
