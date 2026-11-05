@@ -303,6 +303,48 @@ final class EglCoreTests: XCTestCase {
         XCTAssertEqual(try library.originalBytes(id)?.dropFirst().prefix(3), Data("PNG".utf8))
     }
 
+    func testMaintenanceAndAnEncryptedExport() throws {
+        let library = try openNew()
+        let heard = Heard()
+        try library.setEventHandler { heard.add($0) }
+        try seeded(library, count: 2)
+
+        XCTAssertGreaterThan(try library.stats().originals, 0)
+        let backup = try library.backUpNow()
+        XCTAssertEqual(backup.kind, .manual)
+        XCTAssertTrue(try library.backups().contains { $0.name == backup.name })
+        let check = try library.check()
+        XCTAssertTrue(check.isClean, "\(check)")
+        XCTAssertEqual(check.items, 2)
+        XCTAssertTrue(try library.repair(RepairOptions(orphans: true, missing: false)).isClean)
+        _ = try library.generatePreviews(rebuild: true)
+
+        let preview = try library.exportPreview(ExportSelection(whole: true), includeSubfolders: true)
+        XCTAssertEqual(preview.items, 2)
+        let out = dir.appendingPathComponent("out", isDirectory: true)
+        try FileManager.default.createDirectory(at: out, withIntermediateDirectories: true)
+        let started = try library.startExport(ExportRequest(
+            selection: ExportSelection(whole: true), includeSubfolders: true, format: .zip(.fast),
+            destination: out.path, encrypt: "pässphrase"
+        ))
+        let deadline = Date().addingTimeInterval(60)
+        var done: ExportProgress?
+        while done == nil {
+            for case let .exportProgress(progress) in heard.events where progress.id == started.id && progress.isFinished {
+                done = progress
+            }
+            XCTAssertLessThan(Date(), deadline, "the export never ended")
+            Thread.sleep(forTimeInterval: 0.05)
+        }
+        XCTAssertEqual(done?.state, .done, done?.error ?? "")
+        let path = try XCTUnwrap(done?.summary?.path)
+        XCTAssertTrue(FileManager.default.fileExists(atPath: path))
+        // An age file, not a plain ZIP.
+        let head = try FileHandle(forReadingFrom: URL(fileURLWithPath: path)).readData(ofLength: 4)
+        XCTAssertNotEqual(head, Data([0x50, 0x4B, 0x03, 0x04]))
+        try library.setEventHandler(nil)
+    }
+
     func testALockedFolderHidesItsItemsUntilUnlocked() throws {
         let library = try openNew()
         try seeded(library, count: 1)

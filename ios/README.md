@@ -2,7 +2,7 @@
 
 A SwiftUI app over the same native `.eglib` core as the desktop: `crates/app-service` through
 the C ABI of `crates/library-ffi`, wrapped for Swift by the `EglCore` package (D-091, D-092,
-D-093–D-098). **No Eagle.** The plan is the desktop's features in a series of PRs.
+D-093–D-099). **No Eagle.** The plan is the desktop's features in a series of PRs.
 
 ## What works
 
@@ -16,7 +16,8 @@ D-093–D-098). **No Eagle.** The plan is the desktop's features in a series of 
 | Adding (D-096) | The + menu: Photos (originals, HEIC kept), Files (files and folders, security scopes held during the import), Paste; drops; progress with Stop and a summary; the duplicate question (skip, add anyway, add to the folder, stop) for the batch; HEIC dimensions and thumbnails through ImageIO, lent to the core as its platform decoder |
 | Organizing (D-097) | Folders: new, subfolder, edit (name, description, colour), move, delete with or without their items; the tag list by group with rename, merge, delete and tag groups; a tag's items; smart folders: new, subfolder, edit, delete, Save as Smart Folder, and the rule editor (Eagle's rules kept as JSON, unknown rules preserved) |
 | Locks and login (D-098) | Locked folders: unlock, recovery key, lock with a label, change password, new recovery key, remove lock, Lock All; every open folder locks again when the app leaves the screen; the app's login (password or PIN, Face ID / Touch ID through the Keychain) with a privacy cover |
-| Maintenance, settings, release | The next PRs of the series |
+| Settings (D-099) | Library name, location and storage, Rebuild Thumbnails; backups (Back Up Now, Restore); Check and Repair; export of the library, folders or tags as ZIP (compression, optional age passphrase) or a folder tree, saved to Files or shared; App Lock, version and language |
+| Release | The last PR of the series |
 
 ## Layout
 
@@ -36,12 +37,13 @@ ios/
     Organize/              FolderEditor (+ colours, move), TagsScreen (+ groups, merge),
                            SmartFolderEditor, SmartRules
     Locks/                 LockSheets (+ recovery key), AppLock (+ Keychain store),
-                           LoginScreen (+ cover window), AppLockSettings
+                           LoginScreen (+ cover window), AppLockForm
+    Settings/              SettingsScreen (+ library, backups, check), ExportScreen
     Screens/               WelcomeScreen (+ CreateLibrarySheet), LibraryScreen (places, folders)
     Theme/Tokens.swift     colours that follow light and dark mode
     Resources/             Info.plist, Localizable.xcstrings (en, ru, zh-Hans)
   EglViewerTests/          unit tests (locations, recents, AppModel, BrowseModel, details,
-                           actions, sharing, adding, organizing and locks with the real core)
+                           actions, sharing, adding, organizing, locks and upkeep with the real core)
   EglViewerUITests/        UI tests on a simulator (create, open, close, reopen; Russian;
                            browse, search, filter, select, preview, details, trash and undo
                            on `-sampleLibrary 12`)

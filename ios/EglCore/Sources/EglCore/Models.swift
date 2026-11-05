@@ -310,6 +310,8 @@ public struct ExportProgress: Codable, Equatable, Identifiable, Sendable {
     public var current: String?
     public var summary: ExportSummary?
     public var error: String?
+
+    public var isFinished: Bool { state == .done || state == .failed || state == .cancelled }
 }
 
 /// Shown once when a folder is locked or the key renewed; never stored.
@@ -328,11 +330,143 @@ public struct TrashInfo: Codable, Equatable, Sendable {
     public var bytes: Int
 }
 
+public enum BackupKind: String, Codable, Sendable {
+    case daily, manual, beforeMigration, beforeRestore
+}
+
+/// A copy of `library.db` in `backups/`; restoring names it by `name`.
 public struct Backup: Codable, Equatable, Identifiable, Sendable {
     public var name: String
+    public var kind: BackupKind?
     public var createdAt: Int
     public var size: Int
     public var id: String { name }
+}
+
+/// Bytes on disk, for Library Settings.
+public struct LibraryStats: Codable, Equatable, Sendable {
+    public var originals: Int
+    public var thumbnails: Int
+    public var database: Int
+    public var backups: Int
+    public var total: Int { originals + thumbnails + database + backups }
+}
+
+public struct MissingOriginal: Codable, Equatable, Sendable {
+    public var id: String
+    /// Empty for an item of a closed locked folder.
+    public var name: String
+    public var inTrash: Bool
+}
+
+/// What Check Library found.
+public struct LibraryCheck: Codable, Equatable, Sendable {
+    public var items: Int
+    public var databaseOk: Bool
+    public var databaseProblems: [String]
+    public var missingCount: Int
+    public var missing: [MissingOriginal]
+    public var orphanCount: Int
+    public var orphanBytes: Int
+    public var orphans: [String]
+    public var orphanThumbnails: Int
+
+    public var isClean: Bool {
+        databaseOk && missingCount == 0 && orphanCount == 0 && orphanThumbnails == 0
+    }
+}
+
+/// What Repair removes after a check.
+public struct RepairOptions: Codable, Equatable, Sendable {
+    /// Files and thumbnails no item points at.
+    public var orphans: Bool
+    /// Items whose original is gone, removed for good.
+    public var missing: Bool
+
+    public init(orphans: Bool, missing: Bool) {
+        self.orphans = orphans
+        self.missing = missing
+    }
+}
+
+/// A background task making thumbnails; `id` is nil when one already runs.
+public struct PreviewsTicket: Codable, Equatable, Sendable {
+    public var id: UInt64?
+    public var waiting: Int
+}
+
+/// What an export covers: the whole library, some folders, some tags, or a mix.
+public struct ExportSelection: Codable, Equatable, Sendable {
+    public var whole: Bool
+    public var folders: [String]
+    public var tags: [String]
+
+    public init(whole: Bool = false, folders: [String] = [], tags: [String] = []) {
+        self.whole = whole
+        self.folders = folders
+        self.tags = tags
+    }
+
+    public var isEmpty: Bool { !whole && folders.isEmpty && tags.isEmpty }
+}
+
+public enum ExportCompression: String, Codable, CaseIterable, Sendable {
+    case none, fast, balanced, smallest
+}
+
+/// A folder tree that mirrors the library's folders, or one ZIP archive of the same tree.
+public enum ExportFormat: Codable, Equatable, Sendable {
+    case mirror
+    case zip(ExportCompression)
+
+    private enum Keys: String, CodingKey { case kind, compression }
+
+    public func encode(to encoder: Encoder) throws {
+        var c = encoder.container(keyedBy: Keys.self)
+        switch self {
+        case .mirror:
+            try c.encode("mirror", forKey: .kind)
+        case let .zip(compression):
+            try c.encode("zip", forKey: .kind)
+            try c.encode(compression, forKey: .compression)
+        }
+    }
+
+    public init(from decoder: Decoder) throws {
+        let c = try decoder.container(keyedBy: Keys.self)
+        if try c.decode(String.self, forKey: .kind) == "zip" {
+            self = .zip(try c.decode(ExportCompression.self, forKey: .compression))
+        } else {
+            self = .mirror
+        }
+    }
+}
+
+/// One export into a folder or an archive; Eagle is not a destination on the phone.
+public struct ExportRequest: Encodable, Equatable, Sendable {
+    public var selection: ExportSelection
+    public var includeSubfolders: Bool
+    public var format: ExportFormat
+    /// An existing folder the export is written into.
+    public var destination: String
+    /// An age passphrase protecting the archive; ZIP only. Never stored.
+    public var encrypt: String?
+
+    public init(selection: ExportSelection, includeSubfolders: Bool, format: ExportFormat, destination: String, encrypt: String? = nil) {
+        self.selection = selection
+        self.includeSubfolders = includeSubfolders
+        self.format = format
+        self.destination = destination
+        self.encrypt = encrypt
+    }
+}
+
+/// What an export would write, before it starts.
+public struct ExportPreview: Codable, Equatable, Sendable {
+    public var items: Int
+    public var bytes: Int
+    /// Items a closed locked folder hides; they are not exported.
+    public var hidden: Int
 }
 
 /// Where a view looks.

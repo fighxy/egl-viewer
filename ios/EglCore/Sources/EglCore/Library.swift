@@ -113,6 +113,58 @@ public final class Library: @unchecked Sendable {
         try name.withCString { name in try json { egl_rename_library($0, name, $1) } }
     }
 
+    // MARK: Maintenance
+
+    public func stats() throws -> LibraryStats { try json { egl_library_stats($0, $1) } }
+
+    /// Newest first.
+    public func backups() throws -> [Backup] { try json { egl_backups($0, $1) } }
+
+    @discardableResult
+    public func backUpNow() throws -> Backup { try json { egl_back_up_now($0, $1) } }
+
+    /// Puts a backup's database back (the current one is kept as a backup first). Views and
+    /// undo start over.
+    @discardableResult
+    public func restoreBackup(_ name: String) throws -> LibraryInfo {
+        try name.withCString { name in try json { egl_restore_backup($0, name, $1) } }
+    }
+
+    /// Reads only.
+    public func check() throws -> LibraryCheck { try json { egl_check_library($0, $1) } }
+
+    public func repair(_ options: RepairOptions) throws -> LibraryCheck {
+        let options = try encode(options)
+        return try options.withCString { options in try json { egl_repair_library($0, options, $1) } }
+    }
+
+    /// Makes missing thumbnails in the background; `rebuild` makes all of them again.
+    @discardableResult
+    public func generatePreviews(rebuild: Bool) throws -> PreviewsTicket {
+        try json { egl_generate_previews($0, rebuild ? 1 : 0, $1) }
+    }
+
+    // MARK: Export
+
+    public func exportPreview(_ selection: ExportSelection, includeSubfolders: Bool) throws -> ExportPreview {
+        let selection = try encode(selection)
+        return try selection.withCString { selection in
+            try json { egl_export_preview($0, selection, includeSubfolders ? 1 : 0, $1) }
+        }
+    }
+
+    /// Starts an export in the background; progress comes as events.
+    public func startExport(_ request: ExportRequest) throws -> ExportProgress {
+        let request = try encode(request)
+        return try request.withCString { request in try json { egl_start_export($0, request, $1) } }
+    }
+
+    public func exports() throws -> [ExportProgress] { try json { egl_exports($0, $1) } }
+
+    public func cancelExport(_ id: UInt64) throws {
+        try check(egl_cancel_export(try live(), id))
+    }
+
     // MARK: Views
 
     public func openView(_ query: LibraryQuery = LibraryQuery()) throws -> ViewOpened {

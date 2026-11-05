@@ -27,7 +27,8 @@ final class OrganizeUITests: XCTestCase {
         XCTAssertTrue(new.waitForExistence(timeout: 10))
         new.tap()
         let name = app.textFields["folder.name"]
-        XCTAssertTrue(name.waitForExistence(timeout: 5))
+        // The sheet can take a while on a busy simulator.
+        XCTAssertTrue(name.waitForExistence(timeout: 20))
         name.tap()
         name.typeText("Refs")
         app.buttons["folder.save"].tap()

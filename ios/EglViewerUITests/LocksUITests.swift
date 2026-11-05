@@ -12,7 +12,10 @@ final class LocksUITests: XCTestCase {
         app.launchArguments = ["-uiTesting", "-AppleLanguages", "(en)", "-AppleLocale", "en_US"]
         app.launch()
 
-        app.buttons["welcome.appLock"].tap()
+        app.buttons["welcome.settings"].tap()
+        let appLock = app.descendants(matching: .any).matching(identifier: "settings.appLock").firstMatch
+        XCTAssertTrue(appLock.waitForExistence(timeout: 5))
+        appLock.tap()
         let new = app.secureTextFields["appLock.new"]
         XCTAssertTrue(new.waitForExistence(timeout: 5))
         new.tap()
@@ -22,7 +25,11 @@ final class LocksUITests: XCTestCase {
         confirm.typeText("1234")
         app.buttons["appLock.save"].tap()
         XCTAssertTrue(app.staticTexts["appLock.message"].waitForExistence(timeout: 10))
-        app.buttons["appLock.done"].tap()
+        // Back from the App Lock page, then close Settings.
+        app.buttons["BackButton"].firstMatch.tap()
+        let done = app.buttons["settings.done"]
+        XCTAssertTrue(done.waitForExistence(timeout: 5))
+        done.tap()
 
         XCUIDevice.shared.press(.home)
         app.activate()

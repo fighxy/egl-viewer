@@ -223,15 +223,18 @@ private struct PreviewPage: View {
     }
 }
 
-/// The page that fills the screen, from the system on iOS 18 and later, as a second source
-/// for the position next to `scrollPosition`.
+/// The page that fills the screen on iOS 18 and later, from the scroll offset itself (one page is
+/// one container width), next to `scrollPosition`, which does not always follow a quick swipe.
 private struct VisiblePage: ViewModifier {
     @Binding var position: Int?
 
     func body(content: Content) -> some View {
         if #available(iOS 18.0, *) {
-            content.onScrollTargetVisibilityChange(idType: Int.self, threshold: 0.6) { visible in
-                if let page = visible.first, page != position {
+            content.onScrollGeometryChange(for: Int.self) { geometry in
+                let width = max(geometry.containerSize.width, 1)
+                return max(Int((geometry.contentOffset.x / width).rounded()), 0)
+            } action: { _, page in
+                if page != position {
                     position = page
                 }
             }
