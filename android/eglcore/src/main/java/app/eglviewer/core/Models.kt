@@ -1,5 +1,6 @@
 package app.eglviewer.core
 
+import org.json.JSONArray
 import org.json.JSONObject
 
 /** Wire shapes of the Rust core, camelCase as on the desktop / Swift EglCore. */
@@ -86,12 +87,14 @@ data class LibraryCounts(
 }
 
 /**
- * What the core tells the app while it works (A1 stub: parse type only; A2+ fills models).
+ * What the core tells the app while it works.
+ * A2 parses [ViewsInvalidated] view ids so browse models can refresh windows.
+ * A4 parses typed [ImportProgress] for the duplicate question and the banner.
  */
 sealed class LibraryEvent {
-    data class ImportProgress(val raw: JSONObject) : LibraryEvent()
-    data class ExportProgress(val raw: JSONObject) : LibraryEvent()
-    data class ViewsInvalidated(val raw: JSONObject) : LibraryEvent()
+    data class ImportProgress(val progress: app.eglviewer.core.ImportProgress) : LibraryEvent()
+    data class ExportProgress(val progress: app.eglviewer.core.ExportProgress) : LibraryEvent()
+    data class ViewsInvalidated(val views: List<ViewOpened>) : LibraryEvent()
     data class Unknown(val type: String, val raw: JSONObject) : LibraryEvent()
 
     companion object {
@@ -99,9 +102,23 @@ sealed class LibraryEvent {
             runCatching {
                 val o = JSONObject(json)
                 when (o.optString("type")) {
-                    "importProgress" -> ImportProgress(o)
-                    "exportProgress" -> ExportProgress(o)
-                    "viewsInvalidated" -> ViewsInvalidated(o)
+                    "importProgress" -> {
+                        val progress = o.optJSONObject("progress")
+                            ?: return@runCatching Unknown("importProgress", o)
+                        ImportProgress(app.eglviewer.core.ImportProgress.fromJson(progress))
+                    }
+                    "exportProgress" -> {
+                        val progress = o.optJSONObject("progress")
+                            ?: return@runCatching Unknown("exportProgress", o)
+                        ExportProgress(app.eglviewer.core.ExportProgress.fromJson(progress))
+                    }
+                    "viewsInvalidated" -> {
+                        val arr = o.optJSONArray("views") ?: JSONArray()
+                        val views = (0 until arr.length()).map {
+                            ViewOpened.fromJson(arr.getJSONObject(it))
+                        }
+                        ViewsInvalidated(views)
+                    }
                     else -> Unknown(o.optString("type"), o)
                 }
             }.getOrNull()

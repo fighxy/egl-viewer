@@ -23,6 +23,7 @@ import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.filled.Add
 import androidx.compose.material.icons.filled.FolderOpen
 import androidx.compose.material.icons.filled.GridView
+import androidx.compose.material.icons.filled.Settings
 import androidx.compose.material3.AlertDialog
 import androidx.compose.material3.Button
 import androidx.compose.material3.ButtonDefaults
@@ -52,13 +53,25 @@ import androidx.compose.ui.unit.sp
 import app.eglviewer.R
 import app.eglviewer.app.AppModel
 import app.eglviewer.app.RecentLibrary
+import app.eglviewer.locks.AppLock
+import app.eglviewer.settings.SettingsScreen
 import app.eglviewer.theme.EglTokens
 import java.io.File
 
 @Composable
-fun WelcomeScreen(model: AppModel) {
+fun WelcomeScreen(model: AppModel, lock: AppLock) {
     var showCreate by remember { mutableStateOf(false) }
     var createName by remember { mutableStateOf("") }
+    var showSettings by remember { mutableStateOf(false) }
+
+    if (showSettings) {
+        SettingsScreen(
+            open = null,
+            lock = lock,
+            onBack = { showSettings = false },
+        )
+        return
+    }
 
     val openTree = rememberLauncherForActivityResult(
         contract = ActivityResultContracts.OpenDocumentTree(),
@@ -248,6 +261,20 @@ fun WelcomeScreen(model: AppModel) {
                     )
                 }
             }
+        }
+
+        OutlinedButton(
+            onClick = { showSettings = true },
+            modifier = Modifier
+                .fillMaxWidth()
+                .height(EglTokens.ButtonHeight),
+            shape = RoundedCornerShape(EglTokens.RadiusLg),
+            colors = ButtonDefaults.outlinedButtonColors(contentColor = EglTokens.Foreground),
+            border = BorderStroke(1.dp, EglTokens.Border),
+        ) {
+            Icon(Icons.Default.Settings, contentDescription = null, modifier = Modifier.size(18.dp))
+            Spacer(modifier = Modifier.size(8.dp))
+            Text(stringResource(R.string.settings_title), fontSize = 15.sp, fontWeight = FontWeight.SemiBold)
         }
 
         Spacer(modifier = Modifier.height(24.dp))

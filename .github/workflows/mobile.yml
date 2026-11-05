@@ -1,9 +1,10 @@
 name: Mobile
 
-# iOS app + Android A1 foundation + library-ffi (D-082–D-084, D-092–D-101).
+# iOS app + Android app + library-ffi (D-082–D-084, D-092–D-108).
 # Parallel to the Windows desktop `CI` workflow; does not replace it.
 # A tag `ios-vX.Y.Z` builds and tests the iPhone app and publishes a GitHub Release with the
-# unsigned IPA (D-100); path filters do not apply to tag pushes.
+# unsigned IPA (D-100); a tag `android-vX.Y.Z` builds the release APK/AAB (D-108). Path
+# filters do not apply to tag pushes.
 on:
   pull_request:
     paths:
@@ -17,13 +18,15 @@ on:
       - "scripts/check-mobile-shell.sh"
       - "scripts/check-ios-strings.py"
       - "scripts/ios-release-version.sh"
+      - "scripts/android-release-version.sh"
+      - "scripts/check-android-jni.sh"
       - ".github/workflows/mobile.yml"
       - "rust-toolchain.toml"
       - "Cargo.toml"
       - "Cargo.lock"
   push:
     branches: [main]
-    tags: ["ios-v*"]
+    tags: ["ios-v*", "android-v*"]
     paths:
       - "android/**"
       - "ios/**"
@@ -35,6 +38,8 @@ on:
       - "scripts/check-mobile-shell.sh"
       - "scripts/check-ios-strings.py"
       - "scripts/ios-release-version.sh"
+      - "scripts/android-release-version.sh"
+      - "scripts/check-android-jni.sh"
       - ".github/workflows/mobile.yml"
       - "rust-toolchain.toml"
       - "Cargo.toml"
@@ -85,8 +90,14 @@ jobs:
       - name: library-ffi tests
         run: cargo test -p library-ffi
 
-  # Android A1 (D-101): eglcore unit tests + assembleDebug with a real arm64 .so
-  # (cargo-ndk). No mock core. NDK is required only when the .so is present.
+      # The Android JNI bridge against the real core on the host JVM (D-109): UTF-8 both
+      # ways, events and the platform decoder from the core's threads.
+      - name: Android JNI bridge (host)
+        run: bash scripts/check-android-jni.sh
+
+  # Android (D-101…D-108): eglcore unit tests + assembleDebug with a real arm64 .so
+  # (cargo-ndk). On a tag `android-vX.Y.Z`, also assembleRelease APK + AAB (D-108).
+  # No mock core. NDK is required only when the .so is present.
   android:
     runs-on: ubuntu-24.04
     env:
@@ -162,6 +173,21 @@ jobs:
             build -p library-ffi --release
           test -f android/eglcore/src/main/jniLibs/arm64-v8a/libegl_library.so
 
+      # A release tag sets the version (android-v1.2.3 → 1.2.3) and the versionCode
+      # (the run number); other builds keep the defaults of build.gradle.kts.
+      - name: Version
+        id: version
+        run: |
+          set -euo pipefail
+          if [[ "$GITHUB_REF" == refs/tags/android-v* ]]; then
+            VERSION="$(bash scripts/android-release-version.sh "$GITHUB_REF_NAME")"
+            echo "version=$VERSION" >> "$GITHUB_OUTPUT"
+            echo "ANDROID_VERSION_NAME=$VERSION" >> "$GITHUB_ENV"
+            echo "ANDROID_VERSION_CODE=$GITHUB_RUN_NUMBER" >> "$GITHUB_ENV"
+          else
+            echo "version=" >> "$GITHUB_OUTPUT"
+          fi
+
       - name: Gradle unit tests + assembleDebug (real core)
         working-directory: android
         run: |
@@ -174,6 +200,70 @@ jobs:
         with:
           name: android-debug-apk
           path: android/app/build/outputs/apk/debug/*.apk
+          if-no-files-found: error
+
+      # Every release is signed with the same key (D-109): an APK signed with another one
+      # cannot update the installed app. The keystore lives in repository secrets.
+      - name: Release keystore
+        if: startsWith(github.ref, 'refs/tags/android-v')
+        env:
+          KEYSTORE_BASE64: ${{ secrets.ANDROID_KEYSTORE_BASE64 }}
+          KEYSTORE_PASSWORD: ${{ secrets.ANDROID_KEYSTORE_PASSWORD }}
+          KEY_ALIAS: ${{ secrets.ANDROID_KEY_ALIAS }}
+          KEY_PASSWORD: ${{ secrets.ANDROID_KEY_PASSWORD }}
+        run: |
+          set -euo pipefail
+          for name in KEYSTORE_BASE64 KEYSTORE_PASSWORD KEY_ALIAS KEY_PASSWORD; do
+            if [[ -z "${!name}" ]]; then
+              echo "Missing secret ANDROID_${name}: see android/README.md, \"Releasing\"." >&2
+              exit 1
+            fi
+          done
+          KEYSTORE="$RUNNER_TEMP/release.jks"
+          echo "$KEYSTORE_BASE64" | base64 --decode > "$KEYSTORE"
+          {
+            echo "ANDROID_KEYSTORE_FILE=$KEYSTORE"
+            echo "ANDROID_KEYSTORE_PASSWORD=$KEYSTORE_PASSWORD"
+            echo "ANDROID_KEY_ALIAS=$KEY_ALIAS"
+            echo "ANDROID_KEY_PASSWORD=$KEY_PASSWORD"
+          } >> "$GITHUB_ENV"
+
+      - name: Gradle release APK + AAB
+        if: startsWith(github.ref, 'refs/tags/android-v')
+        working-directory: android
+        run: |
+          set -euo pipefail
+          ./gradlew :app:assembleRelease :app:bundleRelease --no-daemon --stacktrace
+          APK="$(find app/build/outputs/apk/release -name '*.apk' | head -n1)"
+          AAB="$(find app/build/outputs/bundle/release -name '*.aab' | head -n1)"
+          test -n "$APK" && test -n "$AAB"
+          VERSION="${{ steps.version.outputs.version }}"
+          mkdir -p "$RUNNER_TEMP/android-release"
+          cp "$APK" "$RUNNER_TEMP/android-release/EglViewer-$VERSION.apk"
+          cp "$AAB" "$RUNNER_TEMP/android-release/EglViewer-$VERSION.aab"
+          # The APK must carry the tag's versionName.
+          AAPT="$(find "${ANDROID_HOME}/build-tools" -type f \( -name aapt2 -o -name aapt \) 2>/dev/null | head -n1)"
+          test -n "$AAPT"
+          BADGING="$("$AAPT" dump badging "$APK")"
+          echo "$BADGING" | head -5
+          echo "$BADGING" | grep -F "versionName='$VERSION'"
+          # Signed with the release key, not a debug one; its certificate goes to the log.
+          APKSIGNER="$(find "${ANDROID_HOME}/build-tools" -type f -name apksigner | sort | tail -n1)"
+          test -n "$APKSIGNER"
+          CERTS="$("$APKSIGNER" verify --print-certs "$APK")"
+          echo "$CERTS" | grep -F "certificate SHA-256 digest"
+          if echo "$CERTS" | grep -Fq "CN=Android Debug"; then
+            echo "the release APK is signed with a debug key" >&2
+            exit 1
+          fi
+          rm -f "$ANDROID_KEYSTORE_FILE"
+
+      - name: Upload release APK and AAB
+        if: startsWith(github.ref, 'refs/tags/android-v')
+        uses: actions/upload-artifact@v4
+        with:
+          name: android-release-artifacts
+          path: ${{ runner.temp }}/android-release/*
           if-no-files-found: error
 
   # EglCore (ios/EglCore, D-092): the Swift wrapper over the C ABI, tested on the macOS host
@@ -424,3 +514,52 @@ jobs:
             ARGS+=(--generate-notes --notes-start-tag "$PREVIOUS")
           fi
           gh release create "$GITHUB_REF_NAME" "$IPA" SHA256SUMS "${ARGS[@]}"
+
+  # A release tag `android-vX.Y.Z`: once the Android job passes, a GitHub Release with the
+  # sideload APK, the AAB and their checksums (D-108). Never marked as the latest release:
+  # the desktop updater reads releases/latest (D-062).
+  android-release:
+    if: startsWith(github.ref, 'refs/tags/android-v')
+    needs: [library-ffi, android]
+    runs-on: ubuntu-24.04
+    permissions:
+      contents: write
+    steps:
+      - uses: actions/checkout@v7
+        with:
+          fetch-depth: 0
+
+      - name: Download the APK and AAB
+        uses: actions/download-artifact@v4
+        with:
+          name: android-release-artifacts
+
+      - name: Publish the release
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: |
+          set -euo pipefail
+          VERSION="$(bash scripts/android-release-version.sh "$GITHUB_REF_NAME")"
+          APK="EglViewer-$VERSION.apk"
+          AAB="EglViewer-$VERSION.aab"
+          test -f "$APK" && test -f "$AAB"
+          sha256sum "$APK" "$AAB" > SHA256SUMS
+          PREVIOUS="$(git tag --list 'android-v*' --sort=-v:refname | grep -vx "$GITHUB_REF_NAME" | head -n1 || true)"
+          {
+            echo "egl-viewer for Android $VERSION, built from ${GITHUB_SHA::7}."
+            echo
+            if [[ -f "docs/releases/$VERSION.md" ]]; then
+              cat "docs/releases/$VERSION.md"
+              echo
+            fi
+            echo "The APK and the AAB are signed with the project's release key: an update"
+            echo "installs over the previous version. Android may ask to allow installs from"
+            echo "this source. See android/README.md, \"Releasing\"."
+            echo
+            echo "Check the download: \`sha256sum -c SHA256SUMS\`."
+          } > notes.md
+          ARGS=(--title "egl-viewer for Android $VERSION" --notes-file notes.md --verify-tag --latest=false)
+          if [[ -n "$PREVIOUS" ]]; then
+            ARGS+=(--generate-notes --notes-start-tag "$PREVIOUS")
+          fi
+          gh release create "$GITHUB_REF_NAME" "$APK" "$AAB" SHA256SUMS "${ARGS[@]}"
