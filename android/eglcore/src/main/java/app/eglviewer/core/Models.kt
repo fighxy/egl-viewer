@@ -93,7 +93,7 @@ data class LibraryCounts(
  */
 sealed class LibraryEvent {
     data class ImportProgress(val progress: app.eglviewer.core.ImportProgress) : LibraryEvent()
-    data class ExportProgress(val raw: JSONObject) : LibraryEvent()
+    data class ExportProgress(val progress: app.eglviewer.core.ExportProgress) : LibraryEvent()
     data class ViewsInvalidated(val views: List<ViewOpened>) : LibraryEvent()
     data class Unknown(val type: String, val raw: JSONObject) : LibraryEvent()
 
@@ -107,7 +107,11 @@ sealed class LibraryEvent {
                             ?: return@runCatching Unknown("importProgress", o)
                         ImportProgress(app.eglviewer.core.ImportProgress.fromJson(progress))
                     }
-                    "exportProgress" -> ExportProgress(o)
+                    "exportProgress" -> {
+                        val progress = o.optJSONObject("progress")
+                            ?: return@runCatching Unknown("exportProgress", o)
+                        ExportProgress(app.eglviewer.core.ExportProgress.fromJson(progress))
+                    }
                     "viewsInvalidated" -> {
                         val arr = o.optJSONArray("views") ?: JSONArray()
                         val views = (0 until arr.length()).map {

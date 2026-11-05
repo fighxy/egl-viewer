@@ -6,9 +6,10 @@ import java.util.concurrent.atomic.AtomicReference
 
 /**
  * Typed Kotlin face of the C ABI (`crates/library-ffi`), one [Library] per open `.eglib`.
- * Mirrors Swift `EglCore.Library` for A1–A6: create / open / close, views, thumbs, item edits,
- * undo, trash, originals, adding files, organizing (folders / tags / smart folders), and
- * locked folders. Calls may block — run them off the main thread.
+ * Mirrors Swift `EglCore.Library` for A1–A7: create / open / close, views, thumbs, item edits,
+ * undo, trash, originals, adding files, organizing (folders / tags / smart folders),
+ * locked folders, and settings (stats / backups / check / repair / export). Calls may block —
+ * run them off the main thread.
  */
 class Library private constructor(private var handle: Long) : AutoCloseable {
     private val eventHandler = AtomicReference<((LibraryEvent) -> Unit)?>(null)
@@ -393,6 +394,115 @@ class Library private constructor(private var handle: Long) : AutoCloseable {
     fun setLockLabel(id: String, label: String?, color: String?) {
         ensureOpen()
         val status = EglNative.setLockLabel(handle, id, label, color)
+        if (status != 0) throw error(status)
+    }
+
+    // --- Settings / maintenance / export (Android A7 ≈ D-099) ---------------
+
+    /** Renames the library; its folder keeps its name. */
+    fun rename(to: String): LibraryInfo {
+        ensureOpen()
+        val json = EglNative.renameLibrary(handle, to)
+        val status = EglNative.lastStatus()
+        if (json.isNullOrEmpty()) throw error(status)
+        return LibraryInfo.fromJson(json)
+    }
+
+    fun stats(): LibraryStats {
+        ensureOpen()
+        val json = EglNative.libraryStats(handle)
+        val status = EglNative.lastStatus()
+        if (json.isNullOrEmpty()) throw error(status)
+        return LibraryStats.fromJson(json)
+    }
+
+    /** Newest first. */
+    fun backups(): List<Backup> {
+        ensureOpen()
+        val json = EglNative.backups(handle)
+        val status = EglNative.lastStatus()
+        if (json.isNullOrEmpty()) throw error(status)
+        return Backup.listFromJson(json)
+    }
+
+    fun backUpNow(): Backup {
+        ensureOpen()
+        val json = EglNative.backUpNow(handle)
+        val status = EglNative.lastStatus()
+        if (json.isNullOrEmpty()) throw error(status)
+        return Backup.fromJson(org.json.JSONObject(json))
+    }
+
+    /**
+     * Puts a backup's database back (the current one is kept as a backup first). Views and
+     * undo start over.
+     */
+    fun restoreBackup(name: String): LibraryInfo {
+        ensureOpen()
+        val json = EglNative.restoreBackup(handle, name)
+        val status = EglNative.lastStatus()
+        if (json.isNullOrEmpty()) throw error(status)
+        return LibraryInfo.fromJson(json)
+    }
+
+    /** Reads only. */
+    fun check(): LibraryCheck {
+        ensureOpen()
+        val json = EglNative.checkLibrary(handle)
+        val status = EglNative.lastStatus()
+        if (json.isNullOrEmpty()) throw error(status)
+        return LibraryCheck.fromJson(json)
+    }
+
+    fun repair(options: RepairOptions): LibraryCheck {
+        ensureOpen()
+        val json = EglNative.repairLibrary(handle, options.toJson().toString())
+        val status = EglNative.lastStatus()
+        if (json.isNullOrEmpty()) throw error(status)
+        return LibraryCheck.fromJson(json)
+    }
+
+    /** Makes missing thumbnails in the background; [rebuild] makes all of them again. */
+    fun generatePreviews(rebuild: Boolean): PreviewsTicket {
+        ensureOpen()
+        val json = EglNative.generatePreviews(handle, rebuild)
+        val status = EglNative.lastStatus()
+        if (json.isNullOrEmpty()) throw error(status)
+        return PreviewsTicket.fromJson(json)
+    }
+
+    fun exportPreview(selection: ExportSelection, includeSubfolders: Boolean): ExportPreview {
+        ensureOpen()
+        val json = EglNative.exportPreview(
+            handle,
+            selection.toJson().toString(),
+            includeSubfolders,
+        )
+        val status = EglNative.lastStatus()
+        if (json.isNullOrEmpty()) throw error(status)
+        return ExportPreview.fromJson(json)
+    }
+
+    /** Starts an export in the background; progress comes as events. */
+    fun startExport(request: ExportRequest): ExportProgress {
+        ensureOpen()
+        val json = EglNative.startExport(handle, request.toJson().toString())
+        val status = EglNative.lastStatus()
+        if (json.isNullOrEmpty()) throw error(status)
+        return ExportProgress.fromJson(json)
+    }
+
+    fun exports(): List<ExportProgress> {
+        ensureOpen()
+        val json = EglNative.exports(handle)
+        val status = EglNative.lastStatus()
+        if (json.isNullOrEmpty()) throw error(status)
+        return ExportProgress.listFromJson(json)
+    }
+
+    fun cancelExport(id: Long) {
+        ensureOpen()
+        val status = EglNative.cancelExport(handle, id)
         if (status != 0) throw error(status)
     }
 

@@ -2242,3 +2242,35 @@ The sixth PR of the Android series (D-101…D-105), mirroring iOS D-098. Stacked
   `:app:testDebugUnitTest` of the Mobile workflow.
 - **Docs.** `android/README.md`, the README status table, and this decision.
 - **Out of scope.** Settings (A7), release (A8).
+
+## D-107 Android A7 settings: library upkeep, backups, check/repair, export (2026-11-05)
+
+The seventh PR of the Android series (D-101…D-106), mirroring iOS D-099. Stacked on
+`feat/android-a6-locks` (A6 / D-106). Eagle is not a destination on the phone.
+
+- **Settings** opens from the library screen (gear) and from Welcome. The library part:
+  - **Library**: the name (renaming changes the library's own name, not its folder), where it
+    lives, what it takes on disk (originals, thumbnails, database, backups) and Rebuild
+    Thumbnails (the core's preview task in the background, progress in the import banner);
+  - **Backups**: Back Up Now and the list (daily, by hand, before an update, before a restore)
+    with Restore, confirmed. A restore is another database: views and undo start over;
+  - **Check and Repair**: the core's check (database, missing originals, files and thumbnails
+    without an item) and Repair with the desktop's two choices; the core backs up first;
+  - **Export**: the whole library, or folders (with or without their subfolders) and tags; a
+    ZIP archive (four compression levels, optionally encrypted with an age passphrase, never
+    stored) or a folder tree; the preview counts items, bytes and items a closed locked folder
+    leaves out. The export is written into the app's temporary folder, then saved via SAF
+    (`CreateDocument`) or shared; the temporary copy goes when the screen closes or a new
+    export starts.
+  The app part: App Lock (moved here from Welcome), the version, the language with a link to
+  the system app-language / app-details settings.
+- **eglcore.** JNI and `Library` gain `rename`, `stats`, `backups`, `backUpNow`,
+  `restoreBackup`, `check`, `repair`, `generatePreviews`, `exportPreview`, `startExport`,
+  `exports`, `cancelExport`; models `LibraryStats`, `Backup` / `BackupKind`, `LibraryCheck`,
+  `RepairOptions`, `PreviewsTicket`, `ExportSelection`, `ExportFormat` / `ExportCompression`,
+  `ExportRequest`, `ExportPreview`, `ExportProgress` / `ExportSummary` / `ExportState`. Typed
+  `LibraryEvent.ExportProgress`.
+- **Tests.** JVM unit tests of settings / export JSON and `formatBytes`, in
+  `:eglcore:testDebugUnitTest` / `:app:testDebugUnitTest` of the Mobile workflow.
+- **Docs.** `android/README.md`, the README status table, and this decision.
+- **Out of scope.** Release: icon, privacy, a11y, 10k, tagged APK/AAB (A8).

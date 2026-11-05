@@ -309,4 +309,116 @@
         <item quantity="many">Повторите через %d секунд</item>
         <item quantity="other">Повторите через %d секунд</item>
     </plurals>
+
+    <!-- Settings / maintenance / export (A7 ≈ D-099) -->
+    <string name="settings_title">Настройки</string>
+    <string name="settings_library_section">Библиотека</string>
+    <string name="settings_app_section">Приложение</string>
+    <string name="settings_library_detail">Имя, место, миниатюры</string>
+    <string name="settings_backups">Резервные копии</string>
+    <string name="settings_check">Проверка и починка</string>
+    <string name="settings_export">Экспорт</string>
+    <string name="settings_on">Вкл.</string>
+    <string name="settings_off">Выкл.</string>
+    <string name="settings_version">Версия</string>
+    <string name="settings_language">Язык</string>
+    <string name="settings_change_language">Язык и разрешения</string>
+    <string name="settings_library_title">Библиотека</string>
+    <string name="settings_name">Имя</string>
+    <string name="settings_location">Расположение</string>
+    <string name="settings_storage">Место</string>
+    <string name="settings_originals">Оригиналы</string>
+    <string name="settings_thumbnails">Миниатюры</string>
+    <string name="settings_database">База данных</string>
+    <string name="settings_backups_size">Резервные копии</string>
+    <string name="settings_total">Всего</string>
+    <string name="settings_rebuild">Пересоздать миниатюры</string>
+    <string name="settings_rebuild_hint">Заново делает все миниатюры в фоне — например, после обновления, которое рисует их лучше.</string>
+    <string name="settings_rebuild_confirm">Пересоздать все миниатюры?</string>
+
+    <string name="backups_now">Сделать копию сейчас</string>
+    <string name="backups_hint">Резервная копия — это копия базы библиотеки: имена, теги, папки, оценки, заметки. Сами файлы не копируются.</string>
+    <string name="backups_none">Резервных копий пока нет</string>
+    <string name="backups_daily">ежедневная</string>
+    <string name="backups_manual">сделана вручную</string>
+    <string name="backups_before_migration">перед обновлением формата</string>
+    <string name="backups_before_restore">перед восстановлением</string>
+    <string name="backups_other">копия</string>
+    <string name="backups_restore">Восстановить эту копию</string>
+    <string name="backups_restore_title">Восстановить эту копию?</string>
+    <string name="backups_restore_hint">Библиотека вернётся к этой копии. Текущее состояние сначала сохраняется как копия, так что можно вернуться.</string>
+
+    <string name="check_run">Проверить библиотеку</string>
+    <string name="check_hint">Проверяет базу, элементы без файла и файлы без элемента. Ничего не меняет.</string>
+    <string name="check_result">Результат</string>
+    <string name="check_items">Элементы</string>
+    <string name="check_database">База данных</string>
+    <string name="check_ok">В порядке</string>
+    <string name="check_problems">Есть проблемы</string>
+    <string name="check_missing">Нет файлов</string>
+    <string name="check_orphans">Файлы без элемента</string>
+    <string name="check_orphan_thumbnails">Миниатюры без элемента</string>
+    <string name="check_clean">Чинить нечего</string>
+    <string name="check_remove_orphans">Удалить файлы и миниатюры без элемента</string>
+    <string name="check_remove_missing">Удалить элементы без файла</string>
+    <string name="check_repair">Починить</string>
+    <string name="check_repair_hint">Сначала делается резервная копия. Удалённые элементы не вернуть отменой.</string>
+
+    <string name="export_title">Экспорт</string>
+    <string name="export_whole">Вся библиотека</string>
+    <string name="export_whole_hint">Или выберите папки и теги. Оригиналы выгружаются в дереве папок библиотеки.</string>
+    <string name="export_folders">Папки</string>
+    <string name="export_subfolders">Вместе с подпапками</string>
+    <string name="export_tags">Теги</string>
+    <string name="export_format">Формат</string>
+    <string name="export_zip">ZIP</string>
+    <string name="export_folder">Папка</string>
+    <string name="export_compression">Сжатие</string>
+    <string name="export_compression_none">Без сжатия</string>
+    <string name="export_compression_fast">Быстрое</string>
+    <string name="export_compression_balanced">Обычное</string>
+    <string name="export_compression_smallest">Наименьший размер</string>
+    <string name="export_encrypt">Зашифровать паролем</string>
+    <string name="export_passphrase">Пароль</string>
+    <string name="export_confirm_passphrase">Повторите пароль</string>
+    <string name="export_encrypt_hint">Архив шифруется age. Без пароля его не открыть; пароль нигде не сохраняется.</string>
+    <string name="export_start">Экспортировать</string>
+    <string name="export_preparing">Подготовка…</string>
+    <string name="export_copying">Копирование…</string>
+    <string name="export_encrypting">Шифрование…</string>
+    <string name="export_cancel">Остановить экспорт</string>
+    <string name="export_done">Экспорт готов.</string>
+    <string name="export_failed">Экспорт не удался.</string>
+    <string name="export_cancelled">Экспорт остановлен.</string>
+    <string name="export_another">Новый экспорт</string>
+    <string name="export_save_to_files">Сохранить в «Файлы»</string>
+    <string name="export_saved">Сохранено в «Файлы»</string>
+    <plurals name="export_summary">
+        <item quantity="one">%d элемент</item>
+        <item quantity="few">%d элемента</item>
+        <item quantity="many">%d элементов</item>
+        <item quantity="other">%d элемента</item>
+    </plurals>
+    <plurals name="export_hidden">
+        <item quantity="one">%d элемент в закрытой папке не войдёт</item>
+        <item quantity="few">%d элемента в закрытых папках не войдут</item>
+        <item quantity="many">%d элементов в закрытых папках не войдут</item>
+        <item quantity="other">%d элемента в закрытых папках не войдут</item>
+    </plurals>
+    <plurals name="export_written">
+        <item quantity="one">Записан %d элемент</item>
+        <item quantity="few">Записано %d элемента</item>
+        <item quantity="many">Записано %d элементов</item>
+        <item quantity="other">Записано %d элемента</item>
+    </plurals>
+    <plurals name="export_missing">
+        <item quantity="one">%d файл отсутствовал и пропущен</item>
+        <item quantity="few">%d файла отсутствовали и пропущены</item>
+        <item quantity="many">%d файлов отсутствовали и пропущены</item>
+        <item quantity="other">%d файла отсутствовали и пропущены</item>
+    </plurals>
+
+    <string name="toast_backed_up">Резервная копия сделана</string>
+    <string name="toast_rebuilding">Миниатюры пересоздаются</string>
+    <string name="toast_restored">Копия восстановлена</string>
 </resources>

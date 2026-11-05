@@ -32,7 +32,7 @@ import app.eglviewer.theme.EglTokens
 
 /**
  * The app's login (Android A6 ≈ D-098): set a password or PIN, change it, turn it off, and
- * biometrics. On Welcome for now; Settings arrive with A7.
+ * biometrics. Opened from Settings (A7).
  */
 @Composable
 fun AppLockFormDialog(
