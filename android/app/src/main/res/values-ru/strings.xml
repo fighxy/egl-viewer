@@ -22,10 +22,10 @@
     <string name="library_close">Закрыть</string>
     <string name="library_places">Места</string>
     <string name="library_folders">Папки</string>
+    <string name="library_smart_folders">Умные папки</string>
     <string name="library_read_only">Библиотека только для чтения.</string>
     <string name="library_read_only_other">Открыта в другом экземпляре — только чтение.</string>
     <string name="library_read_only_synced">Путь в облаке — только чтение.</string>
-    <string name="library_a1_hint">Сетка элементов появится в следующем Android PR (A2).</string>
 
     <string name="place_all">Все</string>
     <string name="place_uncategorized">Без папки</string>

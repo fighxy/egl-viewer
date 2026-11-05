@@ -27,4 +27,14 @@ internal object EglNative {
     external fun lastStatus(): Int
     external fun lastError(handle: Long): String
     external fun lastErrorGlobal(): String
+
+    // Views by id (Android A2 ≈ D-094)
+    external fun openView(handle: Long, queryJson: String?): String?
+    external fun viewRange(handle: Long, viewId: Long, start: Int, len: Int): String?
+    external fun closeView(handle: Long, viewId: Long)
+    external fun tags(handle: Long): String?
+    external fun extensions(handle: Long): String?
+    external fun smartFolders(handle: Long): String?
+    external fun thumbnailBytes(handle: Long, id: String): ByteArray?
+    external fun editItems(handle: Long, targetJson: String, editJson: String): Int
 }

@@ -182,7 +182,7 @@ egl-viewer/
                              events through a callback, edits, locks, maintenance; no Eagle, no Tauri
   ios/                       SwiftUI iPhone app (XcodeGen project.yml); ios/EglCore is the Swift package over
                              the C ABI; see ios/README.md
-  android/                   Jetpack Compose app (A1 on eglcore, D-101); see android/README.md
+  android/                   Jetpack Compose app (A1–A2 on eglcore, D-101 / D-102); see android/README.md
   src-tauri/                 the app crate: thin
     commands.rs              libraries, imports (files and the Eagle folder import), views and items; the live
                              Eagle commands arrive with phases 9–11 (§8)

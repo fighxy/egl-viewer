@@ -1,6 +1,7 @@
 /**
- * Thin JNI forwarder to the library-ffi C ABI (D-083 / D-101).
- * A1 surface: create / open / close, library info, counts, folder tree, event callback.
+ * Thin JNI forwarder to the library-ffi C ABI (D-083 / D-101 / D-102).
+ * A1: create / open / close, info, counts, folder tree, event callback.
+ * A2: open_view / view_range / close_view, tags, extensions, smart folders, thumbs, edit_items.
  * Package: app.eglviewer.core.EglNative
  */
 
@@ -233,5 +234,169 @@ Java_app_eglviewer_core_EglNative_lastErrorGlobal(JNIEnv *env, jclass) {
   return env->NewStringUTF(msg != nullptr ? msg : "");
 #else
   return empty_string(env);
+#endif
+}
+
+/* ---- Views by id (Android A2 ≈ iOS D-094) -------------------------------- */
+
+extern "C" JNIEXPORT jstring JNICALL
+Java_app_eglviewer_core_EglNative_openView(JNIEnv *env, jclass, jlong handle,
+                                           jstring queryJson) {
+#if defined(EGL_HAS_RUST)
+  const char *query = nullptr;
+  if (queryJson != nullptr) {
+    query = env->GetStringUTFChars(queryJson, nullptr);
+  }
+  char *json = nullptr;
+  EglStatus status =
+      egl_open_view(reinterpret_cast<EglLibrary *>(handle), query, &json);
+  set_status(static_cast<int>(status));
+  if (queryJson != nullptr) {
+    env->ReleaseStringUTFChars(queryJson, query);
+  }
+  if (status != EGL_OK || json == nullptr) {
+    return nullptr;
+  }
+  return take_c_string(env, json);
+#else
+  (void)env;
+  (void)handle;
+  (void)queryJson;
+  set_status(6);
+  return nullptr;
+#endif
+}
+
+extern "C" JNIEXPORT jstring JNICALL
+Java_app_eglviewer_core_EglNative_viewRange(JNIEnv *env, jclass, jlong handle,
+                                            jlong viewId, jint start, jint len) {
+#if defined(EGL_HAS_RUST)
+  char *json = nullptr;
+  EglStatus status = egl_view_range(
+      reinterpret_cast<EglLibrary *>(handle), static_cast<uint64_t>(viewId),
+      static_cast<uint32_t>(start), static_cast<uint32_t>(len), &json);
+  set_status(static_cast<int>(status));
+  if (status != EGL_OK || json == nullptr) {
+    return nullptr;
+  }
+  return take_c_string(env, json);
+#else
+  (void)env;
+  (void)handle;
+  (void)viewId;
+  (void)start;
+  (void)len;
+  set_status(6);
+  return nullptr;
+#endif
+}
+
+extern "C" JNIEXPORT void JNICALL
+Java_app_eglviewer_core_EglNative_closeView(JNIEnv *, jclass, jlong handle,
+                                            jlong viewId) {
+#if defined(EGL_HAS_RUST)
+  egl_close_view(reinterpret_cast<EglLibrary *>(handle),
+                 static_cast<uint64_t>(viewId));
+#else
+  (void)handle;
+  (void)viewId;
+#endif
+}
+
+extern "C" JNIEXPORT jstring JNICALL
+Java_app_eglviewer_core_EglNative_tags(JNIEnv *env, jclass, jlong handle) {
+#if defined(EGL_HAS_RUST)
+  return call_json(env, reinterpret_cast<EglLibrary *>(handle), egl_tags);
+#else
+  (void)env;
+  (void)handle;
+  set_status(6);
+  return nullptr;
+#endif
+}
+
+extern "C" JNIEXPORT jstring JNICALL
+Java_app_eglviewer_core_EglNative_extensions(JNIEnv *env, jclass, jlong handle) {
+#if defined(EGL_HAS_RUST)
+  return call_json(env, reinterpret_cast<EglLibrary *>(handle), egl_extensions);
+#else
+  (void)env;
+  (void)handle;
+  set_status(6);
+  return nullptr;
+#endif
+}
+
+extern "C" JNIEXPORT jstring JNICALL
+Java_app_eglviewer_core_EglNative_smartFolders(JNIEnv *env, jclass,
+                                               jlong handle) {
+#if defined(EGL_HAS_RUST)
+  return call_json(env, reinterpret_cast<EglLibrary *>(handle), egl_smart_folders);
+#else
+  (void)env;
+  (void)handle;
+  set_status(6);
+  return nullptr;
+#endif
+}
+
+extern "C" JNIEXPORT jbyteArray JNICALL
+Java_app_eglviewer_core_EglNative_thumbnailBytes(JNIEnv *env, jclass,
+                                                 jlong handle, jstring id) {
+#if defined(EGL_HAS_RUST)
+  const char *id_utf = env->GetStringUTFChars(id, nullptr);
+  uint8_t *bytes = nullptr;
+  size_t len = 0;
+  char *content_type = nullptr;
+  EglStatus status = egl_thumbnail_bytes(
+      reinterpret_cast<EglLibrary *>(handle), id_utf, &bytes, &len, &content_type);
+  env->ReleaseStringUTFChars(id, id_utf);
+  if (content_type != nullptr) {
+    egl_string_free(content_type);
+  }
+  set_status(static_cast<int>(status));
+  if (status != EGL_OK || bytes == nullptr || len == 0) {
+    return nullptr;
+  }
+  jbyteArray out = env->NewByteArray(static_cast<jsize>(len));
+  if (out != nullptr) {
+    env->SetByteArrayRegion(out, 0, static_cast<jsize>(len),
+                            reinterpret_cast<const jbyte *>(bytes));
+  }
+  egl_bytes_free(bytes, len);
+  return out;
+#else
+  (void)env;
+  (void)handle;
+  (void)id;
+  set_status(6);
+  return nullptr;
+#endif
+}
+
+extern "C" JNIEXPORT jint JNICALL
+Java_app_eglviewer_core_EglNative_editItems(JNIEnv *env, jclass, jlong handle,
+                                            jstring targetJson,
+                                            jstring editJson) {
+#if defined(EGL_HAS_RUST)
+  const char *target = env->GetStringUTFChars(targetJson, nullptr);
+  const char *edit = env->GetStringUTFChars(editJson, nullptr);
+  uint32_t count = 0;
+  EglStatus status = egl_edit_items(reinterpret_cast<EglLibrary *>(handle),
+                                    target, edit, &count);
+  env->ReleaseStringUTFChars(targetJson, target);
+  env->ReleaseStringUTFChars(editJson, edit);
+  set_status(static_cast<int>(status));
+  if (status != EGL_OK) {
+    return -1;
+  }
+  return static_cast<jint>(count);
+#else
+  (void)env;
+  (void)handle;
+  (void)targetJson;
+  (void)editJson;
+  set_status(6);
+  return -1;
 #endif
 }
