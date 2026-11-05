@@ -2359,3 +2359,9 @@ JVM unit tests run fakes, and nothing ran the real `egl_jni.cpp`.
   would write outside the copy's folder ("Dirty Stream"). `PickedFile.safeName` keeps the
   last segment only, never "." or "..", at most 255 bytes, and `PickedFile.child` refuses a
   path that leaves the folder.
+- **Biometric unlock.** Turning it on encrypted a token with a Keystore key that needs a
+  strong biometric for every use (`setUserAuthenticationRequired`, timeout 0) outside any
+  prompt, so it failed and the switch showed an error. Turning it on now only makes the
+  key; the unlock prompt authorises one encryption of random bytes with it, which
+  succeeds only after a match, and an invalidated key (biometrics changed) turns the
+  option off. This needs a device to confirm: the unit tests use the in-memory store.
