@@ -50,4 +50,19 @@ internal object EglNative {
     external fun viewIds(handle: Long, viewId: Long, start: Int, len: Int): String?
     external fun originalPath(handle: Long, id: String): String?
     external fun originalBytes(handle: Long, id: String): ByteArray?
+
+    // Adding (Android A4 ≈ D-096)
+    external fun addFiles(handle: Long, requestJson: String): String?
+    external fun answerImport(handle: Long, id: Long, answer: String): Int
+    external fun cancelImport(handle: Long, id: Long): Int
+    external fun importStatus(handle: Long, id: Long): String?
+    external fun setPlatformDecoder(enabled: Boolean): Int
+    external fun decodeSinkPut(
+        sinkPtr: Long,
+        width: Int,
+        height: Int,
+        pixelWidth: Int,
+        pixelHeight: Int,
+        rgba: ByteArray,
+    )
 }

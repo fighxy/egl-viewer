@@ -8,15 +8,17 @@ import androidx.compose.runtime.setValue
 import androidx.lifecycle.AndroidViewModel
 import androidx.lifecycle.viewModelScope
 import app.eglviewer.R
+import app.eglviewer.adding.PickedFile
 import app.eglviewer.core.EglError
 import app.eglviewer.core.Library
+import app.eglviewer.core.PlatformDecoder
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.launch
 import kotlinx.coroutines.withContext
 import java.io.File
 
 /**
- * App state: Welcome or one open library, recent list, last error (D-101 / D-102).
+ * App state: Welcome or one open library, recent list, last error (D-101…D-104).
  * Every core call runs off the main thread.
  */
 class AppModel(application: Application) : AndroidViewModel(application) {
@@ -50,6 +52,8 @@ class AppModel(application: Application) : AndroidViewModel(application) {
         get() = Library.isNativeAvailable
 
     init {
+        PlatformDecoder.install()
+        PickedFile.removeLeftovers(application.cacheDir)
         reloadLists()
     }
 
@@ -135,7 +139,7 @@ class AppModel(application: Application) : AndroidViewModel(application) {
         }
         val open = OpenLibrary(library, file, savedViews)
         withContext(Dispatchers.IO) { open.refresh() }
-        open.attachEvents()
+        open.attachEvents(getApplication())
         screen = Screen.LibraryOpen(open)
         val hint = locations.locationHint(file, uri)
         recents = recentStore.remember(

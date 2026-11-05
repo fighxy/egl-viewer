@@ -182,7 +182,7 @@ egl-viewer/
                              events through a callback, edits, locks, maintenance; no Eagle, no Tauri
   ios/                       SwiftUI iPhone app (XcodeGen project.yml); ios/EglCore is the Swift package over
                              the C ABI; see ios/README.md
-  android/                   Jetpack Compose app (A1–A3 on eglcore, D-101 / D-102 / D-103); see android/README.md
+  android/                   Jetpack Compose app (A1–A4 on eglcore, D-101…D-104); see android/README.md
   src-tauri/                 the app crate: thin
     commands.rs              libraries, imports (files and the Eagle folder import), views and items; the live
                              Eagle commands arrive with phases 9–11 (§8)
@@ -1213,7 +1213,7 @@ The full schema of format version 1, the connection settings, and the protocols 
 
 Eagle generates thumbnails, palettes and metadata itself; the native library needs its own pipeline, in the `media` crate.
 
-**v1 formats** (D-015): JPEG, PNG, GIF (first frame), WebP, SVG, TIFF, BMP, and the composite image of PSD files, plus HEIC/HEIF through `libheif` (D-063); the iOS build has no libheif and decodes HEIC through ImageIO, lent to the core as a platform decoder (`media::set_platform_decoder`, `egl_set_platform_decoder`, D-096). AVIF waits for a decoder (D-035). Every other file is accepted and stored, with an extension placeholder instead of a thumbnail; its `width`, `height` and palette stay empty.
+**v1 formats** (D-015): JPEG, PNG, GIF (first frame), WebP, SVG, TIFF, BMP, and the composite image of PSD files, plus HEIC/HEIF through `libheif` (D-063); the iOS and Android builds have no libheif and decode HEIC through a platform decoder lent to the core (`media::set_platform_decoder`, `egl_set_platform_decoder`: ImageIO on iOS, D-096; ImageDecoder on Android, D-104). AVIF waits for a decoder (D-035). Every other file is accepted and stored, with an extension placeholder instead of a thumbnail; its `width`, `height` and palette stay empty.
 
 | Step | Tools |
 |---|---|

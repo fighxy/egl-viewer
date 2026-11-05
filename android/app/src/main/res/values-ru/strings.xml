@@ -83,4 +83,45 @@
     <string name="trash_no_undo">Это нельзя отменить.</string>
     <string name="toast_undo">Отменить</string>
     <string name="toast_undone">Отменено</string>
+
+    <string name="add_title">Добавить</string>
+    <string name="add_photos">Из галереи</string>
+    <string name="add_files">Из «Файлов»</string>
+    <string name="add_folder">Из папки</string>
+    <string name="add_paste">Вставить</string>
+    <string name="add_preparing">Подготовка…</string>
+    <string name="add_stop">Остановить добавление</string>
+    <string name="add_cancelled">остановлено</string>
+    <string name="library_adding">Добавлено %1$d из %2$d</string>
+    <string name="duplicate_title">Уже в библиотеке</string>
+    <string name="duplicate_message">Этот файл уже есть в библиотеке. Ответ применится и к другим повторам этого добавления.</string>
+    <string name="duplicate_in_trash">Такой же файл лежит в корзине. Ответ применится и к другим повторам этого добавления.</string>
+    <string name="duplicate_skip">Пропустить</string>
+    <string name="duplicate_add_anyway">Всё равно добавить</string>
+    <string name="duplicate_add_to_folder">Добавить имеющийся в папку</string>
+    <string name="duplicate_stop">Остановить добавление</string>
+    <plurals name="add_done">
+        <item quantity="one">Добавлен %d элемент</item>
+        <item quantity="few">Добавлено %d элемента</item>
+        <item quantity="many">Добавлено %d элементов</item>
+        <item quantity="other">Добавлено %d элементов</item>
+    </plurals>
+    <plurals name="add_duplicates">
+        <item quantity="one">%d повтор пропущен</item>
+        <item quantity="few">%d повтора пропущено</item>
+        <item quantity="many">%d повторов пропущено</item>
+        <item quantity="other">%d повторов пропущено</item>
+    </plurals>
+    <plurals name="add_failed">
+        <item quantity="one">%d не добавлен</item>
+        <item quantity="few">%d не добавлено</item>
+        <item quantity="many">%d не добавлено</item>
+        <item quantity="other">%d не добавлено</item>
+    </plurals>
+    <plurals name="add_unreadable">
+        <item quantity="one">%d элемент не удалось прочитать из галереи</item>
+        <item quantity="few">%d элемента не удалось прочитать из галереи</item>
+        <item quantity="many">%d элементов не удалось прочитать из галереи</item>
+        <item quantity="other">%d элементов не удалось прочитать из галереи</item>
+    </plurals>
 </resources>

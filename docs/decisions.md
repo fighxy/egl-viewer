@@ -2133,3 +2133,39 @@ The third PR of the Android series (D-101, D-102), mirroring iOS D-095. Stacked 
   `:eglcore:testDebugUnitTest` / `:app:testDebugUnitTest` of the Mobile workflow.
 - **Docs.** `android/README.md`, the README status table, and this decision.
 - **Out of scope.** Gallery add (A4), organize / locks / settings / release.
+
+## D-104 Android A4 adding: gallery, Files/folders, paste, drops, duplicates, HEIC via ImageDecoder (2026-11-05)
+
+The fourth PR of the Android series (D-101…D-103), mirroring iOS D-096. Stacked on
+`feat/android-a3-preview` (A3).
+
+- **Sources.** The + menu (library screen and every place but the Trash; files added in a
+  folder go into it) offers Gallery (`PickMultipleVisualMedia`, images and videos, original
+  encoding kept), Files (`OpenMultipleDocuments`), Folder (`OpenDocumentTree`) and Paste.
+  Files can also be dropped onto a place. Gallery, paste and drops hand over temporary files:
+  each is copied into a folder of its own (`cache/picked-…`) and removed when its import ends;
+  copies left by a killed run are removed at launch. Files/folders from SAF: when a document
+  resolves to a primary-storage path the app keeps the URI grant until the import ends;
+  otherwise the bytes are copied into `picked-*` while the grant is held (Android content URIs
+  have no durable path the core can read). Paste reads the clipboard only when the user picks
+  Paste.
+- **Import.** One `egl_add_files` per batch; progress shows over the place with Stop; when it
+  ends a toast says what was added, skipped and failed. Closing the library runs the pending
+  clean-ups.
+- **Duplicates.** At the first duplicate of a batch the core waits (`waitingForDecision`); the
+  app asks: skip, add anyway, add the existing item to the folder (when the batch goes into
+  one), or stop. The answer holds for the rest of the batch (`egl_answer_import`).
+- **HEIC on Android.** The Android core is built without libheif (D-101). The app installs
+  `PlatformDecoder` at launch: JNI registers `egl_set_platform_decoder`, and ImageDecoder
+  (API 28+) decodes with orientation applied, reports the displayed size and hands RGBA pixels
+  of at most 2048 on the long side. The core checks the sizes before it uses them. HEIC gets
+  dimensions, a thumbnail and a palette on the phone when the device can decode HEIC; EXIF of
+  HEIC stays a desktop feature.
+- **eglcore.** JNI and `Library` gain `addFiles`, `answerImport`, `cancelImport`,
+  `importStatus`, `setPlatformDecoder` / `decodeSinkPut`; models `ImportTicket`,
+  `ImportProgress`, `DuplicateNotice`, `DuplicateAnswer`; typed `LibraryEvent.ImportProgress`.
+- **Tests.** JVM unit tests of import JSON, picked-copy lifecycle, clipboard file names, the
+  import summary, and platform-decoder constants / rejection of junk, in
+  `:eglcore:testDebugUnitTest` / `:app:testDebugUnitTest` of the Mobile workflow.
+- **Docs.** `android/README.md`, the README status table, and this decision.
+- **Out of scope.** Organizing (A5), locks / login (A6), settings (A7), release (A8).

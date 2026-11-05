@@ -1,8 +1,9 @@
 /**
- * Thin JNI forwarder to the library-ffi C ABI (D-083 / D-101 / D-102 / D-103).
+ * Thin JNI forwarder to the library-ffi C ABI (D-083 / D-101 / D-102 / D-103 / D-104).
  * A1: create / open / close, info, counts, folder tree, event callback.
  * A2: open_view / view_range / close_view, tags, extensions, smart folders, thumbs, edit_items.
  * A3: item, apply_item_edit, selection tags, undo, delete, empty trash, view ids, originals.
+ * A4: add_files, answer/cancel import, import_status, platform decoder (HEIC via ImageDecoder).
  * Package: app.eglviewer.core.EglNative
  */
 
@@ -652,5 +653,196 @@ Java_app_eglviewer_core_EglNative_originalBytes(JNIEnv *env, jclass, jlong handl
   (void)id;
   set_status(6);
   return nullptr;
+#endif
+}
+
+/* ---- Adding files (Android A4 ≈ iOS D-096) -------------------------------- */
+
+extern "C" JNIEXPORT jstring JNICALL
+Java_app_eglviewer_core_EglNative_addFiles(JNIEnv *env, jclass, jlong handle,
+                                           jstring requestJson) {
+#if defined(EGL_HAS_RUST)
+  const char *req = env->GetStringUTFChars(requestJson, nullptr);
+  char *out = nullptr;
+  EglStatus status =
+      egl_add_files(reinterpret_cast<EglLibrary *>(handle), req, &out);
+  env->ReleaseStringUTFChars(requestJson, req);
+  set_status(static_cast<int>(status));
+  if (status != EGL_OK || out == nullptr) {
+    return nullptr;
+  }
+  return take_c_string(env, out);
+#else
+  (void)env;
+  (void)handle;
+  (void)requestJson;
+  set_status(6);
+  return nullptr;
+#endif
+}
+
+extern "C" JNIEXPORT jint JNICALL
+Java_app_eglviewer_core_EglNative_answerImport(JNIEnv *env, jclass, jlong handle,
+                                               jlong id, jstring answer) {
+#if defined(EGL_HAS_RUST)
+  const char *ans = env->GetStringUTFChars(answer, nullptr);
+  EglStatus status = egl_answer_import(reinterpret_cast<EglLibrary *>(handle),
+                                       static_cast<uint64_t>(id), ans);
+  env->ReleaseStringUTFChars(answer, ans);
+  set_status(static_cast<int>(status));
+  return static_cast<jint>(status);
+#else
+  (void)env;
+  (void)handle;
+  (void)id;
+  (void)answer;
+  set_status(6);
+  return 6;
+#endif
+}
+
+extern "C" JNIEXPORT jint JNICALL
+Java_app_eglviewer_core_EglNative_cancelImport(JNIEnv *, jclass, jlong handle,
+                                               jlong id) {
+#if defined(EGL_HAS_RUST)
+  EglStatus status = egl_cancel_import(reinterpret_cast<EglLibrary *>(handle),
+                                       static_cast<uint64_t>(id));
+  set_status(static_cast<int>(status));
+  return static_cast<jint>(status);
+#else
+  (void)handle;
+  (void)id;
+  set_status(6);
+  return 6;
+#endif
+}
+
+extern "C" JNIEXPORT jstring JNICALL
+Java_app_eglviewer_core_EglNative_importStatus(JNIEnv *env, jclass, jlong handle,
+                                               jlong id) {
+#if defined(EGL_HAS_RUST)
+  char *out = nullptr;
+  EglStatus status = egl_import_status(reinterpret_cast<EglLibrary *>(handle),
+                                       static_cast<uint64_t>(id), &out);
+  set_status(static_cast<int>(status));
+  if (status != EGL_OK) {
+    return nullptr;
+  }
+  // JSON null when the import has not reported yet.
+  if (out == nullptr) {
+    return env->NewStringUTF("null");
+  }
+  return take_c_string(env, out);
+#else
+  (void)env;
+  (void)handle;
+  (void)id;
+  set_status(6);
+  return nullptr;
+#endif
+}
+
+#if defined(EGL_HAS_RUST)
+static int platform_decode_trampoline(void * /*ctx*/, const uint8_t *bytes,
+                                      size_t len, const char *ext_utf8,
+                                      EglDecodeSink *sink) {
+  if (g_vm == nullptr || bytes == nullptr || sink == nullptr || len == 0) {
+    return 0;
+  }
+  JNIEnv *env = nullptr;
+  bool detach = false;
+  jint get_env = g_vm->GetEnv(reinterpret_cast<void **>(&env), JNI_VERSION_1_6);
+  if (get_env == JNI_EDETACHED) {
+    if (g_vm->AttachCurrentThread(&env, nullptr) != 0 || env == nullptr) {
+      return 0;
+    }
+    detach = true;
+  } else if (get_env != JNI_OK || env == nullptr) {
+    return 0;
+  }
+
+  int ok = 0;
+  jclass cls = env->FindClass("app/eglviewer/core/PlatformDecoder");
+  if (cls != nullptr) {
+    jmethodID mid =
+        env->GetStaticMethodID(cls, "decodeFromJni", "([BLjava/lang/String;J)I");
+    if (mid != nullptr) {
+      jbyteArray arr = env->NewByteArray(static_cast<jsize>(len));
+      if (arr != nullptr) {
+        env->SetByteArrayRegion(arr, 0, static_cast<jsize>(len),
+                                reinterpret_cast<const jbyte *>(bytes));
+        jstring ext = env->NewStringUTF(ext_utf8 != nullptr ? ext_utf8 : "");
+        if (ext != nullptr) {
+          ok = env->CallStaticIntMethod(cls, mid, arr, ext,
+                                        reinterpret_cast<jlong>(sink));
+          if (env->ExceptionCheck()) {
+            env->ExceptionClear();
+            ok = 0;
+          }
+          env->DeleteLocalRef(ext);
+        }
+        env->DeleteLocalRef(arr);
+      }
+    }
+    env->DeleteLocalRef(cls);
+  }
+
+  if (detach) {
+    g_vm->DetachCurrentThread();
+  }
+  return ok != 0 ? 1 : 0;
+}
+#endif
+
+extern "C" JNIEXPORT jint JNICALL
+Java_app_eglviewer_core_EglNative_setPlatformDecoder(JNIEnv *, jclass,
+                                                     jboolean enabled) {
+#if defined(EGL_HAS_RUST)
+  EglStatus status;
+  if (enabled) {
+    status = egl_set_platform_decoder(platform_decode_trampoline, nullptr);
+  } else {
+    status = egl_set_platform_decoder(nullptr, nullptr);
+  }
+  set_status(static_cast<int>(status));
+  return static_cast<jint>(status);
+#else
+  (void)enabled;
+  set_status(6);
+  return 6;
+#endif
+}
+
+extern "C" JNIEXPORT void JNICALL
+Java_app_eglviewer_core_EglNative_decodeSinkPut(JNIEnv *env, jclass,
+                                                jlong sinkPtr, jint width,
+                                                jint height, jint pixelWidth,
+                                                jint pixelHeight,
+                                                jbyteArray rgba) {
+#if defined(EGL_HAS_RUST)
+  if (sinkPtr == 0 || rgba == nullptr) {
+    return;
+  }
+  jsize len = env->GetArrayLength(rgba);
+  jbyte *bytes = env->GetByteArrayElements(rgba, nullptr);
+  if (bytes == nullptr) {
+    return;
+  }
+  egl_decode_sink_put(reinterpret_cast<EglDecodeSink *>(sinkPtr),
+                      static_cast<uint32_t>(width),
+                      static_cast<uint32_t>(height),
+                      static_cast<uint32_t>(pixelWidth),
+                      static_cast<uint32_t>(pixelHeight),
+                      reinterpret_cast<const uint8_t *>(bytes),
+                      static_cast<size_t>(len));
+  env->ReleaseByteArrayElements(rgba, bytes, JNI_ABORT);
+#else
+  (void)env;
+  (void)sinkPtr;
+  (void)width;
+  (void)height;
+  (void)pixelWidth;
+  (void)pixelHeight;
+  (void)rgba;
 #endif
 }

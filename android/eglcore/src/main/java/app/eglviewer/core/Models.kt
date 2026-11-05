@@ -89,9 +89,10 @@ data class LibraryCounts(
 /**
  * What the core tells the app while it works.
  * A2 parses [ViewsInvalidated] view ids so browse models can refresh windows.
+ * A4 parses typed [ImportProgress] for the duplicate question and the banner.
  */
 sealed class LibraryEvent {
-    data class ImportProgress(val raw: JSONObject) : LibraryEvent()
+    data class ImportProgress(val progress: app.eglviewer.core.ImportProgress) : LibraryEvent()
     data class ExportProgress(val raw: JSONObject) : LibraryEvent()
     data class ViewsInvalidated(val views: List<ViewOpened>) : LibraryEvent()
     data class Unknown(val type: String, val raw: JSONObject) : LibraryEvent()
@@ -101,7 +102,11 @@ sealed class LibraryEvent {
             runCatching {
                 val o = JSONObject(json)
                 when (o.optString("type")) {
-                    "importProgress" -> ImportProgress(o)
+                    "importProgress" -> {
+                        val progress = o.optJSONObject("progress")
+                            ?: return@runCatching Unknown("importProgress", o)
+                        ImportProgress(app.eglviewer.core.ImportProgress.fromJson(progress))
+                    }
                     "exportProgress" -> ExportProgress(o)
                     "viewsInvalidated" -> {
                         val arr = o.optJSONArray("views") ?: JSONArray()
