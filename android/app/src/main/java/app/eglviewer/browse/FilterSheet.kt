@@ -1,5 +1,6 @@
 package app.eglviewer.browse
 
+import androidx.annotation.StringRes
 import androidx.compose.foundation.clickable
 import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Column
@@ -25,9 +26,11 @@ import androidx.compose.runtime.remember
 import androidx.compose.runtime.setValue
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
+import androidx.compose.ui.res.stringResource
 import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
+import app.eglviewer.R
 import app.eglviewer.a11y.StarsText
 import app.eglviewer.core.TagMode
 import app.eglviewer.theme.EglTokens
@@ -71,19 +74,19 @@ fun FilterSheet(
                     onClick = { model.resetFilters() },
                     enabled = model.settings.filters.isActive,
                 ) {
-                    Text("Reset")
+                    Text(stringResource(R.string.filter_reset))
                 }
-                Text("Filters", fontWeight = FontWeight.SemiBold, fontSize = 18.sp)
+                Text(stringResource(R.string.browse_filters), fontWeight = FontWeight.SemiBold, fontSize = 18.sp)
                 TextButton(onClick = {
                     model.wantsVocabulary = false
                     onDismiss()
                 }) {
-                    Text("Done")
+                    Text(stringResource(R.string.common_done))
                 }
             }
 
             if (model.place.fixedTag == null) {
-                Text("Tags", color = EglTokens.MutedForeground, fontSize = 13.sp)
+                Text(stringResource(R.string.filter_tags), color = EglTokens.MutedForeground, fontSize = 13.sp)
                 Row(horizontalArrangement = Arrangement.spacedBy(8.dp)) {
                     TagMode.entries.forEach { mode ->
                         FilterChip(
@@ -91,7 +94,7 @@ fun FilterSheet(
                             onClick = {
                                 model.change { it.copy(filters = it.filters.copy(tagMode = mode)) }
                             },
-                            label = { Text(mode.name.lowercase()) },
+                            label = { Text(stringResource(tagModeLabel(mode))) },
                         )
                     }
                 }
@@ -105,7 +108,7 @@ fun FilterSheet(
                     }
                 }
                 if (shown.isEmpty()) {
-                    Text("No tags", color = EglTokens.MutedForeground)
+                    Text(stringResource(R.string.filter_no_tags), color = EglTokens.MutedForeground)
                 } else {
                     shown.forEach { tag ->
                         val selected = tag.name in model.settings.filters.tags
@@ -122,7 +125,7 @@ fun FilterSheet(
                                     Text(it.toString(), color = EglTokens.MutedForeground)
                                 }
                                 if (selected) {
-                                    Icon(Icons.Default.Check, contentDescription = "Selected")
+                                    Icon(Icons.Default.Check, contentDescription = stringResource(R.string.filter_selected))
                                 }
                             }
                         }
@@ -130,12 +133,12 @@ fun FilterSheet(
                 }
             }
 
-            Text("Type", color = EglTokens.MutedForeground, fontSize = 13.sp)
+            Text(stringResource(R.string.filter_type), color = EglTokens.MutedForeground, fontSize = 13.sp)
             Row(horizontalArrangement = Arrangement.spacedBy(8.dp)) {
                 FilterChip(
                     selected = model.settings.filters.ext == null,
                     onClick = { model.change { it.copy(filters = it.filters.copy(ext = null)) } },
-                    label = { Text("Any") },
+                    label = { Text(stringResource(R.string.filter_any)) },
                 )
                 model.extensions.forEach { type ->
                     FilterChip(
@@ -148,17 +151,17 @@ fun FilterSheet(
                 }
             }
 
-            Text("Rating", color = EglTokens.MutedForeground, fontSize = 13.sp)
+            Text(stringResource(R.string.filter_rating), color = EglTokens.MutedForeground, fontSize = 13.sp)
             Row(horizontalArrangement = Arrangement.spacedBy(8.dp)) {
                 FilterChip(
                     selected = model.settings.filters.rating == null,
                     onClick = { model.change { it.copy(filters = it.filters.copy(rating = null)) } },
-                    label = { Text("Any") },
+                    label = { Text(stringResource(R.string.filter_any)) },
                 )
                 FilterChip(
                     selected = model.settings.filters.rating == 0,
                     onClick = { model.change { it.copy(filters = it.filters.copy(rating = 0)) } },
-                    label = { Text("Unrated") },
+                    label = { Text(stringResource(R.string.filter_unrated)) },
                 )
                 (1..5).forEach { stars ->
                     FilterChip(
@@ -171,12 +174,12 @@ fun FilterSheet(
                 }
             }
 
-            Text("Shape", color = EglTokens.MutedForeground, fontSize = 13.sp)
+            Text(stringResource(R.string.filter_shape), color = EglTokens.MutedForeground, fontSize = 13.sp)
             Row(horizontalArrangement = Arrangement.spacedBy(8.dp)) {
                 FilterChip(
                     selected = model.settings.filters.shape == null,
                     onClick = { model.change { it.copy(filters = it.filters.copy(shape = null)) } },
-                    label = { Text("Any") },
+                    label = { Text(stringResource(R.string.filter_any)) },
                 )
                 BrowseFilters.Shape.entries.forEach { shape ->
                     FilterChip(
@@ -184,10 +187,28 @@ fun FilterSheet(
                         onClick = {
                             model.change { it.copy(filters = it.filters.copy(shape = shape)) }
                         },
-                        label = { Text(shape.name) },
+                        label = { Text(stringResource(shapeLabel(shape))) },
                     )
                 }
             }
         }
     }
+}
+
+/** The tag match modes in the UI language (D-111). */
+@StringRes
+internal fun tagModeLabel(mode: TagMode): Int = when (mode) {
+    TagMode.Any -> R.string.filter_mode_any
+    TagMode.All -> R.string.filter_mode_all
+    TagMode.None -> R.string.filter_mode_none
+}
+
+/** The shapes in the UI language (D-111). */
+@StringRes
+internal fun shapeLabel(shape: BrowseFilters.Shape): Int = when (shape) {
+    BrowseFilters.Shape.Square -> R.string.shape_square
+    BrowseFilters.Shape.Landscape -> R.string.shape_landscape
+    BrowseFilters.Shape.Portrait -> R.string.shape_portrait
+    BrowseFilters.Shape.PanoramicLandscape -> R.string.shape_panoramic_landscape
+    BrowseFilters.Shape.PanoramicPortrait -> R.string.shape_panoramic_portrait
 }

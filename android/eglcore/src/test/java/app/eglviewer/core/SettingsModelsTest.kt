@@ -101,4 +101,16 @@ class SettingsModelsTest {
         assertTrue(plain.isNull("encrypt"))
         assertEquals(JSONObject.NULL, plain.get("encrypt"))
     }
+
+    /** D-110 / D-111: what Decrypt Archive returns, and the passphrase floor. */
+    @Test
+    fun aDecryptedArchiveParsesAndShortPassphrasesAreCaught() {
+        val decrypted = DecryptedArchive.fromJson("""{"path":"/tmp/Фото 🎨.zip","bytes":2048}""")
+        assertEquals("/tmp/Фото 🎨.zip", decrypted.path)
+        assertEquals(2048L, decrypted.bytes)
+        assertEquals("Фото 🎨.zip", decrypted.file.name)
+        assertEquals(8, MIN_PASSPHRASE_CHARS)
+        assertEquals(false, passphraseLongEnough("🔥🔥🔥🔥🔥🔥🔥"))
+        assertEquals(true, passphraseLongEnough("пароль12"))
+    }
 }

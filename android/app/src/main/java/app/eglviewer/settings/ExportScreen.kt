@@ -51,15 +51,17 @@ import app.eglviewer.core.ExportProgress
 import app.eglviewer.core.ExportRequest
 import app.eglviewer.core.ExportSelection
 import app.eglviewer.core.ExportState
+import app.eglviewer.core.MIN_PASSPHRASE_CHARS
 import app.eglviewer.core.Tag
+import app.eglviewer.core.passphraseLongEnough
 import app.eglviewer.details.ShareFiles
 import app.eglviewer.details.ShareLauncher
 import app.eglviewer.theme.EglTokens
-import java.io.File
-import java.util.UUID
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.launch
 import kotlinx.coroutines.withContext
+import java.io.File
+import java.util.UUID
 
 /**
  * Export (Android A7 ≈ D-099): the whole library, folders or tags, as a folder tree or a ZIP
@@ -521,10 +523,3 @@ private fun finishExport(
     exportId?.let { open.forgetExport(it) }
     apply(null, null)
 }
-
-/** The core refuses a shorter passphrase (library-core `MIN_PASSPHRASE_CHARS`, D-110). */
-const val MIN_PASSPHRASE_CHARS = 8
-
-/** Counted in characters, as the core counts them, not UTF-16 units. */
-fun passphraseLongEnough(passphrase: String): Boolean =
-    passphrase.codePointCount(0, passphrase.length) >= MIN_PASSPHRASE_CHARS

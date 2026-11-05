@@ -32,6 +32,12 @@ interface LoginStore {
     fun saveHash(hash: LoginHash?)
     val hasBiometricToken: Boolean
     fun saveBiometricToken(on: Boolean)
+    /**
+     * Wrong tries so far and when the next try is allowed, kept with the login so that
+     * restarting the app does not reset the wait (D-111).
+     */
+    fun loadAttempts(): Attempts
+    fun saveAttempts(attempts: Attempts)
     /** Starts a biometric prompt; [onResult] is true when the face / finger matched. */
     fun authenticateBiometric(
         activity: FragmentActivity,
@@ -39,6 +45,9 @@ interface LoginStore {
         onResult: (Boolean) -> Unit,
     )
 }
+
+/** Wrong tries of the app's login and the earliest next try, ms since the epoch. */
+data class Attempts(val failures: Int = 0, val waitUntilMs: Long? = null)
 
 /** PBKDF2-HMAC-SHA256 of the password with its own salt. */
 data class LoginHash(
@@ -119,10 +128,16 @@ class AppLock(
     var biometryEnabled: Boolean by mutableStateOf(store.hasBiometricToken)
         private set
     /** Until then the password field waits, after too many wrong tries. */
-    var waitUntilMs: Long? by mutableStateOf(null)
+    var waitUntilMs: Long? by mutableStateOf(store.loadAttempts().waitUntilMs)
         private set
 
-    private var failures = 0
+    private var failures = store.loadAttempts().failures
+
+    private fun remember(failures: Int, waitUntilMs: Long?) {
+        this.failures = failures
+        this.waitUntilMs = waitUntilMs
+        store.saveAttempts(Attempts(failures, waitUntilMs))
+    }
 
     fun lock() {
         if (enabled) locked = true
@@ -174,8 +189,7 @@ class AppLock(
         }
         store.authenticateBiometric(activity, reason) { ok ->
             if (ok) {
-                failures = 0
-                waitUntilMs = null
+                remember(0, null)
                 locked = false
             }
             onResult(ok)
@@ -197,14 +211,14 @@ class AppLock(
         if (wait != null && wait > System.currentTimeMillis()) return false
         val hash = store.loadHash() ?: return true
         if (hash.matches(password)) {
-            failures = 0
-            waitUntilMs = null
+            remember(0, null)
             return true
         }
-        failures += 1
-        if (failures >= 5) {
-            waitUntilMs = System.currentTimeMillis() + (failures - 4) * 30_000L
-        }
+        val next = failures + 1
+        remember(
+            next,
+            if (next >= 5) System.currentTimeMillis() + (next - 4) * 30_000L else waitUntilMs,
+        )
         return false
     }
 
@@ -234,6 +248,19 @@ class PrefsLoginStore(
         prefs.edit().apply {
             if (hash == null) remove(KEY_HASH) else putString(KEY_HASH, hash.toJson())
         }.apply()
+    }
+
+    override fun loadAttempts(): Attempts =
+        Attempts(
+            failures = prefs.getInt(KEY_FAILURES, 0),
+            waitUntilMs = prefs.getLong(KEY_WAIT_UNTIL, 0L).takeIf { it > 0L },
+        )
+
+    override fun saveAttempts(attempts: Attempts) {
+        prefs.edit()
+            .putInt(KEY_FAILURES, attempts.failures)
+            .putLong(KEY_WAIT_UNTIL, attempts.waitUntilMs ?: 0L)
+            .apply()
     }
 
     override val hasBiometricToken: Boolean
@@ -350,6 +377,8 @@ class PrefsLoginStore(
 
     companion object {
         private const val KEY_HASH = "password"
+        private const val KEY_FAILURES = "failures"
+        private const val KEY_WAIT_UNTIL = "wait_until"
         private const val KEY_BIOMETRY = "biometry"
         /** The token of earlier builds; removed with the key. */
         private const val KEY_BIOMETRY_BLOB = "biometry_blob"
@@ -363,6 +392,12 @@ class PrefsLoginStore(
 class MemoryLoginStore : LoginStore {
     private var hash: LoginHash? = null
     private var token = false
+    private var attempts = Attempts()
+
+    override fun loadAttempts(): Attempts = attempts
+    override fun saveAttempts(attempts: Attempts) {
+        this.attempts = attempts
+    }
 
     override fun loadHash(): LoginHash? = hash
     override fun saveHash(hash: LoginHash?) {

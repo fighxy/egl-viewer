@@ -24,4 +24,7 @@ final class EglNative {
     static native String addFiles(long handle, String requestJson);
     static native String importStatus(long handle, long id);
     static native int setPlatformDecoder(boolean enabled);
+    static native String startExport(long handle, String requestJson);
+    static native String exports(long handle);
+    static native String decryptArchive(String source, String destination, String passphrase);
 }

@@ -5,10 +5,15 @@ Local-first asset manager. **No tracking. No analytics. No account.**
 ## What stays on the phone
 
 - Native libraries (`.eglib`) the user creates or opens: originals, thumbnails, tags, folders,
-  ratings, notes and backups live in app storage or folders the user picked in Files (SAF).
+  ratings, notes and backups live in app storage, or in a folder elsewhere on the phone that
+  the user opened after granting **All files access**. That access is asked only when the user
+  opens a library outside app storage; the app reads and writes there only that library's
+  folder, and declining keeps everything else working.
 - App Lock (PIN / password hash and optional biometrics): Keystore / app-private preferences
   on this device only. The recovery key for a locked folder is shown once and never uploaded.
-- Export passphrases: typed for that export only; never stored.
+- Export and Decrypt Archive passphrases: typed for that export or archive only; never stored.
+  A decrypted archive goes to a temporary folder that is removed when the screen closes,
+  unless the user saves or shares it.
 
 ## What the app does not do
 

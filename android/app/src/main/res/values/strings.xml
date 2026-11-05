@@ -39,13 +39,11 @@
     <string name="error_read_only">The library is read-only.</string>
     <string name="error_wrong_password">Wrong password.</string>
     <string name="error_core_missing">Native core is not linked. Build libegl_library.so with cargo-ndk (see android/README.md).</string>
-    <string name="error_saf_path">SAF URI has no filesystem path for Rust (pick a local primary-storage .eglib folder).</string>
+    <string name="error_saf_path">This place has no folder on the phone the app can open, for example a cloud service. Move the library to the phone’s storage or an SD card.</string>
     <string name="error_missing_library">That library is no longer on this phone.</string>
 
     <!-- Browse / preview / details / actions (A3 ≈ D-095) -->
     <string name="browse_select">Select</string>
-    <string name="browse_selected">%1$d selected</string>
-    <string name="browse_item_count">%1$d items</string>
     <string name="common_close">Close</string>
     <string name="common_done">Done</string>
     <string name="common_cancel">Cancel</string>
@@ -420,4 +418,84 @@
     <string name="toast_backed_up">Backup made</string>
     <string name="toast_rebuilding">Rebuilding thumbnails</string>
     <string name="toast_restored">Backup restored</string>
+    <!-- Browse, filters and selection toasts (D-111). -->
+    <string name="browse_back">Back</string>
+    <string name="browse_filters">Filters</string>
+    <string name="browse_layout">Layout</string>
+    <string name="browse_sort">Sort By</string>
+    <string name="browse_search">Search</string>
+    <string name="browse_select_all">Select All</string>
+    <string name="browse_deselect_all">Deselect All</string>
+    <string name="browse_ascending">Ascending</string>
+    <string name="browse_size_small">Small</string>
+    <string name="browse_size_medium">Medium</string>
+    <string name="browse_size_large">Large</string>
+    <string name="filter_reset">Reset</string>
+    <string name="filter_tags">Tags</string>
+    <string name="filter_no_tags">This library has no tags yet.</string>
+    <string name="filter_selected">Selected</string>
+    <string name="filter_type">Type</string>
+    <string name="filter_any">Any</string>
+    <string name="filter_rating">Rating</string>
+    <string name="filter_unrated">Unrated</string>
+    <string name="filter_shape">Shape</string>
+    <string name="filter_mode_any">Any</string>
+    <string name="filter_mode_all">All</string>
+    <string name="filter_mode_none">None</string>
+    <string name="shape_square">Square</string>
+    <string name="shape_landscape">Landscape</string>
+    <string name="shape_portrait">Portrait</string>
+    <string name="shape_panoramic_landscape">Panorama, wide</string>
+    <string name="shape_panoramic_portrait">Panorama, tall</string>
+    <string name="sort_added">Date Added</string>
+    <string name="sort_created">Date Created</string>
+    <string name="sort_modified">Date Modified</string>
+    <string name="sort_name">Name</string>
+    <string name="sort_type">Type</string>
+    <string name="sort_size">File Size</string>
+    <string name="sort_resolution">Resolution</string>
+    <string name="sort_rating">Rating</string>
+    <string name="sort_random">Random</string>
+    <string name="toast_tagged">Tags added</string>
+    <string name="toast_untagged">Tag removed</string>
+    <plurals name="toast_trashed">
+        <item quantity="one">%1$d item moved to the trash</item>
+        <item quantity="other">%1$d items moved to the trash</item>
+    </plurals>
+    <plurals name="toast_restored_items">
+        <item quantity="one">%1$d item restored</item>
+        <item quantity="other">%1$d items restored</item>
+    </plurals>
+    <plurals name="toast_deleted">
+        <item quantity="one">%1$d item deleted</item>
+        <item quantity="other">%1$d items deleted</item>
+    </plurals>
+    <plurals name="toast_rated">
+        <item quantity="one">%1$d item rated</item>
+        <item quantity="other">%1$d items rated</item>
+    </plurals>
+    <plurals name="toast_filed">
+        <item quantity="one">%1$d item added to the folder</item>
+        <item quantity="other">%1$d items added to the folder</item>
+    </plurals>
+    <plurals name="browse_item_count">
+        <item quantity="one">%1$d item</item>
+        <item quantity="other">%1$d items</item>
+    </plurals>
+    <plurals name="browse_selected">
+        <item quantity="one">%1$d selected</item>
+        <item quantity="other">%1$d selected</item>
+    </plurals>
+    <!-- Decrypt Archive (D-111). -->
+    <string name="settings_decrypt">Decrypt Archive</string>
+    <string name="decrypt_title">Decrypt Archive</string>
+    <string name="decrypt_hint">Opens an encrypted export (.zip.age) with its passphrase. You get the ordinary ZIP archive back to save or share.</string>
+    <string name="decrypt_archive">Archive</string>
+    <string name="decrypt_choose">Choose…</string>
+    <string name="decrypt_decrypting">Decrypting…</string>
+    <string name="decrypt_start">Decrypt</string>
+    <!-- All files access (D-111). -->
+    <string name="access_title">Allow access to the library</string>
+    <string name="access_body">%1$s is outside the app’s storage. To open it in place, egl-viewer needs access to all files on the phone. It only opens the libraries you choose and never sends anything anywhere.</string>
+    <string name="access_allow">Allow</string>
 </resources>

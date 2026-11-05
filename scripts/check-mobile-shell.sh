@@ -124,6 +124,8 @@ need android/app/src/test/java/app/eglviewer/a11y/AccessibilityLabelsTest.kt
 need android/app/src/main/java/app/eglviewer/a11y/AccessibilityLabels.kt
 need android/app/src/main/java/app/eglviewer/a11y/StarsText.kt
 need android/app/src/main/java/app/eglviewer/settings/PrivacyScreen.kt
+need android/app/src/main/java/app/eglviewer/settings/DecryptArchiveScreen.kt
+need android/app/src/test/java/app/eglviewer/release/StringsCatalogTest.kt
 need android/PRIVACY.md
 need android/app/src/main/res/xml/data_extraction_rules.xml
 need android/app/src/main/res/xml/backup_rules.xml

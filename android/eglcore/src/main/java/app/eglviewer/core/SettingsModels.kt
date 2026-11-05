@@ -216,6 +216,28 @@ data class ExportRequest(
     }
 }
 
+/** An age archive opened with its passphrase (D-110): the plaintext file it was written to. */
+data class DecryptedArchive(
+    val path: String,
+    val bytes: Long,
+) {
+    val file: java.io.File get() = java.io.File(path)
+
+    companion object {
+        fun fromJson(json: String): DecryptedArchive {
+            val o = JSONObject(json)
+            return DecryptedArchive(path = o.getString("path"), bytes = o.optLong("bytes", 0L))
+        }
+    }
+}
+
+/** The core refuses a shorter export passphrase (library-core `MIN_PASSPHRASE_CHARS`, D-110). */
+const val MIN_PASSPHRASE_CHARS = 8
+
+/** Counted in characters, as the core counts them, not UTF-16 units. */
+fun passphraseLongEnough(passphrase: String): Boolean =
+    passphrase.codePointCount(0, passphrase.length) >= MIN_PASSPHRASE_CHARS
+
 /** What an export would write, before it starts. */
 data class ExportPreview(
     val items: Int,
