@@ -183,6 +183,7 @@ struct FolderMovePicker: View {
                     }
                     .foregroundStyle(EglTokens.foreground)
                 }
+                .accessibilityAddTraits(current == nil ? .isSelected : [])
                 .accessibilityIdentifier("move.top")
                 ForEach(open.pickableFolders.filter { !blocked.contains($0.folder.id) }, id: \.folder.id) { entry in
                     Button {
@@ -202,6 +203,7 @@ struct FolderMovePicker: View {
                         }
                         .foregroundStyle(EglTokens.foreground)
                     }
+                    .accessibilityAddTraits(current == entry.folder.id ? .isSelected : [])
                     .accessibilityIdentifier("move.\(entry.folder.name)")
                 }
             }

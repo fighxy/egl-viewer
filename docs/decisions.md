@@ -1960,3 +1960,36 @@ The seventh app PR of the iOS series (D-093–D-098).
   restore (the view comes back, the state before the restore is kept), a clean check, a ZIP and
   a folder export; a UI test of Check Library and an export from Settings.
 
+
+## D-100 iOS release: icon, privacy, accessibility, 10,000 items, tagged releases (2026-11-05)
+
+The last PR of the iOS series (D-093–D-099).
+
+- **Icon.** One 1024 px PNG in `Assets.xcassets/AppIcon` (Xcode makes the other sizes), drawn
+  from the desktop icon as a full square without transparency: iOS rounds the corners itself.
+  `scripts/check-mobile-shell.sh` checks its size and that it has no alpha.
+- **Privacy.** `PrivacyInfo.xcprivacy`: no tracking, no collected data; the APIs that need a
+  reason are `UserDefaults` (CA92.1, the app's own settings) and file timestamps (C617.1 for
+  the app's container, 3B52.1 for libraries the user picked in Files: the Rust core reads file
+  metadata). `NSPhotoLibraryAddUsageDescription` joins `NSFaceIDUsageDescription`: the share
+  sheet's Save Image writes to Photos and iOS ends an app without that string. Photos are read
+  through the system picker, which needs no permission. `check-ios-strings.py` checks that
+  every privacy string of Info.plist is in `InfoPlist.xcstrings` in the three languages.
+- **Accessibility.** Ratings read as "3 stars", not the symbols (a shared `StarsText`); grid
+  cells say their rating and "Loading" until they arrive; the folder pickers mark the chosen
+  folder as selected. A UI test runs Xcode's accessibility audit (sufficient element
+  descriptions) over the library, the grid, the preview and the details.
+- **10,000 items.** A unit test fills a library with 10,000 generated images (D-096's sample
+  generator, now walking all windows to tag its first four) and times the paths that must not
+  grow with the library: opening the view, a window at the end, the name sort, a search, a tag
+  filter, Select All (a rule over the view, no id list). The budgets (3–5 s) are loose for
+  shared CI simulators; the timings go to the log as `perf:` lines.
+- **Releases.** A tag `ios-vX.Y.Z` runs the Mobile workflow (path filters do not apply to
+  tags): the device build takes `X.Y.Z` as its version and the run number as its build number,
+  and checks that the app says so; once `ios-core`, `ios-app` and `ios-ipa` pass, `ios-release`
+  publishes a GitHub Release `ios-vX.Y.Z` with `EglViewer-X.Y.Z.ipa` and `SHA256SUMS`, and the
+  changes since the previous `ios-v` tag. It is created with `--latest=false`: the desktop
+  updater reads `releases/latest/download/latest.json` (D-062), and an iOS release marked
+  latest would hide the desktop's. `scripts/ios-release-version.sh` turns the tag into the
+  version and refuses anything else. The rolling `ios-latest` pre-release from `main` stays
+  (D-086). The IPA is unsigned: it is installed by signing it with one's own Apple ID.

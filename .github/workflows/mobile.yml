@@ -2,6 +2,8 @@ name: Mobile
 
 # Experimental iOS / Android shells + library-ffi (D-082–D-084).
 # Parallel to the Windows desktop `CI` workflow; does not replace it.
+# A tag `ios-vX.Y.Z` builds and tests the iPhone app and publishes a GitHub Release with the
+# unsigned IPA (D-100); path filters do not apply to tag pushes.
 on:
   pull_request:
     paths:
@@ -13,12 +15,15 @@ on:
       - "crates/library-core/**"
       - "crates/media/**"
       - "scripts/check-mobile-shell.sh"
+      - "scripts/check-ios-strings.py"
+      - "scripts/ios-release-version.sh"
       - ".github/workflows/mobile.yml"
       - "rust-toolchain.toml"
       - "Cargo.toml"
       - "Cargo.lock"
   push:
     branches: [main]
+    tags: ["ios-v*"]
     paths:
       - "android/**"
       - "ios/**"
@@ -28,6 +33,8 @@ on:
       - "crates/library-core/**"
       - "crates/media/**"
       - "scripts/check-mobile-shell.sh"
+      - "scripts/check-ios-strings.py"
+      - "scripts/ios-release-version.sh"
       - ".github/workflows/mobile.yml"
       - "rust-toolchain.toml"
       - "Cargo.toml"
@@ -252,10 +259,29 @@ jobs:
         working-directory: ios
         run: xcodegen generate
 
-      - name: xcodebuild archive (iphoneos, no signing)
-        working-directory: ios
+      # A release tag sets the version (ios-v1.2.3 → 1.2.3) and the build number (the run
+      # number); other builds keep the versions of project.yml.
+      - name: Version
+        id: version
         run: |
           set -euo pipefail
+          if [[ "$GITHUB_REF" == refs/tags/ios-v* ]]; then
+            VERSION="$(bash scripts/ios-release-version.sh "$GITHUB_REF_NAME")"
+            echo "settings=MARKETING_VERSION=$VERSION CURRENT_PROJECT_VERSION=$GITHUB_RUN_NUMBER" >> "$GITHUB_OUTPUT"
+            echo "version=$VERSION" >> "$GITHUB_OUTPUT"
+          else
+            echo "settings=" >> "$GITHUB_OUTPUT"
+            echo "version=" >> "$GITHUB_OUTPUT"
+          fi
+
+      - name: xcodebuild archive (iphoneos, no signing)
+        working-directory: ios
+        env:
+          VERSION_SETTINGS: ${{ steps.version.outputs.settings }}
+        run: |
+          set -euo pipefail
+          # Word splitting on purpose: zero or two build settings.
+          # shellcheck disable=SC2086
           xcodebuild \
             -project EglViewer.xcodeproj \
             -scheme EglViewer \
@@ -266,13 +292,25 @@ jobs:
             CODE_SIGNING_ALLOWED=NO \
             CODE_SIGNING_REQUIRED=NO \
             CODE_SIGN_IDENTITY= \
+            $VERSION_SETTINGS \
             archive
 
       - name: Pack unsigned .ipa
+        env:
+          EXPECTED: ${{ steps.version.outputs.version }}
         run: |
           set -euo pipefail
           APP="$(find "$RUNNER_TEMP/EglViewer.xcarchive/Products/Applications" -maxdepth 1 -name '*.app' | head -n1)"
           test -n "$APP"
+          # The app carries its icon, privacy manifest and the version of the tag.
+          test -f "$APP/PrivacyInfo.xcprivacy"
+          test -f "$APP/Assets.car"
+          SHORT="$(/usr/libexec/PlistBuddy -c 'Print :CFBundleShortVersionString' "$APP/Info.plist")"
+          echo "version $SHORT ($(/usr/libexec/PlistBuddy -c 'Print :CFBundleVersion' "$APP/Info.plist"))"
+          if [[ -n "$EXPECTED" && "$SHORT" != "$EXPECTED" ]]; then
+            echo "the app says $SHORT, the tag $EXPECTED" >&2
+            exit 1
+          fi
           mkdir -p "$RUNNER_TEMP/ipa/Payload"
           cp -R "$APP" "$RUNNER_TEMP/ipa/Payload/"
           (cd "$RUNNER_TEMP/ipa" && zip -qry "$GITHUB_WORKSPACE/EglViewer.ipa" Payload)
@@ -298,3 +336,47 @@ jobs:
           else
             gh release create ios-latest EglViewer.ipa --prerelease --title "iOS latest (unsigned)" --notes "$NOTES" --target "$GITHUB_SHA"
           fi
+
+  # A release tag `ios-vX.Y.Z`: once the core, the app's tests and the device build pass, a
+  # GitHub Release with the unsigned IPA and its checksum (D-100). It is never marked as the
+  # latest release: the desktop updater reads releases/latest (D-062).
+  ios-release:
+    if: startsWith(github.ref, 'refs/tags/ios-v')
+    needs: [ios-core, ios-app, ios-ipa]
+    runs-on: ubuntu-24.04
+    permissions:
+      contents: write
+    steps:
+      - uses: actions/checkout@v7
+        with:
+          fetch-depth: 0
+
+      - name: Download the IPA
+        uses: actions/download-artifact@v4
+        with:
+          name: ios-unsigned-ipa
+
+      - name: Publish the release
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: |
+          set -euo pipefail
+          VERSION="$(bash scripts/ios-release-version.sh "$GITHUB_REF_NAME")"
+          IPA="EglViewer-$VERSION.ipa"
+          mv EglViewer.ipa "$IPA"
+          sha256sum "$IPA" > SHA256SUMS
+          # The previous iOS tag, for the list of changes.
+          PREVIOUS="$(git tag --list 'ios-v*' --sort=-v:refname | grep -vx "$GITHUB_REF_NAME" | head -n1 || true)"
+          {
+            echo "egl-viewer for iPhone $VERSION, built from ${GITHUB_SHA::7}."
+            echo
+            echo "The IPA is **unsigned**: sign it with your own Apple ID when you install it"
+            echo "(AltStore, SideStore, Sideloadly or Xcode). See ios/README.md, \"Install\"."
+            echo
+            echo "Check the download: \`sha256sum -c SHA256SUMS\`."
+          } > notes.md
+          ARGS=(--title "egl-viewer for iPhone $VERSION" --notes-file notes.md --verify-tag --latest=false)
+          if [[ -n "$PREVIOUS" ]]; then
+            ARGS+=(--generate-notes --notes-start-tag "$PREVIOUS")
+          fi
+          gh release create "$GITHUB_REF_NAME" "$IPA" SHA256SUMS "${ARGS[@]}"

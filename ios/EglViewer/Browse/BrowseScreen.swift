@@ -327,7 +327,8 @@ private struct GridTile: View {
             if let cell { ItemMenu(model: model, cell: cell) }
         }
         .accessibilityElement(children: .ignore)
-        .accessibilityLabel(Text(verbatim: cell?.name ?? ""))
+        .accessibilityLabel(cell.map { Text(verbatim: $0.name) } ?? Text("browse.loadingItem"))
+        .accessibilityValue(cell.map { $0.star > 0 ? Text("details.stars \($0.star)") : Text(verbatim: "") } ?? Text(verbatim: ""))
         .accessibilityAddTraits(selected ? [.isButton, .isSelected] : .isButton)
         .accessibilityIdentifier(cell.map { "item.\($0.name)" } ?? "item.loading")
     }
@@ -366,7 +367,7 @@ private struct ListRow: View {
             }
             Spacer(minLength: 0)
             if let cell, cell.star > 0 {
-                Text(verbatim: String(repeating: "★", count: cell.star))
+                StarsText(stars: cell.star)
                     .font(.caption)
                     .foregroundStyle(EglTokens.mutedForeground)
             }
