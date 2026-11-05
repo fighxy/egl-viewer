@@ -89,4 +89,18 @@ internal object EglNative {
     external fun renewRecoveryKey(handle: Long, id: String, password: String): String?
     external fun removeFolderLock(handle: Long, id: String, password: String): Int
     external fun setLockLabel(handle: Long, id: String, label: String?, color: String?): Int
+
+    // Settings / maintenance / export (Android A7 ≈ D-099)
+    external fun renameLibrary(handle: Long, name: String): String?
+    external fun libraryStats(handle: Long): String?
+    external fun backups(handle: Long): String?
+    external fun backUpNow(handle: Long): String?
+    external fun restoreBackup(handle: Long, name: String): String?
+    external fun checkLibrary(handle: Long): String?
+    external fun repairLibrary(handle: Long, optionsJson: String): String?
+    external fun generatePreviews(handle: Long, rebuild: Boolean): String?
+    external fun exportPreview(handle: Long, selectionJson: String, includeSubfolders: Boolean): String?
+    external fun startExport(handle: Long, requestJson: String): String?
+    external fun exports(handle: Long): String?
+    external fun cancelExport(handle: Long, id: Long): Int
 }

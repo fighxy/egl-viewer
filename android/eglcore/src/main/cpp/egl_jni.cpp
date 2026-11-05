@@ -7,6 +7,7 @@
  * A5: save/delete folder, tags/groups, save/delete smart folder, smart_rules.
  * A6: lock/unlock/relock/recover folder, change password, renew recovery key,
  *     remove lock, set lock label.
+ * A7: rename library, stats, backups, check/repair, generate previews, export.
  * Package: app.eglviewer.core.EglNative
  */
 
@@ -1298,6 +1299,261 @@ Java_app_eglviewer_core_EglNative_setLockLabel(JNIEnv *env, jclass, jlong handle
   (void)id;
   (void)label;
   (void)color;
+  set_status(6);
+  return 6;
+#endif
+}
+
+/* ---- Settings / maintenance / export (Android A7 ≈ iOS D-099) ------------ */
+
+extern "C" JNIEXPORT jstring JNICALL
+Java_app_eglviewer_core_EglNative_renameLibrary(JNIEnv *env, jclass, jlong handle,
+                                                jstring name) {
+#if defined(EGL_HAS_RUST)
+  const char *name_utf = env->GetStringUTFChars(name, nullptr);
+  char *json = nullptr;
+  EglStatus status = egl_rename_library(reinterpret_cast<EglLibrary *>(handle),
+                                        name_utf, &json);
+  env->ReleaseStringUTFChars(name, name_utf);
+  set_status(static_cast<int>(status));
+  if (status != EGL_OK || json == nullptr) {
+    return nullptr;
+  }
+  return take_c_string(env, json);
+#else
+  (void)env;
+  (void)handle;
+  (void)name;
+  set_status(6);
+  return nullptr;
+#endif
+}
+
+extern "C" JNIEXPORT jstring JNICALL
+Java_app_eglviewer_core_EglNative_libraryStats(JNIEnv *env, jclass,
+                                               jlong handle) {
+#if defined(EGL_HAS_RUST)
+  char *json = nullptr;
+  EglStatus status =
+      egl_library_stats(reinterpret_cast<EglLibrary *>(handle), &json);
+  set_status(static_cast<int>(status));
+  if (status != EGL_OK || json == nullptr) {
+    return nullptr;
+  }
+  return take_c_string(env, json);
+#else
+  (void)env;
+  (void)handle;
+  set_status(6);
+  return nullptr;
+#endif
+}
+
+extern "C" JNIEXPORT jstring JNICALL
+Java_app_eglviewer_core_EglNative_backups(JNIEnv *env, jclass, jlong handle) {
+#if defined(EGL_HAS_RUST)
+  char *json = nullptr;
+  EglStatus status = egl_backups(reinterpret_cast<EglLibrary *>(handle), &json);
+  set_status(static_cast<int>(status));
+  if (status != EGL_OK || json == nullptr) {
+    return nullptr;
+  }
+  return take_c_string(env, json);
+#else
+  (void)env;
+  (void)handle;
+  set_status(6);
+  return nullptr;
+#endif
+}
+
+extern "C" JNIEXPORT jstring JNICALL
+Java_app_eglviewer_core_EglNative_backUpNow(JNIEnv *env, jclass, jlong handle) {
+#if defined(EGL_HAS_RUST)
+  char *json = nullptr;
+  EglStatus status =
+      egl_back_up_now(reinterpret_cast<EglLibrary *>(handle), &json);
+  set_status(static_cast<int>(status));
+  if (status != EGL_OK || json == nullptr) {
+    return nullptr;
+  }
+  return take_c_string(env, json);
+#else
+  (void)env;
+  (void)handle;
+  set_status(6);
+  return nullptr;
+#endif
+}
+
+extern "C" JNIEXPORT jstring JNICALL
+Java_app_eglviewer_core_EglNative_restoreBackup(JNIEnv *env, jclass,
+                                                jlong handle, jstring name) {
+#if defined(EGL_HAS_RUST)
+  const char *name_utf = env->GetStringUTFChars(name, nullptr);
+  char *json = nullptr;
+  EglStatus status = egl_restore_backup(reinterpret_cast<EglLibrary *>(handle),
+                                        name_utf, &json);
+  env->ReleaseStringUTFChars(name, name_utf);
+  set_status(static_cast<int>(status));
+  if (status != EGL_OK || json == nullptr) {
+    return nullptr;
+  }
+  return take_c_string(env, json);
+#else
+  (void)env;
+  (void)handle;
+  (void)name;
+  set_status(6);
+  return nullptr;
+#endif
+}
+
+extern "C" JNIEXPORT jstring JNICALL
+Java_app_eglviewer_core_EglNative_checkLibrary(JNIEnv *env, jclass,
+                                               jlong handle) {
+#if defined(EGL_HAS_RUST)
+  char *json = nullptr;
+  EglStatus status =
+      egl_check_library(reinterpret_cast<EglLibrary *>(handle), &json);
+  set_status(static_cast<int>(status));
+  if (status != EGL_OK || json == nullptr) {
+    return nullptr;
+  }
+  return take_c_string(env, json);
+#else
+  (void)env;
+  (void)handle;
+  set_status(6);
+  return nullptr;
+#endif
+}
+
+extern "C" JNIEXPORT jstring JNICALL
+Java_app_eglviewer_core_EglNative_repairLibrary(JNIEnv *env, jclass,
+                                                jlong handle,
+                                                jstring optionsJson) {
+#if defined(EGL_HAS_RUST)
+  const char *options = env->GetStringUTFChars(optionsJson, nullptr);
+  char *json = nullptr;
+  EglStatus status = egl_repair_library(reinterpret_cast<EglLibrary *>(handle),
+                                        options, &json);
+  env->ReleaseStringUTFChars(optionsJson, options);
+  set_status(static_cast<int>(status));
+  if (status != EGL_OK || json == nullptr) {
+    return nullptr;
+  }
+  return take_c_string(env, json);
+#else
+  (void)env;
+  (void)handle;
+  (void)optionsJson;
+  set_status(6);
+  return nullptr;
+#endif
+}
+
+extern "C" JNIEXPORT jstring JNICALL
+Java_app_eglviewer_core_EglNative_generatePreviews(JNIEnv *env, jclass,
+                                                   jlong handle,
+                                                   jboolean rebuild) {
+#if defined(EGL_HAS_RUST)
+  char *json = nullptr;
+  EglStatus status = egl_generate_previews(
+      reinterpret_cast<EglLibrary *>(handle), rebuild ? 1 : 0, &json);
+  set_status(static_cast<int>(status));
+  if (status != EGL_OK || json == nullptr) {
+    return nullptr;
+  }
+  return take_c_string(env, json);
+#else
+  (void)env;
+  (void)handle;
+  (void)rebuild;
+  set_status(6);
+  return nullptr;
+#endif
+}
+
+extern "C" JNIEXPORT jstring JNICALL
+Java_app_eglviewer_core_EglNative_exportPreview(JNIEnv *env, jclass,
+                                                jlong handle,
+                                                jstring selectionJson,
+                                                jboolean includeSubfolders) {
+#if defined(EGL_HAS_RUST)
+  const char *selection = env->GetStringUTFChars(selectionJson, nullptr);
+  char *json = nullptr;
+  EglStatus status = egl_export_preview(
+      reinterpret_cast<EglLibrary *>(handle), selection,
+      includeSubfolders ? 1 : 0, &json);
+  env->ReleaseStringUTFChars(selectionJson, selection);
+  set_status(static_cast<int>(status));
+  if (status != EGL_OK || json == nullptr) {
+    return nullptr;
+  }
+  return take_c_string(env, json);
+#else
+  (void)env;
+  (void)handle;
+  (void)selectionJson;
+  (void)includeSubfolders;
+  set_status(6);
+  return nullptr;
+#endif
+}
+
+extern "C" JNIEXPORT jstring JNICALL
+Java_app_eglviewer_core_EglNative_startExport(JNIEnv *env, jclass, jlong handle,
+                                              jstring requestJson) {
+#if defined(EGL_HAS_RUST)
+  const char *request = env->GetStringUTFChars(requestJson, nullptr);
+  char *json = nullptr;
+  EglStatus status = egl_start_export(reinterpret_cast<EglLibrary *>(handle),
+                                      request, &json);
+  env->ReleaseStringUTFChars(requestJson, request);
+  set_status(static_cast<int>(status));
+  if (status != EGL_OK || json == nullptr) {
+    return nullptr;
+  }
+  return take_c_string(env, json);
+#else
+  (void)env;
+  (void)handle;
+  (void)requestJson;
+  set_status(6);
+  return nullptr;
+#endif
+}
+
+extern "C" JNIEXPORT jstring JNICALL
+Java_app_eglviewer_core_EglNative_exports(JNIEnv *env, jclass, jlong handle) {
+#if defined(EGL_HAS_RUST)
+  char *json = nullptr;
+  EglStatus status = egl_exports(reinterpret_cast<EglLibrary *>(handle), &json);
+  set_status(static_cast<int>(status));
+  if (status != EGL_OK || json == nullptr) {
+    return nullptr;
+  }
+  return take_c_string(env, json);
+#else
+  (void)env;
+  (void)handle;
+  set_status(6);
+  return nullptr;
+#endif
+}
+
+extern "C" JNIEXPORT jint JNICALL
+Java_app_eglviewer_core_EglNative_cancelExport(JNIEnv *, jclass, jlong handle,
+                                               jlong id) {
+#if defined(EGL_HAS_RUST)
+  EglStatus status = egl_cancel_export(reinterpret_cast<EglLibrary *>(handle),
+                                       static_cast<uint64_t>(id));
+  set_status(static_cast<int>(status));
+  return static_cast<jint>(status);
+#else
+  (void)handle;
+  (void)id;
   set_status(6);
   return 6;
 #endif

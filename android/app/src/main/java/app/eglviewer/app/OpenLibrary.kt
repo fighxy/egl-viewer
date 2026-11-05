@@ -22,6 +22,8 @@ import app.eglviewer.browse.ViewSession
 import app.eglviewer.R
 import app.eglviewer.core.DuplicateAnswer
 import app.eglviewer.core.EglError
+import app.eglviewer.core.ExportProgress
+import app.eglviewer.core.ExportRequest
 import app.eglviewer.core.Folder
 import app.eglviewer.core.FolderChange
 import app.eglviewer.core.ImportProgress
@@ -52,7 +54,8 @@ import kotlinx.coroutines.withContext
 
 /**
  * One open library: core handle, places/counts/folders, saved view, toast / undo,
- * browse-model registration, adding, organizing, and locks (A1–A6, D-101…D-106).
+ * browse-model registration, adding, organizing, locks, and settings
+ * (A1–A7, D-101…D-107).
  */
 class OpenLibrary(
     val library: Library,
@@ -112,6 +115,10 @@ class OpenLibrary(
     var duplicateQuestion: ImportProgress? by mutableStateOf(null)
         private set
 
+    /** Running and finished exports by id (Settings export screen). */
+    var exports: Map<Long, ExportProgress> by mutableStateOf(emptyMap())
+        private set
+
     private var hidingToast: Job? = null
 
     private val browsers = CopyOnWriteArrayList<WeakReference<BrowseModel>>()
@@ -153,7 +160,76 @@ class OpenLibrary(
                         runCatching { refresh() }
                     }
                 }
+                is LibraryEvent.ExportProgress -> {
+                    scope.launch(Dispatchers.Main.immediate) {
+                        exports = exports + (event.progress.id to event.progress)
+                    }
+                }
                 else -> Unit
+            }
+        }
+    }
+
+    // --- Settings / maintenance / export (A7 ≈ D-099) -----------------------
+
+    /** Renames the library: its folder keeps its name, the library's own name changes. */
+    suspend fun rename(to: String): Boolean {
+        val name = to.trim()
+        if (name.isEmpty() || readOnly) return false
+        val next = withContext(Dispatchers.IO) {
+            runCatching { library.rename(to = name) }.onFailure {
+                report(it.message ?: it.toString())
+            }.getOrNull()
+        } ?: return false
+        info = next
+        return true
+    }
+
+    /**
+     * A restored backup is another database: views and undo start over, so every open
+     * screen asks for its view again and the tree is read anew.
+     */
+    suspend fun restoreBackup(name: String): Boolean {
+        val next = withContext(Dispatchers.IO) {
+            runCatching { library.restoreBackup(name) }.onFailure {
+                report(it.message ?: it.toString())
+            }.getOrNull()
+        } ?: return false
+        info = next
+        browsers.mapNotNull { it.get() }.forEach { browser ->
+            scope.launch { browser.reload() }
+        }
+        thumbnails.removeAll()
+        originals.removeAll()
+        withContext(Dispatchers.IO) { runCatching { refresh() } }
+        val ctx = appContext
+        show(ctx?.getString(R.string.toast_restored) ?: "Backup restored", undoable = false)
+        return true
+    }
+
+    fun forgetExport(id: Long) {
+        exports = exports - id
+    }
+
+    /** Starts an export; its progress arrives as events. */
+    suspend fun startExport(request: ExportRequest): ExportProgress? {
+        val started = withContext(Dispatchers.IO) {
+            runCatching { library.startExport(request) }.onFailure {
+                report(it.message ?: it.toString())
+            }.getOrNull()
+        } ?: return null
+        if (exports[started.id] == null) {
+            exports = exports + (started.id to started)
+        }
+        return started
+    }
+
+    fun cancelExport(id: Long) {
+        scope.launch {
+            withContext(Dispatchers.IO) {
+                runCatching { library.cancelExport(id) }.onFailure {
+                    report(it.message ?: it.toString())
+                }
             }
         }
     }
@@ -549,6 +625,7 @@ class OpenLibrary(
         dismissToast()
         duplicateQuestion = null
         imports = emptyMap()
+        exports = emptyMap()
         val cleanups = afterImport.values.toList()
         afterImport.clear()
         cleanups.forEach { runCatching { it() } }

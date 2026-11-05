@@ -301,4 +301,108 @@
         <item quantity="one">Try again in %d second</item>
         <item quantity="other">Try again in %d seconds</item>
     </plurals>
+
+    <!-- Settings / maintenance / export (A7 ≈ D-099) -->
+    <string name="settings_title">Settings</string>
+    <string name="settings_library_section">Library</string>
+    <string name="settings_app_section">App</string>
+    <string name="settings_library_detail">Name, storage, thumbnails</string>
+    <string name="settings_backups">Backups</string>
+    <string name="settings_check">Check and Repair</string>
+    <string name="settings_export">Export</string>
+    <string name="settings_on">On</string>
+    <string name="settings_off">Off</string>
+    <string name="settings_version">Version</string>
+    <string name="settings_language">Language</string>
+    <string name="settings_change_language">Language and Permissions</string>
+    <string name="settings_library_title">Library</string>
+    <string name="settings_name">Name</string>
+    <string name="settings_location">Location</string>
+    <string name="settings_storage">Storage</string>
+    <string name="settings_originals">Originals</string>
+    <string name="settings_thumbnails">Thumbnails</string>
+    <string name="settings_database">Database</string>
+    <string name="settings_backups_size">Backups</string>
+    <string name="settings_total">Total</string>
+    <string name="settings_rebuild">Rebuild Thumbnails</string>
+    <string name="settings_rebuild_hint">Makes every thumbnail again in the background, for example after an update that draws them better.</string>
+    <string name="settings_rebuild_confirm">Make every thumbnail again?</string>
+
+    <string name="backups_now">Back Up Now</string>
+    <string name="backups_hint">A backup is a copy of the library\'s database: names, tags, folders, ratings, notes. The files themselves are not copied.</string>
+    <string name="backups_none">No backups yet</string>
+    <string name="backups_daily">daily</string>
+    <string name="backups_manual">made by hand</string>
+    <string name="backups_before_migration">before an update of the format</string>
+    <string name="backups_before_restore">before a restore</string>
+    <string name="backups_other">backup</string>
+    <string name="backups_restore">Restore This Backup</string>
+    <string name="backups_restore_title">Restore this backup?</string>
+    <string name="backups_restore_hint">The library goes back to this copy. The current state is kept as a backup first, so you can come back.</string>
+
+    <string name="check_run">Check Library</string>
+    <string name="check_hint">Checks the database, items whose file is missing and files no item points at. It changes nothing.</string>
+    <string name="check_result">Result</string>
+    <string name="check_items">Items</string>
+    <string name="check_database">Database</string>
+    <string name="check_ok">OK</string>
+    <string name="check_problems">Problems found</string>
+    <string name="check_missing">Missing files</string>
+    <string name="check_orphans">Files without an item</string>
+    <string name="check_orphan_thumbnails">Thumbnails without an item</string>
+    <string name="check_clean">Nothing to repair</string>
+    <string name="check_remove_orphans">Remove files and thumbnails without an item</string>
+    <string name="check_remove_missing">Remove items whose file is missing</string>
+    <string name="check_repair">Repair</string>
+    <string name="check_repair_hint">A backup is made first. Removed items cannot be undone.</string>
+
+    <string name="export_title">Export</string>
+    <string name="export_whole">The Whole Library</string>
+    <string name="export_whole_hint">Or choose folders and tags. The originals are exported in the library\'s folder tree.</string>
+    <string name="export_folders">Folders</string>
+    <string name="export_subfolders">Include Subfolders</string>
+    <string name="export_tags">Tags</string>
+    <string name="export_format">Format</string>
+    <string name="export_zip">ZIP</string>
+    <string name="export_folder">Folder</string>
+    <string name="export_compression">Compression</string>
+    <string name="export_compression_none">None</string>
+    <string name="export_compression_fast">Fast</string>
+    <string name="export_compression_balanced">Balanced</string>
+    <string name="export_compression_smallest">Smallest</string>
+    <string name="export_encrypt">Encrypt with a Passphrase</string>
+    <string name="export_passphrase">Passphrase</string>
+    <string name="export_confirm_passphrase">Repeat Passphrase</string>
+    <string name="export_encrypt_hint">The archive is encrypted with age. Without the passphrase it cannot be opened; it is not stored anywhere.</string>
+    <string name="export_start">Export</string>
+    <string name="export_preparing">Preparing…</string>
+    <string name="export_copying">Copying…</string>
+    <string name="export_encrypting">Encrypting…</string>
+    <string name="export_cancel">Stop Export</string>
+    <string name="export_done">The export is ready.</string>
+    <string name="export_failed">The export failed.</string>
+    <string name="export_cancelled">The export was stopped.</string>
+    <string name="export_another">New Export</string>
+    <string name="export_save_to_files">Save to Files</string>
+    <string name="export_saved">Saved to Files</string>
+    <plurals name="export_summary">
+        <item quantity="one">%d item</item>
+        <item quantity="other">%d items</item>
+    </plurals>
+    <plurals name="export_hidden">
+        <item quantity="one">%d item in a locked folder is left out</item>
+        <item quantity="other">%d items in locked folders are left out</item>
+    </plurals>
+    <plurals name="export_written">
+        <item quantity="one">%d item written</item>
+        <item quantity="other">%d items written</item>
+    </plurals>
+    <plurals name="export_missing">
+        <item quantity="one">%d file was missing and skipped</item>
+        <item quantity="other">%d files were missing and skipped</item>
+    </plurals>
+
+    <string name="toast_backed_up">Backup made</string>
+    <string name="toast_rebuilding">Rebuilding thumbnails</string>
+    <string name="toast_restored">Backup restored</string>
 </resources>

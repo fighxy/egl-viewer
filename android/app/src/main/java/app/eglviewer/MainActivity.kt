@@ -96,6 +96,7 @@ fun EglApp(model: AppModel, lock: AppLock, activity: FragmentActivity) {
             is AppModel.Screen.Welcome -> WelcomeScreen(model = model, lock = lock)
             is AppModel.Screen.LibraryOpen -> LibraryScreen(
                 open = screen.open,
+                lock = lock,
                 onClose = { model.close() },
             )
         }

@@ -57,6 +57,7 @@ import app.eglviewer.browse.Place
 import app.eglviewer.core.Folder
 import app.eglviewer.core.ReadOnlyReason
 import app.eglviewer.core.SmartFolder
+import app.eglviewer.locks.AppLock
 import app.eglviewer.locks.LockAction
 import app.eglviewer.locks.LockSheetDialog
 import app.eglviewer.organize.FolderEditing
@@ -66,6 +67,7 @@ import app.eglviewer.organize.SmartEditing
 import app.eglviewer.organize.SmartFolderEditorDialog
 import app.eglviewer.organize.TagsScreen
 import app.eglviewer.organize.labelColor
+import app.eglviewer.settings.SettingsScreen
 import app.eglviewer.theme.EglTokens
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.launch
@@ -73,15 +75,17 @@ import kotlinx.coroutines.withContext
 
 /**
  * Open library: places with counts, folder tree and smart folders. A place opens
- * [BrowseScreen] (Android A2–A6 ≈ D-094 / D-106).
+ * [BrowseScreen] (Android A2–A7 ≈ D-094 / D-107).
  */
 @Composable
 fun LibraryScreen(
     open: OpenLibrary,
+    lock: AppLock,
     onClose: () -> Unit,
 ) {
     var place by remember { mutableStateOf<Place?>(null) }
     var showTags by remember { mutableStateOf(false) }
+    var showSettings by remember { mutableStateOf(false) }
     var restored by remember(open) { mutableStateOf(false) }
     var folderEditing by remember { mutableStateOf<FolderEditing?>(null) }
     var movingFolder by remember { mutableStateOf<Folder?>(null) }
@@ -100,6 +104,15 @@ fun LibraryScreen(
                 place = saved
             }
         }
+    }
+
+    if (showSettings) {
+        SettingsScreen(
+            open = open,
+            lock = lock,
+            onBack = { showSettings = false },
+        )
+        return
     }
 
     if (showTags) {
@@ -174,6 +187,13 @@ fun LibraryScreen(
                         tint = EglTokens.Foreground,
                     )
                 }
+            }
+            IconButton(onClick = { showSettings = true }) {
+                Icon(
+                    Icons.Default.Settings,
+                    contentDescription = stringResource(R.string.settings_title),
+                    tint = EglTokens.Foreground,
+                )
             }
             if (!open.readOnly) {
                 AddMenuButton(open = open, folder = null)
