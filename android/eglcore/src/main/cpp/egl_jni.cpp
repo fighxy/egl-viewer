@@ -274,6 +274,33 @@ Java_app_eglviewer_core_EglNative_createLibrary(JNIEnv *env, jclass,
 #endif
 }
 
+/* Decrypt Archive (D-110 / D-111): no library handle; DecryptedArchive JSON or null. */
+extern "C" JNIEXPORT jstring JNICALL
+Java_app_eglviewer_core_EglNative_decryptArchive(JNIEnv *env, jclass,
+                                                 jstring source, jstring destination,
+                                                 jstring passphrase) {
+#if defined(EGL_HAS_RUST)
+  Utf8 source_arg(env, source);
+  Utf8 destination_arg(env, destination);
+  Utf8 passphrase_arg(env, passphrase);
+  char *json = nullptr;
+  EglStatus status = egl_decrypt_archive(source_arg.get(), destination_arg.get(),
+                                         passphrase_arg.get(), &json);
+  set_status(static_cast<int>(status));
+  if (status != EGL_OK || json == nullptr) {
+    return nullptr;
+  }
+  return take_c_string(env, json);
+#else
+  (void)env;
+  (void)source;
+  (void)destination;
+  (void)passphrase;
+  set_status(6);
+  return nullptr;
+#endif
+}
+
 extern "C" JNIEXPORT jlong JNICALL
 Java_app_eglviewer_core_EglNative_open(JNIEnv *env, jclass, jstring path,
                                        jstring version, jboolean syncFolder) {

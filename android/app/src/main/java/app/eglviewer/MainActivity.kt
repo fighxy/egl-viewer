@@ -66,6 +66,8 @@ fun EglApp(model: AppModel, lock: AppLock, activity: FragmentActivity) {
                 }
                 Lifecycle.Event.ON_RESUME -> {
                     showPrivacy = false
+                    // Back from the "All files access" page with a library waiting (D-111).
+                    model.retryPendingAccess()
                     if (!lock.enabled) {
                         activity.window.clearFlags(WindowManager.LayoutParams.FLAG_SECURE)
                     } else {

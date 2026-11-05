@@ -1,11 +1,15 @@
 package app.eglviewer.app
 
+import android.Manifest
 import android.content.Context
 import android.content.Intent
 import android.content.SharedPreferences
+import android.content.pm.PackageManager
 import android.net.Uri
+import android.os.Build
 import android.os.Environment
 import android.provider.DocumentsContract
+import androidx.core.content.ContextCompat
 import org.json.JSONArray
 import org.json.JSONObject
 import java.io.File
@@ -70,6 +74,23 @@ class LibraryLocations(context: Context) {
         }
     }
 
+    /**
+     * The app may read and write [path] itself: its own storage always; elsewhere only with
+     * "All files access" (Android 11+) or the storage permission before (D-111).
+     */
+    fun canAccess(path: File): Boolean = isLocal(path) || hasAllFilesAccess()
+
+    fun hasAllFilesAccess(): Boolean =
+        if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.R) {
+            Environment.isExternalStorageManager()
+        } else {
+            ContextCompat.checkSelfPermission(
+                appContext,
+                Manifest.permission.WRITE_EXTERNAL_STORAGE,
+            ) == PackageManager.PERMISSION_GRANTED
+        }
+
+    /** The path of a picked tree or document, whether or not the app may open it yet. */
     fun resolveFilesystemPath(uri: Uri): String? {
         return when {
             "file".equals(uri.scheme, ignoreCase = true) -> uri.path
@@ -77,7 +98,7 @@ class LibraryLocations(context: Context) {
             DocumentsContract.isDocumentUri(appContext, uri) ->
                 pathFromDocId(DocumentsContract.getDocumentId(uri))
             else -> null
-        }?.takeIf { File(it).exists() }
+        }
     }
 
     fun takePersistablePermission(uri: Uri) {

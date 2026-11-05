@@ -89,6 +89,31 @@ public final class HostJniTest {
         String tags = EglNative.tags(handle);
         check(tags != null && tags.contains("\"🔥 Огонь\""), "the tag comes back as typed: " + tags);
         EglNative.closeView(handle, view);
+
+        // D-111: an encrypted export opens again through the bridge, an emoji passphrase too.
+        String secret = "пароль 🔑 длинный";
+        Path sealed = Files.createDirectories(dir.resolve("sealed"));
+        String started = EglNative.startExport(handle, "{\"selection\":{\"whole\":true,\"folders\":[],\"tags\":[]},"
+            + "\"includeSubfolders\":true,\"format\":{\"kind\":\"zip\",\"compression\":\"none\"},"
+            + "\"destination\":" + quote(sealed.toString()) + ",\"encrypt\":" + quote(secret) + ",\"eagle\":null}");
+        check(started != null, "an encrypted export starts (" + EglNative.lastErrorGlobal() + ")");
+        long deadline = System.currentTimeMillis() + 60_000;
+        while (!"[]".equals(EglNative.exports(handle)) && System.currentTimeMillis() < deadline) {
+            Thread.sleep(50);
+        }
+        Path archive = null;
+        try (var listing = Files.list(sealed)) {
+            archive = listing.filter(entry -> entry.toString().endsWith(".zip.age")).findFirst().orElse(null);
+        }
+        check(archive != null, "the export wrote a .zip.age");
+        if (archive != null) {
+            Path unsealed = Files.createDirectories(dir.resolve("opened"));
+            String wrong = EglNative.decryptArchive(archive.toString(), unsealed.toString(), "not the passphrase");
+            check(wrong == null && EglNative.lastErrorGlobal().contains("Wrong passphrase"),
+                "a wrong passphrase is refused: " + EglNative.lastErrorGlobal());
+            String right = EglNative.decryptArchive(archive.toString(), unsealed.toString(), secret);
+            check(right != null && right.contains(".zip\""), "the archive decrypts to a ZIP: " + right);
+        }
         EglNative.setPlatformDecoder(false);
         EglNative.close(handle);
         return finish();

@@ -103,4 +103,7 @@ internal object EglNative {
     external fun startExport(handle: Long, requestJson: String): String?
     external fun exports(handle: Long): String?
     external fun cancelExport(handle: Long, id: Long): Int
+
+    // Decrypt Archive (D-110 / D-111): no library handle.
+    external fun decryptArchive(source: String, destination: String, passphrase: String): String?
 }

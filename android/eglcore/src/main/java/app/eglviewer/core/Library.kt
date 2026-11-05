@@ -565,6 +565,25 @@ class Library private constructor(private var handle: Long) : AutoCloseable {
             return File(path)
         }
 
+        /**
+         * Opens an age archive (an encrypted export, `name.zip.age`) with its passphrase into
+         * the existing folder [into], as `name.zip` (D-110). Blocking: call it off the main
+         * thread. A wrong passphrase or a damaged file throws and leaves nothing behind.
+         */
+        @JvmStatic
+        fun decryptArchive(source: File, into: File, passphrase: String): DecryptedArchive {
+            requireNative()
+            val json = EglNative.decryptArchive(source.absolutePath, into.absolutePath, passphrase)
+            val status = EglNative.lastStatus()
+            if (json.isNullOrEmpty()) {
+                throw EglError.of(
+                    if (status == 0) EglError.Code.OTHER.raw else status,
+                    EglNative.lastErrorGlobal(),
+                )
+            }
+            return DecryptedArchive.fromJson(json)
+        }
+
         /** Opens a library folder; [syncFolder] opens it read-only (cloud / synced places). */
         @JvmStatic
         fun open(

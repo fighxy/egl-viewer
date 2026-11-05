@@ -1,5 +1,7 @@
 package app.eglviewer.settings
 
+import app.eglviewer.core.MIN_PASSPHRASE_CHARS
+import app.eglviewer.core.passphraseLongEnough
 import org.junit.Assert.assertEquals
 import org.junit.Assert.assertTrue
 import org.junit.Test

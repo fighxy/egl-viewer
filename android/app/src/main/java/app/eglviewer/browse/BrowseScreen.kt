@@ -1,11 +1,14 @@
 package app.eglviewer.browse
 
+import android.content.ClipData
 import android.graphics.Bitmap
+import android.net.Uri
 import androidx.compose.foundation.ExperimentalFoundationApi
 import androidx.compose.foundation.Image
 import androidx.compose.foundation.background
 import androidx.compose.foundation.border
 import androidx.compose.foundation.combinedClickable
+import androidx.compose.foundation.draganddrop.dragAndDropTarget
 import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Box
 import androidx.compose.foundation.layout.Column
@@ -51,6 +54,9 @@ import androidx.compose.runtime.rememberCoroutineScope
 import androidx.compose.runtime.setValue
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
+import androidx.compose.ui.draganddrop.DragAndDropEvent
+import androidx.compose.ui.draganddrop.DragAndDropTarget
+import androidx.compose.ui.draganddrop.toAndroidDragEvent
 import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.graphics.asImageBitmap
 import androidx.compose.ui.layout.ContentScale
@@ -66,12 +72,6 @@ import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.text.style.TextOverflow
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
-import android.content.ClipData
-import android.net.Uri
-import androidx.compose.foundation.draganddrop.dragAndDropTarget
-import androidx.compose.ui.draganddrop.DragAndDropEvent
-import androidx.compose.ui.draganddrop.DragAndDropTarget
-import androidx.compose.ui.draganddrop.toAndroidDragEvent
 import app.eglviewer.R
 import app.eglviewer.a11y.AccessibilityLabels
 import app.eglviewer.a11y.StarsText
@@ -232,7 +232,7 @@ fun BrowseScreen(
 
             if (!model.loading) {
                 Text(
-                    text = stringResource(R.string.browse_item_count, model.total),
+                    text = pluralStringResource(R.plurals.browse_item_count, model.total, model.total),
                     color = EglTokens.MutedForeground,
                     fontSize = 12.sp,
                     modifier = Modifier.padding(horizontal = 12.dp, vertical = 4.dp),
@@ -368,11 +368,11 @@ private fun BrowseTopBar(
         IconButton(onClick = onBack) {
             Icon(
                 if (selecting) Icons.Default.Close else Icons.AutoMirrored.Filled.ArrowBack,
-                contentDescription = if (selecting) "Done" else "Back",
+                contentDescription = stringResource(if (selecting) R.string.common_done else R.string.browse_back),
             )
         }
         Text(
-            text = if (selecting) "$selectedCount selected" else title,
+            text = if (selecting) pluralStringResource(R.plurals.browse_selected, selectedCount, selectedCount) else title,
             fontWeight = FontWeight.SemiBold,
             fontSize = 17.sp,
             color = EglTokens.Foreground,
@@ -386,26 +386,26 @@ private fun BrowseTopBar(
                     if (selectedCount == total && total > 0) onDeselectAll() else onSelectAll()
                 },
             ) {
-                Text(if (selectedCount == total && total > 0) "Deselect All" else "Select All")
+                Text(stringResource(if (selectedCount == total && total > 0) R.string.browse_deselect_all else R.string.browse_select_all))
             }
-            TextButton(onClick = onDone) { Text("Done") }
+            TextButton(onClick = onDone) { Text(stringResource(R.string.common_done)) }
         } else {
             IconButton(onClick = onFilter) {
                 Icon(
                     Icons.Default.FilterList,
-                    contentDescription = "Filters",
+                    contentDescription = stringResource(R.string.browse_filters),
                     tint = if (filtersActive) EglTokens.Primary else EglTokens.Foreground,
                 )
             }
             IconButton(onClick = onToggleLayout) {
                 Icon(
                     if (layout == BrowseLayout.Grid) Icons.Default.ViewList else Icons.Default.GridView,
-                    contentDescription = "Layout",
+                    contentDescription = stringResource(R.string.browse_layout),
                 )
             }
             Box {
                 IconButton(onClick = { onShowSort(true) }) {
-                    Icon(Icons.AutoMirrored.Filled.Sort, contentDescription = "Sort")
+                    Icon(Icons.AutoMirrored.Filled.Sort, contentDescription = stringResource(R.string.browse_sort))
                 }
                 DropdownMenu(expanded = showSort, onDismissRequest = { onShowSort(false) }) {
                     SortKey.offered.forEach { key ->
@@ -419,7 +419,7 @@ private fun BrowseTopBar(
                     }
                     if (sort != SortKey.Random) {
                         DropdownMenuItem(
-                            text = { Text(if (ascending) "Ascending ✓" else "Ascending") },
+                            text = { Text(stringResource(R.string.browse_ascending) + if (ascending) " ✓" else "") },
                             onClick = {
                                 onAscending()
                                 onShowSort(false)
@@ -429,7 +429,7 @@ private fun BrowseTopBar(
                     if (layout == BrowseLayout.Grid) {
                         ThumbnailSize.entries.forEach { s ->
                             DropdownMenuItem(
-                                text = { Text(s.name.lowercase() + if (s == size) " ✓" else "") },
+                                text = { Text(stringResource(sizeLabel(s)) + if (s == size) " ✓" else "") },
                                 onClick = {
                                     onSize(s)
                                     onShowSort(false)
@@ -475,7 +475,7 @@ private fun SearchField(query: String, onQuery: (String) -> Unit) {
             modifier = Modifier.weight(1f),
             decorationBox = { inner ->
                 if (query.isEmpty()) {
-                    Text("Search", color = EglTokens.MutedForeground, fontSize = 15.sp)
+                    Text(stringResource(R.string.browse_search), color = EglTokens.MutedForeground, fontSize = 15.sp)
                 }
                 inner()
             },
@@ -697,26 +697,36 @@ private fun ItemThumbnail(cell: ItemCell?, pixels: Int, cache: ThumbnailCache) {
     }
 }
 
+@Composable
 private fun placeTitle(place: Place): String = when (place) {
-    Place.All -> "All"
-    Place.Uncategorized -> "Uncategorized"
-    Place.Untagged -> "Untagged"
-    Place.Trash -> "Trash"
+    Place.All -> stringResource(R.string.place_all)
+    Place.Uncategorized -> stringResource(R.string.place_uncategorized)
+    Place.Untagged -> stringResource(R.string.place_untagged)
+    Place.Trash -> stringResource(R.string.place_trash)
     is Place.Folder -> place.name
     is Place.Smart -> place.name
     is Place.Tag -> place.name
 }
 
-private fun sortLabel(key: SortKey): String = when (key) {
-    SortKey.Added -> "Date added"
-    SortKey.Btime -> "Date created"
-    SortKey.Mtime -> "Date modified"
-    SortKey.Name -> "Name"
-    SortKey.Ext -> "Type"
-    SortKey.Size -> "Size"
-    SortKey.Resolution -> "Resolution"
-    SortKey.Star -> "Rating"
-    SortKey.Random -> "Random"
+@Composable
+private fun sortLabel(key: SortKey): String = stringResource(
+    when (key) {
+        SortKey.Added -> R.string.sort_added
+        SortKey.Btime -> R.string.sort_created
+        SortKey.Mtime -> R.string.sort_modified
+        SortKey.Name -> R.string.sort_name
+        SortKey.Ext -> R.string.sort_type
+        SortKey.Size -> R.string.sort_size
+        SortKey.Resolution -> R.string.sort_resolution
+        SortKey.Star -> R.string.sort_rating
+        SortKey.Random -> R.string.sort_random
+    },
+)
+
+private fun sizeLabel(size: ThumbnailSize): Int = when (size) {
+    ThumbnailSize.Small -> R.string.browse_size_small
+    ThumbnailSize.Medium -> R.string.browse_size_medium
+    ThumbnailSize.Large -> R.string.browse_size_large
 }
 
 private fun cellDetails(cell: ItemCell): String {

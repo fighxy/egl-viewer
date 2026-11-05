@@ -65,6 +65,33 @@ class AppLockTest {
         assertTrue(lock.locked)
     }
 
+    /** D-111: restarting the app does not reset the wait after wrong tries. */
+    @Test
+    fun theWaitSurvivesARestart() {
+        val store = MemoryLoginStore()
+        val first = AppLock(store = store, iterations = 1_000)
+        first.setPassword("1234")
+        repeat(5) { assertFalse(first.unlock("0000")) }
+        val wait = first.waitUntilMs
+        assertNotNull(wait)
+
+        val restarted = AppLock(store = store, iterations = 1_000)
+        assertEquals(wait, restarted.waitUntilMs)
+        assertFalse("still waiting", restarted.unlock("1234"))
+        assertEquals(Attempts(5, wait), store.loadAttempts())
+    }
+
+    @Test
+    fun aRightPasswordClearsTheWrongTries() {
+        val store = MemoryLoginStore()
+        val lock = AppLock(store = store, iterations = 1_000)
+        lock.setPassword("1234")
+        repeat(3) { assertFalse(lock.unlock("0000")) }
+        assertEquals(3, store.loadAttempts().failures)
+        assertTrue(lock.unlock("1234"))
+        assertEquals(Attempts(), store.loadAttempts())
+    }
+
     @Test
     fun memoryStoreKeepsTheLogin() {
         val store = MemoryLoginStore()

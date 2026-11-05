@@ -34,6 +34,16 @@ class AppModel(application: Application) : AndroidViewModel(application) {
     var localLibraries: List<File> by mutableStateOf(emptyList())
         private set
     var error: String? by mutableStateOf(null)
+
+    /**
+     * A library outside the app's storage waits for "All files access" (D-111): the screen
+     * explains and sends the user to the system setting, and [retryPendingAccess] opens it
+     * when the app comes back with the access.
+     */
+    data class PendingOpen(val file: File, val uri: Uri?)
+
+    var pendingAccess: PendingOpen? by mutableStateOf(null)
+        private set
     var busy: Boolean by mutableStateOf(false)
         private set
 
@@ -90,6 +100,13 @@ class AppModel(application: Application) : AndroidViewModel(application) {
                     string(R.string.error_saf_path),
                 )
             val file = File(path)
+            if (!locations.canAccess(file)) {
+                pendingAccess = PendingOpen(file, uri)
+                return@run
+            }
+            if (!file.exists()) {
+                throw EglError(EglError.Code.NOT_FOUND, string(R.string.error_missing_library))
+            }
             val synced = locations.isSynced(file, uri)
             openPath(file, uri = uri, syncFolder = synced)
         }
@@ -103,6 +120,10 @@ class AppModel(application: Application) : AndroidViewModel(application) {
                 return@run
             }
             val file = File(recent.path)
+            if (!locations.canAccess(file)) {
+                pendingAccess = PendingOpen(file, null)
+                return@run
+            }
             if (!file.exists()) {
                 throw EglError(EglError.Code.NOT_FOUND, string(R.string.error_missing_library))
             }
@@ -114,6 +135,28 @@ class AppModel(application: Application) : AndroidViewModel(application) {
         run {
             openPath(file, uri = null, syncFolder = false)
         }
+    }
+
+    /** The app is back: open the waiting library if the access was granted. */
+    fun retryPendingAccess() {
+        val pending = pendingAccess ?: return
+        if (!locations.canAccess(pending.file)) return
+        pendingAccess = null
+        val uri = pending.uri
+        if (uri != null) {
+            openUri(uri)
+        } else {
+            run {
+                if (!pending.file.exists()) {
+                    throw EglError(EglError.Code.NOT_FOUND, string(R.string.error_missing_library))
+                }
+                openPath(pending.file, uri = null, syncFolder = locations.isSynced(pending.file, null))
+            }
+        }
+    }
+
+    fun dismissPendingAccess() {
+        pendingAccess = null
     }
 
     fun forget(recent: RecentLibrary) {

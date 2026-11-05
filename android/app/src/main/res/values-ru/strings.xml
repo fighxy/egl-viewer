@@ -39,12 +39,10 @@
     <string name="error_read_only">Библиотека только для чтения.</string>
     <string name="error_wrong_password">Неверный пароль.</string>
     <string name="error_core_missing">Native-ядро не подключено. Соберите libegl_library.so через cargo-ndk (см. android/README.md).</string>
-    <string name="error_saf_path">У SAF URI нет пути файловой системы для Rust (выберите локальную папку .eglib).</string>
+    <string name="error_saf_path">У этого места нет папки на телефоне, которую приложение может открыть, например это облачный сервис. Перенесите библиотеку в память телефона или на SD-карту.</string>
     <string name="error_missing_library">Этой библиотеки больше нет на телефоне.</string>
 
     <string name="browse_select">Выбрать</string>
-    <string name="browse_selected">Выбрано: %1$d</string>
-    <string name="browse_item_count">%1$d элементов</string>
     <string name="common_close">Закрыть</string>
     <string name="common_done">Готово</string>
     <string name="common_cancel">Отмена</string>
@@ -438,4 +436,98 @@
     <string name="toast_backed_up">Резервная копия сделана</string>
     <string name="toast_rebuilding">Миниатюры пересоздаются</string>
     <string name="toast_restored">Копия восстановлена</string>
+    <!-- Browse, filters and selection toasts (D-111). -->
+    <string name="browse_back">Назад</string>
+    <string name="browse_filters">Фильтры</string>
+    <string name="browse_layout">Вид</string>
+    <string name="browse_sort">Сортировка</string>
+    <string name="browse_search">Поиск</string>
+    <string name="browse_select_all">Выбрать все</string>
+    <string name="browse_deselect_all">Снять выделение</string>
+    <string name="browse_ascending">По возрастанию</string>
+    <string name="browse_size_small">Мелкие</string>
+    <string name="browse_size_medium">Средние</string>
+    <string name="browse_size_large">Крупные</string>
+    <string name="filter_reset">Сбросить</string>
+    <string name="filter_tags">Теги</string>
+    <string name="filter_no_tags">В этой библиотеке пока нет тегов.</string>
+    <string name="filter_selected">Выбрано</string>
+    <string name="filter_type">Тип</string>
+    <string name="filter_any">Любой</string>
+    <string name="filter_rating">Оценка</string>
+    <string name="filter_unrated">Без оценки</string>
+    <string name="filter_shape">Форма</string>
+    <string name="filter_mode_any">Любой</string>
+    <string name="filter_mode_all">Все</string>
+    <string name="filter_mode_none">Ни одного</string>
+    <string name="shape_square">Квадрат</string>
+    <string name="shape_landscape">Альбомная</string>
+    <string name="shape_portrait">Книжная</string>
+    <string name="shape_panoramic_landscape">Панорама, широкая</string>
+    <string name="shape_panoramic_portrait">Панорама, высокая</string>
+    <string name="sort_added">Дата добавления</string>
+    <string name="sort_created">Дата создания</string>
+    <string name="sort_modified">Дата изменения</string>
+    <string name="sort_name">Имя</string>
+    <string name="sort_type">Тип</string>
+    <string name="sort_size">Размер файла</string>
+    <string name="sort_resolution">Разрешение</string>
+    <string name="sort_rating">Оценка</string>
+    <string name="sort_random">Случайно</string>
+    <string name="toast_tagged">Теги добавлены</string>
+    <string name="toast_untagged">Тег убран</string>
+    <plurals name="toast_trashed">
+        <item quantity="one">%1$d элемент в корзине</item>
+        <item quantity="few">%1$d элемента в корзине</item>
+        <item quantity="many">%1$d элементов в корзине</item>
+        <item quantity="other">%1$d элемента в корзине</item>
+    </plurals>
+    <plurals name="toast_restored_items">
+        <item quantity="one">Восстановлен %1$d элемент</item>
+        <item quantity="few">Восстановлено %1$d элемента</item>
+        <item quantity="many">Восстановлено %1$d элементов</item>
+        <item quantity="other">Восстановлено %1$d элемента</item>
+    </plurals>
+    <plurals name="toast_deleted">
+        <item quantity="one">Удалён %1$d элемент</item>
+        <item quantity="few">Удалено %1$d элемента</item>
+        <item quantity="many">Удалено %1$d элементов</item>
+        <item quantity="other">Удалено %1$d элемента</item>
+    </plurals>
+    <plurals name="toast_rated">
+        <item quantity="one">Оценён %1$d элемент</item>
+        <item quantity="few">Оценено %1$d элемента</item>
+        <item quantity="many">Оценено %1$d элементов</item>
+        <item quantity="other">Оценено %1$d элемента</item>
+    </plurals>
+    <plurals name="toast_filed">
+        <item quantity="one">%1$d элемент добавлен в папку</item>
+        <item quantity="few">%1$d элемента добавлены в папку</item>
+        <item quantity="many">%1$d элементов добавлены в папку</item>
+        <item quantity="other">%1$d элемента добавлены в папку</item>
+    </plurals>
+    <plurals name="browse_item_count">
+        <item quantity="one">%1$d элемент</item>
+        <item quantity="few">%1$d элемента</item>
+        <item quantity="many">%1$d элементов</item>
+        <item quantity="other">%1$d элемента</item>
+    </plurals>
+    <plurals name="browse_selected">
+        <item quantity="one">Выбран %1$d</item>
+        <item quantity="few">Выбрано %1$d</item>
+        <item quantity="many">Выбрано %1$d</item>
+        <item quantity="other">Выбрано %1$d</item>
+    </plurals>
+    <!-- Decrypt Archive (D-111). -->
+    <string name="settings_decrypt">Расшифровать архив</string>
+    <string name="decrypt_title">Расшифровать архив</string>
+    <string name="decrypt_hint">Открывает зашифрованный экспорт (.zip.age) по паролю. Получится обычный ZIP-архив: его можно сохранить или отправить.</string>
+    <string name="decrypt_archive">Архив</string>
+    <string name="decrypt_choose">Выбрать…</string>
+    <string name="decrypt_decrypting">Расшифровка…</string>
+    <string name="decrypt_start">Расшифровать</string>
+    <!-- All files access (D-111). -->
+    <string name="access_title">Разрешите доступ к библиотеке</string>
+    <string name="access_body">%1$s находится вне памяти приложения. Чтобы открыть её на месте, egl-viewer нужен доступ ко всем файлам на телефоне. Приложение открывает только выбранные вами библиотеки и ничего никуда не отправляет.</string>
+    <string name="access_allow">Разрешить</string>
 </resources>

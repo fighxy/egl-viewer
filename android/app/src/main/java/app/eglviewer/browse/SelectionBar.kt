@@ -31,7 +31,10 @@ import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.platform.LocalContext
 import androidx.compose.ui.platform.testTag
+import androidx.compose.ui.res.pluralStringResource
 import androidx.compose.ui.res.stringResource
+import androidx.compose.ui.semantics.selected
+import androidx.compose.ui.semantics.semantics
 import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
@@ -41,8 +44,6 @@ import app.eglviewer.core.ItemsTarget
 import app.eglviewer.core.SelectionTags
 import app.eglviewer.theme.EglTokens
 import kotlinx.coroutines.launch
-import androidx.compose.ui.semantics.selected
-import androidx.compose.ui.semantics.semantics
 
 /** Bottom bar under a selection: rate / tags / folder / share / trash (or restore / delete). */
 @Composable
@@ -64,7 +65,7 @@ fun SelectionBar(model: BrowseModel) {
         verticalArrangement = Arrangement.spacedBy(8.dp),
     ) {
         Text(
-            text = stringResource(R.string.browse_selected, model.selectedCount),
+            text = pluralStringResource(R.plurals.browse_selected, model.selectedCount, model.selectedCount),
             color = EglTokens.Foreground,
             fontSize = 13.sp,
             fontWeight = FontWeight.Medium,

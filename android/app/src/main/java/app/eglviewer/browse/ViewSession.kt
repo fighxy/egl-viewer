@@ -95,12 +95,31 @@ interface BrowseHost {
         }
 
     fun show(message: String, undoable: Boolean) = Unit
+
+    /** [phrase] in the UI language; English where there are no resources (JVM tests, D-111). */
+    fun say(phrase: ActionPhrase): String = phrase.english
     suspend fun undo() = Unit
     val toast: ActionToast? get() = null
     val pickableFolders: List<PickableFolder> get() = emptyList()
 }
 
 data class ActionToast(val message: String, val undoable: Boolean)
+
+/** What a selection action did, for its toast (D-111). */
+data class ActionPhrase(val kind: Kind, val count: Int = 0) {
+    enum class Kind { Trashed, Restored, Deleted, Rated, Tagged, Untagged, Filed }
+
+    val english: String
+        get() = when (kind) {
+            Kind.Trashed -> if (count == 1) "1 item moved to the trash" else "$count items moved to the trash"
+            Kind.Restored -> if (count == 1) "1 item restored" else "$count items restored"
+            Kind.Deleted -> if (count == 1) "1 item deleted" else "$count items deleted"
+            Kind.Rated -> if (count == 1) "1 item rated" else "$count items rated"
+            Kind.Tagged -> "Tags added"
+            Kind.Untagged -> "Tag removed"
+            Kind.Filed -> if (count == 1) "1 item added to the folder" else "$count items added to the folder"
+        }
+}
 
 data class PickableFolder(val folder: app.eglviewer.core.Folder, val depth: Int)
 

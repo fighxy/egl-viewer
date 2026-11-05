@@ -388,24 +388,24 @@ class BrowseModel(
     suspend fun trash(target: ItemsTarget) {
         val count = open.perform { it.editItems(target, ItemEdit.Trash) } ?: return
         finished()
-        open.show("Moved $count to Trash", undoable = true)
+        open.show(open.say(ActionPhrase(ActionPhrase.Kind.Trashed, count)), undoable = true)
     }
 
     suspend fun restore(target: ItemsTarget) {
         val count = open.perform { it.editItems(target, ItemEdit.Restore) } ?: return
         finished()
-        open.show("Restored $count", undoable = true)
+        open.show(open.say(ActionPhrase(ActionPhrase.Kind.Restored, count)), undoable = true)
     }
 
     suspend fun deleteForGood(target: ItemsTarget) {
         val count = open.perform { it.deleteItems(target) } ?: return
         finished()
-        open.show("Deleted $count", undoable = false)
+        open.show(open.say(ActionPhrase(ActionPhrase.Kind.Deleted, count)), undoable = false)
     }
 
     suspend fun emptyTrash() {
         val count = open.perform { it.emptyTrash() } ?: return
-        open.show("Deleted $count", undoable = false)
+        open.show(open.say(ActionPhrase(ActionPhrase.Kind.Deleted, count)), undoable = false)
     }
 
     /** The rules of this view's query, for "Save as Smart Folder" (A5 ≈ D-097). */
@@ -417,18 +417,18 @@ class BrowseModel(
     suspend fun rate(target: ItemsTarget, stars: Int) {
         val count = open.perform { it.editItems(target, ItemEdit.SetStar(stars)) } ?: return
         finished()
-        open.show("Rated $count", undoable = true)
+        open.show(open.say(ActionPhrase(ActionPhrase.Kind.Rated, count)), undoable = true)
     }
 
     suspend fun addTags(target: ItemsTarget, tags: List<String>) {
         if (tags.isEmpty()) return
         open.perform { it.editItems(target, ItemEdit.AddTags(tags)) } ?: return
-        open.show("Tagged", undoable = true)
+        open.show(open.say(ActionPhrase(ActionPhrase.Kind.Tagged)), undoable = true)
     }
 
     suspend fun removeTags(target: ItemsTarget, tags: List<String>) {
         open.perform { it.editItems(target, ItemEdit.RemoveTags(tags)) } ?: return
-        open.show("Untagged", undoable = true)
+        open.show(open.say(ActionPhrase(ActionPhrase.Kind.Untagged)), undoable = true)
     }
 
     suspend fun addToFolder(target: ItemsTarget, folder: String) {
@@ -436,7 +436,7 @@ class BrowseModel(
             it.editItems(target, ItemEdit.AddToFolders(listOf(folder)))
         } ?: return
         finished()
-        open.show("Filed $count", undoable = true)
+        open.show(open.say(ActionPhrase(ActionPhrase.Kind.Filed, count)), undoable = true)
     }
 
     suspend fun share(target: ItemsTarget, cacheDir: File) {

@@ -22,6 +22,7 @@ import androidx.compose.material.icons.automirrored.filled.KeyboardArrowRight
 import androidx.compose.material.icons.automirrored.filled.MenuBook
 import androidx.compose.material.icons.filled.Build
 import androidx.compose.material.icons.filled.HealthAndSafety
+import androidx.compose.material.icons.filled.Key
 import androidx.compose.material.icons.filled.Lock
 import androidx.compose.material.icons.filled.Policy
 import androidx.compose.material.icons.filled.Share
@@ -56,6 +57,7 @@ private sealed class SettingsDest {
     data object Check : SettingsDest()
     data object Export : SettingsDest()
     data object Privacy : SettingsDest()
+    data object Decrypt : SettingsDest()
 }
 
 /**
@@ -85,6 +87,7 @@ fun SettingsScreen(
                 onExport = { dest = SettingsDest.Export },
                 onAppLock = { showAppLock = true },
                 onPrivacy = { dest = SettingsDest.Privacy },
+                onDecrypt = { dest = SettingsDest.Decrypt },
                 onChangeLanguage = {
                     val intent = languageSettingsIntent(context.packageName)
                     runCatching { context.startActivity(intent) }
@@ -94,6 +97,9 @@ fun SettingsScreen(
         }
         SettingsDest.Privacy -> {
             PrivacyScreen(onBack = { dest = SettingsDest.Hub })
+        }
+        SettingsDest.Decrypt -> {
+            DecryptArchiveScreen(onBack = { dest = SettingsDest.Hub })
         }
         SettingsDest.LibraryInfo -> {
             if (open != null) {
@@ -145,6 +151,7 @@ private fun SettingsHub(
     onExport: () -> Unit,
     onAppLock: () -> Unit,
     onPrivacy: () -> Unit,
+    onDecrypt: () -> Unit,
     onChangeLanguage: () -> Unit,
     onBack: () -> Unit,
 ) {
@@ -217,6 +224,11 @@ private fun SettingsHub(
                     if (lock.enabled) R.string.settings_on else R.string.settings_off,
                 ),
                 onClick = onAppLock,
+            )
+            SettingsRow(
+                icon = Icons.Default.Key,
+                title = stringResource(R.string.settings_decrypt),
+                onClick = onDecrypt,
             )
             SettingsRow(
                 icon = Icons.Default.Policy,

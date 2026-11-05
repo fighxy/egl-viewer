@@ -2407,3 +2407,32 @@ of little use to someone who has never used a command line.
   list of places redrew, on a simulator that took 19 s to find the row. `openAll(expecting:)`
   (EglViewerUITests/UITestSupport.swift) waits for the row to show the full count, then
   taps, and taps once more if no browse screen came; Browse, Preview and Accessibility use it.
+
+## D-111 Android follow-ups: catalog strings, attempts kept, Decrypt Archive, All files access (2026-11-05)
+
+The Android review (D-109) left five items. They land together.
+
+- **Strings.** About 30 labels of browsing (sort keys, filters, shapes, layout sizes, the
+  selection title, the item count) and the action toasts were English literals. They come from
+  the catalogs now, translated as on iPhone, with Android plurals for the counts (Russian with
+  one / few / many / other). Toasts are worded by the host: `BrowseModel` hands
+  `BrowseHost.say(ActionPhrase)` a kind and a count, so the model stays free of Android
+  resources and the JVM tests read English. `StringsCatalogTest` checks that the three
+  catalogs have the same keys and plurals, and fails on `Text("Word…`, `contentDescription =
+  "Word…` or `show("Word…` in app code.
+- **Wrong tries survive a restart.** The App Lock counter and the wait after five wrong tries
+  were held in memory, so killing the app cleared them. `LoginStore` keeps `failures` and
+  `wait_until` next to the hash; a right password clears both.
+- **FakeViewSession** moved from the APK into the unit tests that use it.
+- **Decrypt Archive.** Settings → Decrypt Archive picks an `.age` file, copies it into the
+  cache, and opens it with `Library.decryptArchive` (JNI `decryptArchive` over
+  `egl_decrypt_archive`, D-110) into a temporary folder; the ZIP is then saved through the
+  system's Save dialog or shared. The folder is removed when the screen closes. The host JNI
+  check encrypts an export with a non-ASCII passphrase and opens it with a wrong and a right one.
+- **Libraries outside app storage.** The user chose broad access over copying a library in:
+  the app declares `MANAGE_EXTERNAL_STORAGE` (and `READ` / `WRITE_EXTERNAL_STORAGE` up to API
+  29). Opening a library whose real path lies outside app storage without that access shows
+  what it is for and opens the system page; on return the open is retried. Without it the app
+  still works with libraries in its own storage. A library is never copied or moved: it stays
+  the one source of truth where it is. Google Play reviews this permission; a store build may
+  need the declaration form, or a build without it.

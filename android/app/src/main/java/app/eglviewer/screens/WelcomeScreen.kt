@@ -81,6 +81,50 @@ fun WelcomeScreen(model: AppModel, lock: AppLock) {
         }
     }
 
+    val context = androidx.compose.ui.platform.LocalContext.current
+    val storagePermission = rememberLauncherForActivityResult(
+        ActivityResultContracts.RequestPermission(),
+    ) { granted ->
+        if (granted) model.retryPendingAccess() else model.dismissPendingAccess()
+    }
+    model.pendingAccess?.let { pending ->
+        AlertDialog(
+            onDismissRequest = model::dismissPendingAccess,
+            title = { Text(stringResource(R.string.access_title)) },
+            text = { Text(stringResource(R.string.access_body, pending.file.absolutePath)) },
+            confirmButton = {
+                TextButton(
+                    onClick = {
+                        if (android.os.Build.VERSION.SDK_INT >= android.os.Build.VERSION_CODES.R) {
+                            // The system page of this app's "All files access"; the app reopens
+                            // the library when it comes back (MainActivity, ON_RESUME).
+                            val intent = android.content.Intent(
+                                android.provider.Settings.ACTION_MANAGE_APP_ALL_FILES_ACCESS_PERMISSION,
+                                Uri.parse("package:${context.packageName}"),
+                            )
+                            runCatching { context.startActivity(intent) }.onFailure {
+                                context.startActivity(
+                                    android.content.Intent(
+                                        android.provider.Settings.ACTION_MANAGE_ALL_FILES_ACCESS_PERMISSION,
+                                    ),
+                                )
+                            }
+                        } else {
+                            storagePermission.launch(android.Manifest.permission.WRITE_EXTERNAL_STORAGE)
+                        }
+                    },
+                ) {
+                    Text(stringResource(R.string.access_allow))
+                }
+            },
+            dismissButton = {
+                TextButton(onClick = model::dismissPendingAccess) {
+                    Text(stringResource(R.string.common_cancel))
+                }
+            },
+        )
+    }
+
     model.error?.let { message ->
         AlertDialog(
             onDismissRequest = model::dismissError,

@@ -4,8 +4,10 @@ import android.content.Context
 import androidx.compose.runtime.getValue
 import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.setValue
+import app.eglviewer.R
 import app.eglviewer.adding.PickedFile
 import app.eglviewer.adding.importSummary
+import app.eglviewer.browse.ActionPhrase
 import app.eglviewer.browse.ActionToast
 import app.eglviewer.browse.BrowseFilters
 import app.eglviewer.browse.BrowseHost
@@ -19,7 +21,6 @@ import app.eglviewer.browse.SavedView
 import app.eglviewer.browse.SavedViews
 import app.eglviewer.browse.ThumbnailCache
 import app.eglviewer.browse.ViewSession
-import app.eglviewer.R
 import app.eglviewer.core.DuplicateAnswer
 import app.eglviewer.core.EglError
 import app.eglviewer.core.ExportProgress
@@ -40,10 +41,6 @@ import app.eglviewer.core.SmartRulesDraft
 import app.eglviewer.core.TagGroup
 import app.eglviewer.core.TagGroupChange
 import app.eglviewer.core.ViewOpened
-import java.io.File
-import java.lang.ref.WeakReference
-import java.util.concurrent.ConcurrentHashMap
-import java.util.concurrent.CopyOnWriteArrayList
 import kotlinx.coroutines.CoroutineScope
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.Job
@@ -51,6 +48,10 @@ import kotlinx.coroutines.SupervisorJob
 import kotlinx.coroutines.delay
 import kotlinx.coroutines.launch
 import kotlinx.coroutines.withContext
+import java.io.File
+import java.lang.ref.WeakReference
+import java.util.concurrent.ConcurrentHashMap
+import java.util.concurrent.CopyOnWriteArrayList
 
 /**
  * One open library: core handle, places/counts/folders, saved view, toast / undo,
@@ -589,6 +590,20 @@ class OpenLibrary(
             null
         }
 
+    override fun say(phrase: ActionPhrase): String {
+        val res = appContext?.resources ?: return phrase.english
+        val n = phrase.count
+        return when (phrase.kind) {
+            ActionPhrase.Kind.Trashed -> res.getQuantityString(R.plurals.toast_trashed, n, n)
+            ActionPhrase.Kind.Restored -> res.getQuantityString(R.plurals.toast_restored_items, n, n)
+            ActionPhrase.Kind.Deleted -> res.getQuantityString(R.plurals.toast_deleted, n, n)
+            ActionPhrase.Kind.Rated -> res.getQuantityString(R.plurals.toast_rated, n, n)
+            ActionPhrase.Kind.Tagged -> res.getString(R.string.toast_tagged)
+            ActionPhrase.Kind.Untagged -> res.getString(R.string.toast_untagged)
+            ActionPhrase.Kind.Filed -> res.getQuantityString(R.plurals.toast_filed, n, n)
+        }
+    }
+
     override fun show(message: String, undoable: Boolean) {
         val next = ActionToast(message = message, undoable = undoable)
         toast = next
@@ -608,7 +623,7 @@ class OpenLibrary(
         dismissToast()
         val status = perform { it.undo() }
         if (status != null) {
-            show("Undone", undoable = false)
+            show(appContext?.getString(R.string.toast_undone) ?: "Undone", undoable = false)
         }
     }
 
