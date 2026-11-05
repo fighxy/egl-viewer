@@ -15,4 +15,5 @@ dependencyResolutionManagement {
 }
 
 rootProject.name = "egl-viewer"
+include(":eglcore")
 include(":app")

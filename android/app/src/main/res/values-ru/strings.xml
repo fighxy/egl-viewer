@@ -1,0 +1,44 @@
+<?xml version="1.0" encoding="utf-8"?>
+<resources>
+    <string name="app_name">egl-viewer</string>
+
+    <string name="welcome_hint_before">Откройте библиотеку на этом телефоне. Библиотеки — это пакеты </string>
+    <string name="welcome_hint_after"> в Files или в хранилище приложения.</string>
+    <string name="welcome_create">Создать библиотеку</string>
+    <string name="welcome_open">Открыть .eglib…</string>
+    <string name="welcome_recent">Недавние</string>
+    <string name="welcome_recent_empty">Пока нет недавних библиотек.</string>
+    <string name="welcome_on_this_phone">На этом телефоне</string>
+    <string name="welcome_forget">Забыть</string>
+    <string name="welcome_missing">Нет</string>
+    <string name="welcome_footer">Только native .eglib · тот же продукт, что и на компьютере</string>
+    <string name="hint_app_storage">Хранилище приложения</string>
+
+    <string name="create_title">Новая библиотека</string>
+    <string name="create_name">Имя</string>
+    <string name="create_hint">Создаётся в хранилище приложения как Имя.eglib.</string>
+    <string name="create_confirm">Создать</string>
+
+    <string name="library_close">Закрыть</string>
+    <string name="library_places">Места</string>
+    <string name="library_folders">Папки</string>
+    <string name="library_read_only">Библиотека только для чтения.</string>
+    <string name="library_read_only_other">Открыта в другом экземпляре — только чтение.</string>
+    <string name="library_read_only_synced">Путь в облаке — только чтение.</string>
+    <string name="library_a1_hint">Сетка элементов появится в следующем Android PR (A2).</string>
+
+    <string name="place_all">Все</string>
+    <string name="place_uncategorized">Без папки</string>
+    <string name="place_untagged">Без тегов</string>
+    <string name="place_trash">Корзина</string>
+
+    <string name="error_title">Не удалось открыть</string>
+    <string name="error_generic">Что-то пошло не так.</string>
+    <string name="error_name_required">Введите имя библиотеки.</string>
+    <string name="error_not_a_library">Эта папка не является native-библиотекой.</string>
+    <string name="error_read_only">Библиотека только для чтения.</string>
+    <string name="error_wrong_password">Неверный пароль.</string>
+    <string name="error_core_missing">Native-ядро не подключено. Соберите libegl_library.so через cargo-ndk (см. android/README.md).</string>
+    <string name="error_saf_path">У SAF URI нет пути файловой системы для Rust (выберите локальную папку .eglib).</string>
+    <string name="error_missing_library">Этой библиотеки больше нет на телефоне.</string>
+</resources>

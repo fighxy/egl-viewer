@@ -8,23 +8,13 @@ android {
     namespace = "app.eglviewer"
     compileSdk = 35
 
-    // Enable CMake / NDK only when the Rust cdylib is present (or -Pegl.ffi=true).
-    // CI assembleDebug stays mock-only without NDK (D-084 / D-085).
-    val rustSo = file("src/main/jniLibs/arm64-v8a/libegl_library.so")
-    val enableNativeFfi =
-        rustSo.exists() || (findProperty("egl.ffi")?.toString() == "true")
-
     defaultConfig {
         applicationId = "app.eglviewer"
         minSdk = 26
         targetSdk = 35
         versionCode = 1
         versionName = "0.2.3"
-        if (enableNativeFfi) {
-            ndk {
-                abiFilters += listOf("arm64-v8a")
-            }
-        }
+        testInstrumentationRunner = "androidx.test.runner.AndroidJUnitRunner"
     }
 
     buildTypes {
@@ -44,19 +34,14 @@ android {
         compose = true
         buildConfig = true
     }
-    if (enableNativeFfi) {
-        externalNativeBuild {
-            cmake {
-                path = file("src/main/cpp/CMakeLists.txt")
-            }
-        }
-    }
     packaging {
         resources.excludes += "/META-INF/{AL2.0,LGPL2.1}"
     }
 }
 
 dependencies {
+    implementation(project(":eglcore"))
+
     val composeBom = platform("androidx.compose:compose-bom:2024.10.01")
     implementation(composeBom)
     implementation("androidx.compose.ui:ui")
@@ -65,8 +50,11 @@ dependencies {
     implementation("androidx.compose.material:material-icons-extended")
     implementation("androidx.compose.foundation:foundation")
     implementation("androidx.activity:activity-compose:1.9.3")
-    implementation("androidx.navigation:navigation-compose:2.8.3")
     implementation("androidx.lifecycle:lifecycle-runtime-ktx:2.8.7")
     implementation("androidx.lifecycle:lifecycle-viewmodel-compose:2.8.7")
+    implementation("androidx.lifecycle:lifecycle-viewmodel-ktx:2.8.7")
+    implementation("org.jetbrains.kotlinx:kotlinx-coroutines-android:1.9.0")
     debugImplementation("androidx.compose.ui:ui-tooling")
+
+    testImplementation("junit:junit:4.13.2")
 }
