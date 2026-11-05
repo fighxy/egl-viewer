@@ -12,14 +12,12 @@ import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.setValue
 import androidx.core.content.ContextCompat
 import androidx.fragment.app.FragmentActivity
-import java.nio.ByteBuffer
 import java.security.KeyStore
 import java.security.SecureRandom
 import javax.crypto.Cipher
 import javax.crypto.KeyGenerator
 import javax.crypto.SecretKey
 import javax.crypto.SecretKeyFactory
-import javax.crypto.spec.GCMParameterSpec
 import javax.crypto.spec.PBEKeySpec
 import kotlin.math.max
 import org.json.JSONObject
@@ -244,23 +242,17 @@ class PrefsLoginStore(
             return runCatching { biometricSecretKey() != null }.getOrDefault(false)
         }
 
+    /**
+     * Turning biometrics on makes a Keystore key that only a strong biometric unlocks; no
+     * operation runs with it yet. Encrypting a token here, as before, needed that very
+     * authentication and failed outside a prompt (D-109).
+     */
     override fun saveBiometricToken(on: Boolean) {
         deleteBiometricKey()
         prefs.edit().putBoolean(KEY_BIOMETRY, false).apply()
         if (!on) return
         createBiometricKey()
-        val cipher = Cipher.getInstance(TRANSFORMATION)
-        cipher.init(Cipher.ENCRYPT_MODE, biometricSecretKey())
-        val token = ByteArray(32).also { SecureRandom().nextBytes(it) }
-        val encrypted = cipher.doFinal(token)
-        val payload = ByteBuffer.allocate(cipher.iv.size + encrypted.size)
-            .put(cipher.iv)
-            .put(encrypted)
-            .array()
-        prefs.edit()
-            .putBoolean(KEY_BIOMETRY, true)
-            .putString(KEY_BIOMETRY_BLOB, java.util.Base64.getEncoder().encodeToString(payload))
-            .apply()
+        prefs.edit().putBoolean(KEY_BIOMETRY, true).apply()
     }
 
     override fun authenticateBiometric(
@@ -268,23 +260,20 @@ class PrefsLoginStore(
         reason: String,
         onResult: (Boolean) -> Unit,
     ) {
-        val blob = prefs.getString(KEY_BIOMETRY_BLOB, null)
-        if (blob == null || !hasBiometricToken) {
+        if (!hasBiometricToken) {
             onResult(false)
             return
         }
-        val bytes = java.util.Base64.getDecoder().decode(blob)
-        if (bytes.size < 13) {
-            onResult(false)
-            return
-        }
-        val iv = bytes.copyOfRange(0, 12)
+        // The prompt authorises one operation with the key: encrypting a few random bytes
+        // succeeds only after a strong biometric matched, and the key exists only while
+        // the enrolled biometrics have not changed.
         val cipher = Cipher.getInstance(TRANSFORMATION)
         try {
-            cipher.init(Cipher.DECRYPT_MODE, biometricSecretKey(), GCMParameterSpec(128, iv))
+            cipher.init(Cipher.ENCRYPT_MODE, biometricSecretKey())
         } catch (_: Exception) {
-            // Enrollment changed — the Keystore key is gone.
-            prefs.edit().putBoolean(KEY_BIOMETRY, false).remove(KEY_BIOMETRY_BLOB).apply()
+            // Enrollment changed: the Keystore key is invalid now.
+            deleteBiometricKey()
+            prefs.edit().putBoolean(KEY_BIOMETRY, false).apply()
             onResult(false)
             return
         }
@@ -297,7 +286,7 @@ class PrefsLoginStore(
                     val crypto = result.cryptoObject?.cipher
                     val ok = if (crypto != null) {
                         runCatching {
-                            crypto.doFinal(bytes.copyOfRange(12, bytes.size))
+                            crypto.doFinal(ByteArray(16).also { SecureRandom().nextBytes(it) })
                             true
                         }.getOrDefault(false)
                     } else {
@@ -362,6 +351,7 @@ class PrefsLoginStore(
     companion object {
         private const val KEY_HASH = "password"
         private const val KEY_BIOMETRY = "biometry"
+        /** The token of earlier builds; removed with the key. */
         private const val KEY_BIOMETRY_BLOB = "biometry_blob"
         private const val ANDROID_KEYSTORE = "AndroidKeyStore"
         private const val BIOMETRIC_KEY_ALIAS = "app.eglviewer.login.biometry"

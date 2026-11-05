@@ -129,6 +129,9 @@ need android/app/src/main/res/mipmap-anydpi-v26/ic_launcher.xml
 need android/app/src/main/res/mipmap-xxxhdpi/ic_launcher.png
 need android/app/ic_launcher-playstore.png
 need scripts/android-release-version.sh
+need scripts/check-android-jni.sh
+need android/eglcore/src/hostTest/java/app/eglviewer/core/HostJniTest.java
+need android/eglcore/src/hostTest/java/runner/Runner.java
 
 # Release tags (D-100): ios-vX.Y.Z gives X.Y.Z; anything else publishes nothing.
 version="$root/scripts/ios-release-version.sh"

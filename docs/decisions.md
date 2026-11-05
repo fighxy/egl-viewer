@@ -2311,3 +2311,57 @@ The last PR of the Android series (D-101–D-107), mirroring iOS D-100. Stacked 
   `:app:testDebugUnitTest` of the Mobile workflow.
 - **Docs.** `android/README.md`, `android/PRIVACY.md`, the README status table, and this
   decision.
+
+## D-109 Android JNI: callbacks on the core's threads, UTF-8 strings, one release key (2026-11-05)
+
+A review of the Android series (D-101–D-108) found three faults that no test could see: the
+JVM unit tests run fakes, and nothing ran the real `egl_jni.cpp`.
+
+- **Callbacks.** The core reports imports, exports and refreshed views, and asks the platform
+  decoder for HEIC, on threads it started. `egl_jni.cpp` looked the Kotlin classes up there
+  with `FindClass`, which on an attached native thread searches the system class loader and
+  cannot see the app's classes: every event and every HEIC decode was lost
+  (`NoClassDefFoundError`). `JNI_OnLoad` now finds `Library.dispatchEventFromJni` and
+  `PlatformDecoder.decodeFromJni` once and keeps global references; a callback that throws
+  has its exception cleared before the thread returns to the core.
+- **Strings.** `GetStringUTFChars` and `NewStringUTF` speak Java's modified UTF-8: a character
+  outside the BMP (an emoji) became two 3-byte surrogates, the core refused the string as
+  invalid UTF-8 (a library named with an emoji could not be created) and the core's 4-byte
+  sequences were not safe going back. The bridge now converts from and to UTF-16 itself
+  (`Utf8`, `new_string`); an unpaired surrogate or a broken sequence becomes U+FFFD. The note
+  in `egl_library.h` says so (all three copies).
+- **Host check.** `scripts/check-android-jni.sh` compiles `egl_jni.cpp` with the JDK's
+  `jni.h`, links the core built for the host and runs `android/eglcore/src/hostTest` with
+  `-Xcheck:jni`, loading the app classes through a class loader of their own, as Android does:
+  a library and an item named with emoji, an emoji tag, import events from the core's
+  threads, the platform decoder called for a HEIC. It failed on the code before this change
+  (first the emoji name, then with ASCII names the events and the decoder) and passes now. The
+  Mobile workflow runs it in the `library-ffi` job.
+- **Release key.** D-108 signed the release APK with the runner's debug key, which is new on
+  every runner: an update could not install over the previous release, and uninstalling first
+  removes the libraries in the app's storage. Release builds now take one keystore from
+  repository secrets (`ANDROID_KEYSTORE_BASE64`, `ANDROID_KEYSTORE_PASSWORD`,
+  `ANDROID_KEY_ALIAS`, `ANDROID_KEY_PASSWORD`); a release tag fails without them and fails if
+  `apksigner` shows a debug certificate. Without `ANDROID_KEYSTORE_FILE` a local release build
+  stays unsigned. The AAB is signed with the same key, the upload key for Play App Signing.
+- **Events on the main thread.** Now that events arrive, `OpenLibrary` hands a refreshed
+  view to the browse models on the main thread and reads the tree again on the IO
+  dispatcher, instead of doing both on the core's thread. The host check also reads the
+  library from inside the callback, as `OpenLibrary` does, to show the core takes that
+  without a deadlock.
+- **Backups.** The backup rules left out `Libraries/` in the `file` domain, but libraries
+  live in `getExternalFilesDir(null)/libraries`, the `external` domain (or
+  `filesDir/libraries` without external storage): Auto Backup and device transfer carried
+  whole libraries, against D-021. Both rule files now exclude `libraries/` in both domains;
+  `ReleaseTest` checks them against `LibraryLocations`.
+- **Names from other apps.** A provider's `DISPLAY_NAME`, a document name in a picked tree
+  or a clipboard suggestion went straight into `File(folder, name)`: "../../shared_prefs/…"
+  would write outside the copy's folder ("Dirty Stream"). `PickedFile.safeName` keeps the
+  last segment only, never "." or "..", at most 255 bytes, and `PickedFile.child` refuses a
+  path that leaves the folder.
+- **Biometric unlock.** Turning it on encrypted a token with a Keystore key that needs a
+  strong biometric for every use (`setUserAuthenticationRequired`, timeout 0) outside any
+  prompt, so it failed and the switch showed an error. Turning it on now only makes the
+  key; the unlock prompt authorises one encryption of random bytes with it, which
+  succeeds only after a match, and an invalidated key (biometrics changed) turns the
+  option off. This needs a device to confirm: the unit tests use the in-memory store.

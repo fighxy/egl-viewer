@@ -143,11 +143,15 @@ class OpenLibrary(
 
     fun attachEvents(context: Context? = null) {
         if (context != null) appContext = context.applicationContext
+        // Events arrive on the core's threads (imports, exports) or on the thread of the call
+        // that wrote (D-109): the browse models change on the main thread.
         library.setEventHandler { event ->
             when (event) {
                 is LibraryEvent.ViewsInvalidated -> {
-                    notifyViewsInvalidated(event.views)
-                    runCatching { refresh() }
+                    scope.launch(Dispatchers.Main.immediate) {
+                        notifyViewsInvalidated(event.views)
+                        withContext(Dispatchers.IO) { runCatching { refresh() } }
+                    }
                 }
                 is LibraryEvent.ImportProgress -> {
                     scope.launch(Dispatchers.Main.immediate) {

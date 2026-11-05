@@ -64,7 +64,7 @@ Workflow: [`.github/workflows/mobile.yml`](../.github/workflows/mobile.yml).
 
 | Job | What it runs |
 |---|---|
-| `library-ffi` | Layout/header sync, `cargo test` / clippy for `library-ffi` |
+| `library-ffi` | Layout/header sync, `cargo test` / clippy for `library-ffi`; the JNI bridge against the real core on the host JVM (`scripts/check-android-jni.sh`: UTF-8 and emoji both ways, events and the platform decoder from the core's threads) |
 | `android` | NDK + cargo-ndk `.so` (cargo-ndk **4.1.2**), JVM unit tests, `assembleDebug`; on `android-v*` also `assembleRelease` + `bundleRelease` |
 | `android-release` | For a tag `android-vX.Y.Z`: GitHub Release with APK, AAB and `SHA256SUMS` (never latest) |
 
@@ -77,9 +77,24 @@ git push origin android-v0.2.3
 
 The workflow refuses a tag that is not `android-vX.Y.Z`
 (`scripts/android-release-version.sh`). Notes from `docs/releases/X.Y.Z.md` (shared with the
-desktop and iOS releases of the same version) open the release text. The APK is signed with
-the CI debug key for sideloading; re-sign the AAB with your Play upload keystore before
-Console upload. Check the download: `sha256sum -c SHA256SUMS`.
+desktop and iOS releases of the same version) open the release text. Check the download:
+`sha256sum -c SHA256SUMS`.
+
+The APK and the AAB are signed with the project's release key (D-109). Android installs an
+update only over an app signed with the same key, and removing the app removes the libraries
+in its storage, so the key never changes. Create it once and keep a copy outside GitHub:
+
+```bash
+keytool -genkeypair -v -keystore egl-viewer-release.jks -alias egl-viewer \
+  -keyalg RSA -keysize 4096 -validity 10000
+base64 -w0 egl-viewer-release.jks    # the value of ANDROID_KEYSTORE_BASE64
+```
+
+Repository secrets (Settings → Secrets and variables → Actions): `ANDROID_KEYSTORE_BASE64`,
+`ANDROID_KEYSTORE_PASSWORD`, `ANDROID_KEY_ALIAS`, `ANDROID_KEY_PASSWORD`. A release tag fails
+without them, and fails if the APK comes out signed with a debug key. Local `assembleRelease`
+without `ANDROID_KEYSTORE_FILE` gives an unsigned APK. For Google Play, enrol in Play App
+Signing with this key as the upload key.
 
 ## Product constraints
 

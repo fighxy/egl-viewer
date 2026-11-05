@@ -58,6 +58,24 @@ class ReleaseTest {
         assertTrue(File(repoRoot, "android/app/src/main/res/xml/backup_rules.xml").isFile)
     }
 
+    /** Libraries in app storage stay off cloud backups and transfers (D-021, D-109). */
+    @Test
+    fun backupsLeaveTheLibrariesOut() {
+        for (rules in listOf("backup_rules.xml", "data_extraction_rules.xml")) {
+            val text = File(repoRoot, "android/app/src/main/res/xml/$rules").readText()
+            // LibraryLocations.root: getExternalFilesDir(null)/libraries, else filesDir/libraries.
+            assertTrue(rules, text.contains("<exclude domain=\"external\" path=\"libraries/\" />"))
+            assertTrue(rules, text.contains("<exclude domain=\"file\" path=\"libraries/\" />"))
+            assertTrue(rules, text.contains("path=\"app.eglviewer.login.xml\""))
+        }
+        val locations = File(
+            repoRoot,
+            "android/app/src/main/java/app/eglviewer/app/LibraryLocations.kt",
+        ).readText()
+        assertTrue(locations.contains("getExternalFilesDir(null) ?: appContext.filesDir"))
+        assertTrue(locations.contains("File(base, \"libraries\")"))
+    }
+
     @Test
     fun privacyStringsExistInTheThreeLanguages() {
         val keys = listOf(

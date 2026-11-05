@@ -19,6 +19,7 @@ on:
       - "scripts/check-ios-strings.py"
       - "scripts/ios-release-version.sh"
       - "scripts/android-release-version.sh"
+      - "scripts/check-android-jni.sh"
       - ".github/workflows/mobile.yml"
       - "rust-toolchain.toml"
       - "Cargo.toml"
@@ -38,6 +39,7 @@ on:
       - "scripts/check-ios-strings.py"
       - "scripts/ios-release-version.sh"
       - "scripts/android-release-version.sh"
+      - "scripts/check-android-jni.sh"
       - ".github/workflows/mobile.yml"
       - "rust-toolchain.toml"
       - "Cargo.toml"
@@ -87,6 +89,11 @@ jobs:
 
       - name: library-ffi tests
         run: cargo test -p library-ffi
+
+      # The Android JNI bridge against the real core on the host JVM (D-109): UTF-8 both
+      # ways, events and the platform decoder from the core's threads.
+      - name: Android JNI bridge (host)
+        run: bash scripts/check-android-jni.sh
 
   # Android (D-101…D-108): eglcore unit tests + assembleDebug with a real arm64 .so
   # (cargo-ndk). On a tag `android-vX.Y.Z`, also assembleRelease APK + AAB (D-108).
@@ -195,6 +202,32 @@ jobs:
           path: android/app/build/outputs/apk/debug/*.apk
           if-no-files-found: error
 
+      # Every release is signed with the same key (D-109): an APK signed with another one
+      # cannot update the installed app. The keystore lives in repository secrets.
+      - name: Release keystore
+        if: startsWith(github.ref, 'refs/tags/android-v')
+        env:
+          KEYSTORE_BASE64: ${{ secrets.ANDROID_KEYSTORE_BASE64 }}
+          KEYSTORE_PASSWORD: ${{ secrets.ANDROID_KEYSTORE_PASSWORD }}
+          KEY_ALIAS: ${{ secrets.ANDROID_KEY_ALIAS }}
+          KEY_PASSWORD: ${{ secrets.ANDROID_KEY_PASSWORD }}
+        run: |
+          set -euo pipefail
+          for name in KEYSTORE_BASE64 KEYSTORE_PASSWORD KEY_ALIAS KEY_PASSWORD; do
+            if [[ -z "${!name}" ]]; then
+              echo "Missing secret ANDROID_${name}: see android/README.md, \"Releasing\"." >&2
+              exit 1
+            fi
+          done
+          KEYSTORE="$RUNNER_TEMP/release.jks"
+          echo "$KEYSTORE_BASE64" | base64 --decode > "$KEYSTORE"
+          {
+            echo "ANDROID_KEYSTORE_FILE=$KEYSTORE"
+            echo "ANDROID_KEYSTORE_PASSWORD=$KEYSTORE_PASSWORD"
+            echo "ANDROID_KEY_ALIAS=$KEY_ALIAS"
+            echo "ANDROID_KEY_PASSWORD=$KEY_PASSWORD"
+          } >> "$GITHUB_ENV"
+
       - name: Gradle release APK + AAB
         if: startsWith(github.ref, 'refs/tags/android-v')
         working-directory: android
@@ -214,6 +247,16 @@ jobs:
           BADGING="$("$AAPT" dump badging "$APK")"
           echo "$BADGING" | head -5
           echo "$BADGING" | grep -F "versionName='$VERSION'"
+          # Signed with the release key, not a debug one; its certificate goes to the log.
+          APKSIGNER="$(find "${ANDROID_HOME}/build-tools" -type f -name apksigner | sort | tail -n1)"
+          test -n "$APKSIGNER"
+          CERTS="$("$APKSIGNER" verify --print-certs "$APK")"
+          echo "$CERTS" | grep -F "certificate SHA-256 digest"
+          if echo "$CERTS" | grep -Fq "CN=Android Debug"; then
+            echo "the release APK is signed with a debug key" >&2
+            exit 1
+          fi
+          rm -f "$ANDROID_KEYSTORE_FILE"
 
       - name: Upload release APK and AAB
         if: startsWith(github.ref, 'refs/tags/android-v')
@@ -509,9 +552,9 @@ jobs:
               cat "docs/releases/$VERSION.md"
               echo
             fi
-            echo "The APK is signed with the **CI debug key** for sideloading. The AAB is for"
-            echo "Play Console: re-sign with your upload keystore before submitting. See"
-            echo "android/README.md, \"Releasing\"."
+            echo "The APK and the AAB are signed with the project's release key: an update"
+            echo "installs over the previous version. Android may ask to allow installs from"
+            echo "this source. See android/README.md, \"Releasing\"."
             echo
             echo "Check the download: \`sha256sum -c SHA256SUMS\`."
           } > notes.md

@@ -26,18 +26,43 @@ class PickedFile(val file: File) {
         fun newFolder(cacheDir: File): File =
             File(cacheDir, "$FOLDER_PREFIX${UUID.randomUUID()}").also { it.mkdirs() }
 
+        /**
+         * A name another app gave (a provider's DISPLAY_NAME, a document in a picked tree,
+         * a clipboard suggestion), safe as one path segment: its last segment only, never
+         * "." or "..", no NUL, at most 255 bytes, [fallback] when nothing is left. A name
+         * like "../../shared_prefs/x.xml" would otherwise write outside the copy's folder
+         * (D-109).
+         */
+        fun safeName(raw: String?, fallback: String = "Imported"): String {
+            var name = raw.orEmpty().replace('\u0000', ' ')
+            name = name.substringAfterLast('/').substringAfterLast('\\').trim()
+            if (name == "." || name == "..") name = ""
+            while (name.toByteArray(Charsets.UTF_8).size > 255) {
+                // Whole code points, so an emoji is never cut in half.
+                name = name.substring(0, name.offsetByCodePoints(name.length, -1))
+            }
+            return name.ifEmpty { fallback }
+        }
+
+        /** [name] made safe inside [folder]; refuses anything that would leave it. */
+        fun child(folder: File, name: String?, fallback: String = "Imported"): File {
+            val target = File(folder, safeName(name, fallback))
+            val base = folder.canonicalFile
+            require(target.canonicalFile.parentFile == base) { "unsafe file name: $name" }
+            return target
+        }
+
         /** Copies [source] under its own name ([fallback] when it has none worth keeping). */
         fun copying(cacheDir: File, source: File, fallback: String? = null): PickedFile {
             val folder = newFolder(cacheDir)
-            val name = (fallback ?: source.name).ifEmpty { "Imported" }
-            val target = File(folder, name)
+            val target = child(folder, fallback ?: source.name)
             source.copyTo(target, overwrite = true)
             return PickedFile(target)
         }
 
         fun writing(cacheDir: File, bytes: ByteArray, named: String): PickedFile {
             val folder = newFolder(cacheDir)
-            val target = File(folder, named.ifEmpty { "Imported" })
+            val target = child(folder, named)
             target.writeBytes(bytes)
             return PickedFile(target)
         }
@@ -110,7 +135,7 @@ object ImportPaths {
         val root = DocumentFile.fromTreeUri(context, tree)
             ?: return Batch(emptyList()) { releaseGrant(tree) }
         val folder = PickedFile.newFolder(cacheDir)
-        val copiedRoot = File(folder, root.name?.ifEmpty { null } ?: "Folder")
+        val copiedRoot = PickedFile.child(folder, root.name, fallback = "Folder")
         copiedRoot.mkdirs()
         copyDocumentTree(context, root, copiedRoot)
         val picked = PickedFile(copiedRoot)
@@ -170,8 +195,8 @@ object ImportPaths {
 
     private fun copyUri(context: Context, uri: Uri, cacheDir: File, name: String): PickedFile? {
         val folder = PickedFile.newFolder(cacheDir)
-        val target = File(folder, name.ifEmpty { "Imported" })
         return runCatching {
+            val target = PickedFile.child(folder, name)
             context.contentResolver.openInputStream(uri)?.use { input ->
                 FileOutputStream(target).use { output -> input.copyTo(output) }
             } ?: return null
@@ -183,11 +208,11 @@ object ImportPaths {
         for (child in from.listFiles()) {
             val name = child.name?.ifEmpty { null } ?: continue
             if (child.isDirectory) {
-                val dir = File(into, name)
+                val dir = PickedFile.child(into, name, fallback = "Folder")
                 dir.mkdirs()
                 copyDocumentTree(context, child, dir)
             } else if (child.isFile) {
-                val target = File(into, name)
+                val target = PickedFile.child(into, name)
                 context.contentResolver.openInputStream(child.uri)?.use { input ->
                     FileOutputStream(target).use { output -> input.copyTo(output) }
                 }
