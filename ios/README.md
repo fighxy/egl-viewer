@@ -102,7 +102,8 @@ git tag ios-v0.2.3          # X.Y.Z becomes the app's version, the run number it
 git push origin ios-v0.2.3
 ```
 
-The workflow refuses a tag that is not `ios-vX.Y.Z` (`scripts/ios-release-version.sh`).
+The workflow refuses a tag that is not `ios-vX.Y.Z` (`scripts/ios-release-version.sh`). The notes of
+`docs/releases/X.Y.Z.md`, shared with the desktop release `vX.Y.Z`, open the release text.
 
 ## Install
 

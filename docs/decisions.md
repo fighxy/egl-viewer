@@ -1996,3 +1996,12 @@ The last PR of the iOS series (D-093–D-099).
 - **Version 0.2.3 everywhere:** the workspace crates (and `Cargo.lock`), the desktop
   (`tauri.conf.json`, `ui/package.json`), Android (`versionName`, the version the shell gives
   the core) and iOS (`MARKETING_VERSION`). The first iOS release tag is `ios-v0.2.3`.
+- **Desktop releases from the tag too.** A tag `vX.Y.Z` already built the three installers
+  (D-062); a new `release` job in `ci.yml` now publishes them once all three pass: the NSIS
+  installer, the DMG, the macOS updater archive and the AppImage under the names of earlier
+  releases (`egl-viewer_X.Y.Z_x64-setup.exe`, `_aarch64.dmg`, `_aarch64.app.tar.gz`,
+  `_amd64.AppImage`; Tauri names the macOS archive without the version), their `.sig` files and
+  `latest.json` written by `scripts/write-latest-json.mjs`, marked as the latest release. It
+  refuses a tag that differs from `tauri.conf.json` and needs the notes in
+  `docs/releases/X.Y.Z.md`, which the iOS release of the same version shows too. Android is
+  not released: its shell is a draft over a mock core (D-083).

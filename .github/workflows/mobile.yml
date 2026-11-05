@@ -370,6 +370,11 @@ jobs:
           {
             echo "egl-viewer for iPhone $VERSION, built from ${GITHUB_SHA::7}."
             echo
+            # The notes of the version, shared with the desktop release, when there are any.
+            if [[ -f "docs/releases/$VERSION.md" ]]; then
+              cat "docs/releases/$VERSION.md"
+              echo
+            fi
             echo "The IPA is **unsigned**: sign it with your own Apple ID when you install it"
             echo "(AltStore, SideStore, Sideloadly or Xcode). See ios/README.md, \"Install\"."
             echo

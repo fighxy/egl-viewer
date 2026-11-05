@@ -365,3 +365,70 @@ jobs:
             src-tauri/target/release/bundle/appimage/*.AppImage
             src-tauri/target/release/bundle/appimage/*.AppImage.sig
           if-no-files-found: error
+
+  # A version tag vX.Y.Z: once the three installers are built and signed, one GitHub Release
+  # with them, their updater signatures and latest.json, marked as the latest release so the
+  # in-app updater finds it (D-062, D-100). The notes come from docs/releases/X.Y.Z.md.
+  release:
+    if: github.event_name == 'push' && startsWith(github.ref, 'refs/tags/v')
+    needs: [nsis, dmg, appimage]
+    runs-on: ubuntu-24.04
+    permissions:
+      contents: write
+    steps:
+      - uses: actions/checkout@v7
+
+      - uses: actions/setup-node@v7
+        with:
+          node-version: 24
+
+      - name: Download the installers
+        uses: actions/download-artifact@v4
+        with:
+          path: dist
+
+      - name: Publish the release
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: |
+          set -euo pipefail
+          VERSION="${GITHUB_REF_NAME#v}"
+          CONF="$(node -p "require('./src-tauri/tauri.conf.json').version")"
+          if [[ "$VERSION" != "$CONF" ]]; then
+            echo "tag $GITHUB_REF_NAME, but tauri.conf.json says $CONF" >&2
+            exit 1
+          fi
+          NOTES="docs/releases/$VERSION.md"
+          test -f "$NOTES" || { echo "missing $NOTES" >&2; exit 1; }
+          # Exactly one file of each kind. Tauri names the macOS updater archive without the
+          # version, so every file goes into release/ under the names of earlier releases.
+          one() {
+            local found
+            mapfile -t found < <(find dist -type f -name "$1")
+            if [[ "${#found[@]}" -ne 1 ]]; then
+              echo "expected one $1, found ${#found[@]}" >&2
+              exit 1
+            fi
+            echo "${found[0]}"
+          }
+          mkdir release
+          put() {
+            cp "$1" "release/$2"
+            if [[ "${3:-}" == signed ]]; then
+              test -f "$1.sig" || { echo "missing $1.sig" >&2; exit 1; }
+              cp "$1.sig" "release/$2.sig"
+            fi
+          }
+          put "$(one '*_x64-setup.exe')" "egl-viewer_${VERSION}_x64-setup.exe" signed
+          put "$(one '*.app.tar.gz')" "egl-viewer_${VERSION}_aarch64.app.tar.gz" signed
+          put "$(one '*.dmg')" "egl-viewer_${VERSION}_aarch64.dmg"
+          put "$(one '*.AppImage')" "egl-viewer_${VERSION}_amd64.AppImage" signed
+          BASE="$GITHUB_SERVER_URL/$GITHUB_REPOSITORY/releases/download/$GITHUB_REF_NAME"
+          node scripts/write-latest-json.mjs --version "$VERSION" --out release/latest.json \
+            --notes "egl-viewer $VERSION" \
+            --windows-x86_64 "url=$BASE/egl-viewer_${VERSION}_x64-setup.exe,sig=release/egl-viewer_${VERSION}_x64-setup.exe.sig" \
+            --darwin-aarch64 "url=$BASE/egl-viewer_${VERSION}_aarch64.app.tar.gz,sig=release/egl-viewer_${VERSION}_aarch64.app.tar.gz.sig" \
+            --linux-x86_64 "url=$BASE/egl-viewer_${VERSION}_amd64.AppImage,sig=release/egl-viewer_${VERSION}_amd64.AppImage.sig"
+          ls -l release
+          gh release create "$GITHUB_REF_NAME" release/* \
+            --title "egl-viewer v$VERSION" --notes-file "$NOTES" --verify-tag --latest
