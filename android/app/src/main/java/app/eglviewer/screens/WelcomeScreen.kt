@@ -23,6 +23,7 @@ import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.filled.Add
 import androidx.compose.material.icons.filled.FolderOpen
 import androidx.compose.material.icons.filled.GridView
+import androidx.compose.material.icons.filled.Lock
 import androidx.compose.material3.AlertDialog
 import androidx.compose.material3.Button
 import androidx.compose.material3.ButtonDefaults
@@ -52,13 +53,16 @@ import androidx.compose.ui.unit.sp
 import app.eglviewer.R
 import app.eglviewer.app.AppModel
 import app.eglviewer.app.RecentLibrary
+import app.eglviewer.locks.AppLock
+import app.eglviewer.locks.AppLockFormDialog
 import app.eglviewer.theme.EglTokens
 import java.io.File
 
 @Composable
-fun WelcomeScreen(model: AppModel) {
+fun WelcomeScreen(model: AppModel, lock: AppLock) {
     var showCreate by remember { mutableStateOf(false) }
     var createName by remember { mutableStateOf("") }
+    var showAppLock by remember { mutableStateOf(false) }
 
     val openTree = rememberLauncherForActivityResult(
         contract = ActivityResultContracts.OpenDocumentTree(),
@@ -250,6 +254,20 @@ fun WelcomeScreen(model: AppModel) {
             }
         }
 
+        OutlinedButton(
+            onClick = { showAppLock = true },
+            modifier = Modifier
+                .fillMaxWidth()
+                .height(EglTokens.ButtonHeight),
+            shape = RoundedCornerShape(EglTokens.RadiusLg),
+            colors = ButtonDefaults.outlinedButtonColors(contentColor = EglTokens.Foreground),
+            border = BorderStroke(1.dp, EglTokens.Border),
+        ) {
+            Icon(Icons.Default.Lock, contentDescription = null, modifier = Modifier.size(18.dp))
+            Spacer(modifier = Modifier.size(8.dp))
+            Text(stringResource(R.string.app_lock_title), fontSize = 15.sp, fontWeight = FontWeight.SemiBold)
+        }
+
         Spacer(modifier = Modifier.height(24.dp))
         Text(
             text = stringResource(R.string.welcome_footer),
@@ -257,6 +275,13 @@ fun WelcomeScreen(model: AppModel) {
             fontSize = EglTokens.CaptionSp,
             textAlign = TextAlign.Center,
             modifier = Modifier.fillMaxWidth(),
+        )
+    }
+
+    if (showAppLock) {
+        AppLockFormDialog(
+            lock = lock,
+            onDismiss = { showAppLock = false },
         )
     }
 }

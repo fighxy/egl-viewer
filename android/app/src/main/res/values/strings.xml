@@ -237,4 +237,68 @@
     <string name="toast_folder_deleted">Folder deleted</string>
     <string name="toast_smart_folder_deleted">Smart folder deleted</string>
     <string name="toast_tag_deleted">Tag removed from every item</string>
+
+    <!-- Locks + app login (A6 ≈ D-098 / D-106) -->
+    <string name="app_lock_title">App Lock</string>
+    <string name="app_lock_hint">The app asks for it at launch and whenever it comes back. Folders you opened lock again when the app leaves the screen.</string>
+    <string name="app_lock_on">The app asks for a password</string>
+    <string name="app_lock_off">The app opens without a password</string>
+    <string name="app_lock_set">Set a Password</string>
+    <string name="app_lock_change">Change Password</string>
+    <string name="app_lock_current_password">Password or PIN</string>
+    <string name="app_lock_new_password">New Password or PIN</string>
+    <string name="app_lock_confirm_password">Repeat</string>
+    <string name="app_lock_set_action">Turn On</string>
+    <string name="app_lock_change_action">Change</string>
+    <string name="app_lock_turn_off">Turn Off</string>
+    <string name="app_lock_biometry">Unlock with biometrics</string>
+    <string name="app_lock_set_done">The app now asks for this password.</string>
+    <string name="app_lock_changed">The password is changed.</string>
+    <string name="app_lock_turned_off">The app opens without a password now.</string>
+    <string name="app_lock_wrong">The current password is wrong.</string>
+    <string name="app_lock_failed">The login could not be saved.</string>
+
+    <string name="lock_lock">Lock</string>
+    <string name="lock_unlock">Unlock</string>
+    <string name="lock_lock_all">Lock All</string>
+    <string name="lock_lock_now">Lock Now</string>
+    <string name="lock_lock_hint">Its files are encrypted with the password. Without it or the recovery key nobody can open them, you included.</string>
+    <string name="lock_unlock_hint">The folder stays open until you lock it or leave the app.</string>
+    <string name="lock_password">Password</string>
+    <string name="lock_confirm_password">Repeat Password</string>
+    <string name="lock_current_password">Current Password</string>
+    <string name="lock_new_password">New Password</string>
+    <string name="lock_recover">Use Recovery Key</string>
+    <string name="lock_recover_hint">The recovery key or its twelve words open the folder and set a new password.</string>
+    <string name="lock_recovery">Recovery key or phrase</string>
+    <string name="lock_change_password">Change Password</string>
+    <string name="lock_change_hint">The folder keeps its contents; only the password changes.</string>
+    <string name="lock_renew_key">New Recovery Key</string>
+    <string name="lock_renew_hint">The old recovery key stops working.</string>
+    <string name="lock_remove_lock">Remove Lock</string>
+    <string name="lock_remove_hint">The files are decrypted and the folder stays open for good.</string>
+    <string name="lock_remove">Remove</string>
+    <string name="lock_set_password">Set Password</string>
+    <string name="lock_set_password_hint">This lock came without a password. Give it one to open it here.</string>
+    <string name="lock_label">Label</string>
+    <string name="lock_label_title">Lock Label</string>
+    <string name="lock_label_hint">Shown instead of the folder while it is locked. Leave it empty to show nothing.</string>
+    <string name="lock_wrong_password">Wrong password.</string>
+    <string name="lock_key">Recovery Key</string>
+    <string name="lock_key_hint">Keep the phrase or the key somewhere safe. It is shown only now, and it is the only way back in without the password.</string>
+    <string name="lock_phrase">Recovery Phrase</string>
+    <string name="lock_copy_phrase">Copy Phrase</string>
+    <string name="lock_copy_key">Copy Key</string>
+    <string name="lock_saved_it">I have saved it</string>
+
+    <string name="login_title">egl-viewer is locked</string>
+    <string name="login_password">Password or PIN</string>
+    <string name="login_unlock">Unlock</string>
+    <string name="login_wrong">Wrong password.</string>
+    <string name="login_biometry_reason">Open egl-viewer</string>
+    <string name="login_biometry">Use biometrics</string>
+    <plurals name="login_wait">
+        <item quantity="one">Try again in %d second</item>
+        <item quantity="other">Try again in %d seconds</item>
+    </plurals>
 </resources>

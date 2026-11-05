@@ -243,4 +243,70 @@
     <string name="toast_folder_deleted">Папка удалена</string>
     <string name="toast_smart_folder_deleted">Смарт-папка удалена</string>
     <string name="toast_tag_deleted">Тег убран со всех элементов</string>
+
+    <!-- Locks + app login (A6 ≈ D-098 / D-106) -->
+    <string name="app_lock_title">Защита приложения</string>
+    <string name="app_lock_hint">Приложение спрашивает его при запуске и при каждом возвращении. Открытые папки снова закрываются, когда приложение уходит с экрана.</string>
+    <string name="app_lock_on">Приложение спрашивает пароль</string>
+    <string name="app_lock_off">Приложение открывается без пароля</string>
+    <string name="app_lock_set">Задать пароль</string>
+    <string name="app_lock_change">Сменить пароль</string>
+    <string name="app_lock_current_password">Пароль или PIN</string>
+    <string name="app_lock_new_password">Новый пароль или PIN</string>
+    <string name="app_lock_confirm_password">Ещё раз</string>
+    <string name="app_lock_set_action">Включить</string>
+    <string name="app_lock_change_action">Сменить</string>
+    <string name="app_lock_turn_off">Выключить</string>
+    <string name="app_lock_biometry">Открывать по биометрии</string>
+    <string name="app_lock_set_done">Теперь приложение спрашивает этот пароль.</string>
+    <string name="app_lock_changed">Пароль изменён.</string>
+    <string name="app_lock_turned_off">Теперь приложение открывается без пароля.</string>
+    <string name="app_lock_wrong">Текущий пароль неверен.</string>
+    <string name="app_lock_failed">Не удалось сохранить вход.</string>
+
+    <string name="lock_lock">Закрыть</string>
+    <string name="lock_unlock">Открыть</string>
+    <string name="lock_lock_all">Закрыть все</string>
+    <string name="lock_lock_now">Закрыть сейчас</string>
+    <string name="lock_lock_hint">Её файлы шифруются паролем. Без него или ключа восстановления их не откроет никто, включая вас.</string>
+    <string name="lock_unlock_hint">Папка остаётся открытой, пока вы её не закроете или не уйдёте из приложения.</string>
+    <string name="lock_password">Пароль</string>
+    <string name="lock_confirm_password">Повторите пароль</string>
+    <string name="lock_current_password">Текущий пароль</string>
+    <string name="lock_new_password">Новый пароль</string>
+    <string name="lock_recover">По ключу восстановления</string>
+    <string name="lock_recover_hint">Ключ восстановления или его двенадцать слов открывают папку и задают новый пароль.</string>
+    <string name="lock_recovery">Ключ или фраза восстановления</string>
+    <string name="lock_change_password">Сменить пароль</string>
+    <string name="lock_change_hint">Содержимое папки остаётся, меняется только пароль.</string>
+    <string name="lock_renew_key">Новый ключ восстановления</string>
+    <string name="lock_renew_hint">Старый ключ восстановления перестанет работать.</string>
+    <string name="lock_remove_lock">Снять замок</string>
+    <string name="lock_remove_hint">Файлы расшифровываются, и папка остаётся открытой.</string>
+    <string name="lock_remove">Снять</string>
+    <string name="lock_set_password">Задать пароль</string>
+    <string name="lock_set_password_hint">У этого замка нет пароля. Задайте его, чтобы открывать папку здесь.</string>
+    <string name="lock_label">Подпись</string>
+    <string name="lock_label_title">Подпись замка</string>
+    <string name="lock_label_hint">Видна вместо папки, пока она закрыта. Оставьте пустой, чтобы ничего не показывать.</string>
+    <string name="lock_wrong_password">Неверный пароль.</string>
+    <string name="lock_key">Ключ восстановления</string>
+    <string name="lock_key_hint">Сохраните фразу или ключ в надёжном месте. Они показаны только сейчас, и это единственный способ открыть папку без пароля.</string>
+    <string name="lock_phrase">Фраза восстановления</string>
+    <string name="lock_copy_phrase">Скопировать фразу</string>
+    <string name="lock_copy_key">Скопировать ключ</string>
+    <string name="lock_saved_it">Я сохранил его</string>
+
+    <string name="login_title">egl-viewer заблокирован</string>
+    <string name="login_password">Пароль или PIN</string>
+    <string name="login_unlock">Открыть</string>
+    <string name="login_wrong">Неверный пароль.</string>
+    <string name="login_biometry_reason">Открыть egl-viewer</string>
+    <string name="login_biometry">Войти по биометрии</string>
+    <plurals name="login_wait">
+        <item quantity="one">Повторите через %d секунду</item>
+        <item quantity="few">Повторите через %d секунды</item>
+        <item quantity="many">Повторите через %d секунд</item>
+        <item quantity="other">Повторите через %d секунд</item>
+    </plurals>
 </resources>

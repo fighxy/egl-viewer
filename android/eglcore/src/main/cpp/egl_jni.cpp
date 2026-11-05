@@ -5,6 +5,8 @@
  * A3: item, apply_item_edit, selection tags, undo, delete, empty trash, view ids, originals.
  * A4: add_files, answer/cancel import, import_status, platform decoder (HEIC via ImageDecoder).
  * A5: save/delete folder, tags/groups, save/delete smart folder, smart_rules.
+ * A6: lock/unlock/relock/recover folder, change password, renew recovery key,
+ *     remove lock, set lock label.
  * Package: app.eglviewer.core.EglNative
  */
 
@@ -1085,5 +1087,218 @@ Java_app_eglviewer_core_EglNative_smartRules(JNIEnv *env, jclass, jlong handle,
   (void)queryJson;
   set_status(6);
   return nullptr;
+#endif
+}
+
+/* ---- Locked folders (Android A6 ≈ iOS D-098) ----------------------------- */
+
+extern "C" JNIEXPORT jstring JNICALL
+Java_app_eglviewer_core_EglNative_lockFolder(JNIEnv *env, jclass, jlong handle,
+                                             jstring id, jstring requestJson) {
+#if defined(EGL_HAS_RUST)
+  const char *id_utf = env->GetStringUTFChars(id, nullptr);
+  const char *request = env->GetStringUTFChars(requestJson, nullptr);
+  char *json = nullptr;
+  EglStatus status = egl_lock_folder(reinterpret_cast<EglLibrary *>(handle),
+                                     id_utf, request, &json);
+  env->ReleaseStringUTFChars(id, id_utf);
+  env->ReleaseStringUTFChars(requestJson, request);
+  set_status(static_cast<int>(status));
+  if (status != EGL_OK || json == nullptr) {
+    return nullptr;
+  }
+  return take_c_string(env, json);
+#else
+  (void)env;
+  (void)handle;
+  (void)id;
+  (void)requestJson;
+  set_status(6);
+  return nullptr;
+#endif
+}
+
+extern "C" JNIEXPORT jint JNICALL
+Java_app_eglviewer_core_EglNative_unlockFolder(JNIEnv *env, jclass, jlong handle,
+                                               jstring id, jstring password) {
+#if defined(EGL_HAS_RUST)
+  const char *id_utf = env->GetStringUTFChars(id, nullptr);
+  const char *password_utf = env->GetStringUTFChars(password, nullptr);
+  EglStatus status = egl_unlock_folder(reinterpret_cast<EglLibrary *>(handle),
+                                       id_utf, password_utf);
+  env->ReleaseStringUTFChars(id, id_utf);
+  env->ReleaseStringUTFChars(password, password_utf);
+  set_status(static_cast<int>(status));
+  return static_cast<jint>(status);
+#else
+  (void)env;
+  (void)handle;
+  (void)id;
+  (void)password;
+  set_status(6);
+  return 6;
+#endif
+}
+
+extern "C" JNIEXPORT jint JNICALL
+Java_app_eglviewer_core_EglNative_relockFolder(JNIEnv *env, jclass, jlong handle,
+                                               jstring id) {
+#if defined(EGL_HAS_RUST)
+  const char *id_utf = nullptr;
+  if (id != nullptr) {
+    id_utf = env->GetStringUTFChars(id, nullptr);
+  }
+  EglStatus status =
+      egl_relock_folder(reinterpret_cast<EglLibrary *>(handle), id_utf);
+  if (id != nullptr) {
+    env->ReleaseStringUTFChars(id, id_utf);
+  }
+  set_status(static_cast<int>(status));
+  return static_cast<jint>(status);
+#else
+  (void)env;
+  (void)handle;
+  (void)id;
+  set_status(6);
+  return 6;
+#endif
+}
+
+extern "C" JNIEXPORT jint JNICALL
+Java_app_eglviewer_core_EglNative_recoverFolder(JNIEnv *env, jclass, jlong handle,
+                                                jstring id, jstring recovery,
+                                                jstring newPassword) {
+#if defined(EGL_HAS_RUST)
+  const char *id_utf = env->GetStringUTFChars(id, nullptr);
+  const char *recovery_utf = env->GetStringUTFChars(recovery, nullptr);
+  const char *password_utf = env->GetStringUTFChars(newPassword, nullptr);
+  EglStatus status = egl_recover_folder(reinterpret_cast<EglLibrary *>(handle),
+                                        id_utf, recovery_utf, password_utf);
+  env->ReleaseStringUTFChars(id, id_utf);
+  env->ReleaseStringUTFChars(recovery, recovery_utf);
+  env->ReleaseStringUTFChars(newPassword, password_utf);
+  set_status(static_cast<int>(status));
+  return static_cast<jint>(status);
+#else
+  (void)env;
+  (void)handle;
+  (void)id;
+  (void)recovery;
+  (void)newPassword;
+  set_status(6);
+  return 6;
+#endif
+}
+
+extern "C" JNIEXPORT jint JNICALL
+Java_app_eglviewer_core_EglNative_changeFolderPassword(JNIEnv *env, jclass,
+                                                       jlong handle, jstring id,
+                                                       jstring current,
+                                                       jstring newPassword) {
+#if defined(EGL_HAS_RUST)
+  const char *id_utf = env->GetStringUTFChars(id, nullptr);
+  const char *current_utf = env->GetStringUTFChars(current, nullptr);
+  const char *password_utf = env->GetStringUTFChars(newPassword, nullptr);
+  EglStatus status = egl_change_folder_password(
+      reinterpret_cast<EglLibrary *>(handle), id_utf, current_utf, password_utf);
+  env->ReleaseStringUTFChars(id, id_utf);
+  env->ReleaseStringUTFChars(current, current_utf);
+  env->ReleaseStringUTFChars(newPassword, password_utf);
+  set_status(static_cast<int>(status));
+  return static_cast<jint>(status);
+#else
+  (void)env;
+  (void)handle;
+  (void)id;
+  (void)current;
+  (void)newPassword;
+  set_status(6);
+  return 6;
+#endif
+}
+
+extern "C" JNIEXPORT jstring JNICALL
+Java_app_eglviewer_core_EglNative_renewRecoveryKey(JNIEnv *env, jclass,
+                                                   jlong handle, jstring id,
+                                                   jstring password) {
+#if defined(EGL_HAS_RUST)
+  const char *id_utf = env->GetStringUTFChars(id, nullptr);
+  const char *password_utf = env->GetStringUTFChars(password, nullptr);
+  char *json = nullptr;
+  EglStatus status = egl_renew_recovery_key(
+      reinterpret_cast<EglLibrary *>(handle), id_utf, password_utf, &json);
+  env->ReleaseStringUTFChars(id, id_utf);
+  env->ReleaseStringUTFChars(password, password_utf);
+  set_status(static_cast<int>(status));
+  if (status != EGL_OK || json == nullptr) {
+    return nullptr;
+  }
+  return take_c_string(env, json);
+#else
+  (void)env;
+  (void)handle;
+  (void)id;
+  (void)password;
+  set_status(6);
+  return nullptr;
+#endif
+}
+
+extern "C" JNIEXPORT jint JNICALL
+Java_app_eglviewer_core_EglNative_removeFolderLock(JNIEnv *env, jclass,
+                                                   jlong handle, jstring id,
+                                                   jstring password) {
+#if defined(EGL_HAS_RUST)
+  const char *id_utf = env->GetStringUTFChars(id, nullptr);
+  const char *password_utf = env->GetStringUTFChars(password, nullptr);
+  EglStatus status = egl_remove_folder_lock(
+      reinterpret_cast<EglLibrary *>(handle), id_utf, password_utf);
+  env->ReleaseStringUTFChars(id, id_utf);
+  env->ReleaseStringUTFChars(password, password_utf);
+  set_status(static_cast<int>(status));
+  return static_cast<jint>(status);
+#else
+  (void)env;
+  (void)handle;
+  (void)id;
+  (void)password;
+  set_status(6);
+  return 6;
+#endif
+}
+
+extern "C" JNIEXPORT jint JNICALL
+Java_app_eglviewer_core_EglNative_setLockLabel(JNIEnv *env, jclass, jlong handle,
+                                               jstring id, jstring label,
+                                               jstring color) {
+#if defined(EGL_HAS_RUST)
+  const char *id_utf = env->GetStringUTFChars(id, nullptr);
+  const char *label_utf = nullptr;
+  const char *color_utf = nullptr;
+  if (label != nullptr) {
+    label_utf = env->GetStringUTFChars(label, nullptr);
+  }
+  if (color != nullptr) {
+    color_utf = env->GetStringUTFChars(color, nullptr);
+  }
+  EglStatus status = egl_set_lock_label(reinterpret_cast<EglLibrary *>(handle),
+                                        id_utf, label_utf, color_utf);
+  env->ReleaseStringUTFChars(id, id_utf);
+  if (label != nullptr) {
+    env->ReleaseStringUTFChars(label, label_utf);
+  }
+  if (color != nullptr) {
+    env->ReleaseStringUTFChars(color, color_utf);
+  }
+  set_status(static_cast<int>(status));
+  return static_cast<jint>(status);
+#else
+  (void)env;
+  (void)handle;
+  (void)id;
+  (void)label;
+  (void)color;
+  set_status(6);
+  return 6;
 #endif
 }
