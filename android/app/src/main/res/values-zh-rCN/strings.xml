@@ -231,4 +231,68 @@
     <string name="toast_folder_deleted">文件夹已删除</string>
     <string name="toast_smart_folder_deleted">智能文件夹已删除</string>
     <string name="toast_tag_deleted">已从所有项目中移除标签</string>
+
+    <!-- Locks + app login (A6 ≈ D-098 / D-106) -->
+    <string name="app_lock_title">应用锁</string>
+    <string name="app_lock_hint">启动时以及每次返回时都会要求输入。应用离开屏幕时，已打开的文件夹会重新锁定。</string>
+    <string name="app_lock_on">应用需要密码</string>
+    <string name="app_lock_off">应用无需密码即可打开</string>
+    <string name="app_lock_set">设置密码</string>
+    <string name="app_lock_change">更改密码</string>
+    <string name="app_lock_current_password">密码或 PIN</string>
+    <string name="app_lock_new_password">新密码或 PIN</string>
+    <string name="app_lock_confirm_password">再次输入</string>
+    <string name="app_lock_set_action">开启</string>
+    <string name="app_lock_change_action">更改</string>
+    <string name="app_lock_turn_off">关闭</string>
+    <string name="app_lock_biometry">使用生物识别解锁</string>
+    <string name="app_lock_set_done">应用现在会要求输入此密码。</string>
+    <string name="app_lock_changed">密码已更改。</string>
+    <string name="app_lock_turned_off">应用现在无需密码即可打开。</string>
+    <string name="app_lock_wrong">当前密码不正确。</string>
+    <string name="app_lock_failed">无法保存登录设置。</string>
+
+    <string name="lock_lock">锁定</string>
+    <string name="lock_unlock">解锁</string>
+    <string name="lock_lock_all">全部锁定</string>
+    <string name="lock_lock_now">立即锁定</string>
+    <string name="lock_lock_hint">其文件将使用密码加密。没有密码或恢复密钥，任何人都无法打开，包括你自己。</string>
+    <string name="lock_unlock_hint">文件夹会保持打开，直到你锁定它或离开应用。</string>
+    <string name="lock_password">密码</string>
+    <string name="lock_confirm_password">再次输入密码</string>
+    <string name="lock_current_password">当前密码</string>
+    <string name="lock_new_password">新密码</string>
+    <string name="lock_recover">使用恢复密钥</string>
+    <string name="lock_recover_hint">恢复密钥或其十二个单词可以打开文件夹并设置新密码。</string>
+    <string name="lock_recovery">恢复密钥或短语</string>
+    <string name="lock_change_password">更改密码</string>
+    <string name="lock_change_hint">文件夹内容不变，只更改密码。</string>
+    <string name="lock_renew_key">新恢复密钥</string>
+    <string name="lock_renew_hint">旧的恢复密钥将失效。</string>
+    <string name="lock_remove_lock">移除锁定</string>
+    <string name="lock_remove_hint">文件将被解密，文件夹将保持打开。</string>
+    <string name="lock_remove">移除</string>
+    <string name="lock_set_password">设置密码</string>
+    <string name="lock_set_password_hint">此锁定没有密码。设置一个密码以便在此打开。</string>
+    <string name="lock_label">标签</string>
+    <string name="lock_label_title">锁定标签</string>
+    <string name="lock_label_hint">文件夹锁定时显示此标签。留空则不显示。</string>
+    <string name="lock_wrong_password">密码错误。</string>
+    <string name="lock_key">恢复密钥</string>
+    <string name="lock_key_hint">请将短语或密钥妥善保存。它们只显示这一次，也是没有密码时打开文件夹的唯一方式。</string>
+    <string name="lock_phrase">恢复短语</string>
+    <string name="lock_copy_phrase">复制短语</string>
+    <string name="lock_copy_key">复制密钥</string>
+    <string name="lock_saved_it">我已保存</string>
+
+    <string name="login_title">egl-viewer 已锁定</string>
+    <string name="login_password">密码或 PIN</string>
+    <string name="login_unlock">解锁</string>
+    <string name="login_wrong">密码错误。</string>
+    <string name="login_biometry_reason">打开 egl-viewer</string>
+    <string name="login_biometry">使用生物识别</string>
+    <plurals name="login_wait">
+        <item quantity="one">请在 %d 秒后重试</item>
+        <item quantity="other">请在 %d 秒后重试</item>
+    </plurals>
 </resources>

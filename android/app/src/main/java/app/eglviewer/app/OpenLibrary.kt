@@ -21,6 +21,7 @@ import app.eglviewer.browse.ThumbnailCache
 import app.eglviewer.browse.ViewSession
 import app.eglviewer.R
 import app.eglviewer.core.DuplicateAnswer
+import app.eglviewer.core.EglError
 import app.eglviewer.core.Folder
 import app.eglviewer.core.FolderChange
 import app.eglviewer.core.ImportProgress
@@ -51,7 +52,7 @@ import kotlinx.coroutines.withContext
 
 /**
  * One open library: core handle, places/counts/folders, saved view, toast / undo,
- * browse-model registration, adding, and organizing (A1–A5, D-101…D-105).
+ * browse-model registration, adding, organizing, and locks (A1–A6, D-101…D-106).
  */
 class OpenLibrary(
     val library: Library,
@@ -409,6 +410,47 @@ class OpenLibrary(
                 report(it.message ?: it.toString())
             }.getOrNull()
         }
+
+    val hasUnlockedFolders: Boolean
+        get() {
+            fun any(nodes: List<Folder>): Boolean =
+                nodes.any { (it.isLocked && it.isUnlocked) || any(it.children) }
+            return any(folders)
+        }
+
+    /**
+     * Runs a lock operation (Argon2id: slow, off the main thread) and reads the tree again,
+     * since a lock changes what the views show. A wrong password is reported to the caller,
+     * not the alert.
+     */
+    suspend fun <T> lockWork(work: (Library) -> T): Result<T> {
+        val result = withContext(Dispatchers.IO) {
+            runCatching { work(library) }
+        }
+        withContext(Dispatchers.IO) { runCatching { refresh() } }
+        return result.fold(
+            onSuccess = { Result.success(it) },
+            onFailure = { error ->
+                if (error is EglError && error.code == EglError.Code.WRONG_PASSWORD) {
+                    Result.failure(error)
+                } else {
+                    report(error.message ?: error.toString())
+                    Result.failure(
+                        error as? EglError
+                            ?: EglError(EglError.Code.OTHER, error.message ?: error.toString()),
+                    )
+                }
+            },
+        )
+    }
+
+    /** Locks every open folder again: the Lock All button, and when the app leaves the screen. */
+    suspend fun relockAll() {
+        if (!hasUnlockedFolders) return
+        lockWork { it.relock() }
+        originals.removeAll()
+        thumbnails.removeAll()
+    }
 
     /** Smart folders in tree order with their depth, for the parent picker. */
     val smartFolderList: List<PickableSmart>

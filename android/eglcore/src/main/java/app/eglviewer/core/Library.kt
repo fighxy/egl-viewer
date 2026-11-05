@@ -6,9 +6,9 @@ import java.util.concurrent.atomic.AtomicReference
 
 /**
  * Typed Kotlin face of the C ABI (`crates/library-ffi`), one [Library] per open `.eglib`.
- * Mirrors Swift `EglCore.Library` for A1–A5: create / open / close, views, thumbs, item edits,
- * undo, trash, originals, adding files, and organizing (folders / tags / smart folders).
- * Calls may block — run them off the main thread.
+ * Mirrors Swift `EglCore.Library` for A1–A6: create / open / close, views, thumbs, item edits,
+ * undo, trash, originals, adding files, organizing (folders / tags / smart folders), and
+ * locked folders. Calls may block — run them off the main thread.
  */
 class Library private constructor(private var handle: Long) : AutoCloseable {
     private val eventHandler = AtomicReference<((LibraryEvent) -> Unit)?>(null)
@@ -322,6 +322,78 @@ class Library private constructor(private var handle: Long) : AutoCloseable {
         val status = EglNative.lastStatus()
         if (json.isNullOrEmpty()) throw error(status)
         return SmartRulesDraft.fromJson(json)
+    }
+
+    // --- Locked folders (Android A6 ≈ D-098) ---------------------------------
+
+    /**
+     * Locks a folder (or sets the first password of a lock imported without one) and returns
+     * its recovery key, to be shown once. The label and its colour stay readable while locked.
+     */
+    fun lockFolder(
+        id: String,
+        password: String,
+        label: String? = null,
+        labelColor: String? = null,
+    ): RecoveryKey {
+        ensureOpen()
+        val request = org.json.JSONObject()
+            .put("password", password)
+            .put("label", label ?: org.json.JSONObject.NULL)
+            .put("labelColor", labelColor ?: org.json.JSONObject.NULL)
+        val json = EglNative.lockFolder(handle, id, request.toString())
+        val status = EglNative.lastStatus()
+        if (json.isNullOrEmpty()) throw error(status)
+        return RecoveryKey.fromJson(json)
+    }
+
+    fun unlockFolder(id: String, password: String) {
+        ensureOpen()
+        val status = EglNative.unlockFolder(handle, id, password)
+        if (status != 0) throw error(status)
+    }
+
+    /** Locks an open folder again; [id] null locks every open folder. */
+    fun relock(id: String? = null) {
+        ensureOpen()
+        val status = EglNative.relockFolder(handle, id)
+        if (status != 0) throw error(status)
+    }
+
+    /** Opens a folder with its recovery key or phrase and sets a new password. */
+    fun recoverFolder(id: String, recovery: String, newPassword: String) {
+        ensureOpen()
+        val status = EglNative.recoverFolder(handle, id, recovery, newPassword)
+        if (status != 0) throw error(status)
+    }
+
+    fun changeFolderPassword(id: String, current: String, newPassword: String) {
+        ensureOpen()
+        val status = EglNative.changeFolderPassword(handle, id, current, newPassword)
+        if (status != 0) throw error(status)
+    }
+
+    /** A new recovery key; the old one stops working. */
+    fun renewRecoveryKey(id: String, password: String): RecoveryKey {
+        ensureOpen()
+        val json = EglNative.renewRecoveryKey(handle, id, password)
+        val status = EglNative.lastStatus()
+        if (json.isNullOrEmpty()) throw error(status)
+        return RecoveryKey.fromJson(json)
+    }
+
+    /** Decrypts the folder and takes the lock off ("" for a lock imported without password). */
+    fun removeFolderLock(id: String, password: String) {
+        ensureOpen()
+        val status = EglNative.removeFolderLock(handle, id, password)
+        if (status != 0) throw error(status)
+    }
+
+    /** The plaintext label of a locked folder; null clears a part. */
+    fun setLockLabel(id: String, label: String?, color: String?) {
+        ensureOpen()
+        val status = EglNative.setLockLabel(handle, id, label, color)
+        if (status != 0) throw error(status)
     }
 
     override fun close() {

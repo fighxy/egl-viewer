@@ -78,4 +78,15 @@ internal object EglNative {
     external fun saveSmartFolder(handle: Long, changeJson: String): String?
     external fun deleteSmartFolder(handle: Long, id: String): String?
     external fun smartRules(handle: Long, queryJson: String): String?
+
+    // Locked folders (Android A6 ≈ D-098)
+    external fun lockFolder(handle: Long, id: String, requestJson: String): String?
+    external fun unlockFolder(handle: Long, id: String, password: String): Int
+    /** [id] null relocks every open folder. */
+    external fun relockFolder(handle: Long, id: String?): Int
+    external fun recoverFolder(handle: Long, id: String, recovery: String, newPassword: String): Int
+    external fun changeFolderPassword(handle: Long, id: String, current: String, newPassword: String): Int
+    external fun renewRecoveryKey(handle: Long, id: String, password: String): String?
+    external fun removeFolderLock(handle: Long, id: String, password: String): Int
+    external fun setLockLabel(handle: Long, id: String, label: String?, color: String?): Int
 }

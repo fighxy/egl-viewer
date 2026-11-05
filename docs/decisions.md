@@ -2205,3 +2205,40 @@ The fifth PR of the Android series (D-101…D-104), mirroring iOS D-097. Stacked
   `:eglcore:testDebugUnitTest` / `:app:testDebugUnitTest` of the Mobile workflow.
 - **Docs.** `android/README.md`, the README status table, and this decision.
 - **Out of scope.** Locks / login (A6), settings (A7), release (A8).
+
+## D-106 Android A6 locks + app login: locked folders, lock on background, PIN / biometrics (2026-11-05)
+
+The sixth PR of the Android series (D-101…D-105), mirroring iOS D-098. Stacked on
+`feat/android-a5-organizing` (A5 / D-105). YubiKey stays a desktop feature.
+
+- **Locked folders.** A closed lock shows its label (and colour) instead of the folder; a tap
+  opens the unlock sheet. Its long-press menu offers Unlock and Use Recovery Key (the key or
+  its twelve words open the folder and set a new password); a lock imported without a password
+  (from Eagle) also offers Set Password and Remove Lock. An open folder offers Lock (password
+  twice, an optional label and colour); an open lock offers Lock Now, Change Password, New
+  Recovery Key, Lock Label and Remove Lock. Lock All sits in the library's toolbar while any
+  folder is open. The recovery key is shown once after locking or renewing, with copy buttons
+  and an "I have saved it" switch before Done. Every lock call runs off the main thread
+  (Argon2id). A wrong password is said in the sheet; other failures go to the toast. The
+  library's views and counts follow.
+- **Leaving the app locks again.** When the activity stops, every open folder is locked again
+  (`egl_relock_folder(NULL)`), and the decoded originals and thumbnails in memory are dropped.
+- **The app's login.** App Lock (on the Welcome screen for now; Settings arrive with A7) sets a
+  password or PIN, changes it and turns it off. It is kept as a PBKDF2-HMAC-SHA256 hash
+  (310,000 rounds, a salt of its own) in app-private SharedPreferences. Biometrics, when the
+  device has them, use `BiometricPrompt` with a Keystore AES key
+  (`setInvalidatedByBiometricEnrollment(true)`, strong biometrics only): a new enrollment needs
+  the password again. The app locks when it goes to the background and asks at launch; from the
+  fifth wrong try each one makes the next wait longer (30 s, 60 s, …). While a login is set,
+  `FLAG_SECURE` and a privacy cover hide the library in Recents. JVM tests keep the login in
+  memory.
+- **eglcore.** `RecoveryKey`; `lockFolder`, `unlockFolder`, `relock`, `recoverFolder`,
+  `changeFolderPassword`, `renewRecoveryKey`, `removeFolderLock`, `setLockLabel`; JNI forwarders
+  for the matching `egl_*` calls.
+- **Dependencies.** `androidx.biometric:biometric:1.1.0`, `androidx.fragment:fragment-ktx:1.8.5`
+  (`FragmentActivity` for `BiometricPrompt`). `MainActivity` is a `FragmentActivity`.
+- **Tests.** JVM unit tests of `LoginHash` / `AppLock` (set, change, turn off, waiting after
+  wrong tries), `RecoveryKey` / folder lock JSON, in `:eglcore:testDebugUnitTest` /
+  `:app:testDebugUnitTest` of the Mobile workflow.
+- **Docs.** `android/README.md`, the README status table, and this decision.
+- **Out of scope.** Settings (A7), release (A8).

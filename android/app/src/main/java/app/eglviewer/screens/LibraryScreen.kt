@@ -57,12 +57,15 @@ import app.eglviewer.browse.Place
 import app.eglviewer.core.Folder
 import app.eglviewer.core.ReadOnlyReason
 import app.eglviewer.core.SmartFolder
+import app.eglviewer.locks.LockAction
+import app.eglviewer.locks.LockSheetDialog
 import app.eglviewer.organize.FolderEditing
 import app.eglviewer.organize.FolderEditorDialog
 import app.eglviewer.organize.FolderMoveDialog
 import app.eglviewer.organize.SmartEditing
 import app.eglviewer.organize.SmartFolderEditorDialog
 import app.eglviewer.organize.TagsScreen
+import app.eglviewer.organize.labelColor
 import app.eglviewer.theme.EglTokens
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.launch
@@ -70,7 +73,7 @@ import kotlinx.coroutines.withContext
 
 /**
  * Open library: places with counts, folder tree and smart folders. A place opens
- * [BrowseScreen] (Android A2–A5 ≈ D-094 / D-105).
+ * [BrowseScreen] (Android A2–A6 ≈ D-094 / D-106).
  */
 @Composable
 fun LibraryScreen(
@@ -85,6 +88,7 @@ fun LibraryScreen(
     var deletingFolder by remember { mutableStateOf<Folder?>(null) }
     var smartEditing by remember { mutableStateOf<SmartEditing?>(null) }
     var deletingSmart by remember { mutableStateOf<SmartFolder?>(null) }
+    var lockAction by remember { mutableStateOf<LockAction?>(null) }
     val scope = rememberCoroutineScope()
 
     LaunchedEffect(open) {
@@ -158,6 +162,19 @@ fun LibraryScreen(
                 fontWeight = FontWeight.SemiBold,
                 modifier = Modifier.weight(1f),
             )
+            if (open.hasUnlockedFolders) {
+                IconButton(
+                    onClick = {
+                        scope.launch { open.relockAll() }
+                    },
+                ) {
+                    Icon(
+                        Icons.Default.Lock,
+                        contentDescription = stringResource(R.string.lock_lock_all),
+                        tint = EglTokens.Foreground,
+                    )
+                }
+            }
             if (!open.readOnly) {
                 AddMenuButton(open = open, folder = null)
             }
@@ -243,10 +260,17 @@ fun LibraryScreen(
                     folders = open.folders,
                     readOnly = open.readOnly,
                     onOpen = { place = it },
+                    onUnlock = { lockAction = LockAction.Unlock(it) },
+                    onLockAction = { lockAction = it },
                     onNewSubfolder = { folderEditing = FolderEditing.Create(parent = it.id) },
                     onEdit = { folderEditing = FolderEditing.Edit(it) },
                     onMove = { movingFolder = it },
                     onDelete = { deletingFolder = it },
+                    onRelock = { folder ->
+                        scope.launch {
+                            open.lockWork { it.relock(folder.id) }
+                        }
+                    },
                 )
                 if (!open.readOnly) {
                     PlaceRow(
@@ -378,6 +402,13 @@ fun LibraryScreen(
             },
         )
     }
+    lockAction?.let { action ->
+        LockSheetDialog(
+            open = open,
+            action = action,
+            onDismiss = { lockAction = null },
+        )
+    }
 }
 
 @OptIn(ExperimentalFoundationApi::class)
@@ -387,27 +418,31 @@ private fun FolderTree(
     readOnly: Boolean,
     depth: Int = 0,
     onOpen: (Place) -> Unit,
+    onUnlock: (Folder) -> Unit,
+    onLockAction: (LockAction) -> Unit,
     onNewSubfolder: (Folder) -> Unit,
     onEdit: (Folder) -> Unit,
     onMove: (Folder) -> Unit,
     onDelete: (Folder) -> Unit,
+    onRelock: (Folder) -> Unit,
 ) {
     for (folder in folders) {
         val lockedClosed = folder.isLocked && !folder.isUnlocked
         var menu by remember(folder.id) { mutableStateOf(false) }
+        val lockTint = labelColor(folder.lockColor) ?: EglTokens.MutedForeground
         Row(
             modifier = Modifier
                 .fillMaxWidth()
                 .padding(start = (depth * 16).dp)
                 .combinedClickable(
                     onClick = {
-                        if (!lockedClosed) {
+                        if (lockedClosed) {
+                            onUnlock(folder)
+                        } else {
                             onOpen(Place.Folder(id = folder.id, name = folder.name))
                         }
                     },
-                    onLongClick = {
-                        if (!lockedClosed && !readOnly) menu = true
-                    },
+                    onLongClick = { menu = true },
                 )
                 .padding(vertical = 10.dp),
             verticalAlignment = Alignment.CenterVertically,
@@ -416,68 +451,152 @@ private fun FolderTree(
             Icon(
                 if (lockedClosed) Icons.Default.Lock else Icons.Default.Folder,
                 contentDescription = null,
-                tint = EglTokens.MutedForeground,
+                tint = if (lockedClosed) lockTint else EglTokens.MutedForeground,
             )
             Column(modifier = Modifier.weight(1f)) {
                 Text(
-                    text = folder.name,
+                    text = if (lockedClosed) {
+                        folder.lockLabel?.ifBlank { null } ?: folder.name
+                    } else {
+                        folder.name
+                    },
                     color = EglTokens.Foreground,
                     fontSize = 15.sp,
                     fontWeight = FontWeight.Medium,
                 )
-                if (lockedClosed && !folder.lockLabel.isNullOrBlank()) {
-                    Text(
-                        text = folder.lockLabel!!,
-                        color = EglTokens.MutedForeground,
-                        fontSize = 12.sp,
-                    )
+            }
+            if (!lockedClosed) {
+                val count = folder.descendantImageCount ?: folder.imageCount
+                if (count != null) {
+                    Text(text = count.toString(), color = EglTokens.MutedForeground, fontSize = 14.sp)
                 }
             }
-            val count = folder.descendantImageCount ?: folder.imageCount
-            if (count != null) {
-                Text(text = count.toString(), color = EglTokens.MutedForeground, fontSize = 14.sp)
-            }
             DropdownMenu(expanded = menu, onDismissRequest = { menu = false }) {
-                DropdownMenuItem(
-                    text = { Text(stringResource(R.string.folder_new_subfolder)) },
-                    onClick = {
-                        menu = false
-                        onNewSubfolder(folder)
-                    },
-                )
-                DropdownMenuItem(
-                    text = { Text(stringResource(R.string.folder_edit)) },
-                    onClick = {
-                        menu = false
-                        onEdit(folder)
-                    },
-                )
-                DropdownMenuItem(
-                    text = { Text(stringResource(R.string.folder_move)) },
-                    onClick = {
-                        menu = false
-                        onMove(folder)
-                    },
-                )
-                DropdownMenuItem(
-                    text = { Text(stringResource(R.string.folder_delete)) },
-                    onClick = {
-                        menu = false
-                        onDelete(folder)
-                    },
-                )
+                if (lockedClosed) {
+                    DropdownMenuItem(
+                        text = { Text(stringResource(R.string.lock_unlock)) },
+                        onClick = {
+                            menu = false
+                            onLockAction(LockAction.Unlock(folder))
+                        },
+                    )
+                    DropdownMenuItem(
+                        text = { Text(stringResource(R.string.lock_recover)) },
+                        onClick = {
+                            menu = false
+                            onLockAction(LockAction.Recover(folder))
+                        },
+                    )
+                    if (!readOnly && !folder.hasPassword) {
+                        DropdownMenuItem(
+                            text = { Text(stringResource(R.string.lock_set_password)) },
+                            onClick = {
+                                menu = false
+                                onLockAction(LockAction.Lock(folder))
+                            },
+                        )
+                        DropdownMenuItem(
+                            text = { Text(stringResource(R.string.lock_remove_lock)) },
+                            onClick = {
+                                menu = false
+                                onLockAction(LockAction.RemoveLock(folder))
+                            },
+                        )
+                    }
+                } else {
+                    if (!readOnly) {
+                        DropdownMenuItem(
+                            text = { Text(stringResource(R.string.folder_new_subfolder)) },
+                            onClick = {
+                                menu = false
+                                onNewSubfolder(folder)
+                            },
+                        )
+                        DropdownMenuItem(
+                            text = { Text(stringResource(R.string.folder_edit)) },
+                            onClick = {
+                                menu = false
+                                onEdit(folder)
+                            },
+                        )
+                        DropdownMenuItem(
+                            text = { Text(stringResource(R.string.folder_move)) },
+                            onClick = {
+                                menu = false
+                                onMove(folder)
+                            },
+                        )
+                        DropdownMenuItem(
+                            text = { Text(stringResource(R.string.folder_delete)) },
+                            onClick = {
+                                menu = false
+                                onDelete(folder)
+                            },
+                        )
+                        if (!folder.isLocked) {
+                            DropdownMenuItem(
+                                text = { Text(stringResource(R.string.lock_lock)) },
+                                onClick = {
+                                    menu = false
+                                    onLockAction(LockAction.Lock(folder))
+                                },
+                            )
+                        } else {
+                            DropdownMenuItem(
+                                text = { Text(stringResource(R.string.lock_lock_now)) },
+                                onClick = {
+                                    menu = false
+                                    onRelock(folder)
+                                },
+                            )
+                            DropdownMenuItem(
+                                text = { Text(stringResource(R.string.lock_change_password)) },
+                                onClick = {
+                                    menu = false
+                                    onLockAction(LockAction.ChangePassword(folder))
+                                },
+                            )
+                            DropdownMenuItem(
+                                text = { Text(stringResource(R.string.lock_renew_key)) },
+                                onClick = {
+                                    menu = false
+                                    onLockAction(LockAction.RenewKey(folder))
+                                },
+                            )
+                            DropdownMenuItem(
+                                text = { Text(stringResource(R.string.lock_label_title)) },
+                                onClick = {
+                                    menu = false
+                                    onLockAction(LockAction.Label(folder))
+                                },
+                            )
+                            DropdownMenuItem(
+                                text = { Text(stringResource(R.string.lock_remove_lock)) },
+                                onClick = {
+                                    menu = false
+                                    onLockAction(LockAction.RemoveLock(folder))
+                                },
+                            )
+                        }
+                    }
+                }
             }
         }
-        FolderTree(
-            folders = folder.children,
-            readOnly = readOnly,
-            depth = depth + 1,
-            onOpen = onOpen,
-            onNewSubfolder = onNewSubfolder,
-            onEdit = onEdit,
-            onMove = onMove,
-            onDelete = onDelete,
-        )
+        if (!lockedClosed) {
+            FolderTree(
+                folders = folder.children,
+                readOnly = readOnly,
+                depth = depth + 1,
+                onOpen = onOpen,
+                onUnlock = onUnlock,
+                onLockAction = onLockAction,
+                onNewSubfolder = onNewSubfolder,
+                onEdit = onEdit,
+                onMove = onMove,
+                onDelete = onDelete,
+                onRelock = onRelock,
+            )
+        }
     }
 }
 
