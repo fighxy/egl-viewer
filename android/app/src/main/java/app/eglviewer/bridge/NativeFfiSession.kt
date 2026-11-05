@@ -73,7 +73,7 @@ class NativeFfiSession {
     }
 
     companion object {
-        const val APP_VERSION = "0.2.1-android"
+        const val APP_VERSION = "0.2.3-android"
 
         fun createLibrary(parent: String, name: String): String {
             val path = EglNative.createLibrary(parent, name, APP_VERSION)

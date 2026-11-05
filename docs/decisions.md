@@ -1993,3 +1993,6 @@ The last PR of the iOS series (D-093–D-099).
   latest would hide the desktop's. `scripts/ios-release-version.sh` turns the tag into the
   version and refuses anything else. The rolling `ios-latest` pre-release from `main` stays
   (D-086). The IPA is unsigned: it is installed by signing it with one's own Apple ID.
+- **Version 0.2.3 everywhere:** the workspace crates (and `Cargo.lock`), the desktop
+  (`tauri.conf.json`, `ui/package.json`), Android (`versionName`, the version the shell gives
+  the core) and iOS (`MARKETING_VERSION`). The first iOS release tag is `ios-v0.2.3`.

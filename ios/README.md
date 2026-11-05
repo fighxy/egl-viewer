@@ -98,8 +98,8 @@ swift test -Xlinker -L"$PWD/../../target/release" -Xlinker -rpath -Xlinker "$PWD
 ## Releasing
 
 ```bash
-git tag ios-v0.3.0          # X.Y.Z becomes the app's version, the run number its build
-git push origin ios-v0.3.0
+git tag ios-v0.2.3          # X.Y.Z becomes the app's version, the run number its build
+git push origin ios-v0.2.3
 ```
 
 The workflow refuses a tag that is not `ios-vX.Y.Z` (`scripts/ios-release-version.sh`).
