@@ -21,12 +21,26 @@ android {
         testInstrumentationRunner = "androidx.test.runner.AndroidJUnitRunner"
     }
 
+    // Release signing (D-109): one keystore for every release, or an update cannot install
+    // over the previous version and uninstalling takes the libraries in app storage with
+    // it. CI writes the keystore from repository secrets on a release tag; without
+    // ANDROID_KEYSTORE_FILE a release build stays unsigned, never debug-signed.
+    val releaseKeystore = System.getenv("ANDROID_KEYSTORE_FILE")?.takeIf { it.isNotBlank() }
+    signingConfigs {
+        if (releaseKeystore != null) {
+            create("release") {
+                storeFile = file(releaseKeystore)
+                storePassword = System.getenv("ANDROID_KEYSTORE_PASSWORD")
+                keyAlias = System.getenv("ANDROID_KEY_ALIAS")
+                keyPassword = System.getenv("ANDROID_KEY_PASSWORD")
+            }
+        }
+    }
+
     buildTypes {
         release {
             isMinifyEnabled = false
-            // Sideload / CI artifacts: the debug key. Play Store upload uses Ivan's keystore
-            // outside this workflow (see android/README.md, Releasing).
-            signingConfig = signingConfigs.getByName("debug")
+            signingConfig = signingConfigs.findByName("release")
         }
     }
 

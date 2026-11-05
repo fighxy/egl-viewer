@@ -388,9 +388,13 @@ EglStatus egl_preview_import(EglLibrary *lib, const char *path_utf8, char **out_
 /*
  * JNI notes (android/eglcore/src/main/cpp/egl_jni.cpp forwards A1 and later):
  *  - Pass the EglLibrary* as jlong; uint64_t import ids as jlong.
- *  - JSON in: GetStringUTFChars / ReleaseStringUTFChars; JSON out: take_c_string
- *    (NewStringUTF + egl_string_free). Return null on status != EGL_OK and let
- *    Kotlin read egl_last_error via the existing lastError forwarder.
+ *  - Strings are standard UTF-8 both ways, never Java's modified UTF-8
+ *    (GetStringUTFChars / NewStringUTF break emoji): Utf8 converts a jstring,
+ *    new_string builds one, take_c_string also frees with egl_string_free.
+ *    Return null on status != EGL_OK and let Kotlin read egl_last_error via the
+ *    existing lastError forwarder.
+ *  - Callbacks arrive on the core's threads: use the classes cached in
+ *    JNI_OnLoad, never FindClass there (system class loader, D-109).
  *  - u32 counts: return jint (or -1 on error).
  *  - egl_reorder_items before_utf8: pass nullptr for a null jstring.
  *  - Never call blocking exports (egl_empty_trash, egl_query_window) on the
