@@ -2053,3 +2053,46 @@ separate PRs after merge:
   the unfrozen Android app on `eglcore`.
 - **Next PR after merge: A2 browsing.**
 
+
+
+## D-102 Android A2 browsing: places, lazy grid by view id, saved view per library (2026-11-05)
+
+The second PR of the Android series (D-101), mirroring iOS D-094. Stacked on
+`feat/android-app-foundation` (A1).
+
+- **Places.** The library screen lists All, Uncategorized, Untagged and Trash with counts, the
+  folder tree (a folder shows its subfolders' items) and the smart folders. A locked folder
+  shows its lock label and does not open; unlocking comes with A6. Each place opens
+  `BrowseScreen`.
+- **Windows by view id.** `BrowseModel` opens one core view per query (`egl_open_view`) and
+  asks for cells in windows of 100 around what the user sees (`egl_view_range`; the core serves
+  at most 200). The item list never crosses JNI. `viewsInvalidated` events reach open models
+  through `OpenLibrary`; a model takes the new total and reloads windows near the last cell
+  seen. Answers for an older query or refresh are dropped by generation counters.
+- **Thumbnails** are the core's WebP bytes (`egl_thumbnail_bytes`), decoded by `BitmapFactory`
+  off the main thread at the cell's pixel size and kept in an `LruCache` by cost (64 MB). The
+  key has the thumbnail version. Until it arrives a cell shows its main colour (`palette0`), or
+  the file type when it has no thumbnail.
+- **Controls.** Grid or list, three thumbnail sizes, the sort (desktop keys except manual, tag
+  and duration) with ascending, search debounced 250 ms, and a filter sheet: tags with any /
+  all / none, file type with counts, rating (unrated or exactly 1–5 stars), shape. Each change
+  opens a new view.
+- **Selection.** Select or a long press starts it; Select All is the core's target
+  `{viewId, all: true, ids: exclusions}` (desktop D-089), so it never lists the view's ids.
+  Actions on a selection arrive with A3.
+- **Saved view** (as D-078 / D-094), per library path in `SharedPreferences`: the sort, layout
+  and size for the whole library, and the last place with its filters and search. The library
+  opens in that place again; going back to the list of places forgets it, and filters of one
+  place do not carry over to another.
+- **eglcore.** JNI and `Library` gain `openView` / `viewRange` / `closeView`, tags, extensions,
+  smart folders, thumbnail bytes and `editItems`; `LibraryEvent.ViewsInvalidated` carries
+  typed `ViewOpened` rows.
+- **Tests.** JVM unit tests of `BrowseModel` against an in-memory `FakeViewSession` (windows,
+  sort, search, filters, Select All with a trash refresh, the saved view), in
+  `:app:testDebugUnitTest` of the Mobile workflow.
+- **Docs.** `android/README.md`, the README status table, and this decision.
+- **CI.** Mobile `android` pins `cargo-ndk` **4.1.2** (`--locked`): 3.5.6 / 3.5.7 were yanked
+  on crates.io and broke the A2 PR install step; 4.1.2 is the newest stable older than the
+  supply-chain release age (D-002 / D-003).
+- **Out of scope.** Preview/details/undo (A3), gallery add (A4), organize / locks / settings /
+  release.

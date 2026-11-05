@@ -44,13 +44,75 @@ class Library private constructor(private var handle: Long) : AutoCloseable {
         return LibraryCounts.fromJson(json)
     }
 
-    /** Folder tree as the core's JSON array (A1: raw string for the shell; A2 types it). */
+    /** Folder tree as the core's JSON array. */
     fun folderTreeJson(): String {
         ensureOpen()
         val json = EglNative.folderTree(handle)
         val status = EglNative.lastStatus()
         if (json.isNullOrEmpty()) throw error(status)
         return json
+    }
+
+    fun folders(): List<Folder> = Folder.listFromJson(folderTreeJson())
+
+    fun smartFolders(): List<SmartFolder> {
+        ensureOpen()
+        val json = EglNative.smartFolders(handle)
+        val status = EglNative.lastStatus()
+        if (json.isNullOrEmpty()) throw error(status)
+        return SmartFolder.listFromJson(json)
+    }
+
+    fun tags(): List<Tag> {
+        ensureOpen()
+        val json = EglNative.tags(handle)
+        val status = EglNative.lastStatus()
+        if (json.isNullOrEmpty()) throw error(status)
+        return Tag.listFromJson(json)
+    }
+
+    fun extensions(): List<ExtensionCount> {
+        ensureOpen()
+        val json = EglNative.extensions(handle)
+        val status = EglNative.lastStatus()
+        if (json.isNullOrEmpty()) throw error(status)
+        return ExtensionCount.listFromJson(json)
+    }
+
+    /** Opens a view of [query]; the item list stays in Rust (D-094). */
+    fun openView(query: LibraryQuery = LibraryQuery()): ViewOpened {
+        ensureOpen()
+        val json = EglNative.openView(handle, query.toJson().toString())
+        val status = EglNative.lastStatus()
+        if (json.isNullOrEmpty()) throw error(status)
+        return ViewOpened.fromJson(org.json.JSONObject(json))
+    }
+
+    fun range(viewId: Long, start: Int, count: Int): List<ItemCell> {
+        ensureOpen()
+        val json = EglNative.viewRange(handle, viewId, start, count)
+        val status = EglNative.lastStatus()
+        if (json.isNullOrEmpty()) throw error(status)
+        val arr = org.json.JSONArray(json)
+        return (0 until arr.length()).map { ItemCell.fromJson(arr.getJSONObject(it)) }
+    }
+
+    fun closeView(viewId: Long) {
+        if (handle == 0L) return
+        EglNative.closeView(handle, viewId)
+    }
+
+    fun thumbnailBytes(id: String): ByteArray? {
+        ensureOpen()
+        return EglNative.thumbnailBytes(handle, id)
+    }
+
+    fun editItems(target: ItemsTarget, editType: String): Int {
+        ensureOpen()
+        val edit = org.json.JSONObject().put("type", editType).toString()
+        val count = EglNative.editItems(handle, target.toJson().toString(), edit)
+        if (count < 0) throw error(EglNative.lastStatus())
+        return count
     }
 
     override fun close() {

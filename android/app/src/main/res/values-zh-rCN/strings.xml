@@ -22,10 +22,10 @@
     <string name="library_close">关闭</string>
     <string name="library_places">位置</string>
     <string name="library_folders">文件夹</string>
+    <string name="library_smart_folders">智能文件夹</string>
     <string name="library_read_only">此资源库为只读。</string>
     <string name="library_read_only_other">已被其他实例打开 — 只读。</string>
     <string name="library_read_only_synced">云同步路径 — 只读。</string>
-    <string name="library_a1_hint">项目网格将在下一个 Android PR（A2）中提供。</string>
 
     <string name="place_all">全部</string>
     <string name="place_uncategorized">未分类</string>
