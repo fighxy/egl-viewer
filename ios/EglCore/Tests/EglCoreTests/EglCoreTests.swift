@@ -303,6 +303,23 @@ final class EglCoreTests: XCTestCase {
         XCTAssertEqual(try library.originalBytes(id)?.dropFirst().prefix(3), Data("PNG".utf8))
     }
 
+    /// D-112 / D-113: the export formats as the core reads them.
+    func testExportFormatsEncodeAsTheCoreReadsThem() throws {
+        func json(_ format: ExportFormat) throws -> [String: String] {
+            let data = try JSONEncoder().encode(format)
+            return try XCTUnwrap(JSONSerialization.jsonObject(with: data) as? [String: String])
+        }
+        XCTAssertEqual(try json(.zip(.fast)), ["kind": "zip", "compression": "fast", "encryption": "age"])
+        XCTAssertEqual(
+            try json(.zip(.none, encryption: .aes)), ["kind": "zip", "compression": "none", "encryption": "aes"]
+        )
+        XCTAssertEqual(try json(.sevenZip(.smallest)), ["kind": "sevenZip", "compression": "smallest"])
+        let old = try JSONDecoder().decode(ExportFormat.self, from: Data(#"{"kind":"zip","compression":"fast"}"#.utf8))
+        XCTAssertEqual(old, .zip(.fast, encryption: .age))
+        XCTAssertTrue(ExportFormat.sevenZip(.none).isArchive)
+        XCTAssertFalse(ExportFormat.mirror.isArchive)
+    }
+
     func testMaintenanceAndAnEncryptedExport() throws {
         let library = try openNew()
         let heard = Heard()

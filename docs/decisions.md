@@ -2436,3 +2436,52 @@ The Android review (D-109) left five items. They land together.
   still works with libraries in its own storage. A library is never copied or moved: it stays
   the one source of truth where it is. Google Play reviews this permission; a store build may
   need the declaration form, or a build without it.
+
+## D-112 ZIP with a password: AES-256 entries next to the age file (2026-11-05)
+
+An age file (D-066, D-110) is the strongest choice, but a person who gets one needs this app,
+`age` or `rage` to open it. A ZIP export with a passphrase now offers a second protection, chosen
+in the dialog: **ZIP password**, a standard `name.zip` whose entries are AES-256 encrypted
+(WinZip AES, written by `zip` with its `aes-crypto` feature).
+
+- Opens in 7-Zip, WinRAR, PeaZip, Keka and The Unarchiver, checked here against `7z t` with a
+  non-ASCII passphrase. The archive tools built into Windows and macOS do not open AES entries;
+  the dialog says so.
+- Weaker than age, and the dialog says that too: the names and the sizes of the files stay
+  readable, and the key derivation is PBKDF2-SHA1 with 1,000 rounds, so a short passphrase falls
+  quickly. The 8-character floor (D-110) applies; age stays the default.
+- Written like an unencrypted ZIP: `name.zip.part`, renamed when complete, removed on a failure
+  or a cancel. Entries are encrypted as they are written, so no plaintext copy touches the disk.
+- Wire format: `{"kind":"zip","compression":…,"encryption":"age"|"aes"}`; a request without
+  `encryption` (older phones) means age. Swift `.zip(_, encryption:)` and Kotlin
+  `ExportFormat.Zip(compression, encryption)` default to age.
+- Dependencies: the `aes-crypto` feature of `zip` 9.2.0 adds `pbkdf2` 0.13.0, `sha1` 0.11.0 and
+  `constant_time_eq` 0.6.1 (plus `aes`, `hmac` and `zeroize`, already in the tree), the newest
+  versions older than the minimum release age (D-003) that `zip` accepts.
+
+## D-113 7z export: AES-256 with hidden names (2026-11-05)
+
+The export formats gain **7z**, written by `sevenz-rust2` 0.24.2 (pure Rust; the newest release
+older than the minimum release age, D-003), with `default-features = false` and only `aes256` and
+`compress`. It adds `lzma-rust2` 0.23.0 (the newest its `^0.23` allows); `cbc`, `sha2` 0.11 and
+`crc32fast` are already in the tree.
+
+- **With a passphrase** the entries and the header that lists the names are AES-256 encrypted:
+  without the passphrase nobody sees what the archive holds, as with age, and it still opens in
+  7-Zip, WinRAR, PeaZip and Keka. The key derivation is set to 7-Zip's own 2^19 SHA-256 rounds;
+  the crate's default (2^8) would make guessing as cheap as for a ZIP.
+- **Compression** maps to LZMA2 presets 1 / 5 / 7, or stored entries for None. "Smallest" is
+  preset 7, not 9: preset 9 needs about 670 MiB to compress, too much for a phone, and photos and
+  videos barely shrink anyway.
+- Each original is its own stream (not solid), so a cancel stops between or inside files and a
+  damaged spot costs one file. The archive is written as `name.7z.part` and renamed when complete;
+  a failure or a cancel removes it. A reader wrapper stops on the cancel flag and keeps the
+  original's read error apart from a write error.
+- Writing an archive goes through one `ArchiveSink` trait (ZIP or 7z): the loop over the
+  originals, the size check and the manifest are shared.
+- Decrypt Archive stays age-only: a 7z or a ZIP with a password opens in the tools above.
+- Desktop: a fourth format button and the ZIP protection choice with their hints. iPhone and
+  Android: ZIP / 7z / Folder, and age or ZIP password under Encrypt. Tests: export round trips
+  read back with `zip` and `sevenz-rust2` (wrong and right passwords, no names in the bytes of
+  an encrypted 7z, cancel, failure cleanup), the C ABI with both formats, the JSON shapes in Swift
+  and Kotlin, and the desktop dialog's request.

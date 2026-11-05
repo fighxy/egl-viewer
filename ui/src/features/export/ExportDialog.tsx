@@ -32,6 +32,7 @@ import type {
   LibraryInfo,
   Preferences,
   Tag,
+  ZipEncryption,
 } from "@/ipc";
 import { EVENTS, inTauri, ipc } from "@/ipc";
 import { describeError } from "@/lib/errors";
@@ -58,6 +59,14 @@ type Props = {
   /** Persists preferences (the last export destination). */
   onPreferences: (next: Preferences) => void;
 };
+
+const ZIP_ENCRYPTIONS: readonly {
+  value: ZipEncryption;
+  labelKey: "exportUi.protectionAge" | "exportUi.protectionAes";
+}[] = [
+  { value: "age", labelKey: "exportUi.protectionAge" },
+  { value: "aes", labelKey: "exportUi.protectionAes" },
+];
 
 const COMPRESSION_KEYS: readonly {
   value: Compression;
@@ -139,9 +148,11 @@ function ExportDialogContent({
   const [selectedFolders, setSelectedFolders] = useState<ReadonlySet<string>>(new Set());
   const [selectedTags, setSelectedTags] = useState<ReadonlySet<string>>(new Set());
   const [includeSubfolders, setIncludeSubfolders] = useState(true);
-  const [formatKind, setFormatKind] = useState<"mirror" | "zip" | "eagle">("zip");
+  const [formatKind, setFormatKind] = useState<"mirror" | "zip" | "sevenZip" | "eagle">("zip");
   const [compression, setCompression] = useState<Compression>("balanced");
   const [encrypt, setEncrypt] = useState(false);
+  /** How a ZIP with a password is protected (D-112). */
+  const [zipEncryption, setZipEncryption] = useState<ZipEncryption>("age");
   const [password, setPassword] = useState("");
   const [confirm, setConfirm] = useState("");
   const [destination, setDestination] = useState(preferences.exportDestination ?? "");
@@ -237,6 +248,9 @@ function ExportDialogContent({
       .catch((failure: unknown) => setStartError(describeError(failure)));
   };
 
+  /** A ZIP or a 7z: compression and a passphrase apply. */
+  const archive = formatKind === "zip" || formatKind === "sevenZip";
+
   const problems = (): string | null => {
     if (!chosen) return t("exportUi.chooseWhat");
     if (formatKind === "eagle") {
@@ -245,7 +259,7 @@ function ExportDialogContent({
     } else if (destination.trim() === "") {
       return t("exportUi.chooseWhere");
     }
-    if (formatKind === "zip" && encrypt) {
+    if (archive && encrypt) {
       if (password === "") return t("exportUi.typePassword");
       if ([...password].length < MIN_PASSPHRASE_CHARS) {
         return t("exportUi.passwordTooShort", { count: MIN_PASSPHRASE_CHARS });
@@ -268,9 +282,14 @@ function ExportDialogContent({
       selection,
       includeSubfolders:
         target?.kind === "folder" || scope === "folders" ? includeSubfolders : false,
-      format: formatKind === "zip" ? { kind: "zip", compression } : { kind: "mirror" },
+      format:
+        formatKind === "zip"
+          ? { kind: "zip", compression, encryption: zipEncryption }
+          : formatKind === "sevenZip"
+            ? { kind: "sevenZip", compression }
+            : { kind: "mirror" },
       destination: intoEagle ? "" : destination.trim(),
-      encrypt: formatKind === "zip" && encrypt ? password : null,
+      encrypt: archive && encrypt ? password : null,
       eagle: intoEagle
         ? {
             host: eagleHost.trim(),
@@ -315,6 +334,7 @@ function ExportDialogContent({
   const formats = [
     ["mirror", t("exportUi.mirror")],
     ["zip", t("exportUi.zip")],
+    ["sevenZip", t("exportUi.sevenZip")],
     ["eagle", t("exportUi.intoEagle")],
   ] as const;
 
@@ -449,7 +469,7 @@ function ExportDialogContent({
                   </label>
                 ))}
               </div>
-              {formatKind === "zip" && (
+              {archive && (
                 <div className="flex flex-wrap items-center gap-1">
                   {COMPRESSION_KEYS.map(({ value, labelKey, hintKey }) => (
                     <label
@@ -474,13 +494,48 @@ function ExportDialogContent({
                   ))}
                 </div>
               )}
-              {formatKind === "zip" && (
+              {archive && (
                 <div className="flex items-center gap-2 text-[13px]">
                   <Switch id="export-encrypt" checked={encrypt} onCheckedChange={setEncrypt} />
                   <Label htmlFor="export-encrypt">{t("exportUi.encrypt")}</Label>
                 </div>
               )}
               {formatKind === "zip" && encrypt && (
+                <fieldset className="grid gap-1">
+                  <legend className="sr-only">{t("exportUi.protection")}</legend>
+                  <div className="flex flex-wrap items-center gap-1">
+                    {ZIP_ENCRYPTIONS.map(({ value, labelKey }) => (
+                      <label
+                        key={value}
+                        className={
+                          zipEncryption === value
+                            ? "rounded-md border border-primary bg-primary px-3 py-1 text-[13px] text-primary-foreground"
+                            : "rounded-md border px-3 py-1 text-[13px] hover:bg-muted"
+                        }
+                      >
+                        <input
+                          type="radio"
+                          name="export-zip-encryption"
+                          value={value}
+                          className="sr-only"
+                          checked={zipEncryption === value}
+                          onChange={() => setZipEncryption(value)}
+                        />
+                        {t(labelKey)}
+                      </label>
+                    ))}
+                  </div>
+                  <p className="text-xs text-muted-foreground">
+                    {zipEncryption === "age"
+                      ? t("exportUi.protectionAgeHint")
+                      : t("exportUi.protectionAesHint")}
+                  </p>
+                </fieldset>
+              )}
+              {formatKind === "sevenZip" && encrypt && (
+                <p className="text-xs text-muted-foreground">{t("exportUi.sevenZipEncryptHint")}</p>
+              )}
+              {archive && encrypt && (
                 <div className="grid grid-cols-2 gap-2">
                   <Input
                     type="password"

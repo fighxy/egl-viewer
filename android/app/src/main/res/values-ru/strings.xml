@@ -386,6 +386,12 @@
     <string name="export_tags">Теги</string>
     <string name="export_format">Формат</string>
     <string name="export_zip">ZIP</string>
+    <string name="export_seven_zip">7z</string>
+    <string name="export_protection">Защита</string>
+    <string name="export_protection_age">Файл age</string>
+    <string name="export_protection_aes">Пароль ZIP</string>
+    <string name="export_aes_hint">Обычный ZIP с AES-256: открывается в 7-Zip, WinRAR и Keka, но не встроенными средствами Windows и macOS. Имена файлов видны; пароль нигде не сохраняется.</string>
+    <string name="export_seven_zip_hint">7z с AES-256: скрыты и содержимое, и имена файлов. Открывается в 7-Zip, WinRAR, PeaZip и Keka; пароль нигде не сохраняется.</string>
     <string name="export_folder">Папка</string>
     <string name="export_compression">Сжатие</string>
     <string name="export_compression_none">Без сжатия</string>

@@ -3,6 +3,7 @@ package app.eglviewer.settings
 import android.net.Uri
 import androidx.activity.compose.rememberLauncherForActivityResult
 import androidx.activity.result.contract.ActivityResultContracts
+import androidx.annotation.StringRes
 import androidx.compose.foundation.background
 import androidx.compose.foundation.clickable
 import androidx.compose.foundation.layout.Arrangement
@@ -53,6 +54,7 @@ import app.eglviewer.core.ExportSelection
 import app.eglviewer.core.ExportState
 import app.eglviewer.core.MIN_PASSPHRASE_CHARS
 import app.eglviewer.core.Tag
+import app.eglviewer.core.ZipEncryption
 import app.eglviewer.core.passphraseLongEnough
 import app.eglviewer.details.ShareFiles
 import app.eglviewer.details.ShareLauncher
@@ -64,8 +66,9 @@ import java.io.File
 import java.util.UUID
 
 /**
- * Export (Android A7 ≈ D-099): the whole library, folders or tags, as a folder tree or a ZIP
- * archive, optionally encrypted with a passphrase (age). Written into the app's temporary
+ * Export (Android A7 ≈ D-099): the whole library, folders or tags, as a folder tree, a ZIP or a
+ * 7z archive, optionally encrypted with a passphrase: age or AES-256 for a ZIP (D-112), AES-256
+ * with hidden names for a 7z (D-113). Written into the app's temporary
  * folder, then shared or saved via SAF; the temporary copy goes when the screen closes.
  */
 @Composable
@@ -77,7 +80,8 @@ fun ExportScreen(
     var folders by remember { mutableStateOf(setOf<String>()) }
     var tags by remember { mutableStateOf(setOf<String>()) }
     var includeSubfolders by remember { mutableStateOf(true) }
-    var zip by remember { mutableStateOf(true) }
+    var kind by remember { mutableStateOf(ExportKind.ZIP) }
+    var zipEncryption by remember { mutableStateOf(ZipEncryption.AGE) }
     var compression by remember { mutableStateOf(ExportCompression.BALANCED) }
     var encrypt by remember { mutableStateOf(false) }
     var passphrase by remember { mutableStateOf("") }
@@ -156,7 +160,7 @@ fun ExportScreen(
     }
 
     val ready = !selection.isEmpty && (preview?.items ?: 0) > 0 &&
-        (!zip || !encrypt || (passphraseLongEnough(passphrase) && passphrase == confirm))
+        (!kind.archive || !encrypt || (passphraseLongEnough(passphrase) && passphrase == confirm))
 
     Column(
         modifier = Modifier
@@ -248,20 +252,16 @@ fun ExportScreen(
 
                 SectionHeader(stringResource(R.string.export_format))
                 Row(horizontalArrangement = Arrangement.spacedBy(8.dp)) {
-                    TextButton(onClick = { zip = true }) {
-                        Text(
-                            text = stringResource(R.string.export_zip),
-                            color = if (zip) EglTokens.Primary else EglTokens.Foreground,
-                        )
-                    }
-                    TextButton(onClick = { zip = false }) {
-                        Text(
-                            text = stringResource(R.string.export_folder),
-                            color = if (!zip) EglTokens.Primary else EglTokens.Foreground,
-                        )
+                    for (choice in ExportKind.entries) {
+                        TextButton(onClick = { kind = choice }) {
+                            Text(
+                                text = stringResource(choice.label),
+                                color = if (kind == choice) EglTokens.Primary else EglTokens.Foreground,
+                            )
+                        }
                     }
                 }
-                if (zip) {
+                if (kind.archive) {
                     SectionHeader(stringResource(R.string.export_compression))
                     for (level in ExportCompression.entries) {
                         CheckRow(
@@ -276,6 +276,21 @@ fun ExportScreen(
                         checked = encrypt,
                         onCheckedChange = { encrypt = it },
                     )
+                    if (encrypt && kind == ExportKind.ZIP) {
+                        SectionHeader(stringResource(R.string.export_protection))
+                        CheckRow(
+                            title = stringResource(R.string.export_protection_age),
+                            depth = 0,
+                            checked = zipEncryption == ZipEncryption.AGE,
+                            onClick = { zipEncryption = ZipEncryption.AGE },
+                        )
+                        CheckRow(
+                            title = stringResource(R.string.export_protection_aes),
+                            depth = 0,
+                            checked = zipEncryption == ZipEncryption.AES,
+                            onClick = { zipEncryption = ZipEncryption.AES },
+                        )
+                    }
                     if (encrypt) {
                         OutlinedTextField(
                             value = passphrase,
@@ -298,7 +313,13 @@ fun ExportScreen(
                             text = if (short) {
                                 stringResource(R.string.export_passphrase_too_short, MIN_PASSPHRASE_CHARS)
                             } else {
-                                stringResource(R.string.export_encrypt_hint)
+                                stringResource(
+                                    when {
+                                        kind == ExportKind.SEVEN_ZIP -> R.string.export_seven_zip_hint
+                                        zipEncryption == ZipEncryption.AES -> R.string.export_aes_hint
+                                        else -> R.string.export_encrypt_hint
+                                    },
+                                )
                             },
                             color = if (short) MaterialTheme.colorScheme.error else EglTokens.MutedForeground,
                             fontSize = 12.sp,
@@ -342,9 +363,9 @@ fun ExportScreen(
                             val request = ExportRequest(
                                 selection = selection,
                                 includeSubfolders = includeSubfolders,
-                                format = if (zip) ExportFormat.Zip(compression) else ExportFormat.Mirror,
+                                format = kind.format(compression, zipEncryption),
                                 destination = dest.absolutePath,
-                                encrypt = if (zip && encrypt) passphrase else null,
+                                encrypt = if (kind.archive && encrypt) passphrase else null,
                             )
                             passphrase = ""
                             confirm = ""
@@ -500,6 +521,21 @@ private fun CheckRow(
             Icon(Icons.Default.Check, contentDescription = null, tint = EglTokens.Primary)
         }
     }
+}
+
+/** What the export writes. */
+internal enum class ExportKind(@StringRes val label: Int, val archive: Boolean) {
+    ZIP(R.string.export_zip, true),
+    SEVEN_ZIP(R.string.export_seven_zip, true),
+    FOLDER(R.string.export_folder, false),
+    ;
+
+    fun format(compression: ExportCompression, encryption: ZipEncryption): ExportFormat =
+        when (this) {
+            ZIP -> ExportFormat.Zip(compression, encryption)
+            SEVEN_ZIP -> ExportFormat.SevenZip(compression)
+            FOLDER -> ExportFormat.Mirror
+        }
 }
 
 @Composable

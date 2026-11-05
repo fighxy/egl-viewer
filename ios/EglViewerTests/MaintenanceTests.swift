@@ -55,7 +55,7 @@ final class MaintenanceTests: XCTestCase {
         await open.close()
     }
 
-    func testACleanLibraryChecksCleanAndExportsAsAZipAndAFolder() async throws {
+    func testACleanLibraryChecksCleanAndExportsInEveryFormat() async throws {
         let open = try await sample(images: 3)
         let checked = await open.perform { try $0.check() }
         let check = try XCTUnwrap(checked)
@@ -64,12 +64,19 @@ final class MaintenanceTests: XCTestCase {
         let stats = try XCTUnwrap(read)
         XCTAssertGreaterThan(stats.total, 0)
 
-        for format in [ExportFormat.zip(.fast), .mirror] {
+        // D-112 / D-113: a ZIP with a password and a 7z come out under their own extension.
+        let formats: [(ExportFormat, String?, String)] = [
+            (.zip(.fast), nil, ".zip"), (.mirror, nil, ""),
+            (.zip(.none, encryption: .aes), "correct horse", ".zip"),
+            (.sevenZip(.balanced), "correct horse", ".7z"),
+        ]
+        for (format, passphrase, ending) in formats {
             let out = FileManager.default.temporaryDirectory
                 .appendingPathComponent("export-test-\(UUID().uuidString)", isDirectory: true)
             try FileManager.default.createDirectory(at: out, withIntermediateDirectories: true)
             let request = ExportRequest(
-                selection: ExportSelection(whole: true), includeSubfolders: true, format: format, destination: out.path
+                selection: ExportSelection(whole: true), includeSubfolders: true, format: format, destination: out.path,
+                encrypt: passphrase
             )
             let begun = await open.startExport(request)
             let started = try XCTUnwrap(begun)
@@ -80,6 +87,7 @@ final class MaintenanceTests: XCTestCase {
             var directory: ObjCBool = false
             XCTAssertTrue(FileManager.default.fileExists(atPath: done.summary?.path ?? "", isDirectory: &directory))
             XCTAssertEqual(directory.boolValue, format == .mirror)
+            XCTAssertTrue(done.summary?.path.hasSuffix(ending) == true, done.summary?.path ?? "")
             open.forgetExport(started.id)
             XCTAssertNil(open.exports[started.id])
             try? FileManager.default.removeItem(at: out)

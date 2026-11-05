@@ -929,6 +929,15 @@ export const en = {
     eagleLockedWarning:
       "Locked folders are exported unlocked: Eagle's API cannot set a folder password.",
     zip: "ZIP archive",
+    sevenZip: "7z archive",
+    protection: "Protection",
+    protectionAge: "age file",
+    protectionAgeHint:
+      "Names and contents hidden, strongest. Opens with File → Decrypt Archive or the age tool.",
+    protectionAes: "ZIP password",
+    protectionAesHint:
+      "AES-256. Opens in 7-Zip, WinRAR, Keka; not in the tools built into Windows or macOS. File names stay visible.",
+    sevenZipEncryptHint: "AES-256, file names hidden too. Opens in 7-Zip, WinRAR, PeaZip, Keka.",
     wherePlaceholder: "A folder on this PC",
     backUp: "Back up",
     export: "Export",
@@ -937,9 +946,9 @@ export const en = {
     compressionBalanced: "Balanced",
     compressionSmallest: "Smallest",
     compressionNoneHint: "Store the files uncompressed; fastest",
-    compressionFastHint: "Deflate, low effort",
-    compressionBalancedHint: "Deflate, the usual level",
-    compressionSmallestHint: "Deflate, high effort",
+    compressionFastHint: "Low effort, quick",
+    compressionBalancedHint: "The usual level",
+    compressionSmallestHint: "High effort, slow",
     encrypt: "Encrypt with a password",
     typePassword: "Type a password.",
     passwordMismatch: "The passwords do not match.",

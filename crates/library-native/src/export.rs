@@ -1,5 +1,5 @@
-//! Exporting originals to a folder tree or a ZIP archive (docs/spec.md §7.4 item 12): what a Backup or
-//! an Export writes, where, and with what protection. Reads only, so a read-only library can
+//! Exporting originals to a folder tree, a ZIP or a 7z archive (docs/spec.md §7.4 item 12): what a
+//! Backup or an Export writes, where, and with what protection. Reads only, so a read-only library can
 //! export; items of a locked folder export decrypted once the folder is unlocked.
 
 use std::collections::{HashMap, HashSet};
@@ -13,12 +13,14 @@ use std::time::{Duration, Instant};
 use age::Encryptor;
 use library_core::{
     Compression, DecryptedArchive, ExportFormat, ExportPreview, ExportProgress, ExportRequest,
-    ExportSelection, ExportState, ExportSummary, MIN_PASSPHRASE_CHARS, SourceError,
+    ExportSelection, ExportState, ExportSummary, MIN_PASSPHRASE_CHARS, SourceError, ZipEncryption,
 };
 use rusqlite::{Connection, OptionalExtension, params, types::Value};
 use secrecy::SecretString;
 use serde::Serialize;
-use zip::write::SimpleFileOptions;
+use sevenz_rust2::encoder_options::{AesEncoderOptions, Lzma2Options};
+use sevenz_rust2::{ArchiveEntry, ArchiveWriter, EncoderConfiguration, EncoderMethod, Password};
+use zip::write::{FileOptions, SimpleFileOptions};
 
 use crate::add::file_name_for;
 use crate::create::check_not_inside_a_library;
@@ -34,6 +36,9 @@ const MANIFEST: &str = "egl-export.json";
 const PROGRESS_EVERY: Duration = Duration::from_millis(100);
 /// The copy and encryption buffer.
 const BUFFER: usize = 1024 * 1024;
+/// 7-Zip's own key derivation strength: 2^19 SHA-256 rounds (D-113). The library's default
+/// (2^8) would make a 7z passphrase as cheap to guess as a ZIP's.
+const SEVEN_ZIP_KEY_ROUNDS_POWER: u8 = 19;
 
 /// One item placed in the export.
 #[derive(Debug, Clone)]
@@ -322,7 +327,10 @@ pub fn export_items(
             cancel,
             &mut reporter,
         ),
-        ExportFormat::Zip { compression } => write_zip(
+        ExportFormat::Zip {
+            compression,
+            encryption,
+        } => write_zip(
             library,
             &destination,
             &base,
@@ -330,6 +338,23 @@ pub fn export_items(
             &manifest_items,
             library_name,
             compression,
+            request
+                .encrypt
+                .as_deref()
+                .map(|password| (password, encryption)),
+            cancel,
+            &mut reporter,
+        ),
+        ExportFormat::SevenZip { compression } => write_7z(
+            &Entries {
+                library,
+                base: &base,
+                planned: &planned,
+                manifest_items: &manifest_items,
+                library_name: &library_name,
+                compression,
+            },
+            &destination,
             request.encrypt.as_deref(),
             cancel,
             &mut reporter,
@@ -361,9 +386,9 @@ fn validate(request: &ExportRequest, library: &Library) -> Result<()> {
     if request.selection.is_empty() {
         return Err(SourceError::Invalid("Choose what to export.".into()));
     }
-    if request.encrypt.is_some() && !matches!(request.format, ExportFormat::Zip { .. }) {
+    if request.encrypt.is_some() && !request.format.is_archive() {
         return Err(SourceError::Invalid(
-            "Encryption needs the ZIP format.".into(),
+            "Encryption needs an archive: ZIP or 7z.".into(),
         ));
     }
     if let Some(passphrase) = &request.encrypt
@@ -897,11 +922,12 @@ fn write_mirror(
     }))
 }
 
-/// Writes the placements and the manifest into `<destination>/<base>.zip`, or with `encrypt`
-/// into `<destination>/<base>.zip.age`. The encrypted archive is encrypted while it is
-/// written (D-110): the ZIP streams into the age writer, so no plaintext archive touches the
-/// disk, not even for a moment in a synced destination. Either way the output is written as
-/// `.part` and renamed when complete.
+/// Writes the placements and the manifest into `<destination>/<base>.zip`; with an age
+/// passphrase into `<destination>/<base>.zip.age`, with an AES one into a `.zip` whose entries
+/// are AES-256 encrypted (D-112). The age archive is encrypted while it is written (D-110):
+/// the ZIP streams into the age writer, so no plaintext archive touches the disk, not even for
+/// a moment in a synced destination. Either way the output is written as `.part` and renamed
+/// when complete.
 #[allow(clippy::too_many_arguments)]
 fn write_zip(
     library: &Library,
@@ -911,14 +937,17 @@ fn write_zip(
     manifest_items: &[ManifestItem],
     library_name: String,
     compression: Compression,
-    encrypt: Option<&str>,
+    encrypt: Option<(&str, ZipEncryption)>,
     cancel: &AtomicBool,
     reporter: &mut Reporter,
 ) -> Result<Outcome> {
     let archive = unique_child(
         destination,
         base,
-        if encrypt.is_some() { "zip.age" } else { "zip" },
+        match encrypt {
+            Some((_, ZipEncryption::Age)) => "zip.age",
+            _ => "zip",
+        },
     );
     let part = part_path(&archive);
     let leftovers = Leftovers::new(vec![part.clone()]);
@@ -931,29 +960,39 @@ fn write_zip(
         compression,
     };
     let outcome = match encrypt {
-        None => {
+        None | Some((_, ZipEncryption::Aes)) => {
             let file = File::create(&part).context("create the archive")?;
-            let mut zip = zip::ZipWriter::new(file).set_auto_large_file();
-            let outcome = entries.write(&mut zip, cancel, reporter)?;
+            let mut sink = ZipSink {
+                zip: zip::ZipWriter::new(file).set_auto_large_file(),
+                compression,
+                password: encrypt.map(|(password, _)| password),
+            };
+            let outcome = entries.write(&mut sink, cancel, reporter)?;
             if let Outcome::Done(_) = outcome {
-                zip.finish()
+                sink.zip
+                    .finish()
                     .map_err(zip_error)?
                     .sync_all()
                     .context("finish the archive")?;
             }
             outcome
         }
-        Some(password) => {
+        Some((password, ZipEncryption::Age)) => {
             let file = File::create(&part).context("create the encrypted archive")?;
             let encryptor =
                 Encryptor::with_user_passphrase(SecretString::from(password.to_owned()));
             let writer = encryptor
                 .wrap_output(BufWriter::with_capacity(BUFFER, file))
                 .context("start encrypting the archive")?;
-            let mut zip = zip::ZipWriter::new_stream(writer);
-            let outcome = entries.write(&mut zip, cancel, reporter)?;
+            let mut sink = ZipSink {
+                zip: zip::ZipWriter::new_stream(writer),
+                compression,
+                password: None,
+            };
+            let outcome = entries.write(&mut sink, cancel, reporter)?;
             if let Outcome::Done(_) = outcome {
-                zip.finish()
+                sink.zip
+                    .finish()
                     .map_err(zip_error)?
                     .into_inner()
                     .finish()
@@ -974,6 +1013,64 @@ fn write_zip(
     summary.path = archive.to_string_lossy().into_owned();
     leftovers.keep();
     Ok(Outcome::Done(summary))
+}
+
+/// Writes the placements and the manifest into `<destination>/<base>.7z` (D-113). With a
+/// passphrase the entries and the header with their names are AES-256 encrypted, so the
+/// archive shows nothing without it. Each original is its own LZMA2 stream (not solid), so a
+/// damaged spot costs one file and a cancel stops between or inside files.
+fn write_7z(
+    entries: &Entries,
+    destination: &Path,
+    encrypt: Option<&str>,
+    cancel: &AtomicBool,
+    reporter: &mut Reporter,
+) -> Result<Outcome> {
+    let archive = unique_child(destination, entries.base, "7z");
+    let part = part_path(&archive);
+    let leftovers = Leftovers::new(vec![part.clone()]);
+    let file = File::create(&part).context("create the archive")?;
+    let mut writer = ArchiveWriter::new(BufWriter::with_capacity(BUFFER, file))
+        .map_err(|error| SourceError::Storage(format!("create the archive: {error}")))?;
+    let mut methods = Vec::new();
+    if let Some(password) = encrypt {
+        let mut aes = AesEncoderOptions::new(Password::new(password));
+        aes.num_cycles_power = SEVEN_ZIP_KEY_ROUNDS_POWER;
+        methods.push(EncoderConfiguration::from(aes));
+    }
+    methods.push(match seven_zip_level(entries.compression) {
+        None => EncoderConfiguration::new(EncoderMethod::COPY),
+        Some(level) => Lzma2Options::from_level(level).into(),
+    });
+    writer.set_content_methods(methods);
+    writer.set_encrypt_header(encrypt.is_some());
+    let mut sink = SevenZipSink { writer };
+    let Outcome::Done(mut summary) = entries.write(&mut sink, cancel, reporter)? else {
+        return Ok(Outcome::Cancelled);
+    };
+    sink.writer
+        .finish()
+        .context("finish the archive")?
+        .into_inner()
+        .map_err(|error| error.into_error())
+        .context("finish the archive")?
+        .sync_all()
+        .context("finish the archive")?;
+    rename_with_retry(&part, &archive).context("finish the archive")?;
+    summary.path = archive.to_string_lossy().into_owned();
+    leftovers.keep();
+    Ok(Outcome::Done(summary))
+}
+
+/// The LZMA2 preset for a 7z export; `None` stores the entries. "Smallest" is preset 7, not 9:
+/// 9 takes about 670 MiB to compress, too much for a phone, and media barely shrink anyway.
+fn seven_zip_level(compression: Compression) -> Option<u32> {
+    match compression {
+        Compression::None => None,
+        Compression::Fast => Some(1),
+        Compression::Balanced => Some(5),
+        Compression::Smallest => Some(7),
+    }
 }
 
 /// Opens an age archive (an encrypted export, `name.zip.age`) with its passphrase into
@@ -1129,12 +1226,114 @@ struct Entries<'a> {
     compression: Compression,
 }
 
+/// An archive being written: ZIP or 7z.
+trait ArchiveSink {
+    /// Adds one file of `size` bytes from `source`; `None` when `cancel` went up first.
+    fn add(
+        &mut self,
+        name: &str,
+        size: u64,
+        source: &mut dyn Read,
+        cancel: &AtomicBool,
+    ) -> Result<Option<u64>>;
+}
+
+/// A ZIP being written; `password` encrypts every entry with AES-256 (D-112).
+struct ZipSink<'p, W: Write + io::Seek> {
+    zip: zip::ZipWriter<W>,
+    compression: Compression,
+    password: Option<&'p str>,
+}
+
+impl<W: Write + io::Seek> ArchiveSink for ZipSink<'_, W> {
+    fn add(
+        &mut self,
+        name: &str,
+        size: u64,
+        source: &mut dyn Read,
+        cancel: &AtomicBool,
+    ) -> Result<Option<u64>> {
+        let options = file_options(self.compression, size);
+        let options: FileOptions<'_, '_, ()> = match self.password {
+            Some(password) => options.with_aes_encryption(zip::AesMode::Aes256, password),
+            None => options,
+        };
+        self.zip
+            .start_file(name.to_owned(), options)
+            .map_err(zip_error)?;
+        copy_cancellable(source, &mut self.zip, cancel, &read_original, &mut |_| {})
+    }
+}
+
+/// A 7z being written (D-113).
+struct SevenZipSink<W: Write + io::Seek> {
+    writer: ArchiveWriter<W>,
+}
+
+impl<W: Write + io::Seek> ArchiveSink for SevenZipSink<W> {
+    fn add(
+        &mut self,
+        name: &str,
+        _size: u64,
+        source: &mut dyn Read,
+        cancel: &AtomicBool,
+    ) -> Result<Option<u64>> {
+        let mut guarded = Guarded {
+            source,
+            cancel,
+            failure: None,
+        };
+        match self
+            .writer
+            .push_archive_entry(ArchiveEntry::new_file(name), Some(&mut guarded))
+        {
+            Ok(entry) => Ok(Some(entry.size)),
+            Err(_) if cancel.load(Ordering::Relaxed) => Ok(None),
+            Err(error) => Err(match guarded.failure.take() {
+                Some(failure) => read_original(failure),
+                None => SourceError::Storage(format!("write the archive: {error}")),
+            }),
+        }
+    }
+}
+
+/// A source that stops with an error once `cancel` goes up, and keeps its own read error so
+/// the caller can tell it from a failed write.
+struct Guarded<'a> {
+    source: &'a mut dyn Read,
+    cancel: &'a AtomicBool,
+    failure: Option<io::Error>,
+}
+
+impl Read for Guarded<'_> {
+    fn read(&mut self, buffer: &mut [u8]) -> io::Result<usize> {
+        if self.cancel.load(Ordering::Relaxed) {
+            return Err(io::Error::new(ErrorKind::Interrupted, "cancelled"));
+        }
+        loop {
+            match self.source.read(buffer) {
+                Err(error) if error.kind() == ErrorKind::Interrupted => continue,
+                Err(error) => {
+                    let message = error.to_string();
+                    self.failure = Some(error);
+                    return Err(io::Error::other(message));
+                }
+                Ok(read) => return Ok(read),
+            }
+        }
+    }
+}
+
+fn read_original(error: io::Error) -> SourceError {
+    SourceError::Storage(format!("read an original: {error}"))
+}
+
 impl Entries<'_> {
-    /// Writes every entry into `zip`; `Cancelled` as soon as the flag goes up, between files
+    /// Writes every entry into `sink`; `Cancelled` as soon as the flag goes up, between files
     /// or in the middle of a large one. The caller finishes the archive.
-    fn write<W: Write + io::Seek>(
+    fn write(
         &self,
-        zip: &mut zip::ZipWriter<W>,
+        sink: &mut dyn ArchiveSink,
         cancel: &AtomicBool,
         reporter: &mut Reporter,
     ) -> Result<Outcome> {
@@ -1152,16 +1351,7 @@ impl Entries<'_> {
                 reporter.item_done(0, &entry);
                 continue;
             };
-            zip.start_file(
-                entry.clone(),
-                file_options(self.compression, placement.item.size),
-            )
-            .map_err(zip_error)?;
-            let read_original =
-                |error: io::Error| SourceError::Storage(format!("read an original: {error}"));
-            let Some(written) =
-                copy_cancellable(&mut source, zip, cancel, &read_original, &mut |_| {})?
-            else {
+            let Some(written) = sink.add(&entry, placement.item.size, &mut source, cancel)? else {
                 return Ok(Outcome::Cancelled);
             };
             if written != placement.item.size {
@@ -1175,12 +1365,13 @@ impl Entries<'_> {
         }
         let manifest_items = manifest_with_base(self.manifest_items, self.base);
         let body = manifest_json(self.library_name, &manifest_items)?;
-        zip.start_file(
-            format!("{}/{MANIFEST}", self.base),
-            file_options(self.compression, body.len() as u64),
-        )
-        .map_err(zip_error)?;
-        zip.write_all(&body).context("write the archive")?;
+        let manifest = format!("{}/{MANIFEST}", self.base);
+        if sink
+            .add(&manifest, body.len() as u64, &mut body.as_slice(), cancel)?
+            .is_none()
+        {
+            return Ok(Outcome::Cancelled);
+        }
         files += 1;
         Ok(Outcome::Done(ExportSummary {
             items: manifest_items.len() as u64,
@@ -1298,9 +1489,12 @@ mod tests {
     use std::sync::atomic::AtomicBool;
 
     use image::ImageFormat;
-    use library_core::{Compression, ExportFormat, ExportRequest, ExportSelection, ItemEdit};
+    use library_core::{
+        Compression, ExportFormat, ExportRequest, ExportSelection, ItemEdit, ZipEncryption,
+    };
     use media::fixtures;
     use secrecy::SecretString;
+    use sevenz_rust2::Password;
 
     use super::{MANIFEST, decrypt_archive, export_items, export_preview, unique_rel};
     use crate::Library;
@@ -1487,9 +1681,7 @@ mod tests {
             folders: vec![folder],
             tags: vec![],
         };
-        let format = ExportFormat::Zip {
-            compression: library_core::Compression::Balanced,
-        };
+        let format = ExportFormat::zip(library_core::Compression::Balanced);
         let summary = run(&library, &request(selection, false, format, &out));
         let archive = out.join("Z.zip");
         assert_eq!(summary.path, archive.to_string_lossy());
@@ -1523,9 +1715,7 @@ mod tests {
                 ..Default::default()
             },
             true,
-            ExportFormat::Zip {
-                compression: library_core::Compression::Fast,
-            },
+            ExportFormat::zip(library_core::Compression::Fast),
             &out,
         );
         request.encrypt = Some("correct horse".into());
@@ -1673,15 +1863,23 @@ mod tests {
             ..Default::default()
         };
         let cancel = AtomicBool::new(false);
-        for format in [
+        for (at, format) in [
             ExportFormat::Mirror,
+            ExportFormat::zip(Compression::None),
             ExportFormat::Zip {
                 compression: Compression::None,
+                encryption: ZipEncryption::Aes,
             },
-        ] {
-            let out = dir.path().join(format!("out-{format:?}"));
+            ExportFormat::SevenZip {
+                compression: Compression::Fast,
+            },
+        ]
+        .into_iter()
+        .enumerate()
+        {
+            let out = dir.path().join(format!("out-{at}"));
             let mut request = request(whole.clone(), true, format, &out);
-            if matches!(format, ExportFormat::Zip { .. }) {
+            if format.is_archive() {
                 request.encrypt = Some("correct horse".into());
             }
             assert!(export_items(&library, 1, &request, &cancel, &mut |_| {}).is_err());
@@ -1835,9 +2033,7 @@ mod tests {
                 ..Default::default()
             },
             true,
-            ExportFormat::Zip {
-                compression: library_core::Compression::None,
-            },
+            ExportFormat::zip(library_core::Compression::None),
             out,
         );
         request.encrypt = Some(passphrase.into());
@@ -1980,6 +2176,197 @@ mod tests {
         );
         assert!(result.unwrap().is_none(), "cancelled");
         assert!(names_in(&out).is_empty(), "{:?}", names_in(&out));
+    }
+
+    /// D-112: a ZIP whose entries are AES-256 encrypted; the names stay readable, the
+    /// contents open only with the password.
+    #[test]
+    fn a_zip_with_a_password_opens_only_with_it() {
+        let dir = tempfile::tempdir().unwrap();
+        let library = open(&new_library(dir.path(), "Aes"));
+        let plain = dir.path().join("plain");
+        fs::create_dir(&plain).unwrap();
+        add_png(&library, &plain, "one.png", 1);
+        let out = dir.path().join("out");
+        let mut request = request(
+            ExportSelection {
+                whole: true,
+                ..Default::default()
+            },
+            true,
+            ExportFormat::Zip {
+                compression: Compression::Balanced,
+                encryption: ZipEncryption::Aes,
+            },
+            &out,
+        );
+        request.encrypt = Some("пароль 🔑 длинный".into());
+        let summary = run(&library, &request);
+        let archive = out.join("Aes.zip");
+        assert_eq!(summary.path, archive.to_string_lossy());
+        assert_eq!(
+            names_in(&out),
+            vec!["Aes.zip".to_owned()],
+            "no .age, no .part"
+        );
+
+        let mut zip = zip::ZipArchive::new(fs::File::open(&archive).unwrap()).unwrap();
+        let names: Vec<String> = (0..zip.len())
+            .map(|at| zip.name_for_index(at).unwrap().unwrap().into_owned())
+            .collect();
+        assert_eq!(names, vec!["Aes/one.png", "Aes/egl-export.json"]);
+        assert!(
+            zip.by_name("Aes/one.png").is_err(),
+            "no password, no contents"
+        );
+        assert!(
+            zip.by_name_decrypt("Aes/one.png", "wrong password".as_bytes())
+                .is_err(),
+            "a wrong password is refused"
+        );
+        let mut body = Vec::new();
+        let mut entry = zip
+            .by_name_decrypt("Aes/one.png", "пароль 🔑 длинный".as_bytes())
+            .unwrap();
+        assert!(entry.encrypted());
+        entry.read_to_end(&mut body).unwrap();
+        assert_eq!(body, fixtures::raster(ImageFormat::Png, 8, 8, 1));
+    }
+
+    /// D-113: a 7z archive; with a password nothing, not even a name, shows without it.
+    #[test]
+    fn a_seven_zip_export_reads_back_and_a_password_hides_the_names() {
+        let dir = tempfile::tempdir().unwrap();
+        let library = open(&new_library(dir.path(), "Seven"));
+        let plain = dir.path().join("plain");
+        fs::create_dir(&plain).unwrap();
+        add_png(&library, &plain, "one.png", 1);
+        add_png(&library, &plain, "Фото 🎨.png", 2);
+        let whole = ExportSelection {
+            whole: true,
+            ..Default::default()
+        };
+        for (at, compression) in [Compression::None, Compression::Smallest]
+            .into_iter()
+            .enumerate()
+        {
+            let out = dir.path().join(format!("open-{at}"));
+            let format = ExportFormat::SevenZip { compression };
+            let summary = run(&library, &request(whole.clone(), true, format, &out));
+            let archive = out.join("Seven.7z");
+            assert_eq!(summary.path, archive.to_string_lossy());
+            let mut reader =
+                sevenz_rust2::ArchiveReader::open(&archive, Password::empty()).unwrap();
+            let mut names: Vec<String> = reader
+                .archive()
+                .files
+                .iter()
+                .map(|entry| entry.name().to_owned())
+                .collect();
+            names.sort();
+            assert_eq!(
+                names,
+                vec![
+                    "Seven/egl-export.json",
+                    "Seven/one.png",
+                    "Seven/Фото 🎨.png"
+                ]
+            );
+            assert_eq!(
+                reader.read_file("Seven/Фото 🎨.png").unwrap(),
+                fixtures::raster(ImageFormat::Png, 8, 8, 2)
+            );
+        }
+
+        let out = dir.path().join("locked");
+        let mut request = request(
+            whole,
+            true,
+            ExportFormat::SevenZip {
+                compression: Compression::Fast,
+            },
+            &out,
+        );
+        request.encrypt = Some("correct horse".into());
+        let summary = run(&library, &request);
+        assert_eq!(names_in(&out), vec!["Seven.7z".to_owned()]);
+        let raw = fs::read(&summary.path).unwrap();
+        // 7z stores names as UTF-16LE.
+        let utf16: Vec<u8> = "one.png"
+            .encode_utf16()
+            .flat_map(u16::to_le_bytes)
+            .collect();
+        assert!(
+            !raw.windows(b"one.png".len()).any(|at| at == b"one.png")
+                && !raw.windows(utf16.len()).any(|at| at == utf16.as_slice()),
+            "the names are encrypted too"
+        );
+        assert!(
+            sevenz_rust2::ArchiveReader::open(&summary.path, Password::empty()).is_err(),
+            "no password, no list of names"
+        );
+        assert!(
+            sevenz_rust2::ArchiveReader::open(&summary.path, Password::new("wrong horse")).is_err(),
+            "a wrong password is refused"
+        );
+        let mut reader =
+            sevenz_rust2::ArchiveReader::open(&summary.path, Password::new("correct horse"))
+                .unwrap();
+        assert_eq!(
+            reader.read_file("Seven/one.png").unwrap(),
+            fixtures::raster(ImageFormat::Png, 8, 8, 1)
+        );
+    }
+
+    #[test]
+    fn cancel_inside_a_seven_zip_leaves_nothing() {
+        let dir = tempfile::tempdir().unwrap();
+        let library = open(&new_library(dir.path(), "Stop7"));
+        let plain = dir.path().join("plain");
+        fs::create_dir(&plain).unwrap();
+        add_png(&library, &plain, "one.png", 1);
+        add_png(&library, &plain, "two.png", 2);
+        let out = dir.path().join("out");
+        let cancel = AtomicBool::new(false);
+        let mut request = request(
+            ExportSelection {
+                whole: true,
+                ..Default::default()
+            },
+            true,
+            ExportFormat::SevenZip {
+                compression: Compression::Balanced,
+            },
+            &out,
+        );
+        request.encrypt = Some("correct horse".into());
+        let result = export_items(&library, 1, &request, &cancel, &mut |progress| {
+            if progress.state == library_core::ExportState::Copying {
+                cancel.store(true, std::sync::atomic::Ordering::Relaxed);
+            }
+        });
+        assert!(result.unwrap().is_none(), "cancelled");
+        assert!(names_in(&out).is_empty(), "{:?}", names_in(&out));
+    }
+
+    #[test]
+    fn a_folder_export_takes_no_passphrase() {
+        let dir = tempfile::tempdir().unwrap();
+        let library = open(&new_library(dir.path(), "Plain"));
+        let out = dir.path().join("out");
+        let mut request = request(
+            ExportSelection {
+                whole: true,
+                ..Default::default()
+            },
+            true,
+            ExportFormat::Mirror,
+            &out,
+        );
+        request.encrypt = Some("correct horse".into());
+        let error =
+            export_items(&library, 1, &request, &AtomicBool::new(false), &mut |_| {}).unwrap_err();
+        assert!(error.to_string().contains("ZIP or 7z"), "{error}");
     }
 
     #[test]

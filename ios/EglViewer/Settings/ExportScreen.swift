@@ -2,8 +2,9 @@ import EglCore
 import SwiftUI
 import UIKit
 
-/// Export (D-099): the whole library, folders or tags, as a folder tree or a ZIP archive,
-/// optionally encrypted with a passphrase (age). It is written into the app's temporary
+/// Export (D-099): the whole library, folders or tags, as a folder tree, a ZIP or a 7z archive,
+/// optionally encrypted with a passphrase: age or AES-256 for a ZIP (D-112), AES-256 with hidden
+/// names for a 7z (D-113). It is written into the app's temporary
 /// folder, then saved to Files or shared; the temporary copy goes when the screen closes.
 struct ExportScreen: View {
     let open: OpenLibrary
@@ -11,7 +12,8 @@ struct ExportScreen: View {
     @State private var folders: Set<String> = []
     @State private var tags: Set<String> = []
     @State private var includeSubfolders = true
-    @State private var zip = true
+    @State private var kind: Kind = .zip
+    @State private var zipEncryption: ZipEncryption = .age
     @State private var compression: ExportCompression = .balanced
     @State private var encrypt = false
     @State private var passphrase = ""
@@ -22,6 +24,19 @@ struct ExportScreen: View {
     @State private var folder: URL? = nil
     @State private var saving = false
     @State private var sharing: ShareFiles? = nil
+
+    /// What the export writes.
+    enum Kind: Hashable { case zip, sevenZip, folder }
+
+    private var archive: Bool { kind != .folder }
+
+    private var format: ExportFormat {
+        switch kind {
+        case .zip: .zip(compression, encryption: zipEncryption)
+        case .sevenZip: .sevenZip(compression)
+        case .folder: .mirror
+        }
+    }
 
     private var selection: ExportSelection {
         ExportSelection(whole: whole, folders: whole ? [] : Array(folders), tags: whole ? [] : Array(tags))
@@ -88,12 +103,14 @@ struct ExportScreen: View {
             }
         }
         Section("export.format") {
-            Picker("export.format", selection: $zip) {
-                Text("export.zip").tag(true)
-                Text("export.folder").tag(false)
+            Picker("export.format", selection: $kind) {
+                Text("export.zip").tag(Kind.zip)
+                Text("export.sevenZip").tag(Kind.sevenZip)
+                Text("export.folder").tag(Kind.folder)
             }
             .pickerStyle(.segmented)
-            if zip {
+            .accessibilityIdentifier("export.format")
+            if archive {
                 Picker("export.compression", selection: $compression) {
                     Text("export.compression.none").tag(ExportCompression.none)
                     Text("export.compression.fast").tag(ExportCompression.fast)
@@ -102,6 +119,13 @@ struct ExportScreen: View {
                 }
                 Toggle("export.encrypt", isOn: $encrypt)
                     .accessibilityIdentifier("export.encrypt")
+                if encrypt, kind == .zip {
+                    Picker("export.protection", selection: $zipEncryption) {
+                        Text("export.protection.age").tag(ZipEncryption.age)
+                        Text("export.protection.aes").tag(ZipEncryption.aes)
+                    }
+                    .accessibilityIdentifier("export.protection")
+                }
                 if encrypt {
                     SecureField("export.passphrase", text: $passphrase)
                     SecureField("export.confirmPassphrase", text: $confirm)
@@ -125,10 +149,14 @@ struct ExportScreen: View {
             .disabled(!ready)
             .accessibilityIdentifier("export.start")
         } footer: {
-            if zip, encrypt {
+            if archive, encrypt {
                 if !passphrase.isEmpty, passphrase.count < minPassphraseCharacters {
                     Text("export.passphraseTooShort \(minPassphraseCharacters)")
                         .foregroundStyle(.orange)
+                } else if kind == .sevenZip {
+                    Text("export.sevenZipHint")
+                } else if zipEncryption == .aes {
+                    Text("export.aesHint")
                 } else {
                     Text("export.encryptHint")
                 }
@@ -138,7 +166,7 @@ struct ExportScreen: View {
 
     private var ready: Bool {
         guard !selection.isEmpty, (preview?.items ?? 0) > 0 else { return false }
-        if zip, encrypt {
+        if archive, encrypt {
             return passphrase.count >= minPassphraseCharacters && passphrase == confirm
         }
         return true
@@ -185,8 +213,8 @@ struct ExportScreen: View {
         self.folder = folder
         let request = ExportRequest(
             selection: selection, includeSubfolders: includeSubfolders,
-            format: zip ? .zip(compression) : .mirror, destination: folder.path,
-            encrypt: zip && encrypt ? passphrase : nil
+            format: format, destination: folder.path,
+            encrypt: archive && encrypt ? passphrase : nil
         )
         passphrase = ""
         confirm = ""

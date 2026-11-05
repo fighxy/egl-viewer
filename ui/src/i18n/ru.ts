@@ -935,6 +935,16 @@ export const ru: MessageCatalog = {
     eagleLockedWarning:
       "Запертые папки экспортируются открытыми: API Eagle не умеет ставить пароль на папку.",
     zip: "ZIP-архив",
+    sevenZip: "Архив 7z",
+    protection: "Защита",
+    protectionAge: "Файл age",
+    protectionAgeHint:
+      "Скрыты имена и содержимое, самый надёжный. Открывается через Файл → Расшифровать архив или программой age.",
+    protectionAes: "Пароль ZIP",
+    protectionAesHint:
+      "AES-256. Открывается в 7-Zip, WinRAR, Keka; встроенные средства Windows и macOS его не откроют. Имена файлов видны.",
+    sevenZipEncryptHint:
+      "AES-256, имена файлов тоже скрыты. Открывается в 7-Zip, WinRAR, PeaZip, Keka.",
     wherePlaceholder: "Папка на этом ПК",
     backUp: "Создать копию",
     export: "Экспорт",
@@ -943,9 +953,9 @@ export const ru: MessageCatalog = {
     compressionBalanced: "Обычное",
     compressionSmallest: "Максимум",
     compressionNoneHint: "Сохранять файлы без сжатия; быстрее всего",
-    compressionFastHint: "Deflate, низкая нагрузка",
-    compressionBalancedHint: "Deflate, обычный уровень",
-    compressionSmallestHint: "Deflate, высокая нагрузка",
+    compressionFastHint: "Слабое сжатие, быстро",
+    compressionBalancedHint: "Обычный уровень",
+    compressionSmallestHint: "Сильное сжатие, медленно",
     encrypt: "Шифровать паролем",
     typePassword: "Введите пароль.",
     passwordMismatch: "Пароли не совпадают.",

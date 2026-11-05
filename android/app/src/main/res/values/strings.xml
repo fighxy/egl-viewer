@@ -376,6 +376,12 @@
     <string name="export_tags">Tags</string>
     <string name="export_format">Format</string>
     <string name="export_zip">ZIP</string>
+    <string name="export_seven_zip">7z</string>
+    <string name="export_protection">Protection</string>
+    <string name="export_protection_age">age file</string>
+    <string name="export_protection_aes">ZIP password</string>
+    <string name="export_aes_hint">A standard ZIP with AES-256: opens in 7-Zip, WinRAR and Keka, not in the archive tools built into Windows and macOS. File names stay visible; the passphrase is not stored.</string>
+    <string name="export_seven_zip_hint">7z with AES-256: contents and file names are hidden. Opens in 7-Zip, WinRAR, PeaZip and Keka; the passphrase is not stored.</string>
     <string name="export_folder">Folder</string>
     <string name="export_compression">Compression</string>
     <string name="export_compression_none">None</string>

@@ -85,6 +85,7 @@ import type { UndoStatus } from "./generated/UndoStatus";
 import type { ViewMode } from "./generated/ViewMode";
 import type { ViewOpened } from "./generated/ViewOpened";
 import type { ViewsInvalidated } from "./generated/ViewsInvalidated";
+import type { ZipEncryption } from "./generated/ZipEncryption";
 
 export type {
   AppInfo,
@@ -171,6 +172,7 @@ export type {
   ViewMode,
   ViewOpened,
   ViewsInvalidated,
+  ZipEncryption,
 };
 
 /** True inside the Tauri window; false in a plain browser, for example the Vite dev server. */
