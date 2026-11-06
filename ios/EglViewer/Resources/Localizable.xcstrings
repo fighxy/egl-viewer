@@ -3561,6 +3561,29 @@
         }
       }
     },
+    "export.aesHint": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "A standard ZIP with AES-256: opens in 7-Zip, WinRAR and Keka, not in the archive tools built into Windows and macOS. File names stay visible; the passphrase is not stored."
+          }
+        },
+        "ru": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Обычный ZIP с AES-256: открывается в 7-Zip, WinRAR и Keka, но не встроенными средствами Windows и macOS. Имена файлов видны; пароль нигде не сохраняется."
+          }
+        },
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "使用 AES-256 的标准 ZIP：可用 7-Zip、WinRAR、Keka 打开，Windows 和 macOS 自带工具无法打开。文件名仍可见；密码不会被保存。"
+          }
+        }
+      }
+    },
     "export.another": {
       "extractionState": "manual",
       "localizations": {
@@ -4216,6 +4239,75 @@
         }
       }
     },
+    "export.protection": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Protection"
+          }
+        },
+        "ru": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Защита"
+          }
+        },
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "保护方式"
+          }
+        }
+      }
+    },
+    "export.protection.aes": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "ZIP password"
+          }
+        },
+        "ru": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Пароль ZIP"
+          }
+        },
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "ZIP 密码"
+          }
+        }
+      }
+    },
+    "export.protection.age": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "age"
+          }
+        },
+        "ru": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "age"
+          }
+        },
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "age"
+          }
+        }
+      }
+    },
     "export.saveToFiles": {
       "extractionState": "manual",
       "localizations": {
@@ -4258,6 +4350,52 @@
           "stringUnit": {
             "state": "translated",
             "value": "已存储到“文件”"
+          }
+        }
+      }
+    },
+    "export.sevenZip": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "7z"
+          }
+        },
+        "ru": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "7z"
+          }
+        },
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "7z"
+          }
+        }
+      }
+    },
+    "export.sevenZipHint": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "7z with AES-256: contents and file names are hidden. Opens in 7-Zip, WinRAR, PeaZip and Keka; the passphrase is not stored."
+          }
+        },
+        "ru": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "7z с AES-256: скрыты и содержимое, и имена файлов. Открывается в 7-Zip, WinRAR, PeaZip и Keka; пароль нигде не сохраняется."
+          }
+        },
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "使用 AES-256 的 7z：内容和文件名都被隐藏。可用 7-Zip、WinRAR、PeaZip、Keka 打开；密码不会被保存。"
           }
         }
       }

@@ -167,4 +167,63 @@ describe("ExportDialog", () => {
     await user.click(await screen.findByRole("button", { name: "Close" }));
     expect(onOpenChange).toHaveBeenCalledWith(false);
   });
+  it("sends a ZIP password or a 7z archive as the format says (D-112, D-113)", async () => {
+    const first: ExportProgress = {
+      id: 1,
+      state: "preparing",
+      total: 1,
+      done: 0,
+      bytesTotal: 1,
+      bytesDone: 0,
+      current: null,
+      summary: null,
+      error: null,
+    };
+    for (const [choose, protection, format] of [
+      ["ZIP archive", "ZIP password", { kind: "zip", compression: "balanced", encryption: "aes" }],
+      ["7z archive", null, { kind: "sevenZip", compression: "balanced" }],
+    ] as const) {
+      const calls = mockBackend({
+        export_preview: () => ({ items: 1, bytes: 1, hidden: 0 }),
+        exports: () => [],
+        start_export: () => first,
+      });
+      const user = userEvent.setup();
+      const client = new QueryClient({ defaultOptions: { queries: { retry: false } } });
+      const { unmount } = render(
+        <QueryClientProvider client={client}>
+          <ExportDialog
+            open
+            onOpenChange={vi.fn()}
+            library={LIBRARY}
+            target={null}
+            folders={[]}
+            vocabulary={[]}
+            preferences={{ ...DEFAULT_PREFERENCES, exportDestination: "D:\\Backups" }}
+            onPreferences={vi.fn()}
+          />
+        </QueryClientProvider>,
+      );
+      await user.click(screen.getByText(choose));
+      await user.click(screen.getByLabelText("Encrypt with a password"));
+      if (protection) {
+        expect(screen.getByText(/Names and contents hidden/)).toBeInTheDocument();
+        await user.click(screen.getByText(protection));
+        expect(screen.getByText(/File names stay visible/)).toBeInTheDocument();
+      } else {
+        expect(screen.getByText(/file names hidden too/)).toBeInTheDocument();
+      }
+      await user.type(screen.getByLabelText("Password"), "correct horse");
+      await user.type(screen.getByLabelText("Repeat the password"), "correct horse");
+      const backUp = screen.getByRole("button", { name: /Back up/ });
+      await waitFor(() => expect(backUp).toBeEnabled());
+      await user.click(backUp);
+      await waitFor(() => expect(called(calls, "start_export")).toHaveLength(1));
+      expect(called(calls, "start_export")[0]?.args.request).toMatchObject({
+        format,
+        encrypt: "correct horse",
+      });
+      unmount();
+    }
+  });
 });

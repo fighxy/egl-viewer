@@ -914,3 +914,55 @@ fn a_panic_never_crosses_the_boundary() {
     let status = crate::guarded(|_| {}, || panic!("boom"));
     assert_eq!(status, EglStatus::Other);
 }
+
+/// D-112 / D-113: the phones ask for the new archive formats by JSON.
+#[test]
+fn zip_with_a_password_and_seven_zip_through_the_c_abi() {
+    let (f, _) = seeded(1);
+    for (at, (format, ends)) in [
+        (
+            serde_json::json!({"kind": "zip", "compression": "fast", "encryption": "aes"}),
+            ".zip",
+        ),
+        (
+            serde_json::json!({"kind": "sevenZip", "compression": "balanced"}),
+            ".7z",
+        ),
+    ]
+    .into_iter()
+    .enumerate()
+    {
+        let destination = f.dir.path().join(format!("out-{at}"));
+        std::fs::create_dir_all(&destination).unwrap();
+        let request = cstring(
+            &serde_json::json!({
+                "selection": {"whole": true, "folders": [], "tags": []},
+                "includeSubfolders": true,
+                "format": format,
+                "destination": destination.to_str().unwrap(),
+                "encrypt": "correct horse",
+                "eagle": null
+            })
+            .to_string(),
+        );
+        json(f.lib, |out| unsafe {
+            egl_start_export(f.lib, request.as_ptr(), out)
+        });
+        let deadline = Instant::now() + Duration::from_secs(60);
+        while !json(f.lib, |out| unsafe { egl_exports(f.lib, out) })
+            .as_array()
+            .unwrap()
+            .is_empty()
+        {
+            assert!(Instant::now() < deadline, "the export never ended");
+            std::thread::sleep(Duration::from_millis(20));
+        }
+        let written: Vec<String> = std::fs::read_dir(&destination)
+            .unwrap()
+            .flatten()
+            .map(|entry| entry.file_name().to_string_lossy().into_owned())
+            .collect();
+        assert_eq!(written.len(), 1, "{written:?}");
+        assert!(written[0].ends_with(ends), "{written:?}");
+    }
+}

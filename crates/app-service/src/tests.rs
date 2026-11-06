@@ -234,9 +234,7 @@ fn an_export_reports_its_progress_and_only_its_output_may_be_revealed() {
                 tags: Vec::new(),
             },
             include_subfolders: true,
-            format: ExportFormat::Zip {
-                compression: Compression::Fast,
-            },
+            format: ExportFormat::zip(Compression::Fast),
             destination: destination.to_string_lossy().into_owned(),
             encrypt: None,
             eagle: None,
@@ -277,9 +275,7 @@ fn a_short_passphrase_is_refused_before_the_export_starts() {
             tags: Vec::new(),
         },
         include_subfolders: true,
-        format: ExportFormat::Zip {
-            compression: library_core::Compression::Fast,
-        },
+        format: ExportFormat::zip(library_core::Compression::Fast),
         destination: f.dir.path().join("out").to_string_lossy().into_owned(),
         encrypt: Some("1234567".into()),
         eagle: None,

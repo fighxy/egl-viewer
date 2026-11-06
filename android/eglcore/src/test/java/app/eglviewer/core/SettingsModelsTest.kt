@@ -65,6 +65,17 @@ class SettingsModelsTest {
 
         val mirror = ExportFormat.Mirror.toJson()
         assertEquals("mirror", mirror.getString("kind"))
+        assertEquals("age", json.getJSONObject("format").getString("encryption"))
+
+        // D-112 / D-113: a ZIP with a password and a 7z, as the core reads them.
+        val aes = ExportFormat.Zip(ExportCompression.NONE, ZipEncryption.AES).toJson()
+        assertEquals("aes", aes.getString("encryption"))
+        val seven = ExportFormat.SevenZip(ExportCompression.SMALLEST).toJson()
+        assertEquals("sevenZip", seven.getString("kind"))
+        assertEquals("smallest", seven.getString("compression"))
+        assertFalse(seven.has("encryption"))
+        assertEquals(true, ExportFormat.SevenZip(ExportCompression.FAST).isArchive)
+        assertEquals(false, ExportFormat.Mirror.isArchive)
 
         val preview = ExportPreview.fromJson("""{"items":2,"bytes":100,"hidden":1}""")
         assertEquals(2, preview.items)

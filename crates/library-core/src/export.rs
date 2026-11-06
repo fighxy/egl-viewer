@@ -1,5 +1,6 @@
-//! Exporting originals to a folder or a ZIP archive (docs/spec.md §7.4 item 12): the selection, the
-//! request, the live progress and the result. The engine lives in `library-native`.
+//! Exporting originals to a folder, a ZIP or a 7z archive (docs/spec.md §7.4 item 12): the
+//! selection, the request, the live progress and the result. The engine lives in
+//! `library-native`.
 
 use serde::{Deserialize, Serialize};
 use ts_rs::TS;
@@ -22,7 +23,8 @@ impl ExportSelection {
     }
 }
 
-/// How hard a ZIP archive squeezes its entries (deflate levels 0/1/6/9).
+/// How hard an archive squeezes its entries: deflate levels 0/1/6/9 in a ZIP, LZMA2 levels
+/// 1/5/9 in a 7z (stored entries for `None`).
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Default, Serialize, Deserialize, TS)]
 #[serde(rename_all = "camelCase")]
 #[ts(export)]
@@ -50,7 +52,23 @@ impl Compression {
     }
 }
 
-/// The output format: a plain folder tree, or a ZIP archive with a compression level.
+/// How a ZIP export with a passphrase is protected (D-112).
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Default, Serialize, Deserialize, TS)]
+#[serde(rename_all = "camelCase")]
+#[ts(export)]
+pub enum ZipEncryption {
+    /// The whole ZIP inside an age file, `name.zip.age` (D-066, D-110): names and contents
+    /// hidden, scrypt against guessing; opened with Decrypt Archive or `age -d`.
+    #[default]
+    Age,
+    /// A standard ZIP whose entries are AES-256 encrypted (WinZip AES), `name.zip`: opens in
+    /// 7-Zip, WinRAR, PeaZip, Keka and The Unarchiver, not in the archive tools built into
+    /// Windows and macOS. The file names stay readable, and the key derivation (PBKDF2-SHA1,
+    /// 1,000 rounds) barely slows guessing.
+    Aes,
+}
+
+/// The output format: a plain folder tree, or a ZIP or 7z archive with a compression level.
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Default, Serialize, Deserialize, TS)]
 #[serde(
     tag = "kind",
@@ -63,7 +81,30 @@ pub enum ExportFormat {
     #[default]
     Mirror,
     /// One ZIP archive; the entries mirror the same tree.
-    Zip { compression: Compression },
+    Zip {
+        compression: Compression,
+        /// Used only with a passphrase; older clients send none and get age.
+        #[serde(default)]
+        encryption: ZipEncryption,
+    },
+    /// One 7z archive (D-113); with a passphrase its contents and its list of names are
+    /// AES-256 encrypted, with 7-Zip's own key derivation (SHA-256, 2^19 rounds).
+    SevenZip { compression: Compression },
+}
+
+impl ExportFormat {
+    /// A ZIP archive with the default protection.
+    pub fn zip(compression: Compression) -> Self {
+        Self::Zip {
+            compression,
+            encryption: ZipEncryption::Age,
+        }
+    }
+
+    /// An archive, which a passphrase can protect; a folder tree cannot be.
+    pub fn is_archive(self) -> bool {
+        !matches!(self, Self::Mirror)
+    }
 }
 
 /// One export: what, in which format, where, and with what protection.
@@ -77,9 +118,9 @@ pub struct ExportRequest {
     pub format: ExportFormat,
     /// An existing folder the export is written into.
     pub destination: String,
-    /// An age passphrase protecting the archive; only valid with [`ExportFormat::Zip`], at
-    /// least [`MIN_PASSPHRASE_CHARS`] characters. The UI sends it like a lock password and
-    /// Rust never stores it.
+    /// A passphrase protecting the archive, as the format says; only valid with an archive
+    /// format, at least [`MIN_PASSPHRASE_CHARS`] characters. The UI sends it like a lock
+    /// password and Rust never stores it.
     pub encrypt: Option<String>,
     /// A running Eagle to export into instead of a folder or archive (docs/spec.md §8.4).
     /// When set, `format`, `destination` and `encrypt` are ignored.
@@ -100,8 +141,8 @@ pub struct EagleExportTarget {
 }
 
 /// The shortest passphrase an encrypted export takes, in characters (D-110). A short
-/// passphrase is the only weak part of an age archive: its scrypt key derivation slows down
-/// guessing, it does not stop it.
+/// passphrase is the weak part of every encrypted archive: key derivation slows down guessing,
+/// it does not stop it (and a ZIP's AES key derivation barely slows it, D-112).
 pub const MIN_PASSPHRASE_CHARS: usize = 8;
 
 /// An age archive opened with its passphrase (D-110): the plaintext file it was written to.
@@ -197,4 +238,44 @@ pub struct ExportProgress {
     pub summary: Option<ExportSummary>,
     /// The message when `state` is `failed`.
     pub error: Option<String>,
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    /// D-112 / D-113: the wire shapes the phones and the desktop send.
+    #[test]
+    fn formats_read_old_and_new_requests() {
+        let old: ExportFormat =
+            serde_json::from_str(r#"{"kind":"zip","compression":"fast"}"#).unwrap();
+        assert_eq!(
+            old,
+            ExportFormat::zip(Compression::Fast),
+            "no encryption field means age"
+        );
+        let aes: ExportFormat =
+            serde_json::from_str(r#"{"kind":"zip","compression":"none","encryption":"aes"}"#)
+                .unwrap();
+        assert_eq!(
+            aes,
+            ExportFormat::Zip {
+                compression: Compression::None,
+                encryption: ZipEncryption::Aes
+            }
+        );
+        let seven: ExportFormat =
+            serde_json::from_str(r#"{"kind":"sevenZip","compression":"smallest"}"#).unwrap();
+        assert_eq!(
+            seven,
+            ExportFormat::SevenZip {
+                compression: Compression::Smallest
+            }
+        );
+        assert_eq!(
+            serde_json::to_string(&seven).unwrap(),
+            r#"{"kind":"sevenZip","compression":"smallest"}"#
+        );
+        assert!(seven.is_archive() && aes.is_archive() && !ExportFormat::Mirror.is_archive());
+    }
 }

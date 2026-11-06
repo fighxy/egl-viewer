@@ -21,7 +21,7 @@ pub use error::{LocationProblem, NetworkError, SourceError};
 pub use export::{
     ByteProgress, Compression, DecryptedArchive, EagleExportTarget, ExportFormat, ExportPreview,
     ExportProgress, ExportRequest, ExportSelection, ExportState, ExportSummary,
-    MIN_PASSPHRASE_CHARS,
+    MIN_PASSPHRASE_CHARS, ZipEncryption,
 };
 pub use folder::{FOLDER_COLORS, FolderChange, order_key_between};
 pub use maintenance::{

@@ -369,6 +369,12 @@
     <string name="export_tags">标签</string>
     <string name="export_format">格式</string>
     <string name="export_zip">ZIP</string>
+    <string name="export_seven_zip">7z</string>
+    <string name="export_protection">保护方式</string>
+    <string name="export_protection_age">age 文件</string>
+    <string name="export_protection_aes">ZIP 密码</string>
+    <string name="export_aes_hint">使用 AES-256 的标准 ZIP：可用 7-Zip、WinRAR、Keka 打开，Windows 和 macOS 自带工具无法打开。文件名仍可见；密码不会被保存。</string>
+    <string name="export_seven_zip_hint">使用 AES-256 的 7z：内容和文件名都被隐藏。可用 7-Zip、WinRAR、PeaZip、Keka 打开；密码不会被保存。</string>
     <string name="export_folder">文件夹</string>
     <string name="export_compression">压缩</string>
     <string name="export_compression_none">不压缩</string>

@@ -176,10 +176,28 @@ enum class ExportCompression(val wire: String) {
     }
 }
 
-/** A folder tree that mirrors the library's folders, or one ZIP archive of the same tree. */
+/**
+ * How a ZIP export with a passphrase is protected (D-112): the whole ZIP in an age file, or a
+ * standard ZIP with AES-256 entries that 7-Zip, WinRAR and Keka open (names stay visible).
+ */
+enum class ZipEncryption(val wire: String) {
+    AGE("age"),
+    AES("aes"),
+}
+
+/** A folder tree that mirrors the library's folders, or one ZIP or 7z archive of the same tree. */
 sealed class ExportFormat {
     data object Mirror : ExportFormat()
-    data class Zip(val compression: ExportCompression) : ExportFormat()
+    data class Zip(
+        val compression: ExportCompression,
+        val encryption: ZipEncryption = ZipEncryption.AGE,
+    ) : ExportFormat()
+
+    /** 7z (D-113): with a passphrase the contents and the names are AES-256 encrypted. */
+    data class SevenZip(val compression: ExportCompression) : ExportFormat()
+
+    /** An archive, which a passphrase can protect. */
+    val isArchive: Boolean get() = this != Mirror
 
     fun toJson(): JSONObject =
         when (this) {
@@ -187,12 +205,16 @@ sealed class ExportFormat {
             is Zip -> JSONObject()
                 .put("kind", "zip")
                 .put("compression", compression.wire)
+                .put("encryption", encryption.wire)
+            is SevenZip -> JSONObject()
+                .put("kind", "sevenZip")
+                .put("compression", compression.wire)
         }
 }
 
 /**
  * One export into a folder or an archive; Eagle is not a destination on the phone.
- * [encrypt] is an age passphrase protecting a ZIP only — never stored.
+ * [encrypt] is a passphrase protecting an archive, as [format] says — never stored.
  */
 data class ExportRequest(
     val selection: ExportSelection,

@@ -414,29 +414,53 @@ public enum ExportCompression: String, Codable, CaseIterable, Sendable {
     case none, fast, balanced, smallest
 }
 
-/// A folder tree that mirrors the library's folders, or one ZIP archive of the same tree.
+/// How a ZIP export with a passphrase is protected (D-112): the whole ZIP in an age file, or a
+/// standard ZIP with AES-256 entries that 7-Zip, WinRAR and Keka open (names stay visible).
+public enum ZipEncryption: String, Codable, CaseIterable, Sendable {
+    case age, aes
+}
+
+/// A folder tree that mirrors the library's folders, or one ZIP or 7z archive of the same tree.
 public enum ExportFormat: Codable, Equatable, Sendable {
     case mirror
-    case zip(ExportCompression)
+    case zip(ExportCompression, encryption: ZipEncryption = .age)
+    /// 7z (D-113): with a passphrase the contents and the names are AES-256 encrypted.
+    case sevenZip(ExportCompression)
 
-    private enum Keys: String, CodingKey { case kind, compression }
+    private enum Keys: String, CodingKey { case kind, compression, encryption }
+
+    /// An archive, which a passphrase can protect.
+    public var isArchive: Bool {
+        if case .mirror = self { return false }
+        return true
+    }
 
     public func encode(to encoder: Encoder) throws {
         var c = encoder.container(keyedBy: Keys.self)
         switch self {
         case .mirror:
             try c.encode("mirror", forKey: .kind)
-        case let .zip(compression):
+        case let .zip(compression, encryption):
             try c.encode("zip", forKey: .kind)
+            try c.encode(compression, forKey: .compression)
+            try c.encode(encryption, forKey: .encryption)
+        case let .sevenZip(compression):
+            try c.encode("sevenZip", forKey: .kind)
             try c.encode(compression, forKey: .compression)
         }
     }
 
     public init(from decoder: Decoder) throws {
         let c = try decoder.container(keyedBy: Keys.self)
-        if try c.decode(String.self, forKey: .kind) == "zip" {
-            self = .zip(try c.decode(ExportCompression.self, forKey: .compression))
-        } else {
+        switch try c.decode(String.self, forKey: .kind) {
+        case "zip":
+            self = .zip(
+                try c.decode(ExportCompression.self, forKey: .compression),
+                encryption: try c.decodeIfPresent(ZipEncryption.self, forKey: .encryption) ?? .age
+            )
+        case "sevenZip":
+            self = .sevenZip(try c.decode(ExportCompression.self, forKey: .compression))
+        default:
             self = .mirror
         }
     }
