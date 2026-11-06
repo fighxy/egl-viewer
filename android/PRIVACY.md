@@ -18,7 +18,9 @@ Local-first asset manager. **No tracking. No analytics. No account.**
 ## What the app does not do
 
 - No advertising identifiers, crash reporters or analytics SDKs.
-- No network calls to egl-viewer servers. The Android client does not talk to Eagle.
+- No network calls to egl-viewer servers. The Android client does not talk to Eagle; it can
+  read an Eagle library folder the user picks and copy it into a new library on the phone,
+  without changing the Eagle folder.
 - Photos and files are read through the system Gallery / Files pickers; the app does not get
   broad media access beyond what the user picks for an import.
 

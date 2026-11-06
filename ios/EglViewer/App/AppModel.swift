@@ -18,6 +18,8 @@ final class AppModel {
     /// Shown in an alert; cleared when the user dismisses it.
     var error: String?
     private(set) var busy = false
+    /// An Eagle library picked for import, read and waiting for the user's go (D-116).
+    var eagleImport: EaglePlan?
 
     let locations: LibraryLocations
     private let recentStore: RecentLibraries
@@ -112,6 +114,64 @@ final class AppModel {
                 throw error
             }
         }
+    }
+
+    // MARK: Importing an Eagle library (D-116)
+
+    /// Reads what the picked Eagle library holds and asks before importing it. Its security
+    /// scope is held until the import ends or the user cancels.
+    func pickEagle(_ url: URL) async {
+        let scoped = !locations.isLocal(url) && url.startAccessingSecurityScopedResource()
+        busy = true
+        defer { busy = false }
+        do {
+            let summary = try await Task.detached { try Library.eagleLibraryInfo(at: url) }.value
+            eagleImport = EaglePlan(url: url, scoped: scoped, summary: summary)
+        } catch {
+            if scoped { url.stopAccessingSecurityScopedResource() }
+            self.error = Self.describeEagle(error)
+        }
+    }
+
+    func cancelEagle() {
+        guard let plan = eagleImport else { return }
+        eagleImport = nil
+        if plan.scoped { plan.url.stopAccessingSecurityScopedResource() }
+    }
+
+    /// Creates `name.eglib` in On My iPhone (with a number when the name is taken), opens it
+    /// and imports the Eagle library into it in the background. The Eagle folder is only read.
+    func importEagle(_ plan: EaglePlan, named name: String, importTrash: Bool) async {
+        eagleImport = nil
+        let release = { if plan.scoped { plan.url.stopAccessingSecurityScopedResource() } }
+        let name = name.trimmingCharacters(in: .whitespacesAndNewlines)
+        guard !name.isEmpty else {
+            release()
+            error = String(localized: "error.nameRequired")
+            return
+        }
+        var started = false
+        await run {
+            try self.locations.ensureRoot()
+            let root = self.locations.root
+            let version = self.appVersion
+            let unique = self.locations.freeName(name)
+            let path = try await Task.detached {
+                try Library.create(in: root, name: unique, appVersion: version)
+            }.value
+            try await self.open(url: path, scoped: false, bookmark: nil)
+            guard let open = self.openLibrary else { return }
+            started = true
+            await open.importEagle(from: plan.url, importTrash: importTrash, cleanup: release)
+        }
+        if !started { release() }
+    }
+
+    static func describeEagle(_ error: Error) -> String {
+        if let error = error as? EglError, error.code == .notALibrary {
+            return String(localized: "eagle.notALibrary")
+        }
+        return describe(error)
     }
 
     func openLocal(_ url: URL) async {
@@ -218,6 +278,8 @@ final class OpenLibrary {
     @ObservationIgnored private var afterImport: [UInt64: @MainActor () -> Void] = [:]
     /// The duplicate an import waits on, shown as a question.
     var duplicateQuestion: ImportProgress?
+    /// How the last Eagle import ended, shown in an alert (D-116).
+    var eagleOutcome: EagleOutcome?
     @ObservationIgnored private var answered: Set<UInt64> = []
 
     init(library: Library, url: URL, scoped: Bool, savedViews: SavedViews = SavedViews()) async throws {
@@ -323,6 +385,21 @@ final class OpenLibrary {
         }
     }
 
+    /// Imports the Eagle library at `url` into this library (D-116); `cleanup` runs when the
+    /// import ends, or at once when it cannot start. The report comes as `eagleOutcome`.
+    func importEagle(from url: URL, importTrash: Bool, cleanup: @escaping @MainActor () -> Void) async {
+        guard !readOnly,
+              let ticket = await perform({ try $0.importEagle(at: url, importTrash: importTrash) })
+        else {
+            cleanup()
+            return
+        }
+        afterImport[ticket.id] = cleanup
+        if let progress = await perform({ try $0.importStatus(ticket.id) }) ?? nil, progress.isFinished {
+            finished(progress)
+        }
+    }
+
     /// Adds files picked from Photos, the clipboard or a drop; their copies go afterwards.
     func add(_ files: [PickedFile], into folder: String?) async {
         await add(files.map(\.url), into: folder) {
@@ -362,6 +439,10 @@ final class OpenLibrary {
         answered.remove(progress.id)
         guard let cleanup = afterImport.removeValue(forKey: progress.id) else { return }
         cleanup()
+        if progress.kind == .eagle, let report = progress.report {
+            eagleOutcome = EagleOutcome(id: progress.id, report: report, cancelled: progress.state == .cancelled)
+            return
+        }
         show(Self.summary(of: progress), undoable: false)
     }
 
@@ -691,6 +772,21 @@ final class OpenLibrary {
             refreshing = nil
         }
     }
+}
+
+/// An Eagle library picked for import: where it is, whether its scope is held, what it holds.
+struct EaglePlan: Identifiable {
+    let id = UUID()
+    let url: URL
+    let scoped: Bool
+    let summary: EagleLibrarySummary
+}
+
+/// How an Eagle import ended, shown once (D-116).
+struct EagleOutcome: Identifiable {
+    let id: UInt64
+    let report: EagleImportReport
+    let cancelled: Bool
 }
 
 /// A short note over the library after an action.

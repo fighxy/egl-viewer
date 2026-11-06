@@ -36,6 +36,9 @@ class LibraryLocations(context: Context) {
         }
     }
 
+    /** [name], or `name 2`, `name 3`… when a library of that name is already here (D-116). */
+    fun freeName(name: String): String = freeName(root, name)
+
     /** Libraries already in the default folder, by name. */
     fun localLibraries(): List<File> {
         ensureRoot()
@@ -126,6 +129,17 @@ class LibraryLocations(context: Context) {
     }
 
     companion object {
+        /** [name], or `name 2`, `name 3`… when `<folder>/<name>.eglib` exists (D-116). */
+        fun freeName(folder: File, name: String): String {
+            var candidate = name
+            var number = 2
+            while (File(folder, "$candidate.eglib").exists()) {
+                candidate = "$name $number"
+                number += 1
+            }
+            return candidate
+        }
+
         private val SYNC_MARKERS = listOf(
             "cloud",
             "onedrive",

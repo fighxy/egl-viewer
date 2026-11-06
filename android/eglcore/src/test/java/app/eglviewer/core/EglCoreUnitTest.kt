@@ -72,6 +72,31 @@ class EglCoreUnitTest {
         assertNull(LibraryEvent.fromJson("not-json"))
     }
 
+    /** D-116: what an Eagle import reports, and what the import screen reads first. */
+    @Test
+    fun anEagleImportReportAndSummaryParse() {
+        val progress = ImportProgress.fromJson(
+            """{"id":3,"kind":"eagle","state":"done","total":2,"processed":2,"added":1,"duplicates":0,
+            "failed":1,"previewsTotal":1,"previewsDone":1,"report":{"imported":1,"duplicates":0,
+            "trashSkipped":2,"skipped":[{"path":"/e/EBROKEN.info","reason":"the original file is missing"}],
+            "lockedFolders":["Секрет 🔒"]}}""",
+        )
+        assertEquals(ImportKind.EAGLE, progress.kind)
+        val report = progress.report!!
+        assertEquals(1, report.imported)
+        assertEquals(2, report.trashSkipped)
+        assertEquals("the original file is missing", report.skipped.single().reason)
+        assertEquals(listOf("Секрет 🔒"), report.lockedFolders)
+        assertNull(ImportProgress.fromJson("""{"id":1,"kind":"files","state":"done"}""").report)
+
+        val summary = EagleLibrarySummary.fromJson(
+            """{"path":"/sdcard/Мой Eagle.library","name":"Мой Eagle","itemCount":12000,"bytes":5368709120}""",
+        )
+        assertEquals("Мой Eagle", summary.name)
+        assertEquals(12000, summary.itemCount)
+        assertEquals(5368709120L, summary.bytes)
+    }
+
     @Test
     fun importProgressParsesDuplicateNotice() {
         val progress = ImportProgress.fromJson(

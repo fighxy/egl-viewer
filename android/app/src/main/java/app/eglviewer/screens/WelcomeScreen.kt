@@ -22,6 +22,7 @@ import androidx.compose.foundation.text.selection.SelectionContainer
 import androidx.compose.foundation.verticalScroll
 import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.filled.Add
+import androidx.compose.material.icons.filled.Download
 import androidx.compose.material.icons.filled.FolderOpen
 import androidx.compose.material.icons.filled.GridView
 import androidx.compose.material.icons.filled.Settings
@@ -32,6 +33,7 @@ import androidx.compose.material3.CircularProgressIndicator
 import androidx.compose.material3.Icon
 import androidx.compose.material3.OutlinedButton
 import androidx.compose.material3.OutlinedTextField
+import androidx.compose.material3.Switch
 import androidx.compose.material3.Text
 import androidx.compose.material3.TextButton
 import androidx.compose.runtime.Composable
@@ -57,6 +59,7 @@ import app.eglviewer.app.RecentLibrary
 import app.eglviewer.core.Library
 import app.eglviewer.locks.AppLock
 import app.eglviewer.settings.SettingsScreen
+import app.eglviewer.settings.formatBytes
 import app.eglviewer.theme.EglTokens
 import java.io.File
 
@@ -82,6 +85,16 @@ fun WelcomeScreen(model: AppModel, lock: AppLock) {
             model.openUri(uri)
         }
     }
+
+    // D-116: an Eagle library (Name.library) picked in Files, imported into a new library.
+    val pickEagle = rememberLauncherForActivityResult(
+        contract = ActivityResultContracts.OpenDocumentTree(),
+    ) { uri: Uri? ->
+        if (uri != null) {
+            model.pickEagle(uri)
+        }
+    }
+    model.eaglePlan?.let { plan -> EagleImportDialog(model, plan) }
 
     val context = androidx.compose.ui.platform.LocalContext.current
     val storagePermission = rememberLauncherForActivityResult(
@@ -263,6 +276,25 @@ fun WelcomeScreen(model: AppModel, lock: AppLock) {
                 Spacer(modifier = Modifier.size(8.dp))
                 Text(stringResource(R.string.welcome_open), fontSize = 15.sp, fontWeight = FontWeight.SemiBold)
             }
+            OutlinedButton(
+                onClick = { pickEagle.launch(null) },
+                enabled = !model.busy,
+                modifier = Modifier
+                    .fillMaxWidth()
+                    .height(EglTokens.ButtonHeight),
+                shape = RoundedCornerShape(EglTokens.RadiusLg),
+                colors = ButtonDefaults.outlinedButtonColors(contentColor = EglTokens.Foreground),
+                border = BorderStroke(1.dp, EglTokens.Border),
+            ) {
+                Icon(Icons.Default.Download, contentDescription = null, modifier = Modifier.size(18.dp))
+                Spacer(modifier = Modifier.size(8.dp))
+                Text(stringResource(R.string.welcome_import_eagle), fontSize = 15.sp, fontWeight = FontWeight.SemiBold)
+            }
+            Text(
+                text = stringResource(R.string.welcome_import_eagle_hint),
+                color = EglTokens.MutedForeground,
+                fontSize = EglTokens.ChromeSp,
+            )
         }
 
         if (model.localLibraries.isNotEmpty()) {
@@ -407,4 +439,64 @@ private fun RecentRow(
             }
         }
     }
+}
+
+/**
+ * What an Eagle library holds, the name of the new library and whether Eagle's trash comes
+ * too; Import creates the library in the app's storage and copies the Eagle library into it
+ * (D-116).
+ */
+@Composable
+private fun EagleImportDialog(model: AppModel, plan: AppModel.EaglePlan) {
+    var name by remember(plan) { mutableStateOf(plan.summary.name) }
+    var importTrash by remember(plan) { mutableStateOf(false) }
+    AlertDialog(
+        onDismissRequest = model::cancelEagle,
+        title = { Text(stringResource(R.string.eagle_title)) },
+        text = {
+            Column(verticalArrangement = Arrangement.spacedBy(8.dp)) {
+                Text(
+                    text = stringResource(
+                        R.string.eagle_summary,
+                        plan.summary.name,
+                        plan.summary.itemCount,
+                        formatBytes(plan.summary.bytes),
+                    ),
+                    color = EglTokens.Foreground,
+                )
+                OutlinedTextField(
+                    value = name,
+                    onValueChange = { name = it },
+                    singleLine = true,
+                    label = { Text(stringResource(R.string.eagle_name)) },
+                )
+                Row(verticalAlignment = Alignment.CenterVertically) {
+                    Text(
+                        text = stringResource(R.string.eagle_trash),
+                        modifier = Modifier.weight(1f),
+                        color = EglTokens.Foreground,
+                    )
+                    Switch(checked = importTrash, onCheckedChange = { importTrash = it })
+                }
+                Text(
+                    text = stringResource(R.string.eagle_hint),
+                    color = EglTokens.MutedForeground,
+                    fontSize = EglTokens.ChromeSp,
+                )
+            }
+        },
+        confirmButton = {
+            TextButton(
+                onClick = { model.importEagle(plan, name, importTrash) },
+                enabled = name.isNotBlank(),
+            ) {
+                Text(stringResource(R.string.eagle_confirm))
+            }
+        },
+        dismissButton = {
+            TextButton(onClick = model::cancelEagle) {
+                Text(stringResource(R.string.common_cancel))
+            }
+        },
+    )
 }

@@ -1,6 +1,8 @@
 # egl-viewer Android (A1–A8)
 
-Jetpack Compose phone client over the native `.eglib` core. **No Eagle. No Canvas.**
+Jetpack Compose phone client over the native `.eglib` core. **No Canvas.** Of Eagle it has
+only the import: a `Name.library` becomes a new library on the phone (D-116); no live
+connection to a running Eagle, no export into Eagle.
 Desktop Tauri remains the default product. Shares the same C ABI as iOS
 (`crates/library-ffi`, D-082 / D-092), wrapped for Kotlin by the `eglcore` module
 (D-101 foundation through D-108 release).
@@ -14,6 +16,7 @@ Stages: **A1** foundation → **A2** browsing → **A3** preview/details → **A
 |---|---|
 | `eglcore` | Typed `Library`, view-id APIs, tags, extensions, smart folders, thumbs, `Item` / `ItemEdit`, selection tags, undo, delete / empty trash, view ids, original path / bytes, `addFiles` / import progress / duplicate answer, platform ImageDecoder for HEIC, folder / tag / tag-group / smart-folder writes, `smartRules`, locked-folder lock / unlock / recover / relock / label, rename / stats / backups / check / repair / generate previews / export |
 | App foundation (A1) | `AppModel`, Welcome (create, SAF open, recent), open library |
+| Eagle import (D-116) | Welcome → Import Eagle Library: pick `Name.library` (All files access asked when it lies in shared storage, D-111); name, item count and size; the new library's name and Eagle's trash on or off; background copy with progress and Stop, then a report dialog. `Library.eagleLibraryInfo` / `importEagle` over JNI. The Eagle library is only read |
 | Browsing (A2) | Places, folder tree + smart folders (locked folders label-only), lazy grid/list by view id, thumbs, sort / search / filters, selection + Select All via view target, saved view per library |
 | Preview / details / actions (A3) | Full-screen pager + zoom + chrome toggle; details sheet; selection / preview actions; undo snackbar; share originals as temp copies (≤100) |
 | Adding (A4) | + menu: Gallery, Files, Folder, Paste; drops onto places; Trash excluded; folder context adds into folder; temp `picked-*` copies; SAF grants held for resolvable paths; progress + Stop; duplicate dialog; HEIC via ImageDecoder platform decoder |

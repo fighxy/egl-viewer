@@ -155,6 +155,14 @@ EglStatus egl_apply_item_edit(
  */
 EglStatus egl_add_files(EglLibrary *lib, const char *request_json, char **out_json);
 
+/**
+ * Imports an Eagle library folder (Name.library) into this library in the background
+ * (D-116); the Eagle folder is only read.
+ * request_json: {"path":"/abs/Name.library","importTrash":false,"underRootFolder":false}
+ * *out_json: {"id":N}. Progress as importProgress (kind "eagle"); the last one has the report.
+ */
+EglStatus egl_import_eagle(EglLibrary *lib, const char *request_json, char **out_json);
+
 /** Answers the duplicate question (state "waitingForDecision").
  *  answer_utf8: "skip" | "addAnyway" | "addToFolder" | "cancel". */
 EglStatus egl_answer_import(EglLibrary *lib, uint64_t id, const char *answer_utf8);
@@ -390,6 +398,12 @@ EglStatus egl_cancel_export(EglLibrary *lib, uint64_t id);
  */
 EglStatus egl_decrypt_archive(const char *source_utf8, const char *destination_utf8,
                               const char *passphrase_utf8, char **out_json);
+/**
+ * What the import wizard shows for an Eagle library folder (D-116); no library handle.
+ * *out_json: {"path":"…","name":"…","itemCount":N,"bytes":N}. EGL_ERR_NOT_A_LIBRARY when
+ * the folder is not an Eagle library. Walks images/ for the size: off the UI thread.
+ */
+EglStatus egl_eagle_library_info(const char *path_utf8, char **out_json);
 /** ImportPreview of a folder for a reviewed import. */
 EglStatus egl_preview_import(EglLibrary *lib, const char *path_utf8, char **out_json);
 

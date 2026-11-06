@@ -2523,6 +2523,38 @@ linked with `-L -l`, and on the host the path exists anyway.
   developers.
 - 0.2.5's APK cannot be fixed in place: the next Android release carries this.
 
+## D-116 Eagle import on the phones (2026-11-06)
+
+The phones had no Eagle at all (D-099). Asked for, they now import an Eagle library folder
+(`Name.library`) into a new native library, as the desktop's wizard does (docs/spec.md §8.2).
+Opening an Eagle library in place, read-only, was the other choice; it needs a second source
+of views in the core and was not taken. A live connection and export into Eagle stay
+desktop-only.
+
+- **One import, three apps.** The import task moved from `src-tauri` into `app-service`
+  (`LibraryService::import_eagle`, `eagle_library_info`, `EagleLibrarySummary`, `eagle_error`).
+  The desktop calls it and now checks the Eagle folder before it creates the target library,
+  so a wrong folder leaves no empty library behind. The ts-rs binding is unchanged.
+- **C ABI.** `egl_eagle_library_info(path, out)` needs no library handle and answers
+  `EGL_ERR_NOT_A_LIBRARY` with a plain reason for a folder that is not one;
+  `egl_import_eagle(lib, {"path","importTrash","underRootFolder"}, out)` starts the task on the
+  open library and reports through `importProgress` like adding files, the last progress with
+  the report. In the three header copies; Swift `Library.eagleLibraryInfo` / `importEagle`,
+  Kotlin the same over JNI, with the report and the summary as models on both.
+- **Flow.** Welcome → Import Eagle Library → pick the folder (iPhone: the Files picker, the
+  security scope held until the import ends; Android: the tree picker, All files access asked
+  as for a library in shared storage, D-111) → name, item count and size → the new library's
+  name (the Eagle name; `Name 2` when taken) and Eagle's trash on or off → the library is
+  created in the app's storage, opened, and the copy runs in the background with progress and
+  Stop → a report: imported, same content as another item, could not be imported, left in the
+  trash, locked folders that came in without a password. A stopped import resumes by importing
+  the same Eagle library into that library again: items it already has are skipped.
+- **Tests.** The C ABI with the Eagle fixture (summary, a plain folder refused, the import, the
+  folders at the root, a missing folder refused); the host JNI check with an Eagle library named
+  in Cyrillic and emoji; EglCore against the fixture; an iPhone app test from the pick to the
+  report and the free name; Kotlin parsing of the report and the summary; the free name on
+  Android.
+
 ## D-117 The library folder shows the app's icon on Windows and Linux (2026-11-06)
 
 A `.eglib` stays a plain folder (D-016); the question of a single-file library was settled

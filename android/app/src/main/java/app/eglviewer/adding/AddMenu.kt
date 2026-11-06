@@ -39,6 +39,7 @@ import app.eglviewer.R
 import app.eglviewer.app.LibraryLocations
 import app.eglviewer.app.OpenLibrary
 import app.eglviewer.core.DuplicateAnswer
+import app.eglviewer.core.ImportKind
 import app.eglviewer.core.ImportProgress
 import app.eglviewer.theme.EglTokens
 import java.io.File
@@ -233,7 +234,7 @@ fun ImportBanner(open: OpenLibrary) {
                 Column(modifier = Modifier.weight(1f)) {
                     Text(
                         text = stringResource(
-                            R.string.library_adding,
+                            if (progress.kind == ImportKind.EAGLE) R.string.eagle_importing else R.string.library_adding,
                             progress.processed,
                             progress.total.coerceAtLeast(1),
                         ),
@@ -325,4 +326,31 @@ fun importSummary(
     if (progress.failed > 0) parts += failedLabel(progress.failed)
     if (progress.state == app.eglviewer.core.ImportState.CANCELLED) parts += cancelledLabel
     return parts.joinToString(" · ")
+}
+
+/** How an Eagle import ended: what came in, what did not, and the locked folders (D-116). */
+@Composable
+fun EagleOutcomeDialog(open: OpenLibrary) {
+    val outcome = open.eagleOutcome ?: return
+    val report = outcome.report
+    val lines = buildList {
+        add(stringResource(R.string.eagle_imported, report.imported))
+        if (report.duplicates > 0) add(stringResource(R.string.eagle_duplicates, report.duplicates))
+        if (report.skipped.isNotEmpty()) add(stringResource(R.string.eagle_skipped, report.skipped.size))
+        if (report.trashSkipped > 0) add(stringResource(R.string.eagle_trash_left, report.trashSkipped))
+        if (report.lockedFolders.isNotEmpty()) {
+            add(stringResource(R.string.eagle_locked, report.lockedFolders.joinToString(", ")))
+        }
+        if (outcome.cancelled) add(stringResource(R.string.eagle_resume))
+    }
+    AlertDialog(
+        onDismissRequest = { open.eagleOutcome = null },
+        title = { Text(stringResource(if (outcome.cancelled) R.string.eagle_stopped else R.string.eagle_done)) },
+        text = { Text(lines.joinToString("\n")) },
+        confirmButton = {
+            TextButton(onClick = { open.eagleOutcome = null }) {
+                Text(stringResource(android.R.string.ok))
+            }
+        },
+    )
 }

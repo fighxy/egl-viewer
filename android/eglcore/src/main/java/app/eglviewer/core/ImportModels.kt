@@ -90,6 +90,8 @@ data class ImportProgress(
     val previewsDone: Int,
     val current: String?,
     val duplicate: DuplicateNotice?,
+    /** What an Eagle import did, on its last progress (D-116). */
+    val report: EagleImportReport? = null,
 ) {
     val isFinished: Boolean
         get() = state == ImportState.DONE || state == ImportState.CANCELLED
@@ -111,11 +113,70 @@ data class ImportProgress(
                 previewsDone = o.optInt("previewsDone", 0),
                 current = o.optString("current").ifEmpty { null },
                 duplicate = o.optJSONObject("duplicate")?.let { DuplicateNotice.fromJson(it) },
+                report = o.optJSONObject("report")?.let { EagleImportReport.fromJson(it) },
             )
 
         fun listFromJson(json: String): List<ImportProgress> {
             val arr = JSONArray(json)
             return (0 until arr.length()).map { fromJson(arr.getJSONObject(it)) }
+        }
+    }
+}
+
+/** An item an import could not take, and why. */
+data class ImportFailure(val path: String, val reason: String) {
+    companion object {
+        fun fromJson(o: JSONObject): ImportFailure =
+            ImportFailure(path = o.optString("path"), reason = o.optString("reason"))
+    }
+}
+
+/** What an Eagle import did (docs/spec.md §8.2 step 5, D-116). */
+data class EagleImportReport(
+    /** Items copied into the library, trash included when asked for. */
+    val imported: Int,
+    /** Items whose content another item of this import already had (kept, as in Eagle). */
+    val duplicates: Int,
+    /** Trashed Eagle items left out. */
+    val trashSkipped: Int,
+    /** Items that could not be imported, with the reason (the first 200). */
+    val skipped: List<ImportFailure>,
+    /** Locked Eagle folders: imported locked with no password. */
+    val lockedFolders: List<String>,
+) {
+    companion object {
+        fun fromJson(o: JSONObject): EagleImportReport {
+            val skipped = o.optJSONArray("skipped") ?: JSONArray()
+            val locked = o.optJSONArray("lockedFolders") ?: JSONArray()
+            return EagleImportReport(
+                imported = o.optInt("imported", 0),
+                duplicates = o.optInt("duplicates", 0),
+                trashSkipped = o.optInt("trashSkipped", 0),
+                skipped = (0 until skipped.length()).map { ImportFailure.fromJson(skipped.getJSONObject(it)) },
+                lockedFolders = (0 until locked.length()).map { locked.getString(it) },
+            )
+        }
+    }
+}
+
+/** What the import screen shows for a picked Eagle library (D-116). */
+data class EagleLibrarySummary(
+    val path: String,
+    val name: String,
+    /** Items including Eagle's trash. */
+    val itemCount: Int,
+    /** Bytes of the originals and Eagle's thumbnails. */
+    val bytes: Long,
+) {
+    companion object {
+        fun fromJson(json: String): EagleLibrarySummary {
+            val o = JSONObject(json)
+            return EagleLibrarySummary(
+                path = o.optString("path"),
+                name = o.optString("name"),
+                itemCount = o.optInt("itemCount", 0),
+                bytes = o.optLong("bytes", 0),
+            )
         }
     }
 }

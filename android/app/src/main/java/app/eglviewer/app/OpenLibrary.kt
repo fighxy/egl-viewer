@@ -22,11 +22,13 @@ import app.eglviewer.browse.SavedViews
 import app.eglviewer.browse.ThumbnailCache
 import app.eglviewer.browse.ViewSession
 import app.eglviewer.core.DuplicateAnswer
+import app.eglviewer.core.EagleImportReport
 import app.eglviewer.core.EglError
 import app.eglviewer.core.ExportProgress
 import app.eglviewer.core.ExportRequest
 import app.eglviewer.core.Folder
 import app.eglviewer.core.FolderChange
+import app.eglviewer.core.ImportKind
 import app.eglviewer.core.ImportProgress
 import app.eglviewer.core.ImportState
 import app.eglviewer.core.Library
@@ -107,6 +109,9 @@ class OpenLibrary(
 
     override var toast: ActionToast? by mutableStateOf(null)
         private set
+
+    /** How the last Eagle import ended, shown in a dialog (D-116). */
+    var eagleOutcome: EagleOutcome? by mutableStateOf(null)
 
     /** Running imports by id (banner). */
     var imports: Map<Long, ImportProgress> by mutableStateOf(emptyMap())
@@ -268,6 +273,27 @@ class OpenLibrary(
         }
     }
 
+    /**
+     * Imports the Eagle library folder [eagle] into this library (D-116); the report comes as
+     * [eagleOutcome] when the import ends.
+     */
+    fun importEagle(eagle: File, importTrash: Boolean) {
+        if (readOnly) return
+        scope.launch {
+            val ticket = try {
+                withContext(Dispatchers.IO) { library.importEagle(eagle, importTrash) }
+            } catch (error: Exception) {
+                report(error.message ?: error.toString())
+                return@launch
+            }
+            afterImport[ticket.id] = {}
+            val progress = withContext(Dispatchers.IO) {
+                runCatching { library.importStatus(ticket.id) }.getOrNull()
+            }
+            if (progress != null) progressed(progress)
+        }
+    }
+
     /** Adds temporary copies from gallery / paste / drops; they are removed afterwards. */
     fun addPicked(files: List<PickedFile>, into: String?) {
         addPaths(files.map { it.file.absolutePath }, into) {
@@ -320,6 +346,12 @@ class OpenLibrary(
         imports = imports - progress.id
         val cleanup = afterImport.remove(progress.id) ?: return
         cleanup()
+        val report = progress.report
+        if (progress.kind == ImportKind.EAGLE && report != null) {
+            eagleOutcome = EagleOutcome(progress.id, report, progress.state == ImportState.CANCELLED)
+            runCatching { refresh() }
+            return
+        }
         show(summaryOf(progress), undoable = false)
         runCatching { refresh() }
     }
@@ -675,3 +707,6 @@ class OpenLibrary(
         }
     }
 }
+
+/** How an Eagle import ended, shown once (D-116). */
+data class EagleOutcome(val id: Long, val report: EagleImportReport, val cancelled: Boolean)

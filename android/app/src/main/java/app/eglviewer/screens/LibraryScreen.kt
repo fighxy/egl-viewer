@@ -50,6 +50,7 @@ import androidx.compose.ui.unit.sp
 import app.eglviewer.R
 import app.eglviewer.adding.AddMenuButton
 import app.eglviewer.adding.DuplicateQuestionDialog
+import app.eglviewer.adding.EagleOutcomeDialog
 import app.eglviewer.adding.ImportBanner
 import app.eglviewer.app.OpenLibrary
 import app.eglviewer.browse.BrowseScreen
@@ -338,6 +339,7 @@ fun LibraryScreen(
     }
 
     DuplicateQuestionDialog(open = open)
+    EagleOutcomeDialog(open = open)
 
     folderEditing?.let { editing ->
         FolderEditorDialog(

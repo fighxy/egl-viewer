@@ -27,4 +27,6 @@ final class EglNative {
     static native String startExport(long handle, String requestJson);
     static native String exports(long handle);
     static native String decryptArchive(String source, String destination, String passphrase);
+    static native String eagleLibraryInfo(String path);
+    static native String importEagle(long handle, String requestJson);
 }
