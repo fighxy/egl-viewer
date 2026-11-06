@@ -521,7 +521,7 @@ class Library private constructor(private var handle: Long) : AutoCloseable {
             throw EglError(EglError.Code.OTHER, "library is closed")
         }
         if (!EglNative.isAvailable) {
-            throw EglError(EglError.Code.UNSUPPORTED, "native core is not linked")
+            throw EglError(EglError.Code.UNSUPPORTED, notLoaded())
         }
     }
 
@@ -549,6 +549,13 @@ class Library private constructor(private var handle: Long) : AutoCloseable {
 
         val isNativeAvailable: Boolean
             get() = EglNative.isAvailable
+
+        /** The loader's reason when the native core did not load, else `null` (D-115). */
+        val nativeLoadError: String?
+            get() = EglNative.loadError
+
+        private fun notLoaded(): String =
+            "native core did not load" + (EglNative.loadError?.let { ": $it" } ?: "")
 
         /** Creates `<parent>/<name>.eglib` and returns its absolute path. */
         @JvmStatic
@@ -605,10 +612,7 @@ class Library private constructor(private var handle: Long) : AutoCloseable {
         @JvmStatic
         fun requireNative() {
             if (!EglNative.isAvailable) {
-                throw EglError(
-                    EglError.Code.UNSUPPORTED,
-                    "native core is not linked (build libegl_library.so with cargo-ndk)",
-                )
+                throw EglError(EglError.Code.UNSUPPORTED, notLoaded())
             }
         }
 

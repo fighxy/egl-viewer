@@ -23,7 +23,7 @@ Stages: **A1** foundation → **A2** browsing → **A3** preview/details → **A
 | Release (A8) | Adaptive launcher + Play Store icon; Privacy screen + `PRIVACY.md` + backup exclusions; TalkBack labels for cells and ratings; 10,000-item JVM perf test; tagged APK/AAB by `android-vX.Y.Z` |
 | Where libraries live | App-specific storage, or anywhere on the phone after **All files access** (`MANAGE_EXTERNAL_STORAGE`, asked when a library outside app storage is opened; D-111); cloud-looking path opens **read-only** (D-021) |
 | Strings | English / Russian / Simplified Chinese, every screen from the catalogs (plurals included); `StringsCatalogTest` keeps the keys in step and catches hardcoded English (D-111) |
-| Native core | Real `libegl_library.so` when built with cargo-ndk; **no mock fallback** |
+| Native core | Real `libegl_library.so` when built with cargo-ndk; **no mock fallback**. If it does not load, Welcome and the error show the loader's reason (D-115) |
 | Host tests | `./gradlew :eglcore:testDebugUnitTest :app:testDebugUnitTest` (BrowseModel, details/actions/share, adding / picked copies, smart rules / organize JSON, AppLock / RecoveryKey, settings / export JSON, a11y labels, release assets, 10k perf; no device) |
 
 ## Layout
@@ -65,7 +65,7 @@ Workflow: [`.github/workflows/mobile.yml`](../.github/workflows/mobile.yml).
 | Job | What it runs |
 |---|---|
 | `library-ffi` | Layout/header sync, `cargo test` / clippy for `library-ffi`; the JNI bridge against the real core on the host JVM (`scripts/check-android-jni.sh`: UTF-8 and emoji both ways, events and the platform decoder from the core's threads) |
-| `android` | NDK + cargo-ndk `.so` (cargo-ndk **4.1.2**), JVM unit tests, `assembleDebug`; on `android-v*` also `assembleRelease` + `bundleRelease` |
+| `android` | NDK + cargo-ndk `.so` (cargo-ndk **4.1.2**), JVM unit tests, `assembleDebug`, then `scripts/check-android-apk.sh` on the APK (dependencies by name, `libegl_library.so` SONAME, 16 KB pages, no stray Cargo `.so`; D-115); on `android-v*` also `assembleRelease` + `bundleRelease`, checked the same way |
 | `android-release` | For a tag `android-vX.Y.Z`: GitHub Release with APK, AAB and `SHA256SUMS` (never latest) |
 
 ## Releasing

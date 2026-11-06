@@ -27,7 +27,21 @@ cxx="${CXX:-c++}"
 "$cxx" -std=c++17 -shared -fPIC -Wall -Wextra -Werror -DEGL_HAS_RUST=1 \
   -I"$root/android/eglcore/src/main/cpp" -I"$java_home/include" -I"$java_home/include/linux" \
   "${EGL_JNI_SOURCE:-$root/android/eglcore/src/main/cpp/egl_jni.cpp}" \
-  -L"$core" -legl_library -Wl,-rpath,"$core" -o "$work/libegl_jni.so"
+  "$core/libegl_library.so" -Wl,-rpath,"$core" -o "$work/libegl_jni.so"
+
+# Linked by its full path, as CMake links the imported library on Android (D-115): the
+# dependency must still be recorded by name, or the phone cannot load the bridge.
+soname="$(readelf -dW "$core/libegl_library.so" | sed -n 's/.*(SONAME).*\[\(.*\)\]/\1/p')"
+if [[ "$soname" != "libegl_library.so" ]]; then
+  echo "libegl_library.so has SONAME '$soname', not libegl_library.so" >&2
+  exit 1
+fi
+if readelf -dW "$work/libegl_jni.so" | grep '(NEEDED)' | grep -q '/'; then
+  echo "libegl_jni.so needs libegl_library.so by a path from this machine:" >&2
+  readelf -dW "$work/libegl_jni.so" | grep '(NEEDED)' >&2
+  exit 1
+fi
+echo "ok   libegl_jni.so needs libegl_library.so by name"
 
 src="$root/android/eglcore/src/hostTest/java"
 mkdir -p "$work/app" "$work/runner"

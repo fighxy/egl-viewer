@@ -38,7 +38,7 @@
     <string name="error_not_a_library">That folder is not a native library.</string>
     <string name="error_read_only">The library is read-only.</string>
     <string name="error_wrong_password">Wrong password.</string>
-    <string name="error_core_missing">Native core is not linked. Build libegl_library.so with cargo-ndk (see android/README.md).</string>
+    <string name="error_core_missing">The app’s core did not load on this phone. Reinstall the app; if it stays this way, report it with the details below.</string>
     <string name="error_saf_path">This place has no folder on the phone the app can open, for example a cloud service. Move the library to the phone’s storage or an SD card.</string>
     <string name="error_missing_library">That library is no longer on this phone.</string>
 

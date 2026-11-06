@@ -2492,3 +2492,33 @@ older than the minimum release age, D-003), with `default-features = false` and 
   (`tauri.conf.json`, `ui/package.json`), Android (`versionName`, the version the shell gives
   the core) and iOS (`MARKETING_VERSION`). Release tags: `v0.2.5`, `ios-v0.2.5`,
   `android-v0.2.5` (first Android release).
+
+## D-115 Android: the native core loads on the phone (2026-11-06)
+
+The first Android release (0.2.5, D-114) opened no library on a phone: "native core is not
+linked". `System.loadLibrary("egl_jni")` failed because `libegl_jni.so` needed
+`libegl_library.so` by the CI machine's absolute path
+(`/home/runner/work/…/jniLibs/arm64-v8a/libegl_library.so`). The Rust cdylib had no SONAME,
+and when CMake links an imported library by its full path and that library has no SONAME, the
+linker records the path itself as DT_NEEDED. The host JNI check (D-109) did not notice: it
+linked with `-L -l`, and on the host the path exists anyway.
+
+- **SONAME.** `crates/library-ffi/build.rs` links the cdylib with `-soname,libegl_library.so`
+  on Android and Linux, so anything linked against it needs it by name.
+- **16 KB pages.** Android 15+ devices with 16 KB pages refuse 4 KB-aligned libraries;
+  `libegl_jni.so` (NDK 27) was 4 KB-aligned. Both libraries now link with
+  `-z max-page-size=16384`.
+- **No stray `.so`.** cargo-ndk copies every cdylib it built; `sevenz-rust2` (D-113) declares
+  one, and `libsevenz_rust2-<hash>.so` rode along in the APK. CI deletes everything but
+  `libegl_library.so` after cargo-ndk.
+- **Checked where it broke.** `scripts/check-android-apk.sh` reads the native libraries of a
+  built APK as the loader does: DT_NEEDED by name only, the SONAME, 16 KB LOAD alignment, no
+  `lib<crate>-<hash>.so`. CI runs it on the debug APK and on the release APK before upload; run
+  against the 0.2.5 APK it reports all three faults. The host JNI check now links the bridge by
+  the core's full path, as CMake does, and fails without a SONAME (checked by removing
+  `build.rs`).
+- **A reason, not a build hint.** If the bridge still does not load, `EglNative` keeps the
+  `UnsatisfiedLinkError` message; Welcome and the open error show it under a plain sentence in
+  the three languages, instead of "build libegl_library.so with cargo-ndk", which is for
+  developers.
+- 0.2.5's APK cannot be fixed in place: the next Android release carries this.

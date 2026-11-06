@@ -18,6 +18,7 @@ import androidx.compose.foundation.layout.padding
 import androidx.compose.foundation.layout.size
 import androidx.compose.foundation.rememberScrollState
 import androidx.compose.foundation.shape.RoundedCornerShape
+import androidx.compose.foundation.text.selection.SelectionContainer
 import androidx.compose.foundation.verticalScroll
 import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.filled.Add
@@ -53,6 +54,7 @@ import androidx.compose.ui.unit.sp
 import app.eglviewer.R
 import app.eglviewer.app.AppModel
 import app.eglviewer.app.RecentLibrary
+import app.eglviewer.core.Library
 import app.eglviewer.locks.AppLock
 import app.eglviewer.settings.SettingsScreen
 import app.eglviewer.theme.EglTokens
@@ -207,6 +209,15 @@ fun WelcomeScreen(model: AppModel, lock: AppLock) {
                     color = EglTokens.MutedForeground,
                     fontSize = EglTokens.ChromeSp,
                 )
+                Library.nativeLoadError?.let { reason ->
+                    SelectionContainer {
+                        Text(
+                            text = reason,
+                            color = EglTokens.MutedForeground,
+                            fontSize = EglTokens.ChromeSp,
+                        )
+                    }
+                }
             }
         }
 

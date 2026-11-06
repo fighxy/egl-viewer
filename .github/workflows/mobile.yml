@@ -20,6 +20,7 @@ on:
       - "scripts/ios-release-version.sh"
       - "scripts/android-release-version.sh"
       - "scripts/check-android-jni.sh"
+      - "scripts/check-android-apk.sh"
       - ".github/workflows/mobile.yml"
       - "rust-toolchain.toml"
       - "Cargo.toml"
@@ -40,6 +41,7 @@ on:
       - "scripts/ios-release-version.sh"
       - "scripts/android-release-version.sh"
       - "scripts/check-android-jni.sh"
+      - "scripts/check-android-apk.sh"
       - ".github/workflows/mobile.yml"
       - "rust-toolchain.toml"
       - "Cargo.toml"
@@ -172,6 +174,9 @@ jobs:
           cargo ndk -t arm64-v8a -o android/eglcore/src/main/jniLibs \
             build -p library-ffi --release
           test -f android/eglcore/src/main/jniLibs/arm64-v8a/libegl_library.so
+          # cargo-ndk copies every cdylib it built (sevenz-rust2 is one); only the core
+          # belongs in the APK (D-115).
+          find android/eglcore/src/main/jniLibs -name '*.so' ! -name libegl_library.so -print -delete
 
       # A release tag sets the version (android-v1.2.3 → 1.2.3) and the versionCode
       # (the run number); other builds keep the defaults of build.gradle.kts.
@@ -194,6 +199,14 @@ jobs:
           chmod +x gradlew
           ./gradlew :eglcore:testDebugUnitTest :app:testDebugUnitTest \
             :app:assembleDebug --no-daemon --stacktrace
+
+      # What the phone's loader sees (D-115): dependencies by name, a SONAME, 16 KB pages.
+      - name: Native libraries in the APK
+        run: |
+          set -euo pipefail
+          APK="$(find android/app/build/outputs/apk/debug -name '*.apk' | head -n1)"
+          test -n "$APK"
+          bash scripts/check-android-apk.sh "$APK"
 
       - name: Upload debug APK
         uses: actions/upload-artifact@v4
@@ -239,6 +252,7 @@ jobs:
           test -n "$APK" && test -n "$AAB"
           VERSION="${{ steps.version.outputs.version }}"
           mkdir -p "$RUNNER_TEMP/android-release"
+          bash ../scripts/check-android-apk.sh "$APK"
           cp "$APK" "$RUNNER_TEMP/android-release/EglViewer-$VERSION.apk"
           cp "$AAB" "$RUNNER_TEMP/android-release/EglViewer-$VERSION.aab"
           # The APK must carry the tag's versionName.

@@ -18,6 +18,8 @@ if(EXISTS "${EGL_SO}")
     add_library(egl_library SHARED IMPORTED)
     set_target_properties(egl_library PROPERTIES IMPORTED_LOCATION "${EGL_SO}")
     target_link_libraries(egl_jni egl_library ${log-lib})
+    # Android 15+ devices with 16 KB pages refuse libraries aligned to 4 KB (D-115).
+    target_link_options(egl_jni PRIVATE "-Wl,-z,max-page-size=16384")
     target_compile_definitions(egl_jni PRIVATE EGL_HAS_RUST=1)
 else()
     message(FATAL_ERROR "libegl_library.so not found under ${EGL_LIBRARY_DIR}")

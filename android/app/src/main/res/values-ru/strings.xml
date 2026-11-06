@@ -38,7 +38,7 @@
     <string name="error_not_a_library">Эта папка не является native-библиотекой.</string>
     <string name="error_read_only">Библиотека только для чтения.</string>
     <string name="error_wrong_password">Неверный пароль.</string>
-    <string name="error_core_missing">Native-ядро не подключено. Соберите libegl_library.so через cargo-ndk (см. android/README.md).</string>
+    <string name="error_core_missing">Ядро приложения не загрузилось на этом телефоне. Переустановите приложение; если не поможет, сообщите об ошибке вместе с подробностями ниже.</string>
     <string name="error_saf_path">У этого места нет папки на телефоне, которую приложение может открыть, например это облачный сервис. Перенесите библиотеку в память телефона или на SD-карту.</string>
     <string name="error_missing_library">Этой библиотеки больше нет на телефоне.</string>
 

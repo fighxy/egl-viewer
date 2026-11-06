@@ -7,6 +7,20 @@ import org.junit.Test
 
 /** Host JVM tests — no device, no `.so` (D-101 / A1). */
 class EglCoreUnitTest {
+    /** D-115: on the JVM the bridge cannot load; the error carries the loader's reason. */
+    @Test
+    fun aCoreThatDidNotLoadSaysWhy() {
+        if (Library.isNativeAvailable) return
+        val reason = Library.nativeLoadError
+        assertTrue(!reason.isNullOrEmpty())
+        val error = runCatching {
+            Library.create(java.io.File("build/none"), "X")
+        }.exceptionOrNull() as EglError
+        assertEquals(EglError.Code.UNSUPPORTED, error.code)
+        assertTrue(error.message.startsWith("native core did not load: "))
+        assertTrue(error.message.endsWith(reason!!))
+    }
+
     @Test
     fun errorCodesMatchCAbi() {
         assertEquals(1, EglError.Code.INVALID.raw)
