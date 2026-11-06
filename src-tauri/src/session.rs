@@ -23,9 +23,7 @@ use library_core::{
     RepairOptions, SelectionTags, SmartFolder, SmartFolderChange, SourceError, Tag, TagGroup,
     TagGroupChange, Thumbnail, TrashInfo, UndoStatus,
 };
-use library_native::{
-    DuplicateChoice, EagleImportOptions, ImportFilter, check_enrollment, import_eagle,
-};
+use library_native::{DuplicateChoice, ImportFilter, check_enrollment};
 use secrecy::{ExposeSecret, SecretString};
 use serde::{Deserialize, Serialize};
 use ts_rs::TS;
@@ -48,18 +46,7 @@ pub struct StartupResult {
     pub notice: Option<String>,
 }
 
-/// What the import wizard shows for a picked Eagle library (docs/spec.md §8.2 step 1).
-#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize, TS)]
-#[serde(rename_all = "camelCase")]
-#[ts(export)]
-pub struct EagleLibrarySummary {
-    pub path: String,
-    pub name: String,
-    /// Items including the trash (`mtime.json` `all`).
-    pub item_count: u32,
-    /// Bytes of everything under `images/`.
-    pub bytes: u64,
-}
+pub use app_service::EagleLibrarySummary;
 
 /// Where the import of an Eagle library goes (docs/spec.md §8.2 step 2).
 #[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize, TS)]
@@ -646,13 +633,10 @@ impl Session {
     /// Validates a picked Eagle `.library` folder and answers what an import would take
     /// (docs/spec.md §8.2 step 1). Reading only.
     pub fn eagle_library_info(&self, path: &str) -> Result<EagleLibrarySummary, SourceError> {
-        let eagle = eagle_folder::EagleLibrary::open(Path::new(path)).map_err(eagle_error)?;
-        let summary = eagle.summary().map_err(eagle_error)?;
+        let summary = app_service::eagle_library_info(Path::new(path))?;
         Ok(EagleLibrarySummary {
-            path: display_path(eagle.root()),
-            name: summary.name,
-            item_count: summary.item_count,
-            bytes: summary.bytes,
+            path: display_path(Path::new(&summary.path)),
+            ..summary
         })
     }
 
@@ -663,28 +647,19 @@ impl Session {
         &self,
         request: EagleImportRequest,
     ) -> Result<ImportTicket, SourceError> {
-        let eagle = eagle_folder::EagleLibrary::open(Path::new(&request.eagle_path))
-            .map_err(eagle_error)?;
-        let root_folder = match &request.create {
-            Some(target) => {
-                self.create_library(&target.parent, &target.name)?;
-                None
-            }
-            None => Some(eagle.name().to_owned()),
-        };
-        let library = self.service.writable_library()?;
-        let options = EagleImportOptions {
-            import_trash: request.import_trash,
-            root_folder,
-        };
-        let id = self.service.start(
-            library,
-            ImportKind::Eagle,
-            move |library, id, observer, cancel| {
-                import_eagle(library, &eagle, &options, id, observer, cancel)
-            },
-        )?;
-        Ok(ImportTicket { id })
+        // Read before anything is created: a folder that is not an Eagle library leaves no
+        // empty native library behind.
+        eagle_folder::EagleLibrary::open(Path::new(&request.eagle_path))
+            .map_err(app_service::eagle_error)?;
+        let new_library = request.create.is_some();
+        if let Some(target) = &request.create {
+            self.create_library(&target.parent, &target.name)?;
+        }
+        self.service.import_eagle(
+            Path::new(&request.eagle_path),
+            request.import_trash,
+            !new_library,
+        )
     }
 
     /// The folder tree with counts.
@@ -1356,15 +1331,6 @@ fn combined<T: Clone>(
         out.extend(pending[at..at + from_pending].iter().cloned());
     }
     out
-}
-
-/// How reading an Eagle folder fails, for the wizard (docs/spec.md §8.2 step 1).
-fn eagle_error(error: eagle_folder::EagleError) -> SourceError {
-    match error {
-        eagle_folder::EagleError::NotFound(_) => SourceError::NotFound,
-        eagle_folder::EagleError::NotAnEagleLibrary(_) => SourceError::NotALibrary { eagle: true },
-        other => SourceError::Invalid(format!("reading the Eagle library: {other}")),
-    }
 }
 
 #[cfg(test)]

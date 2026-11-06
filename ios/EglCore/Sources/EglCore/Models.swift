@@ -284,8 +284,41 @@ public struct ImportProgress: Codable, Equatable, Identifiable, Sendable {
     public var current: String?
     /// The duplicate that waits for an answer (state `waitingForDecision`).
     public var duplicate: DuplicateNotice?
+    /// What an Eagle import did, on its last progress (D-116).
+    public var report: EagleImportReport?
 
     public var isFinished: Bool { state == .done || state == .cancelled }
+}
+
+/// An item an import could not take, and why.
+public struct ImportFailure: Codable, Equatable, Sendable {
+    public var path: String
+    public var reason: String
+}
+
+/// What an Eagle import did (docs/spec.md §8.2 step 5).
+public struct EagleImportReport: Codable, Equatable, Sendable {
+    /// Items copied into the library, trash included when asked for.
+    public var imported: Int
+    /// Items whose content another item of this import already had (kept, as in Eagle).
+    public var duplicates: Int
+    /// Trashed Eagle items left out.
+    public var trashSkipped: Int
+    /// Items that could not be imported, with the reason (the first 200).
+    public var skipped: [ImportFailure]
+    /// Locked Eagle folders: imported locked with no password; their content stays hidden
+    /// until a password is set or the lock is removed.
+    public var lockedFolders: [String]
+}
+
+/// What the import screen shows for a picked Eagle library (D-116).
+public struct EagleLibrarySummary: Codable, Equatable, Sendable {
+    public var path: String
+    public var name: String
+    /// Items including Eagle's trash.
+    public var itemCount: Int
+    /// Bytes of the originals and Eagle's thumbnails.
+    public var bytes: Int
 }
 
 public enum ExportState: String, Codable, Sendable {

@@ -106,6 +106,59 @@ private struct AddPickers: ViewModifier {
     }
 }
 
+/// What an import is doing: adding files, or copying an Eagle library (D-116).
+struct ImportLabel: View {
+    let progress: ImportProgress
+
+    var body: some View {
+        if progress.kind == .eagle {
+            Text("eagle.importing \(progress.processed) \(progress.total)")
+        } else {
+            Text("library.adding \(progress.processed) \(progress.total)")
+        }
+    }
+}
+
+/// How an Eagle import ended: what came in, what did not, and the locked folders that came in
+/// without a password (D-116).
+struct EagleOutcomeAlert: ViewModifier {
+    let open: OpenLibrary
+
+    func body(content: Content) -> some View {
+        let title: LocalizedStringKey = open.eagleOutcome?.cancelled == true ? "eagle.stopped" : "eagle.done"
+        return content.alert(
+            title,
+            isPresented: Binding(get: { open.eagleOutcome != nil }, set: { if !$0 { open.eagleOutcome = nil } }),
+            presenting: open.eagleOutcome
+        ) { _ in
+            Button("common.ok") { open.eagleOutcome = nil }
+        } message: { outcome in
+            Text(Self.message(outcome))
+        }
+    }
+
+    static func message(_ outcome: EagleOutcome) -> String {
+        let report = outcome.report
+        var lines = [String(localized: "eagle.imported \(report.imported)")]
+        if report.duplicates > 0 {
+            lines.append(String(localized: "eagle.duplicates \(report.duplicates)"))
+        }
+        if !report.skipped.isEmpty {
+            lines.append(String(localized: "eagle.skipped \(report.skipped.count)"))
+        }
+        if report.trashSkipped > 0 {
+            lines.append(String(localized: "eagle.trashLeft \(report.trashSkipped)"))
+        }
+        if !report.lockedFolders.isEmpty {
+            lines.append(String(localized: "eagle.locked") + " " + report.lockedFolders.joined(separator: ", "))
+        }
+        if outcome.cancelled {
+            lines.append(String(localized: "eagle.resume"))
+        }
+        return lines.joined(separator: "\n")
+    }
+}
+
 /// While files are added: their progress, with a way to stop.
 struct ImportBanner: View {
     let open: OpenLibrary
@@ -116,7 +169,7 @@ struct ImportBanner: View {
                 ForEach(open.imports.values.sorted { $0.id < $1.id }) { progress in
                     HStack(spacing: 12) {
                         ProgressView(value: Double(progress.processed), total: Double(max(progress.total, 1))) {
-                            Text("library.adding \(progress.processed) \(progress.total)")
+                            ImportLabel(progress: progress)
                                 .font(.caption)
                         }
                         Button {
@@ -177,5 +230,9 @@ extension View {
 
     func duplicateQuestion(_ open: OpenLibrary) -> some View {
         modifier(DuplicateQuestion(open: open))
+    }
+
+    func eagleOutcome(_ open: OpenLibrary) -> some View {
+        modifier(EagleOutcomeAlert(open: open))
     }
 }

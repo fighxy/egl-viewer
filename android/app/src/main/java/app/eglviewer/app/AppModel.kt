@@ -9,6 +9,7 @@ import androidx.lifecycle.AndroidViewModel
 import androidx.lifecycle.viewModelScope
 import app.eglviewer.R
 import app.eglviewer.adding.PickedFile
+import app.eglviewer.core.EagleLibrarySummary
 import app.eglviewer.core.EglError
 import app.eglviewer.core.Library
 import app.eglviewer.core.PlatformDecoder
@@ -40,7 +41,13 @@ class AppModel(application: Application) : AndroidViewModel(application) {
      * explains and sends the user to the system setting, and [retryPendingAccess] opens it
      * when the app comes back with the access.
      */
-    data class PendingOpen(val file: File, val uri: Uri?)
+    data class PendingOpen(val file: File, val uri: Uri?, val eagle: Boolean = false)
+
+    /** An Eagle library picked for import, read and waiting for the user's go (D-116). */
+    data class EaglePlan(val file: File, val summary: EagleLibrarySummary)
+
+    var eaglePlan: EaglePlan? by mutableStateOf(null)
+        private set
 
     var pendingAccess: PendingOpen? by mutableStateOf(null)
         private set
@@ -142,6 +149,10 @@ class AppModel(application: Application) : AndroidViewModel(application) {
         val pending = pendingAccess ?: return
         if (!locations.canAccess(pending.file)) return
         pendingAccess = null
+        if (pending.eagle) {
+            run { readEagle(pending.file) }
+            return
+        }
         val uri = pending.uri
         if (uri != null) {
             openUri(uri)
@@ -157,6 +168,64 @@ class AppModel(application: Application) : AndroidViewModel(application) {
 
     fun dismissPendingAccess() {
         pendingAccess = null
+    }
+
+    // Importing an Eagle library (D-116)
+
+    /**
+     * Reads what the Eagle library picked in Files holds and asks before importing it. Eagle
+     * libraries usually sit in shared storage: without "All files access" the app asks first.
+     */
+    fun pickEagle(uri: Uri) {
+        run {
+            val path = locations.resolveFilesystemPath(uri)
+                ?: throw EglError(EglError.Code.STORAGE, string(R.string.error_saf_path))
+            val file = File(path)
+            if (!locations.canAccess(file)) {
+                pendingAccess = PendingOpen(file, uri, eagle = true)
+                return@run
+            }
+            readEagle(file)
+        }
+    }
+
+    private suspend fun readEagle(file: File) {
+        val summary = try {
+            withContext(Dispatchers.IO) { Library.eagleLibraryInfo(file) }
+        } catch (error: EglError) {
+            if (error.code == EglError.Code.NOT_A_LIBRARY || error.code == EglError.Code.NOT_FOUND) {
+                this.error = string(R.string.eagle_not_a_library)
+                return
+            }
+            throw error
+        }
+        eaglePlan = EaglePlan(file, summary)
+    }
+
+    fun cancelEagle() {
+        eaglePlan = null
+    }
+
+    /**
+     * Creates `name.eglib` in the app's storage (with a number when the name is taken), opens
+     * it and imports the Eagle library into it in the background. The Eagle folder is only read.
+     */
+    fun importEagle(plan: EaglePlan, named: String, importTrash: Boolean) {
+        eaglePlan = null
+        val name = named.trim()
+        if (name.isEmpty()) {
+            error = string(R.string.error_name_required)
+            return
+        }
+        run {
+            locations.ensureRoot()
+            val unique = locations.freeName(name)
+            val created = withContext(Dispatchers.IO) {
+                Library.create(locations.root, unique, appVersion)
+            }
+            openPath(created, uri = null, syncFolder = false)
+            openLibrary?.importEagle(plan.file, importTrash)
+        }
     }
 
     fun forget(recent: RecentLibrary) {

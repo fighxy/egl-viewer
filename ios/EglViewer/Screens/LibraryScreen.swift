@@ -98,7 +98,7 @@ struct LibraryScreen: View {
                                 value: Double(progress.processed),
                                 total: Double(max(progress.total, 1))
                             ) {
-                                Text("library.adding \(progress.processed) \(progress.total)")
+                                ImportLabel(progress: progress)
                             }
                         }
                     }
@@ -147,6 +147,7 @@ struct LibraryScreen: View {
             .addPickers(open, folder: nil, source: $adding)
         }
         .duplicateQuestion(open)
+        .eagleOutcome(open)
         .sheet(item: $folderEditing) { editing in
             FolderEditor(open: open, editing: editing)
         }

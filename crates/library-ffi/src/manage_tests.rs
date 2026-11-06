@@ -966,3 +966,117 @@ fn zip_with_a_password_and_seven_zip_through_the_c_abi() {
         assert!(written[0].ends_with(ends), "{written:?}");
     }
 }
+
+/// The Eagle fixture (fixtures/eagle-library) copied into `root`, with real images in place of
+/// the placeholder bytes.
+fn eagle_fixture(root: &Path) -> std::path::PathBuf {
+    fn copy(source: &Path, target: &Path) {
+        std::fs::create_dir_all(target).unwrap();
+        for entry in std::fs::read_dir(source).unwrap().flatten() {
+            let to = target.join(entry.file_name());
+            if entry.file_type().unwrap().is_dir() {
+                copy(&entry.path(), &to);
+            } else {
+                std::fs::copy(entry.path(), to).unwrap();
+            }
+        }
+    }
+    let source = Path::new(env!("CARGO_MANIFEST_DIR"))
+        .join("../../fixtures/eagle-library/Synthetic.library");
+    let target = root.join("Synthetic.library");
+    copy(&source, &target);
+    let images = target.join("images");
+    for (file, seed) in [
+        ("EITEMPOSTER1.info/sunset-poster.jpg", 1),
+        ("EITEMPOSTER2.info/duplicate-poster.jpg", 1),
+        ("EITEMTRASH1.info/old-draft.jpg", 3),
+        ("EITEMLOOSE01.info/loose-photo.jpg", 5),
+    ] {
+        std::fs::write(images.join(file), fixtures::jpeg(96, 64, seed)).unwrap();
+    }
+    for (file, seed) in [
+        ("EITEMLOCKED1.info/secret-scan.png", 2),
+        ("EITEMNOTHUMB1.info/tiny-icon.png", 4),
+    ] {
+        std::fs::write(
+            images.join(file),
+            fixtures::raster(ImageFormat::Png, 96, 64, seed),
+        )
+        .unwrap();
+    }
+    for (file, seed) in [
+        ("EITEMLOCKED1.info/secret-scan_thumbnail.png", 12),
+        ("EITEMTRASH1.info/old-draft_thumbnail.png", 13),
+        ("EITEMLOOSE01.info/loose-photo_thumbnail.png", 15),
+    ] {
+        std::fs::write(
+            images.join(file),
+            fixtures::raster(ImageFormat::Png, 32, 32, seed),
+        )
+        .unwrap();
+    }
+    target
+}
+
+/// D-116: the phones read what an Eagle library holds, then import it into a new library.
+#[test]
+fn an_eagle_library_is_summarised_and_imported_through_the_c_abi() {
+    let f = fixture();
+    let eagle = eagle_fixture(f.dir.path());
+
+    let path = cstring(eagle.to_str().unwrap());
+    let mut out = ptr::null_mut();
+    assert_eq!(
+        unsafe { egl_eagle_library_info(path.as_ptr(), &mut out) },
+        EglStatus::Ok
+    );
+    let summary = take(out);
+    assert_eq!(summary["name"], "Synthetic");
+    assert!(summary["itemCount"].as_u64().unwrap() > 0, "{summary}");
+    assert!(summary["bytes"].as_u64().unwrap() > 0, "{summary}");
+
+    // A folder that is not an Eagle library says so and writes nothing.
+    let plain = cstring(f.dir.path().to_str().unwrap());
+    let mut out = ptr::null_mut();
+    assert_eq!(
+        unsafe { egl_eagle_library_info(plain.as_ptr(), &mut out) },
+        EglStatus::NotALibrary
+    );
+    let reason = unsafe { CStr::from_ptr(crate::egl_last_error_global()) }
+        .to_string_lossy()
+        .into_owned();
+    assert!(reason.contains("not an Eagle library"), "{reason}");
+
+    let request = cstring(
+        &serde_json::json!({ "path": eagle.to_str().unwrap(), "importTrash": false }).to_string(),
+    );
+    let ticket = json(f.lib, |out| unsafe {
+        egl_import_eagle(f.lib, request.as_ptr(), out)
+    });
+    let id = ticket["id"].as_u64().unwrap();
+    let done = wait_for(f.lib, id, &["done", "cancelled"]);
+    assert_eq!(done["state"], "done", "{done}");
+    assert_eq!(done["kind"], "eagle");
+    let report = &done["report"];
+    assert!(report["imported"].as_u64().unwrap() >= 4, "{report}");
+    assert_eq!(report["lockedFolders"], serde_json::json!(["Secret"]));
+    assert_eq!(report["trashSkipped"], 1);
+
+    // The Eagle folders sit at the root of the new library.
+    let tree = json(f.lib, |out| unsafe { egl_folder_tree(f.lib, out) });
+    let names: Vec<&str> = tree
+        .as_array()
+        .unwrap()
+        .iter()
+        .filter_map(|folder| folder["name"].as_str())
+        .collect();
+    assert!(names.contains(&"Posters"), "{names:?}");
+    assert!(!names.contains(&"Synthetic"), "{names:?}");
+
+    let bad = cstring(r#"{"path":"/nowhere/Missing.library"}"#);
+    let mut out = ptr::null_mut();
+    assert_ne!(
+        unsafe { egl_import_eagle(f.lib, bad.as_ptr(), &mut out) },
+        EglStatus::Ok
+    );
+}
