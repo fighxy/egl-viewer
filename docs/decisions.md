@@ -2522,3 +2522,28 @@ linked with `-L -l`, and on the host the path exists anyway.
   the three languages, instead of "build libegl_library.so with cargo-ndk", which is for
   developers.
 - 0.2.5's APK cannot be fixed in place: the next Android release carries this.
+
+## D-117 The library folder shows the app's icon on Windows and Linux (2026-11-06)
+
+A `.eglib` stays a plain folder (D-016); the question of a single-file library was settled
+against it (crash-safe adds, originals readable without the app, incremental backups). Asked
+for only a recognisable icon, the desktop now gives the folder the app's icon where the file
+manager reads one from the folder itself:
+
+- **Windows:** a hidden `.egl-icon.ico` (the app's `icon.ico`) and a hidden, system
+  `desktop.ini` pointing at it by a relative path, so a moved or copied library keeps the icon;
+  the folder gets the system attribute, which is what makes Explorer read `desktop.ini` (the
+  read-only attribute would do it too, but gets in the way of deleting the folder). The
+  attributes are set with `attrib`, since the crate forbids the unsafe Win32 call.
+- **Linux:** `.directory` with `Icon=./.egl-icon.png` (the 128 px app icon), which KDE's Dolphin
+  reads. GNOME's Nautilus keeps custom folder icons in its own metadata, not in the folder, so it
+  shows a plain folder.
+- **Not on macOS, iOS or Android.** On macOS and iOS a folder takes an icon only when its type
+  is registered as a package, which would also show the library as one item; that was declined.
+  Android file managers take no icon from a folder.
+- **When.** On every open of a library this instance writes, so a library made before gets the
+  icon too. The files are written only when missing and never replace one that is there (a
+  user's own `.directory` stays theirs); a read-only library (another instance, a sync folder)
+  is left untouched. A failure is logged and the library opens anyway.
+- They are cosmetic files of the format (docs/library-format.md §1): nothing reads them, and
+  Check Library walks only `files/` and `thumbs/`.

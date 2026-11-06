@@ -10,6 +10,7 @@ mod eagle_import;
 mod edits;
 mod error;
 mod export;
+mod folder_icon;
 mod folders;
 mod fsutil;
 mod import;
@@ -67,6 +68,7 @@ pub use create::create_library;
 pub use detect::{is_native_library, looks_like_eagle_library};
 pub use eagle_import::{EagleImportOptions, import_eagle};
 pub use export::{decrypt_archive, export_items, export_preview};
+pub use folder_icon::{FolderIcon, decorate_library_folder};
 pub use import::{
     DuplicateChoice, DuplicatePolicy, ImportFilter, ImportObserver, ImportTarget, files_to_add,
     import_files, make_pending_previews, preview_threads,

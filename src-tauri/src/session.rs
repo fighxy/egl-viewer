@@ -38,6 +38,12 @@ use crate::views::{
 use crate::webauthn::SystemWebAuthn;
 use crate::yubikey;
 
+/// The app's icon, for the library folder in the file manager (D-117).
+const FOLDER_ICON: library_native::FolderIcon<'static> = library_native::FolderIcon {
+    ico: include_bytes!("../icons/icon.ico"),
+    png: include_bytes!("../icons/128x128.png"),
+};
+
 /// What the app does on start: the reopened library, or why it shows Welcome instead.
 #[derive(Debug, Clone, PartialEq, Serialize, TS)]
 #[serde(rename_all = "camelCase")]
@@ -191,6 +197,11 @@ impl Session {
         };
         let key = display_path(&path);
         let info = self.service.open_library(Path::new(&key), sync_folder)?;
+        // The app's icon on the folder in Explorer and Dolphin (D-117), on a library this
+        // instance writes; a library made before gets it on its next open.
+        if info.read_only_reason.is_none() {
+            library_native::decorate_library_folder(Path::new(&key), &FOLDER_ICON);
+        }
         // One source at a time (docs/spec.md §8.3): a live Eagle connection ends here.
         lock(&self.eagle).take();
         lock(&self.pending).clear();
@@ -1456,6 +1467,15 @@ mod tests {
         assert_eq!(recent[0].name, "Refs");
         assert!(recent[0].path.ends_with("Refs.eglib"));
         assert_eq!(f.session.current().unwrap().id, info.id);
+        // D-117: the folder shows the app's icon in Explorer and Dolphin.
+        let root = Path::new(&recent[0].path);
+        if cfg!(windows) {
+            assert!(root.join("desktop.ini").is_file());
+            assert!(root.join(".egl-icon.ico").is_file());
+        } else if cfg!(target_os = "linux") {
+            assert!(root.join(".directory").is_file());
+            assert!(root.join(".egl-icon.png").is_file());
+        }
     }
 
     #[test]
@@ -1527,6 +1547,15 @@ mod tests {
         f.session.shutdown();
         let moved = cloud.join("Moved.eglib");
         fs::rename(f.home.path().join("Moved.eglib"), &moved).unwrap();
+        // A read-only library gets no icon files (D-117): it is written by nobody.
+        for name in [
+            ".directory",
+            ".egl-icon.png",
+            ".egl-icon.ico",
+            "desktop.ini",
+        ] {
+            let _ = fs::remove_file(moved.join(name));
+        }
 
         let g = fixture_with(SyncEnvironment {
             roots: vec![cloud.clone()],
@@ -1539,6 +1568,7 @@ mod tests {
         );
         let info = g.session.open_library(&moved.to_string_lossy()).unwrap();
         assert_eq!(info.read_only_reason, Some(ReadOnlyReason::SyncFolder));
+        assert!(!moved.join(".directory").exists() && !moved.join("desktop.ini").exists());
         assert_eq!(
             g.session.open_library(r"\\nas\share\Lib.eglib"),
             Err(SourceError::UnsupportedLocation(

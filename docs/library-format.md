@@ -21,6 +21,8 @@ My Library.eglib/
     7Q/01JB…7Q/IMG_1042.jpg     originals: <shard>/<item id>/<stored file name>
   thumbs/7Q/01JB…7Q.webp        thumbnails (phase 2): regenerable, may be deleted at any time
   backups/library-2026-10-28.db copies of library.db (VACUUM INTO), the last 10 kept
+  desktop.ini, .egl-icon.ico    Windows only, hidden: the app's icon on the folder (D-117)
+  .directory, .egl-icon.png     Linux only: the same for KDE's Dolphin (D-117)
 ```
 
 - **Shard:** the last two characters of the item id (a ULID in Crockford base32), so at most
@@ -31,6 +33,9 @@ My Library.eglib/
   `Pasted 2026-10-28 10-42-05.png`.
 - **Paths** in the database are relative to the library folder, with `/` separators. A closed
   library can be moved or copied as one folder.
+- **Folder icon.** The desktop writes the icon files once, when they are missing, on a library
+  it opens for writing; it never replaces a file that is there. They are cosmetic: no part of
+  the format reads them, Check Library ignores them, and a library without them is complete.
 - **Recognition.** A folder is a library when it holds `library.db` whose header carries the
   application id and a format version the app knows (§2). The `.eglib` suffix is a convention
   for people and the folder picker (D-016).
