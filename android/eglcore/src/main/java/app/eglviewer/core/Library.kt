@@ -542,7 +542,7 @@ class Library private constructor(private var handle: Long) : AutoCloseable {
     }
 
     companion object {
-        const val APP_VERSION_DEFAULT = "0.2.3-android"
+        const val APP_VERSION_DEFAULT = "0.2.5-android"
 
         /** handle → live Library, for the JNI event trampoline. */
         private val activeLibraries = ConcurrentHashMap<Long, Library>()

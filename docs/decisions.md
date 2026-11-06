@@ -2485,3 +2485,10 @@ older than the minimum release age, D-003), with `default-features = false` and 
   read back with `zip` and `sevenz-rust2` (wrong and right passwords, no names in the bytes of
   an encrypted 7z, cancel, failure cleanup), the C ABI with both formats, the JSON shapes in Swift
   and Kotlin, and the desktop dialog's request.
+
+## D-114 Version 0.2.5 (2026-11-06)
+
+- **Version 0.2.5 everywhere:** the workspace crates (and `Cargo.lock`), the desktop
+  (`tauri.conf.json`, `ui/package.json`), Android (`versionName`, the version the shell gives
+  the core) and iOS (`MARKETING_VERSION`). Release tags: `v0.2.5`, `ios-v0.2.5`,
+  `android-v0.2.5` (first Android release).
