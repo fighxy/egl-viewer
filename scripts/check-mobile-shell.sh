@@ -134,6 +134,8 @@ need android/app/src/main/res/mipmap-xxxhdpi/ic_launcher.png
 need android/app/ic_launcher-playstore.png
 need scripts/android-release-version.sh
 need scripts/check-android-jni.sh
+need scripts/check-android-apk.sh
+need crates/library-ffi/build.rs
 need android/eglcore/src/hostTest/java/app/eglviewer/core/HostJniTest.java
 need android/eglcore/src/hostTest/java/runner/Runner.java
 

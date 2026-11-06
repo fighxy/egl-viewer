@@ -218,7 +218,13 @@ class AppModel(application: Application) : AndroidViewModel(application) {
                 EglError.Code.READ_ONLY -> string(R.string.error_read_only)
                 EglError.Code.WRONG_PASSWORD -> string(R.string.error_wrong_password)
                 EglError.Code.UNSUPPORTED ->
-                    if (error.message.isNotEmpty()) error.message else string(R.string.error_core_missing)
+                    if (!nativeLinked) {
+                        // The loader's own words help a bug report more than any guess (D-115).
+                        listOfNotNull(string(R.string.error_core_missing), Library.nativeLoadError)
+                            .joinToString("\n\n")
+                    } else {
+                        error.message.ifEmpty { string(R.string.error_generic) }
+                    }
                 else -> error.message.ifEmpty { string(R.string.error_generic) }
             }
         }

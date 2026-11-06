@@ -8,12 +8,18 @@ internal object EglNative {
     var isAvailable: Boolean = false
         private set
 
+    /** Why the bridge did not load, as the system's loader said it (D-115). */
+    @Volatile
+    var loadError: String? = null
+        private set
+
     init {
         try {
             System.loadLibrary("egl_jni")
             isAvailable = true
-        } catch (_: UnsatisfiedLinkError) {
+        } catch (error: UnsatisfiedLinkError) {
             isAvailable = false
+            loadError = error.message ?: error.toString()
         }
     }
 
