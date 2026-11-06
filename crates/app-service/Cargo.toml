@@ -8,6 +8,7 @@ license.workspace = true
 publish.workspace = true
 
 [dependencies]
+eagle-folder.workspace = true
 library-core.workspace = true
 library-native.workspace = true
 media.workspace = true

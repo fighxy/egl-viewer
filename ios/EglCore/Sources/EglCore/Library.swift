@@ -66,6 +66,17 @@ public final class Library: @unchecked Sendable {
         return try JSONDecoder().decode(DecryptedArchive.self, from: Data(String(cString: out).utf8))
     }
 
+    /// The name, item count and size of the Eagle library folder at `url` (D-116); writes
+    /// nothing. Throws `notALibrary` for a folder that is not one. Walks the originals for the
+    /// size: call it off the main thread.
+    public static func eagleLibraryInfo(at url: URL) throws -> EagleLibrarySummary {
+        var out: UnsafeMutablePointer<CChar>?
+        let status = url.path.withCString { egl_eagle_library_info($0, &out) }
+        guard status == EGL_OK, let out else { throw globalError(status) }
+        defer { egl_string_free(out) }
+        return try JSONDecoder().decode(EagleLibrarySummary.self, from: Data(String(cString: out).utf8))
+    }
+
     public static func create(in parent: URL, name: String, appVersion: String) throws -> URL {
         var out: UnsafeMutablePointer<CChar>?
         let status = parent.path.withCString { parent in
@@ -361,6 +372,21 @@ public final class Library: @unchecked Sendable {
         }
         let request = try encode(Request(paths: urls.map(\.path), folder: folder))
         return try request.withCString { request in try json { egl_add_files($0, request, $1) } }
+    }
+
+    /// Imports the Eagle library folder at `url` into this library in the background
+    /// (D-116); progress comes as events like adding files, the last one with the report.
+    /// `underRootFolder` puts the Eagle folders under a new folder named after it.
+    public func importEagle(at url: URL, importTrash: Bool = false, underRootFolder: Bool = false) throws
+        -> ImportTicket
+    {
+        struct Request: Encodable {
+            let path: String
+            let importTrash: Bool
+            let underRootFolder: Bool
+        }
+        let request = try encode(Request(path: url.path, importTrash: importTrash, underRootFolder: underRootFolder))
+        return try request.withCString { request in try json { egl_import_eagle($0, request, $1) } }
     }
 
     /// The progress of import `id`; nil while it has not reported yet.

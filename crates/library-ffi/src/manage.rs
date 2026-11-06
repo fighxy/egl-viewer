@@ -62,6 +62,47 @@ pub unsafe extern "C" fn egl_add_files(
     }
 }
 
+#[derive(Debug, Deserialize)]
+#[serde(rename_all = "camelCase")]
+struct EagleImportRequest {
+    path: String,
+    #[serde(default)]
+    import_trash: bool,
+    #[serde(default)]
+    under_root_folder: bool,
+}
+
+/// Imports an Eagle library folder into this library in a background task (docs/spec.md §8.2,
+/// D-116). `request_json`: `{"path":"/abs/Name.library","importTrash":false,
+/// "underRootFolder":false}`; `underRootFolder` puts the Eagle folders under a new root folder
+/// named after the Eagle library (for a library already in use). `*out_json` is `{"id":N}`;
+/// progress comes as `importProgress` events (kind `eagle`), the last one with the report.
+/// The Eagle folder is only read. A folder that is not an Eagle library is
+/// `EGL_ERR_NOT_A_LIBRARY`.
+///
+/// # Safety
+/// `lib` is a live handle; the string is NUL-terminated UTF-8; `out_json` is writable.
+#[unsafe(no_mangle)]
+pub unsafe extern "C" fn egl_import_eagle(
+    lib: *mut EglLibrary,
+    request_json: *const c_char,
+    out_json: *mut *mut c_char,
+) -> EglStatus {
+    // SAFETY: the caller's handle, string and out pointer.
+    unsafe {
+        with_lib(lib, |handle| {
+            let request: EagleImportRequest =
+                tri!(parse(handle, request_json, "Eagle import request JSON"));
+            let ticket = handle.service.import_eagle(
+                std::path::Path::new(&request.path),
+                request.import_trash,
+                request.under_root_folder,
+            );
+            reply(handle, out_json, ticket, "import ticket")
+        })
+    }
+}
+
 /// Answers the duplicate question of import `id` (state `waitingForDecision`). `answer_utf8`:
 /// `skip` | `addAnyway` | `addToFolder` | `cancel`. The first answer holds for the batch.
 ///

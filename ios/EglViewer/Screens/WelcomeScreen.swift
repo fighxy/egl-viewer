@@ -1,11 +1,16 @@
 import SwiftUI
+import UniformTypeIdentifiers
 
-/// Create a library in On My iPhone, open one from Files, or reopen a recent one.
+/// Create a library in On My iPhone, open one from Files, import an Eagle library (D-116), or
+/// reopen a recent one.
 struct WelcomeScreen: View {
     @Environment(AppModel.self) private var model
     @State private var creating = false
-    @State private var picking = false
+    @State private var picking: Picking?
     @State private var settings = false
+
+    /// What the Files picker is open for: one picker serves both, as SwiftUI allows one.
+    private enum Picking { case library, eagle }
 
     var body: some View {
         NavigationStack {
@@ -18,13 +23,24 @@ struct WelcomeScreen: View {
                     }
                     .accessibilityIdentifier("welcome.create")
                     Button {
-                        picking = true
+                        picking = .library
                     } label: {
                         Label("welcome.open", systemImage: "folder")
                     }
                     .accessibilityIdentifier("welcome.open")
                 } footer: {
                     Text("welcome.hint")
+                }
+
+                Section {
+                    Button {
+                        picking = .eagle
+                    } label: {
+                        Label("welcome.importEagle", systemImage: "square.and.arrow.down.on.square")
+                    }
+                    .accessibilityIdentifier("welcome.importEagle")
+                } footer: {
+                    Text("welcome.importEagleHint")
                 }
 
                 if !model.recents.isEmpty {
@@ -84,14 +100,20 @@ struct WelcomeScreen: View {
             .sheet(isPresented: $creating) {
                 CreateLibrarySheet()
             }
+            .sheet(item: Binding(get: { model.eagleImport }, set: { if $0 == nil { model.cancelEagle() } })) { plan in
+                EagleImportSheet(plan: plan)
+            }
             .fileImporter(
-                isPresented: $picking,
-                allowedContentTypes: LibraryLocations.openTypes,
+                isPresented: Binding(get: { picking != nil }, set: { if !$0 { picking = nil } }),
+                allowedContentTypes: picking == .eagle ? [.folder] : LibraryLocations.openTypes,
                 allowsMultipleSelection: false
-            ) { result in
+            ) { [picking] result in
                 switch result {
                 case let .success(urls):
-                    if let url = urls.first {
+                    guard let url = urls.first else { return }
+                    if picking == .eagle {
+                        Task { await model.pickEagle(url) }
+                    } else {
                         Task { await model.open(picked: url) }
                     }
                 case let .failure(error):
@@ -162,5 +184,60 @@ struct CreateLibrarySheet: View {
         let name = name
         dismiss()
         Task { await model.create(named: name) }
+    }
+}
+
+/// What an Eagle library holds, the name of the new library and whether Eagle's trash comes
+/// too; Import creates the library on this iPhone and copies the Eagle library into it (D-116).
+struct EagleImportSheet: View {
+    let plan: EaglePlan
+    @Environment(AppModel.self) private var model
+    @State private var name = ""
+    @State private var importTrash = false
+
+    var body: some View {
+        NavigationStack {
+            Form {
+                Section {
+                    LabeledContent("eagle.library") {
+                        Text(verbatim: plan.summary.name)
+                    }
+                    LabeledContent("eagle.items") {
+                        Text(verbatim: "\(plan.summary.itemCount)")
+                    }
+                    LabeledContent("eagle.size") {
+                        Text(verbatim: ByteCountFormatter.string(
+                            fromByteCount: Int64(plan.summary.bytes), countStyle: .file
+                        ))
+                    }
+                }
+                Section {
+                    TextField("eagle.name", text: $name)
+                        .textInputAutocapitalization(.words)
+                        .accessibilityIdentifier("eagle.name")
+                    Toggle("eagle.trash", isOn: $importTrash)
+                        .accessibilityIdentifier("eagle.trash")
+                } footer: {
+                    Text("eagle.hint")
+                }
+            }
+            .navigationTitle("eagle.title")
+            .navigationBarTitleDisplayMode(.inline)
+            .toolbar {
+                ToolbarItem(placement: .cancellationAction) {
+                    Button("common.cancel") { model.cancelEagle() }
+                }
+                ToolbarItem(placement: .confirmationAction) {
+                    Button("eagle.confirm") {
+                        let (plan, name, importTrash) = (plan, name, importTrash)
+                        Task { await model.importEagle(plan, named: name, importTrash: importTrash) }
+                    }
+                    .disabled(name.trimmingCharacters(in: .whitespaces).isEmpty)
+                    .accessibilityIdentifier("eagle.confirm")
+                }
+            }
+            .onAppear { name = plan.summary.name }
+        }
+        .presentationDetents([.medium, .large])
     }
 }

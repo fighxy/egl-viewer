@@ -220,6 +220,24 @@ class Library private constructor(private var handle: Long) : AutoCloseable {
         return ImportTicket.fromJson(json)
     }
 
+    /**
+     * Imports the Eagle library folder [eagle] into this library in the background (D-116);
+     * progress comes as [LibraryEvent.ImportProgress] like adding files, the last one with
+     * [ImportProgress.report]. [underRootFolder] puts the Eagle folders under a new folder
+     * named after the Eagle library. The Eagle folder is only read.
+     */
+    fun importEagle(eagle: File, importTrash: Boolean = false, underRootFolder: Boolean = false): ImportTicket {
+        ensureOpen()
+        val request = org.json.JSONObject()
+            .put("path", eagle.absolutePath)
+            .put("importTrash", importTrash)
+            .put("underRootFolder", underRootFolder)
+        val json = EglNative.importEagle(handle, request.toString())
+        val status = EglNative.lastStatus()
+        if (json.isNullOrEmpty()) throw error(status)
+        return ImportTicket.fromJson(json)
+    }
+
     fun importStatus(id: Long): ImportProgress? {
         ensureOpen()
         val json = EglNative.importStatus(handle, id)
@@ -589,6 +607,25 @@ class Library private constructor(private var handle: Long) : AutoCloseable {
                 )
             }
             return DecryptedArchive.fromJson(json)
+        }
+
+        /**
+         * The name, item count and size of the Eagle library folder [path] (D-116); writes
+         * nothing. [EglError.Code.NOT_A_LIBRARY] for a folder that is not one. Walks the
+         * originals for the size: call it off the main thread.
+         */
+        @JvmStatic
+        fun eagleLibraryInfo(path: File): EagleLibrarySummary {
+            requireNative()
+            val json = EglNative.eagleLibraryInfo(path.absolutePath)
+            val status = EglNative.lastStatus()
+            if (json.isNullOrEmpty()) {
+                throw EglError.of(
+                    if (status == 0) EglError.Code.OTHER.raw else status,
+                    EglNative.lastErrorGlobal(),
+                )
+            }
+            return EagleLibrarySummary.fromJson(json)
         }
 
         /** Opens a library folder; [syncFolder] opens it read-only (cloud / synced places). */

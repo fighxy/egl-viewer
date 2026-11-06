@@ -114,6 +114,37 @@ public final class HostJniTest {
             String right = EglNative.decryptArchive(archive.toString(), unsealed.toString(), secret);
             check(right != null && right.contains(".zip\""), "the archive decrypts to a ZIP: " + right);
         }
+
+        // D-116: an Eagle library with a non-ASCII name is read, then imported.
+        Path eagle = Files.createDirectories(dir.resolve("Мой Eagle 🦅.library/images/EIMG1.info"))
+            .getParent().getParent();
+        Files.writeString(eagle.resolve("metadata.json"), "{\"folders\":[{\"id\":\"FP\",\"name\":\"Плакаты\","
+            + "\"children\":[]}],\"smartFolders\":[],\"tagsGroups\":[],\"quickAccess\":[],\"modificationTime\":1}");
+        Files.writeString(eagle.resolve("mtime.json"), "{\"EIMG1\":2,\"all\":1}");
+        Files.writeString(eagle.resolve("tags.json"), "{\"historyTags\":[],\"starredTags\":[]}");
+        Path item = eagle.resolve("images/EIMG1.info");
+        Files.copy(png, item.resolve("постер.png"));
+        Files.writeString(item.resolve("metadata.json"), "{\"id\":\"EIMG1\",\"name\":\"постер\",\"size\":"
+            + Files.size(png) + ",\"btime\":1,\"mtime\":1,\"ext\":\"png\",\"tags\":[\"тёплый\"],"
+            + "\"folders\":[\"FP\"],\"isDeleted\":false,\"url\":\"\",\"annotation\":\"\",\"modificationTime\":1,"
+            + "\"noThumbnail\":true,\"palettes\":[],\"lastModified\":2}");
+        String summary = EglNative.eagleLibraryInfo(eagle.toString());
+        check(summary != null && summary.contains("\"name\":\"Мой Eagle 🦅\"") && summary.contains("\"itemCount\":1"),
+            "the Eagle library is read: " + summary + " " + EglNative.lastErrorGlobal());
+        String notEagle = EglNative.eagleLibraryInfo(dir.toString());
+        check(notEagle == null && EglNative.lastStatus() == 4,
+            "a plain folder is not an Eagle library: " + EglNative.lastErrorGlobal());
+        String eagleTicket = EglNative.importEagle(handle, "{\"path\":" + quote(eagle.toString()) + "}");
+        check(eagleTicket != null, "the Eagle import starts (" + EglNative.lastErrorGlobal() + ")");
+        if (eagleTicket != null) {
+            long eagleId = Long.parseLong(eagleTicket.replaceAll("\\D+", ""));
+            waitFor(handle, eagleId);
+            String done = EglNative.importStatus(handle, eagleId);
+            check(done != null && done.contains("\"imported\":1"), "the Eagle import reports one item: " + done);
+            String tree = EglNative.folderTree(handle);
+            check(tree != null && tree.contains("Плакаты"), "the Eagle folder came in: " + tree);
+        }
+
         EglNative.setPlatformDecoder(false);
         EglNative.close(handle);
         return finish();

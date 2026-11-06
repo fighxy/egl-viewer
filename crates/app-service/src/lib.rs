@@ -8,6 +8,7 @@
 //! network folders (`app_store::check_location`), a phone checks its own containers. The
 //! service opens what it is given, read-only when told it is synced.
 
+mod eagle;
 mod events;
 mod service;
 mod source;
@@ -19,6 +20,7 @@ mod tests;
 use std::sync::{Mutex, MutexGuard, PoisonError};
 use std::time::{SystemTime, UNIX_EPOCH};
 
+pub use eagle::{EagleLibrarySummary, eagle_error, eagle_library_info};
 pub use events::{
     Emit, Event, ItemsTarget, ScopeProgress, ViewOpened, ViewsInvalidated, count, invalidated,
 };

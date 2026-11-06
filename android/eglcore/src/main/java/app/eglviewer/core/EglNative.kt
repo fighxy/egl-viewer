@@ -59,6 +59,7 @@ internal object EglNative {
 
     // Adding (Android A4 ≈ D-096)
     external fun addFiles(handle: Long, requestJson: String): String?
+    external fun importEagle(handle: Long, requestJson: String): String?
     external fun answerImport(handle: Long, id: Long, answer: String): Int
     external fun cancelImport(handle: Long, id: Long): Int
     external fun importStatus(handle: Long, id: Long): String?
@@ -112,4 +113,5 @@ internal object EglNative {
 
     // Decrypt Archive (D-110 / D-111): no library handle.
     external fun decryptArchive(source: String, destination: String, passphrase: String): String?
+    external fun eagleLibraryInfo(path: String): String?
 }

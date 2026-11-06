@@ -40,6 +40,17 @@ struct LibraryLocations {
             .sorted { $0.lastPathComponent.localizedStandardCompare($1.lastPathComponent) == .orderedAscending }
     }
 
+    /// `name`, or `name 2`, `name 3`… when a library of that name is already here.
+    func freeName(_ name: String) -> String {
+        var candidate = name
+        var number = 2
+        while FileManager.default.fileExists(atPath: root.appendingPathComponent("\(candidate).eglib").path) {
+            candidate = "\(name) \(number)"
+            number += 1
+        }
+        return candidate
+    }
+
     /// Inside the app's own container: no bookmark needed, and never synced.
     func isLocal(_ url: URL) -> Bool {
         url.standardizedFileURL.path.hasPrefix(root.standardizedFileURL.path)

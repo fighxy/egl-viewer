@@ -275,6 +275,26 @@ Java_app_eglviewer_core_EglNative_createLibrary(JNIEnv *env, jclass,
 }
 
 /* Decrypt Archive (D-110 / D-111): no library handle; DecryptedArchive JSON or null. */
+// What an Eagle library folder holds (D-116); no library handle.
+extern "C" JNIEXPORT jstring JNICALL
+Java_app_eglviewer_core_EglNative_eagleLibraryInfo(JNIEnv *env, jclass, jstring path) {
+#if defined(EGL_HAS_RUST)
+  Utf8 path_arg(env, path);
+  char *json = nullptr;
+  EglStatus status = egl_eagle_library_info(path_arg.get(), &json);
+  set_status(static_cast<int>(status));
+  if (status != EGL_OK || json == nullptr) {
+    return nullptr;
+  }
+  return take_c_string(env, json);
+#else
+  (void)env;
+  (void)path;
+  set_status(6);
+  return nullptr;
+#endif
+}
+
 extern "C" JNIEXPORT jstring JNICALL
 Java_app_eglviewer_core_EglNative_decryptArchive(JNIEnv *env, jclass,
                                                  jstring source, jstring destination,
@@ -866,6 +886,29 @@ Java_app_eglviewer_core_EglNative_originalBytes(JNIEnv *env, jclass, jlong handl
 }
 
 /* ---- Adding files (Android A4 ≈ iOS D-096) -------------------------------- */
+
+// Imports an Eagle library folder into the open library (D-116).
+extern "C" JNIEXPORT jstring JNICALL
+Java_app_eglviewer_core_EglNative_importEagle(JNIEnv *env, jclass, jlong handle,
+                                              jstring requestJson) {
+#if defined(EGL_HAS_RUST)
+  Utf8 req_arg(env, requestJson);
+  char *out = nullptr;
+  EglStatus status =
+      egl_import_eagle(reinterpret_cast<EglLibrary *>(handle), req_arg.get(), &out);
+  set_status(static_cast<int>(status));
+  if (status != EGL_OK || out == nullptr) {
+    return nullptr;
+  }
+  return take_c_string(env, out);
+#else
+  (void)env;
+  (void)handle;
+  (void)requestJson;
+  set_status(6);
+  return nullptr;
+#endif
+}
 
 extern "C" JNIEXPORT jstring JNICALL
 Java_app_eglviewer_core_EglNative_addFiles(JNIEnv *env, jclass, jlong handle,

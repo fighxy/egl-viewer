@@ -320,6 +320,40 @@ final class EglCoreTests: XCTestCase {
         XCTAssertFalse(ExportFormat.mirror.isArchive)
     }
 
+    /// D-116: the phones read what an Eagle library holds, then import it into a new library.
+    func testAnEagleLibraryIsSummarisedAndImported() throws {
+        let eagle = URL(fileURLWithPath: #filePath)
+            .deletingLastPathComponent()
+            .appendingPathComponent("../../../../fixtures/eagle-library/Synthetic.library")
+            .standardizedFileURL
+        let summary = try Library.eagleLibraryInfo(at: eagle)
+        XCTAssertEqual(summary.name, "Synthetic")
+        XCTAssertGreaterThan(summary.itemCount, 0)
+        XCTAssertThrowsError(try Library.eagleLibraryInfo(at: dir)) { error in
+            XCTAssertEqual((error as! EglError).code, .notALibrary)
+        }
+
+        let library = try openNew("Imported")
+        let heard = Heard()
+        try library.setEventHandler { heard.add($0) }
+        let ticket = try library.importEagle(at: eagle)
+        let deadline = Date().addingTimeInterval(60)
+        var done: ImportProgress?
+        while done == nil {
+            for case let .importProgress(progress) in heard.events where progress.id == ticket.id && progress.isFinished {
+                done = progress
+            }
+            XCTAssertLessThan(Date(), deadline, "the import never ended")
+            Thread.sleep(forTimeInterval: 0.05)
+        }
+        XCTAssertEqual(done?.state, .done)
+        XCTAssertEqual(done?.kind, .eagle)
+        let report = try XCTUnwrap(done?.report)
+        XCTAssertGreaterThan(report.imported, 0)
+        XCTAssertEqual(report.lockedFolders, ["Secret"])
+        XCTAssertTrue(try library.folders().contains { $0.name == "Posters" })
+    }
+
     func testMaintenanceAndAnEncryptedExport() throws {
         let library = try openNew()
         let heard = Heard()

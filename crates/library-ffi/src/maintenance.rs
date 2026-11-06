@@ -332,3 +332,44 @@ pub unsafe extern "C" fn egl_decrypt_archive(
         }
     })
 }
+
+/// What the import wizard shows for the Eagle library folder at `path_utf8` (docs/spec.md §8.2
+/// step 1, D-116): `EagleLibrarySummary` {"path","name","itemCount","bytes"}. Needs no library
+/// handle and writes nothing. `EGL_ERR_NOT_A_LIBRARY` when the folder is not an Eagle library,
+/// with the reason in `egl_last_error_global()`. Walks `images/` for the size: run it off the
+/// UI thread.
+///
+/// # Safety
+/// The string is NUL-terminated UTF-8; `out_json` is writable.
+#[unsafe(no_mangle)]
+pub unsafe extern "C" fn egl_eagle_library_info(
+    path_utf8: *const c_char,
+    out_json: *mut *mut c_char,
+) -> EglStatus {
+    guarded(set_global_error, || {
+        // SAFETY: the caller's string.
+        let Ok(path) = (unsafe { c_str(path_utf8) }) else {
+            set_global_error("the Eagle library folder is required");
+            return EglStatus::Invalid;
+        };
+        match app_service::eagle_library_info(Path::new(path)) {
+            // SAFETY: the caller's out pointer.
+            Ok(summary) => match unsafe { write_json(out_json, &summary) } {
+                Ok(()) => EglStatus::Ok,
+                Err(status) => {
+                    set_global_error("failed to hand over the Eagle library summary");
+                    status
+                }
+            },
+            Err(error) => {
+                set_global_error(match &error {
+                    library_core::SourceError::NotALibrary { .. } => {
+                        "This folder is not an Eagle library (Name.library).".to_owned()
+                    }
+                    other => other.to_string(),
+                });
+                map_error(&error)
+            }
+        }
+    })
+}

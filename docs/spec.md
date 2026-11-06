@@ -512,6 +512,8 @@ Rules (arch §15.5, §15.6):
 - **Folder passwords are not imported.** Locked Eagle folders are imported as locked folders with no password, no salt, and no identity. The report lists them. Files stay plaintext, and the content stays hidden, until the user sets a password or removes the lock. The Locked folders section offers **Set Password…** (the same dialog as Lock…, with a recovery key at the end) and **Remove Lock…**, which asks for no password (D-088).
 - Duplicates inside the Eagle library are kept as separate items (they are separate in Eagle). Eagle's own notion of a duplicate is a metadata fingerprint, not content (correction 41).
 
+On the phones (D-116) the import starts from Welcome and always makes a new library in the app's own storage; the same core task runs through the C ABI (`egl_eagle_library_info`, `egl_import_eagle`). Step 2's "the open one" is desktop-only.
+
 Later: `.eaglepack` files as a second import source (arch §17); "Follow Eagle", an incremental re-import through `mtime.json`.
 
 ### 8.3 Connecting to a running Eagle
