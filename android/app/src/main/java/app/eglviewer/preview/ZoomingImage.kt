@@ -26,7 +26,7 @@ import androidx.compose.ui.platform.testTag
 /**
  * Pinch / double-tap zoom over a decoded original. While zoomed, [onZoomed] is true so the
  * pager stops paging (A3 ≈ D-095). At fit size, pan is not consumed so [HorizontalPager]
- * keeps horizontal swipes (D-125); the default `transformable` `canPan = { true }` was
+ * keeps horizontal swipes (D-128); the default `transformable` `canPan = { true }` was
  * eating those drags.
  */
 @OptIn(ExperimentalFoundationApi::class)
@@ -94,5 +94,5 @@ fun ZoomingImage(
     }
 }
 
-/** Scale above fit counts as zoomed for pager locking and pan consumption (D-125). */
+/** Scale above fit counts as zoomed for pager locking and pan consumption (D-128). */
 internal const val ZOOMED_EPSILON = 1.01f

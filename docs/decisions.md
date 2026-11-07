@@ -2683,7 +2683,7 @@ justified grid work (D-122).
   take the previous tag with `git tag --sort=-v:refname`; for these tags that is `0.2.55`.
   Android `versionCode` and the iOS build number stay the GitHub Actions run number.
 
-## D-125 Android preview: pager swipes at fit zoom (2026-11-07)
+## D-128 Android preview: pager swipes at fit zoom (2026-11-07)
 
 Full-screen preview on Android showed the original and chrome, but horizontal swipes did not
 change the page. Same user-visible symptom as iOS D-123, different cause (not a nested

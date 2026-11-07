@@ -86,7 +86,7 @@ fun PreviewScreen(
         snapshotFlow { pagerState.currentPage }
             .distinctUntilChanged()
             .collect { page ->
-                // A recycled or previous page must not leave paging locked after a zoom (D-125).
+                // A recycled or previous page must not leave paging locked after a zoom (D-128).
                 zoomed = false
                 model.need(page)
             }
@@ -94,7 +94,7 @@ fun PreviewScreen(
 
     val index = pagerState.currentPage.coerceIn(0, (model.total - 1).coerceAtLeast(0))
     val cell = model.cell(at = index)
-    // Decode at least 1px so a transient zero density/edge never skips the original (D-123/D-125).
+    // Decode at least 1px so a transient zero density/edge never skips the original (D-123/D-128).
     val pixels = with(density) {
         val edge = maxOf(
             context.resources.displayMetrics.widthPixels,
