@@ -2148,7 +2148,7 @@ The fourth PR of the Android series (D-101…D-103), mirroring iOS D-096. Stacke
   resolves to a primary-storage path the app keeps the URI grant until the import ends;
   otherwise the bytes are copied into `picked-*` while the grant is held (Android content URIs
   have no durable path the core can read). A Folder pick walks the whole tree, including
-  nested folders; documents with an empty MIME are still copied (D-120). Paste reads the
+  nested folders; documents with an empty MIME are still copied (D-121). Paste reads the
   clipboard only when the user picks Paste.
 - **Import.** One `egl_add_files` per batch; progress shows over the place with Stop; when it
   ends a toast says what was added, skipped and failed. Closing the library runs the pending
@@ -2605,7 +2605,7 @@ first-class, aligned with the desktop (D-028):
 - **Out of scope.** Desktop Tauri and iOS theme UI are unchanged (iOS already follows system
   colours). No shared mobile preference file with the desktop's `preferences.json`.
 
-## D-120 Android folder pick: recursive SAF walk, no MIME skip (2026-11-07)
+## D-121 Android folder pick: recursive SAF walk, no MIME skip (2026-11-07)
 
 A4's Folder action (`OpenDocumentTree`, D-104) copied a picked tree into `picked-*` and handed
 the folder to `egl_add_files`. Nested folders were walked, but each child was taken only when

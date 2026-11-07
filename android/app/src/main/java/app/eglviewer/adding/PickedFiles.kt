@@ -125,7 +125,7 @@ object ImportPaths {
     }
 
     /**
-     * A folder from [OpenDocumentTree]: every file under it, including nested folders (D-120).
+     * A folder from [OpenDocumentTree]: every file under it, including nested folders (D-121).
      * When [resolvePath] yields a directory the app can read ([canReadPath]), that path is
      * handed to the core (its own recursive walk); otherwise the tree is copied into
      * `picked-*` while the SAF grant is held. Grants are released when the import ends.
@@ -219,7 +219,7 @@ object ImportPaths {
     /**
      * Copies every document under [from] into [into], recursively through subfolders.
      * Anything that is not a directory is treated as a file: [DocumentFile.isFile] is false
-     * when the MIME type is empty, which skipped photos on some providers (D-120).
+     * when the MIME type is empty, which skipped photos on some providers (D-121).
      */
     private fun copyDocumentTree(context: Context, from: DocumentFile, into: File) {
         for (child in from.listFiles()) {

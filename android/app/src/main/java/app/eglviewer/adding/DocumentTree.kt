@@ -3,7 +3,7 @@ package app.eglviewer.adding
 /**
  * A child in a SAF document tree (or a host-test stand-in). Directories are walked;
  * everything else is a file to import — including documents whose MIME type is empty.
- * [DocumentFile.isFile] returns false for an empty MIME and used to skip those files (D-120).
+ * [DocumentFile.isFile] returns false for an empty MIME and used to skip those files (D-121).
  */
 data class TreeChild(
     val name: String,

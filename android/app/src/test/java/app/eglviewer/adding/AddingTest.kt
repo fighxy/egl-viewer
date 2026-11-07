@@ -11,7 +11,7 @@ import org.junit.Rule
 import org.junit.Test
 import org.junit.rules.TemporaryFolder
 
-/** Host JVM tests for picked copies, clipboard names, folder-tree walk and import summary (A4 / D-120). */
+/** Host JVM tests for picked copies, clipboard names, folder-tree walk and import summary (A4 / D-121). */
 class AddingTest {
     @get:Rule
     val tmp = TemporaryFolder()
@@ -108,7 +108,7 @@ class AddingTest {
 
     /**
      * Folder pick walks nested folders and keeps files whose MIME is empty — the old
-     * DocumentFile.isFile filter skipped those (D-120).
+     * DocumentFile.isFile filter skipped those (D-121).
      */
     @Test
     fun documentTreeListsNestedFilesIncludingEmptyMime() {
