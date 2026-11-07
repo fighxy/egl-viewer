@@ -196,9 +196,14 @@ private struct PreviewPage: View {
         let cell = model.cell(at: index)
         ZStack {
             if let image {
-                ZoomingImage(image: image, zoomed: $zoomed, tapped: tapped)
-                    // New identity resets zoom @State when the decoded original changes.
-                    .id("\(cell?.id ?? "")#\(cell?.thumbVersion ?? 0)#\(pixels)")
+                ZoomingImage(
+                    image: image,
+                    label: cell?.name ?? "",
+                    zoomed: $zoomed,
+                    tapped: tapped
+                )
+                // New identity resets zoom @State when the decoded original changes.
+                .id("\(cell?.id ?? "")#\(cell?.thumbVersion ?? 0)#\(pixels)")
             } else {
                 Group {
                     if let cell {
