@@ -128,13 +128,14 @@ fun GhostIconButton(
     onClick: () -> Unit,
     size: Dp = 44.dp,
     radius: Dp = 12.dp,
-    fill: Color = EglTokens.GhostFill,
+    fill: Color? = null,
     content: @Composable () -> Unit,
 ) {
+    val resolvedFill = fill ?: EglTokens.GhostFill
     Box(
         modifier = Modifier
             .size(size)
-            .background(fill, RoundedCornerShape(radius))
+            .background(resolvedFill, RoundedCornerShape(radius))
             .clickable(onClick = onClick),
         contentAlignment = Alignment.Center,
     ) {

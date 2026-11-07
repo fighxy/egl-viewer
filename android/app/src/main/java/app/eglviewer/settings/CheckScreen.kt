@@ -24,7 +24,6 @@ import androidx.compose.runtime.remember
 import androidx.compose.runtime.rememberCoroutineScope
 import androidx.compose.runtime.setValue
 import androidx.compose.ui.Modifier
-import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.res.stringResource
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
@@ -108,7 +107,7 @@ fun CheckScreen(
                     stringResource(if (check.databaseOk) R.string.check_ok else R.string.check_problems),
                 )
                 for (problem in check.databaseProblems) {
-                    Text(text = problem, color = Color(0xFFB91C1C), fontSize = 12.sp)
+                    Text(text = problem, color = EglTokens.Destructive, fontSize = 12.sp)
                 }
                 LabeledValue(stringResource(R.string.check_missing), check.missingCount.toString())
                 LabeledValue(
@@ -127,11 +126,11 @@ fun CheckScreen(
                         Icon(
                             Icons.Default.CheckCircle,
                             contentDescription = null,
-                            tint = Color(0xFF15803D),
+                            tint = EglTokens.Success,
                         )
                         Text(
                             text = stringResource(R.string.check_clean),
-                            color = Color(0xFF15803D),
+                            color = EglTokens.Success,
                         )
                     }
                 } else if (!open.readOnly) {

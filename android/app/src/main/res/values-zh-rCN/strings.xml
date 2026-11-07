@@ -327,6 +327,11 @@
     <string name="settings_on">开启</string>
     <string name="settings_off">关闭</string>
     <string name="settings_version">版本</string>
+    <string name="settings_theme">主题</string>
+    <string name="settings_theme_hint">跟随系统外观，或始终使用浅色或深色。</string>
+    <string name="settings_theme_system">系统</string>
+    <string name="settings_theme_light">浅色</string>
+    <string name="settings_theme_dark">深色</string>
     <string name="settings_language">语言</string>
     <string name="settings_change_language">语言和权限</string>
     <string name="settings_privacy">隐私</string>

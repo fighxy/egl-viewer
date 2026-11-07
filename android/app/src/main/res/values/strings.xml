@@ -334,6 +334,11 @@
     <string name="settings_on">On</string>
     <string name="settings_off">Off</string>
     <string name="settings_version">Version</string>
+    <string name="settings_theme">Theme</string>
+    <string name="settings_theme_hint">Follow the system look, or keep the app light or dark.</string>
+    <string name="settings_theme_system">System</string>
+    <string name="settings_theme_light">Light</string>
+    <string name="settings_theme_dark">Dark</string>
     <string name="settings_language">Language</string>
     <string name="settings_change_language">Language and Permissions</string>
     <string name="settings_privacy">Privacy</string>

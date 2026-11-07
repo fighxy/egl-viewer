@@ -30,7 +30,6 @@ import androidx.compose.runtime.remember
 import androidx.compose.runtime.setValue
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
-import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.platform.LocalContext
 import androidx.compose.ui.res.pluralStringResource
 import androidx.compose.ui.res.stringResource
@@ -114,7 +113,7 @@ fun LoginScreen(lock: AppLock) {
             wrong -> {
                 Text(
                     text = stringResource(R.string.login_wrong),
-                    color = Color(0xFFDC2626),
+                    color = EglTokens.Destructive,
                     fontSize = 13.sp,
                 )
             }

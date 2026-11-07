@@ -2586,3 +2586,20 @@ manager reads one from the folder itself:
   (`tauri.conf.json`, `ui/package.json`), Android (`versionName`, the version the shell gives
   the core) and iOS (`MARKETING_VERSION`). Release tags: `v0.2.55`, `ios-v0.2.55`,
   `android-v0.2.55`.
+
+## D-119 Android dark theme: DayNight, tokens, System / Light / Dark (2026-11-07)
+
+Android had only a forced light XML theme and hardcoded light `EglTokens`. Dark mode is now
+first-class, aligned with the desktop (D-028):
+
+- **XML.** `Theme.EglViewer` parents `Theme.AppCompat.DayNight.NoActionBar`;
+  `values-night` sets the window background to the dark token so the splash is not white.
+- **Tokens.** Light and dark `EglColors` match `ui/src/index.css` `:root` / `.dark`. Compose
+  reads them through `LocalEglColors` / `EglTokens`; the app root wraps `MaterialTheme` with a
+  matching ColorScheme. The preview stage stays always dark (as on desktop and iOS).
+- **Preference.** Settings → Theme offers System / Light / Dark (wire values `system` /
+  `light` / `dark`). Stored in SharedPreferences; applied with
+  `AppCompatDelegate.setDefaultNightMode` from `EglApplication` so the first frame follows the
+  choice. Status colours (destructive / success / warning) are named tokens with dark pairs.
+- **Out of scope.** Desktop Tauri and iOS theme UI are unchanged (iOS already follows system
+  colours). No shared mobile preference file with the desktop's `preferences.json`.

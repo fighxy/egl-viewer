@@ -34,7 +34,6 @@ import app.eglviewer.app.OpenLibrary
 import app.eglviewer.core.EglError
 import app.eglviewer.core.Folder
 import app.eglviewer.core.RecoveryKey
-import androidx.compose.ui.graphics.Color
 import app.eglviewer.organize.ColorChoice
 import app.eglviewer.theme.EglTokens
 import kotlinx.coroutines.launch
@@ -194,7 +193,7 @@ fun LockSheetDialog(
                 if (wrong) {
                     Text(
                         text = stringResource(R.string.lock_wrong_password),
-                        color = Color(0xFFDC2626),
+                        color = EglTokens.Destructive,
                         fontSize = 13.sp,
                     )
                 }

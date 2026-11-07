@@ -1,4 +1,9 @@
 <?xml version="1.0" encoding="utf-8"?>
 <resources>
-    <style name="Theme.EglViewer" parent="android:Theme.Material.Light.NoActionBar" />
+    <!-- DayNight so the window / system bars follow System, Light or Dark (D-119). -->
+    <style name="Theme.EglViewer" parent="Theme.AppCompat.DayNight.NoActionBar">
+        <item name="android:statusBarColor">@android:color/transparent</item>
+        <item name="android:navigationBarColor">@android:color/transparent</item>
+        <item name="android:windowBackground">@color/egl_window_background</item>
+    </style>
 </resources>

@@ -21,6 +21,7 @@ import androidx.compose.material.icons.automirrored.filled.ArrowBack
 import androidx.compose.material.icons.automirrored.filled.KeyboardArrowRight
 import androidx.compose.material.icons.automirrored.filled.MenuBook
 import androidx.compose.material.icons.filled.Build
+import androidx.compose.material.icons.filled.DarkMode
 import androidx.compose.material.icons.filled.HealthAndSafety
 import androidx.compose.material.icons.filled.Key
 import androidx.compose.material.icons.filled.Lock
@@ -48,6 +49,7 @@ import app.eglviewer.app.OpenLibrary
 import app.eglviewer.locks.AppLock
 import app.eglviewer.locks.AppLockFormDialog
 import app.eglviewer.theme.EglTokens
+import app.eglviewer.theme.ThemePreference
 import java.util.Locale
 
 private sealed class SettingsDest {
@@ -58,6 +60,7 @@ private sealed class SettingsDest {
     data object Export : SettingsDest()
     data object Privacy : SettingsDest()
     data object Decrypt : SettingsDest()
+    data object Theme : SettingsDest()
 }
 
 /**
@@ -88,12 +91,16 @@ fun SettingsScreen(
                 onAppLock = { showAppLock = true },
                 onPrivacy = { dest = SettingsDest.Privacy },
                 onDecrypt = { dest = SettingsDest.Decrypt },
+                onTheme = { dest = SettingsDest.Theme },
                 onChangeLanguage = {
                     val intent = languageSettingsIntent(context.packageName)
                     runCatching { context.startActivity(intent) }
                 },
                 onBack = onBack,
             )
+        }
+        SettingsDest.Theme -> {
+            ThemeScreen(onBack = { dest = SettingsDest.Hub })
         }
         SettingsDest.Privacy -> {
             PrivacyScreen(onBack = { dest = SettingsDest.Hub })
@@ -152,9 +159,11 @@ private fun SettingsHub(
     onAppLock: () -> Unit,
     onPrivacy: () -> Unit,
     onDecrypt: () -> Unit,
+    onTheme: () -> Unit,
     onChangeLanguage: () -> Unit,
     onBack: () -> Unit,
 ) {
+    val themeLabel = themePreferenceLabel(ThemePreference.load(LocalContext.current))
     Column(
         modifier = Modifier
             .fillMaxSize()
@@ -217,6 +226,12 @@ private fun SettingsHub(
             }
 
             SectionHeader(stringResource(R.string.settings_app_section))
+            SettingsRow(
+                icon = Icons.Default.DarkMode,
+                title = stringResource(R.string.settings_theme),
+                trailing = themeLabel,
+                onClick = onTheme,
+            )
             SettingsRow(
                 icon = Icons.Default.Lock,
                 title = stringResource(R.string.app_lock_title),
@@ -390,5 +405,68 @@ private fun languageSettingsIntent(packageName: String): Intent {
     }
     return Intent(Settings.ACTION_APPLICATION_DETAILS_SETTINGS).apply {
         data = Uri.fromParts("package", packageName, null)
+    }
+}
+
+@Composable
+private fun themePreferenceLabel(preference: ThemePreference): String = stringResource(
+    when (preference) {
+        ThemePreference.System -> R.string.settings_theme_system
+        ThemePreference.Light -> R.string.settings_theme_light
+        ThemePreference.Dark -> R.string.settings_theme_dark
+    },
+)
+
+/** System / Light / Dark — same three choices as the desktop (D-028 / D-119). */
+@Composable
+private fun ThemeScreen(onBack: () -> Unit) {
+    val context = LocalContext.current
+    var selected by remember { mutableStateOf(ThemePreference.load(context)) }
+
+    Column(
+        modifier = Modifier
+            .fillMaxSize()
+            .background(EglTokens.Background),
+    ) {
+        SettingsTopBar(title = stringResource(R.string.settings_theme), onBack = onBack)
+        Column(
+            modifier = Modifier
+                .fillMaxSize()
+                .verticalScroll(rememberScrollState())
+                .padding(horizontal = 20.dp)
+                .padding(bottom = 28.dp),
+        ) {
+            Text(
+                text = stringResource(R.string.settings_theme_hint),
+                color = EglTokens.MutedForeground,
+                fontSize = 13.sp,
+                modifier = Modifier.padding(bottom = 8.dp),
+            )
+            for (option in ThemePreference.entries) {
+                val on = selected == option
+                Row(
+                    modifier = Modifier
+                        .fillMaxWidth()
+                        .clickable {
+                            selected = option
+                            ThemePreference.set(context, option)
+                        }
+                        .padding(vertical = 14.dp),
+                    verticalAlignment = Alignment.CenterVertically,
+                    horizontalArrangement = Arrangement.SpaceBetween,
+                ) {
+                    Text(
+                        text = themePreferenceLabel(option),
+                        color = EglTokens.Foreground,
+                        fontSize = 15.sp,
+                        fontWeight = if (on) FontWeight.SemiBold else FontWeight.Medium,
+                    )
+                    if (on) {
+                        Text("✓", color = EglTokens.Primary, fontSize = 16.sp)
+                    }
+                }
+                HorizontalDivider(color = EglTokens.Border.copy(alpha = 0.4f))
+            }
+        }
     }
 }
