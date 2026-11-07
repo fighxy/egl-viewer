@@ -21,7 +21,6 @@ import androidx.compose.material.icons.filled.Error
 import androidx.compose.material.icons.filled.Folder
 import androidx.compose.material3.Icon
 import androidx.compose.material3.LinearProgressIndicator
-import androidx.compose.material3.MaterialTheme
 import androidx.compose.material3.OutlinedTextField
 import androidx.compose.material3.Switch
 import androidx.compose.material3.Text
@@ -36,7 +35,6 @@ import androidx.compose.runtime.rememberCoroutineScope
 import androidx.compose.runtime.setValue
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
-import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.platform.LocalContext
 import androidx.compose.ui.res.pluralStringResource
 import androidx.compose.ui.res.stringResource
@@ -321,7 +319,7 @@ fun ExportScreen(
                                     },
                                 )
                             },
-                            color = if (short) MaterialTheme.colorScheme.error else EglTokens.MutedForeground,
+                            color = if (short) EglTokens.Destructive else EglTokens.MutedForeground,
                             fontSize = 12.sp,
                         )
                     }
@@ -420,8 +418,8 @@ private fun RunningExport(
         }
         ExportState.DONE -> {
             Row(horizontalArrangement = Arrangement.spacedBy(8.dp)) {
-                Icon(Icons.Default.CheckCircle, contentDescription = null, tint = Color(0xFF15803D))
-                Text(stringResource(R.string.export_done), color = Color(0xFF15803D))
+                Icon(Icons.Default.CheckCircle, contentDescription = null, tint = EglTokens.Success)
+                Text(stringResource(R.string.export_done), color = EglTokens.Success)
             }
             progress.summary?.let { summary ->
                 val size = formatBytes(summary.bytes)
@@ -436,7 +434,7 @@ private fun RunningExport(
                             summary.missing.size,
                             summary.missing.size,
                         ),
-                        color = Color(0xFFB45309),
+                        color = EglTokens.Warning,
                         fontSize = 12.sp,
                     )
                 }
@@ -457,8 +455,8 @@ private fun RunningExport(
         }
         ExportState.FAILED -> {
             Row(horizontalArrangement = Arrangement.spacedBy(8.dp)) {
-                Icon(Icons.Default.Error, contentDescription = null, tint = Color(0xFFB91C1C))
-                Text(stringResource(R.string.export_failed), color = Color(0xFFB91C1C))
+                Icon(Icons.Default.Error, contentDescription = null, tint = EglTokens.Destructive)
+                Text(stringResource(R.string.export_failed), color = EglTokens.Destructive)
             }
             if (!progress.error.isNullOrEmpty()) {
                 Text(text = progress.error!!, color = EglTokens.MutedForeground, fontSize = 12.sp)

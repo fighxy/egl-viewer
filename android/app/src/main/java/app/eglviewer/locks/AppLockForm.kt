@@ -21,7 +21,6 @@ import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.remember
 import androidx.compose.runtime.setValue
 import androidx.compose.ui.Modifier
-import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.platform.LocalContext
 import androidx.compose.ui.res.stringResource
 import androidx.compose.ui.text.input.PasswordVisualTransformation
@@ -175,13 +174,13 @@ fun AppLockFormDialog(
                             failed = false
                         },
                     ) {
-                        Text(stringResource(R.string.app_lock_turn_off), color = Color(0xFFDC2626))
+                        Text(stringResource(R.string.app_lock_turn_off), color = EglTokens.Destructive)
                     }
                 }
                 message?.let {
                     Text(
                         text = it,
-                        color = if (failed) Color(0xFFDC2626) else EglTokens.MutedForeground,
+                        color = if (failed) EglTokens.Destructive else EglTokens.MutedForeground,
                         fontSize = 13.sp,
                     )
                 }

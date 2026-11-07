@@ -20,7 +20,6 @@ import androidx.compose.material.icons.filled.Folder
 import androidx.compose.material3.Button
 import androidx.compose.material3.Icon
 import androidx.compose.material3.LinearProgressIndicator
-import androidx.compose.material3.MaterialTheme
 import androidx.compose.material3.OutlinedTextField
 import androidx.compose.material3.Text
 import androidx.compose.material3.TextButton
@@ -33,7 +32,6 @@ import androidx.compose.runtime.rememberCoroutineScope
 import androidx.compose.runtime.setValue
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
-import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.platform.LocalContext
 import androidx.compose.ui.res.stringResource
 import androidx.compose.ui.text.input.PasswordVisualTransformation
@@ -182,14 +180,14 @@ fun DecryptArchiveScreen(onBack: () -> Unit) {
                 }
             }
             failure?.let {
-                Text(text = it, color = MaterialTheme.colorScheme.error, fontSize = 13.sp)
+                Text(text = it, color = EglTokens.Destructive, fontSize = 13.sp)
             }
             result?.let { decrypted ->
                 Row(
                     horizontalArrangement = Arrangement.spacedBy(8.dp),
                     verticalAlignment = Alignment.CenterVertically,
                 ) {
-                    Icon(Icons.Default.CheckCircle, contentDescription = null, tint = Color(0xFF15803D))
+                    Icon(Icons.Default.CheckCircle, contentDescription = null, tint = EglTokens.Success)
                     Text("${decrypted.file.name} · ${formatBytes(decrypted.bytes)}")
                 }
                 TextButton(onClick = { save.launch(decrypted.file.name) }) {

@@ -344,6 +344,11 @@
     <string name="settings_on">Вкл.</string>
     <string name="settings_off">Выкл.</string>
     <string name="settings_version">Версия</string>
+    <string name="settings_theme">Тема</string>
+    <string name="settings_theme_hint">Как в системе, или всегда светлая или тёмная.</string>
+    <string name="settings_theme_system">Системная</string>
+    <string name="settings_theme_light">Светлая</string>
+    <string name="settings_theme_dark">Тёмная</string>
     <string name="settings_language">Язык</string>
     <string name="settings_change_language">Язык и разрешения</string>
     <string name="settings_privacy">Конфиденциальность</string>

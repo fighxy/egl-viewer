@@ -26,6 +26,7 @@ import app.eglviewer.locks.LoginScreen
 import app.eglviewer.locks.PrivacyCover
 import app.eglviewer.screens.LibraryScreen
 import app.eglviewer.screens.WelcomeScreen
+import app.eglviewer.theme.EglTheme
 import app.eglviewer.theme.EglTokens
 import kotlinx.coroutines.launch
 
@@ -36,8 +37,10 @@ class MainActivity : FragmentActivity() {
         super.onCreate(savedInstanceState)
         enableEdgeToEdge()
         setContent {
-            val lock = remember { AppLock.standard(this) }
-            EglApp(model = model, lock = lock, activity = this)
+            EglTheme {
+                val lock = remember { AppLock.standard(this) }
+                EglApp(model = model, lock = lock, activity = this)
+            }
         }
     }
 }
