@@ -24,6 +24,7 @@ final class OriginalCache: @unchecked Sendable {
             return image
         }
         let library = library
+        let capped = max(pixels, 1)
         let image = await Task.detached(priority: .userInitiated) { () -> UIImage? in
             let source: CGImageSource?
             if let path = try? library.originalPath(id) {
@@ -38,7 +39,7 @@ final class OriginalCache: @unchecked Sendable {
                 kCGImageSourceCreateThumbnailFromImageAlways: true,
                 kCGImageSourceCreateThumbnailWithTransform: true,
                 kCGImageSourceShouldCacheImmediately: true,
-                kCGImageSourceThumbnailMaxPixelSize: pixels,
+                kCGImageSourceThumbnailMaxPixelSize: capped,
             ] as CFDictionary
             guard let image = CGImageSourceCreateThumbnailAtIndex(source, 0, options) else { return nil }
             return UIImage(cgImage: image)
@@ -54,95 +55,102 @@ final class OriginalCache: @unchecked Sendable {
     }
 }
 
-/// An image that pinches and double-taps to zoom, in a UIScrollView. At its fitting size it
-/// lets horizontal swipes through to the pager around it.
-struct ZoomingImage: UIViewRepresentable {
+/// Pinch / double-tap zoom over a decoded original. Pure SwiftUI so a nested UIScrollView
+/// cannot sit at zero bounds (black stage) or swallow the pager's horizontal swipes while
+/// fitting (D-095 follow-up).
+struct ZoomingImage: View {
     let image: UIImage
     /// Tells SwiftUI whether the image is zoomed in, so the pager stops paging meanwhile.
-    var zoomed: Binding<Bool>
+    @Binding var zoomed: Bool
     /// A single tap (not the first of a double tap): shows or hides the preview's bars.
     var tapped: () -> Void = {}
 
-    func makeCoordinator() -> Coordinator { Coordinator(zoomed: zoomed, tapped: tapped) }
+    @State private var scale: CGFloat = 1
+    @State private var pinchScale: CGFloat = 1
+    @State private var offset: CGSize = .zero
+    @State private var dragStart: CGSize = .zero
 
-    func makeUIView(context: Context) -> UIScrollView {
-        let scroll = UIScrollView()
-        scroll.delegate = context.coordinator
-        scroll.minimumZoomScale = 1
-        scroll.maximumZoomScale = 6
-        scroll.showsHorizontalScrollIndicator = false
-        scroll.showsVerticalScrollIndicator = false
-        scroll.contentInsetAdjustmentBehavior = .never
-        scroll.backgroundColor = .clear
-        // At the fitting size the image does not pan, so swipes reach the pager around it.
-        scroll.isScrollEnabled = false
-        let view = UIImageView(image: image)
-        view.contentMode = .scaleAspectFit
-        view.isUserInteractionEnabled = true
-        scroll.addSubview(view)
-        context.coordinator.imageView = view
-        let doubleTap = UITapGestureRecognizer(target: context.coordinator, action: #selector(Coordinator.doubleTapped(_:)))
-        doubleTap.numberOfTapsRequired = 2
-        scroll.addGestureRecognizer(doubleTap)
-        let singleTap = UITapGestureRecognizer(target: context.coordinator, action: #selector(Coordinator.singleTapped))
-        singleTap.require(toFail: doubleTap)
-        scroll.addGestureRecognizer(singleTap)
-        return scroll
+    private var shownScale: CGFloat { max(scale * pinchScale, 1) }
+
+    var body: some View {
+        GeometryReader { geo in
+            Image(uiImage: image)
+                .resizable()
+                .scaledToFit()
+                .scaleEffect(shownScale)
+                .offset(offset)
+                .frame(width: geo.size.width, height: geo.size.height)
+                .contentShape(Rectangle())
+                .gesture(magnifyGesture)
+                // Pan is masked off at fit size so the pager keeps horizontal swipes.
+                .simultaneousGesture(panGesture, including: zoomed ? .all : .none)
+                .onTapGesture(count: 2) {
+                    doubleTap()
+                }
+                .onTapGesture(count: 1) {
+                    tapped()
+                }
+        }
+        .frame(maxWidth: .infinity, maxHeight: .infinity)
+        .accessibilityIdentifier("preview.zoom")
     }
 
-    func updateUIView(_ scroll: UIScrollView, context: Context) {
-        context.coordinator.zoomed = zoomed
-        context.coordinator.tapped = tapped
-        if context.coordinator.imageView?.image !== image {
-            context.coordinator.imageView?.image = image
-            scroll.setZoomScale(1, animated: false)
-        }
-        context.coordinator.layout(scroll)
-    }
-
-    final class Coordinator: NSObject, UIScrollViewDelegate {
-        var zoomed: Binding<Bool>
-        var tapped: () -> Void
-        weak var imageView: UIImageView?
-
-        init(zoomed: Binding<Bool>, tapped: @escaping () -> Void) {
-            self.zoomed = zoomed
-            self.tapped = tapped
-        }
-
-        @objc func singleTapped() {
-            tapped()
-        }
-
-        /// The image view fills the scroll view at zoom 1; the image fits inside it.
-        func layout(_ scroll: UIScrollView) {
-            guard let imageView, scroll.zoomScale == 1 else { return }
-            imageView.frame = CGRect(origin: .zero, size: scroll.bounds.size)
-            scroll.contentSize = scroll.bounds.size
-        }
-
-        func viewForZooming(in scrollView: UIScrollView) -> UIView? { imageView }
-
-        func scrollViewDidZoom(_ scrollView: UIScrollView) {
-            let now = scrollView.zoomScale > 1.01
-            scrollView.isScrollEnabled = now
-            if zoomed.wrappedValue != now {
-                zoomed.wrappedValue = now
+    private var magnifyGesture: some Gesture {
+        MagnifyGesture()
+            .onChanged { value in
+                pinchScale = value.magnification
+                publishZoomed()
             }
-        }
+            .onEnded { value in
+                scale = min(max(scale * value.magnification, 1), 6)
+                pinchScale = 1
+                if scale <= 1.01 {
+                    resetZoom()
+                } else {
+                    publishZoomed()
+                }
+            }
+    }
 
-        @objc func doubleTapped(_ gesture: UITapGestureRecognizer) {
-            guard let scroll = gesture.view as? UIScrollView else { return }
-            if scroll.zoomScale > 1.01 {
-                scroll.setZoomScale(1, animated: true)
-            } else {
-                let point = gesture.location(in: imageView)
-                let size = CGSize(width: scroll.bounds.width / 2.5, height: scroll.bounds.height / 2.5)
-                scroll.zoom(
-                    to: CGRect(x: point.x - size.width / 2, y: point.y - size.height / 2, width: size.width, height: size.height),
-                    animated: true
+    private var panGesture: some Gesture {
+        DragGesture(minimumDistance: 8)
+            .onChanged { value in
+                offset = CGSize(
+                    width: dragStart.width + value.translation.width,
+                    height: dragStart.height + value.translation.height
                 )
             }
+            .onEnded { _ in
+                dragStart = offset
+            }
+    }
+
+    private func doubleTap() {
+        if shownScale > 1.01 {
+            withAnimation(.easeInOut(duration: 0.2)) { resetZoom() }
+        } else {
+            withAnimation(.easeInOut(duration: 0.2)) {
+                scale = 2.5
+                pinchScale = 1
+                offset = .zero
+                dragStart = .zero
+                zoomed = true
+            }
+        }
+    }
+
+    private func resetZoom() {
+        scale = 1
+        pinchScale = 1
+        offset = .zero
+        dragStart = .zero
+        if zoomed { zoomed = false }
+    }
+
+    private func publishZoomed() {
+        let now = shownScale > 1.01
+        if zoomed != now {
+            zoomed = now
         }
     }
 }
