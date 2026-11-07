@@ -2626,3 +2626,23 @@ folder.
 - **Tests.** Host JVM coverage of the recursive listing (nested folders, empty MIME kept,
   blank / "." names skipped) and of the MIME→extension map, in `:app:testDebugUnitTest`.
 - **Docs.** `android/README.md` Adding row; this decision.
+
+## D-123 iOS preview: SwiftUI zoom, no nested scroll (2026-11-07)
+
+Full-screen preview opened on a black stage (chrome correct: close, title, 1 of N, actions)
+and paging felt broken. Present on `main`; not introduced by the borderless justified grid
+work (D-122).
+
+- **Cause.** `ZoomingImage` was a `UIScrollView` `UIViewRepresentable` that sized its image
+  view only from `updateUIView`. On open the scroll view's bounds were often still zero, so
+  the image stayed at a zero frame over the dark stage. The nested UIScrollView also competed
+  with the SwiftUI pager for horizontal swipes even when `isScrollEnabled` was false at fit
+  size; a shared `zoomed` flag could leave paging disabled after a page change.
+- **Fix.** Zoom is pure SwiftUI (`MagnifyGesture` + double-tap, pan only while zoomed via
+  `GestureMask`), filling the page frame from a `GeometryReader`. The pager resets `zoomed`
+  when the visible index changes; the page's decode task ignores a transient `pixels == 0`
+  and includes the pixel size in its id; `OriginalCache` clamps the ImageIO max-pixel size to
+  at least 1.
+- **Tests.** `OriginalCacheTests` decodes a sample original and checks the memory cache;
+  existing `PreviewUITests` still cover swipe / rate / trash.
+- **Docs.** This decision; preview row in `ios/README.md` unchanged in behaviour.
