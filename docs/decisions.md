@@ -2682,3 +2682,29 @@ justified grid work (D-122).
   compares versions as SemVer and is left unchanged. The iOS and Android note jobs still
   take the previous tag with `git tag --sort=-v:refname`; for these tags that is `0.2.55`.
   Android `versionCode` and the iOS build number stay the GitHub Actions run number.
+
+## D-125 Mobile release visibility on GitHub (2026-11-07)
+
+Ivan could not see iPhone / Android releases. The pipeline was already publishing them; the
+gap was where to look.
+
+- **What already works.** Tags `ios-vX.Y.Z` and `android-vX.Y.Z` run `.github/workflows/mobile.yml`
+  and publish GitHub Releases with the IPA / APK+AAB and `SHA256SUMS` (D-100, D-108). Current
+  artefacts for 0.2.77: `ios-v0.2.77` (`EglViewer-0.2.77.ipa`), `android-v0.2.77`
+  (`EglViewer-0.2.77.apk`, `EglViewer-0.2.77.aab`), plus the rolling `ios-latest` pre-release
+  from `main`. Desktop stays on `vX.Y.Z` via `ci.yml`.
+- **Why “Latest” looks desktop-only.** Mobile releases are created with `--latest=false` so
+  the in-app updater’s `releases/latest/download/latest.json` (D-062) is never replaced by an
+  iPhone or Android tag. `/releases/latest` therefore redirects to the desktop release and
+  shows only NSIS / DMG / AppImage assets. The iPhone and Android builds are sibling releases
+  on the same Releases page, under their own tags.
+- **No store listings.** There is no TestFlight, App Store or Google Play upload in CI. iPhone
+  is sideload of an unsigned IPA; Android is a project-key-signed APK (AAB for a future Play
+  upload). That is intentional until store enrolment exists.
+- **Docs / CI fix.** README gains a Downloads table with the current tag links; `ios/README.md`
+  and `android/README.md` gain a “Where to download” section. Future desktop and mobile
+  release notes append cross-links to the sibling tags for the same `X.Y.Z`. No change to
+  tagging, signing or `--latest=false`.
+- **Operator.** To publish a new mobile build: push `ios-vX.Y.Z` and/or `android-vX.Y.Z` after
+  `docs/releases/X.Y.Z.md` exists (and Android release secrets are set). To find builds today:
+  open the linked tags above or the Releases page and skip past the Latest badge.
