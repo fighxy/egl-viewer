@@ -2682,3 +2682,23 @@ justified grid work (D-122).
   compares versions as SemVer and is left unchanged. The iOS and Android note jobs still
   take the previous tag with `git tag --sort=-v:refname`; for these tags that is `0.2.55`.
   Android `versionCode` and the iOS build number stay the GitHub Actions run number.
+
+## D-125 Android preview: pager swipes at fit zoom (2026-11-07)
+
+Full-screen preview on Android showed the original and chrome, but horizontal swipes did not
+change the page. Same user-visible symptom as iOS D-123, different cause (not a nested
+`UIScrollView` / zero-bounds stage).
+
+- **Cause.** `ZoomingImage` used `Modifier.transformable` with the default `canPan = { true }`,
+  so every single-finger drag was consumed for pan even at scale 1. `HorizontalPager` never
+  received the swipe. A shared `zoomed` flag that drives `userScrollEnabled` also had no
+  reset when the visible page changed, so a prior zoom could leave paging locked.
+- **Fix.** `transformable(..., canPan = { scale > 1.01f })` so pans are consumed only while
+  zoomed; pinch and double-tap zoom are unchanged. The pager clears `zoomed` when
+  `currentPage` changes; each page keys `ZoomingImage` on id / thumb version / decode size so
+  local scale resets with the original. Decode size is clamped to at least 1 px. The zoom
+  image exposes the item name as `contentDescription` and `preview.zoom` for TalkBack.
+- **Tests.** `ZoomingImageTest` locks the fit-vs-zoomed epsilon; existing A3 JVM tests stay.
+  Device check: open a library with several photos, swipe the pager at fit size, pinch-zoom
+  (pager locks), double-tap back to fit, swipe again.
+- **Docs.** This decision; preview row in `android/README.md`.
