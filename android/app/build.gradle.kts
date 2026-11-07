@@ -8,8 +8,8 @@ android {
     namespace = "app.eglviewer"
     compileSdk = 35
 
-    // A tag `android-vX.Y.Z` sets these in CI (D-108); local builds keep 0.2.5 / 1.
-    val releaseVersionName = System.getenv("ANDROID_VERSION_NAME") ?: "0.2.5"
+    // A tag `android-vX.Y.Z` sets these in CI (D-108); local builds keep 0.2.55 / 1.
+    val releaseVersionName = System.getenv("ANDROID_VERSION_NAME") ?: "0.2.55"
     val releaseVersionCode = System.getenv("ANDROID_VERSION_CODE")?.toIntOrNull() ?: 1
 
     defaultConfig {
