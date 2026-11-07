@@ -60,6 +60,8 @@ final class OriginalCache: @unchecked Sendable {
 /// fitting (D-095 follow-up).
 struct ZoomingImage: View {
     let image: UIImage
+    /// VoiceOver name for the photo (D-100 / D-123); the SwiftUI `Image` needs a description.
+    var label: String = ""
     /// Tells SwiftUI whether the image is zoomed in, so the pager stops paging meanwhile.
     @Binding var zoomed: Bool
     /// A single tap (not the first of a double tap): shows or hides the preview's bars.
@@ -92,6 +94,9 @@ struct ZoomingImage: View {
                 }
         }
         .frame(maxWidth: .infinity, maxHeight: .infinity)
+        .accessibilityElement(children: .ignore)
+        .accessibilityLabel(Text(verbatim: label))
+        .accessibilityAddTraits(.isImage)
         .accessibilityIdentifier("preview.zoom")
     }
 
