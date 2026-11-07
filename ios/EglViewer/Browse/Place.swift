@@ -47,10 +47,15 @@ enum Place: Codable, Hashable {
 
 /// How the items of a place are laid out.
 enum BrowseLayout: String, Codable, CaseIterable {
-    case grid, list
+    /// Justified rows from item aspect ratios (desktop D-067; denser default).
+    case grid
+    /// Uniform square cells (the previous grid), kept as an explicit option.
+    case square
+    case list
 }
 
-/// The thumbnail size of the grid: the narrowest a column may be, in points.
+/// The thumbnail size of the grid: column minimum (square) or target row height (justified),
+/// in points.
 enum ThumbnailSize: String, Codable, CaseIterable {
     case small, medium, large
 
@@ -61,6 +66,9 @@ enum ThumbnailSize: String, Codable, CaseIterable {
         case .large: 170
         }
     }
+
+    /// Target row height for the justified grid; same steps as the square column minimum.
+    var targetHeight: CGFloat { minimumWidth }
 }
 
 /// The filters of a view: tags, file type, rating and shape, as on the desktop filter bar.

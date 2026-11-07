@@ -2626,3 +2626,26 @@ folder.
 - **Tests.** Host JVM coverage of the recursive listing (nested folders, empty MIME kept,
   blank / "." names skipped) and of the MIME→extension map, in `:app:testDebugUnitTest`.
 - **Docs.** `android/README.md` Adding row; this decision.
+
+## D-122 iOS browse grid: borderless justified packing (2026-11-07)
+
+The iOS «All» grid used fixed square cells with a grey rounded “frame” and letterboxing
+around each thumb (`scaledToFit` inside `EglTokens.grid`). Tall screenshots and landscapes
+wasted space; the desktop already ships Flickr / Google Photos–style justified rows (D-067).
+
+- **Borderless.** Grid thumbs sit flush on the background: no grey tile fill, no inset
+  padding. Cells clip to a light corner radius; selection is a stroke only. Thumbs
+  `scaledToFill` the aspect box (crop), matching desktop `object-cover`. List rows keep a
+  small muted placeholder only while the window has not arrived. Filenames stay under the
+  thumb in a caption line (less chrome than a framed card).
+- **Justified default.** `BrowseLayout.grid` packs justified rows from
+  `egl_view_dimensions` (already wrapped as `Library.dimensions`): one height per row, cell
+  widths from aspect, rows fill the width, gap/padding 4 pt, size control = target row
+  height (small / medium / large). Missing sizes are square. Pure packing lives in
+  `JustifiedPacking` with XCTest coverage of the same cases as `justified.test.ts`.
+- **Square and list kept.** `BrowseLayout.square` is the previous uniform adaptive grid
+  (also borderless). List mode is unchanged. Select, search, filters and chrome are
+  untouched.
+- **Android.** Left alone; its system-UI grid polish is separate. Shared FFI dimensions
+  already existed.
+- **Docs.** `ios/README.md` browsing row; this decision.
