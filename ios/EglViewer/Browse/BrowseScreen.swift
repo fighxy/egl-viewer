@@ -16,7 +16,8 @@ struct BrowseScreen: View {
     var body: some View {
         Group {
             switch model.settings.layout {
-            case .grid: BrowseGrid(model: model)
+            case .grid: BrowseJustifiedGrid(model: model)
+            case .square: BrowseSquareGrid(model: model)
             case .list: BrowseList(model: model)
             }
         }
@@ -165,13 +166,14 @@ private struct OptionsMenu: View {
     var body: some View {
         Menu {
             Picker(selection: model.binding(\.layout)) {
-                Label("browse.layout.grid", systemImage: "square.grid.2x2").tag(BrowseLayout.grid)
+                Label("browse.layout.grid", systemImage: "rectangle.3.group").tag(BrowseLayout.grid)
+                Label("browse.layout.square", systemImage: "square.grid.2x2").tag(BrowseLayout.square)
                 Label("browse.layout.list", systemImage: "list.bullet").tag(BrowseLayout.list)
             } label: {
                 Text("browse.layout")
             }
             .pickerStyle(.inline)
-            if model.settings.layout == .grid {
+            if model.settings.layout == .grid || model.settings.layout == .square {
                 Picker(selection: model.binding(\.size)) {
                     Text("browse.size.small").tag(ThumbnailSize.small)
                     Text("browse.size.medium").tag(ThumbnailSize.medium)
@@ -229,7 +231,68 @@ enum SortLabel {
 
 // MARK: Grid and list
 
-private struct BrowseGrid: View {
+/// Justified rows from stored aspect ratios (D-122); borderless thumbs flush on the background.
+private struct BrowseJustifiedGrid: View {
+    let model: BrowseModel
+    @Environment(\.displayScale) private var scale
+
+    var body: some View {
+        let size = model.settings.size
+        // Touch dimensions so Observation refreshes the pack when sizes arrive.
+        let _ = model.dimensions
+        GeometryReader { geo in
+            let layout = JustifiedPacking.pack(
+                total: model.total,
+                containerWidth: geo.size.width,
+                targetHeight: size.targetHeight,
+                showNames: true,
+                sizeAt: model.sizeAt
+            )
+            ScrollView {
+                CountLine(model: model)
+                LazyVStack(alignment: .leading, spacing: JustifiedPacking.gap) {
+                    ForEach(layout.rows, id: \.startIndex) { row in
+                        JustifiedRowView(
+                            model: model,
+                            row: row,
+                            pixels: Int(size.targetHeight * 1.6 * scale)
+                        )
+                    }
+                }
+                .padding(.horizontal, JustifiedPacking.padding)
+                .frame(minHeight: layout.totalHeight, alignment: .top)
+            }
+        }
+        .accessibilityIdentifier("browse.grid")
+    }
+}
+
+private struct JustifiedRowView: View {
+    let model: BrowseModel
+    let row: JustifiedPacking.Row
+    let pixels: Int
+
+    var body: some View {
+        HStack(alignment: .top, spacing: JustifiedPacking.gap) {
+            ForEach(row.cells, id: \.index) { cell in
+                GridTile(
+                    model: model,
+                    index: cell.index,
+                    pixels: pixels,
+                    thumbWidth: cell.width,
+                    thumbHeight: cell.height,
+                    fill: true
+                )
+                .frame(width: cell.width, alignment: .top)
+                .onAppear { model.need(cell.index) }
+            }
+        }
+        .frame(height: row.contentHeight, alignment: .top)
+    }
+}
+
+/// Uniform square cells; same borderless fill as the justified grid.
+private struct BrowseSquareGrid: View {
     let model: BrowseModel
     @Environment(\.displayScale) private var scale
 
@@ -237,15 +300,25 @@ private struct BrowseGrid: View {
         let size = model.settings.size
         ScrollView {
             CountLine(model: model)
-            LazyVGrid(columns: [GridItem(.adaptive(minimum: size.minimumWidth), spacing: 4)], spacing: 8) {
+            LazyVGrid(
+                columns: [GridItem(.adaptive(minimum: size.minimumWidth), spacing: JustifiedPacking.gap)],
+                spacing: JustifiedPacking.gap
+            ) {
                 ForEach(0..<model.total, id: \.self) { index in
-                    GridTile(model: model, index: index, pixels: Int(size.minimumWidth * 1.6 * scale))
-                        .onAppear { model.need(index) }
+                    GridTile(
+                        model: model,
+                        index: index,
+                        pixels: Int(size.minimumWidth * 1.6 * scale),
+                        thumbWidth: nil,
+                        thumbHeight: nil,
+                        fill: true
+                    )
+                    .onAppear { model.need(index) }
                 }
             }
-            .padding(.horizontal, 4)
+            .padding(.horizontal, JustifiedPacking.padding)
         }
-        .accessibilityIdentifier("browse.grid")
+        .accessibilityIdentifier("browse.square")
     }
 }
 
@@ -287,30 +360,27 @@ private struct GridTile: View {
     let model: BrowseModel
     let index: Int
     let pixels: Int
+    /// Fixed thumb box for justified rows; nil uses a square aspect for the square grid.
+    let thumbWidth: CGFloat?
+    let thumbHeight: CGFloat?
+    /// Crop to fill the box (no letterbox). Square and justified both use fill.
+    let fill: Bool
 
     var body: some View {
         let cell = model.cell(at: index)
         let selected = cell.map { model.isSelected($0.id) } ?? false
-        VStack(spacing: 3) {
-            RoundedRectangle(cornerRadius: 6)
-                .fill(EglTokens.grid)
-                .aspectRatio(1, contentMode: .fit)
-                .overlay {
-                    if let cell {
-                        ItemThumbnail(cell: cell, cache: model.open.thumbnails, pixels: pixels)
-                            .padding(4)
-                    }
-                }
+        VStack(spacing: 2) {
+            thumb
                 .overlay {
                     if selected {
-                        RoundedRectangle(cornerRadius: 6)
+                        RoundedRectangle(cornerRadius: 4)
                             .strokeBorder(EglTokens.accent, lineWidth: 3)
                     }
                 }
                 .overlay(alignment: .topTrailing) {
                     if model.selecting, cell != nil {
                         SelectionMark(selected: selected)
-                            .padding(6)
+                            .padding(4)
                     }
                 }
             Text(cell?.name ?? " ")
@@ -318,6 +388,7 @@ private struct GridTile: View {
                 .foregroundStyle(EglTokens.mutedForeground)
                 .lineLimit(1)
                 .truncationMode(.middle)
+                .frame(maxWidth: .infinity, alignment: .leading)
         }
         .contentShape(Rectangle())
         .onTapGesture {
@@ -331,6 +402,43 @@ private struct GridTile: View {
         .accessibilityValue(cell.map { $0.star > 0 ? Text("details.stars \($0.star)") : Text(verbatim: "") } ?? Text(verbatim: ""))
         .accessibilityAddTraits(selected ? [.isButton, .isSelected] : .isButton)
         .accessibilityIdentifier(cell.map { "item.\($0.name)" } ?? "item.loading")
+    }
+
+    @ViewBuilder
+    private var thumb: some View {
+        let cell = model.cell(at: index)
+        Group {
+            if let thumbWidth, let thumbHeight {
+                ZStack {
+                    if let cell {
+                        ItemThumbnail(
+                            cell: cell,
+                            cache: model.open.thumbnails,
+                            pixels: pixels,
+                            fill: fill
+                        )
+                    }
+                }
+                .frame(width: thumbWidth, height: thumbHeight)
+                .clipped()
+                .clipShape(RoundedRectangle(cornerRadius: 4))
+            } else {
+                Color.clear
+                    .aspectRatio(1, contentMode: .fit)
+                    .overlay {
+                        if let cell {
+                            ItemThumbnail(
+                                cell: cell,
+                                cache: model.open.thumbnails,
+                                pixels: pixels,
+                                fill: fill
+                            )
+                        }
+                    }
+                    .clipped()
+                    .clipShape(RoundedRectangle(cornerRadius: 4))
+            }
+        }
     }
 }
 
@@ -346,14 +454,21 @@ private struct ListRow: View {
             if model.selecting {
                 SelectionMark(selected: selected)
             }
-            RoundedRectangle(cornerRadius: 4)
-                .fill(EglTokens.grid)
+            Color.clear
                 .frame(width: 48, height: 48)
                 .overlay {
                     if let cell {
-                        ItemThumbnail(cell: cell, cache: model.open.thumbnails, pixels: pixels)
+                        ItemThumbnail(
+                            cell: cell,
+                            cache: model.open.thumbnails,
+                            pixels: pixels,
+                            fill: true
+                        )
+                    } else {
+                        RoundedRectangle(cornerRadius: 4).fill(EglTokens.grid)
                     }
                 }
+                .clipShape(RoundedRectangle(cornerRadius: 4))
             VStack(alignment: .leading, spacing: 2) {
                 Text(verbatim: cell?.name ?? " ")
                     .lineLimit(1)
@@ -416,6 +531,8 @@ struct ItemThumbnail: View {
     let cell: ItemCell
     let cache: ThumbnailCache
     let pixels: Int
+    /// Fill the cell (crop) vs fit inside it. Grid tiles pass `true`; details/preview keep fit.
+    var fill: Bool = false
     @State private var image: UIImage?
 
     var body: some View {
@@ -423,7 +540,8 @@ struct ItemThumbnail: View {
             if let image {
                 Image(uiImage: image)
                     .resizable()
-                    .scaledToFit()
+                    .aspectRatio(contentMode: fill ? .fill : .fit)
+                    .frame(maxWidth: .infinity, maxHeight: .infinity)
             } else if let colour = placeholder {
                 colour.opacity(0.35)
             } else {

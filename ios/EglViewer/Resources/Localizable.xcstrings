@@ -1614,6 +1614,29 @@
         }
       }
     },
+    "browse.layout.square": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Square"
+          }
+        },
+        "ru": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Квадраты"
+          }
+        },
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "方格"
+          }
+        }
+      }
+    },
     "browse.loadingItem": {
       "extractionState": "manual",
       "localizations": {

@@ -20,6 +20,8 @@ final class BrowseModel {
     private(set) var settings: SavedView
     private(set) var viewId: UInt64?
     private(set) var total = 0
+    /// Stored `[width, height]` for every position (D-067 / D-122); zeros mean unknown → square.
+    private(set) var dimensions: [JustifiedPacking.Dimensions] = []
     /// True until the first answer of the core for the current query.
     private(set) var loading = true
 
@@ -109,6 +111,7 @@ final class BrowseModel {
         viewId = nil
         windows = [:]
         requested = []
+        dimensions = []
     }
 
     /// Changes the sort, look, filters or search; a change of the query opens a new view.
@@ -167,15 +170,18 @@ final class BrowseModel {
             total = opened.total
             windows = [:]
             requested = []
+            dimensions = Array(repeating: .unknown, count: opened.total)
             allSelected = false
             picked = []
             loading = false
             load(window: 0)
+            loadDimensions(generation: current)
         } catch {
             guard current == viewGeneration else { return }
             viewId = nil
             total = 0
             windows = [:]
+            dimensions = []
             loading = false
             open.report(error)
         }
@@ -207,6 +213,9 @@ final class BrowseModel {
         guard let viewId, let match = views.first(where: { $0.viewId == viewId }) else { return }
         cellGeneration += 1
         total = match.total
+        if dimensions.count != total {
+            dimensions = Array(repeating: .unknown, count: total)
+        }
         let seen = lastSeen / Self.window
         let keep = (seen - Self.keptWindows)...(seen + Self.keptWindows)
         windows = windows.filter { keep.contains($0.key) && $0.key * Self.window < total }
@@ -217,9 +226,35 @@ final class BrowseModel {
         if windows.isEmpty {
             load(window: seen)
         }
+        loadDimensions(generation: viewGeneration)
         if wantsVocabulary {
             Task { await loadVocabulary() }
         }
+    }
+
+    /// Compact `[w, h]` for every position so the justified grid can pack stable rows.
+    private func loadDimensions(generation: Int) {
+        guard let viewId else { return }
+        let library = open.library
+        Task {
+            let rows = try? await Task.detached {
+                try library.dimensions(of: viewId)
+            }.value
+            guard generation == viewGeneration, active else { return }
+            guard let rows else { return }
+            dimensions = rows.map { pair in
+                JustifiedPacking.Dimensions(
+                    width: pair.count > 0 ? pair[0] : 0,
+                    height: pair.count > 1 ? pair[1] : 0
+                )
+            }
+        }
+    }
+
+    /// Stored size at `index` for packing; unknown when the list has not arrived yet.
+    func sizeAt(_ index: Int) -> JustifiedPacking.Dimensions {
+        guard index >= 0, index < dimensions.count else { return .unknown }
+        return dimensions[index]
     }
 
     private func load(window: Int, force: Bool = false) {
