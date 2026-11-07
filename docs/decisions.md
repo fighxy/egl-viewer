@@ -2682,3 +2682,20 @@ justified grid work (D-122).
   compares versions as SemVer and is left unchanged. The iOS and Android note jobs still
   take the previous tag with `git tag --sort=-v:refname`; for these tags that is `0.2.55`.
   Android `versionCode` and the iOS build number stay the GitHub Actions run number.
+
+## D-127 Android theme toggle needs AppCompatActivity (2026-11-07)
+
+Settings → Theme (D-119) saved System / Light / Dark and called
+`AppCompatDelegate.setDefaultNightMode`, but the checkmark changed while the UI stayed on
+the previous colours.
+
+- **Cause.** `MainActivity` was still a plain `FragmentActivity` (D-106, for
+  `BiometricPrompt`). `setDefaultNightMode` only recreates **AppCompat** activities and
+  only those get a night-mode `Configuration`. Compose `isSystemInDarkTheme()` /
+  `EglTheme` therefore kept the old light or dark palette; DayNight window resources did
+  not switch either for a forced Light / Dark choice.
+- **Fix.** `MainActivity` extends `AppCompatActivity` (which is still a `FragmentActivity`,
+  so App Lock biometrics are unchanged). Host JVM test asserts that inheritance.
+- **Platforms.** Android only. Desktop View/Settings theme (D-028) and iOS system colours
+  were not affected; iOS has no theme picker.
+- **Docs.** `android/README.md` Settings row; this decision.
