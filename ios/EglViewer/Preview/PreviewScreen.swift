@@ -36,6 +36,7 @@ struct PreviewScreen: View {
                                 withAnimation(.easeInOut(duration: 0.2)) { chrome.toggle() }
                             }
                             .containerRelativeFrame([.horizontal, .vertical])
+                            .id(index)
                             .onAppear { model.need(index) }
                         }
                     }
@@ -47,7 +48,10 @@ struct PreviewScreen: View {
                 .scrollDisabled(zoomed)
                 .scrollIndicators(.hidden)
                 .accessibilityIdentifier("preview.pager")
-                .onAppear { proxy.scrollTo(start) }
+                .onAppear {
+                    position = start
+                    proxy.scrollTo(start, anchor: .leading)
+                }
             }
         }
         .ignoresSafeArea()
@@ -61,6 +65,10 @@ struct PreviewScreen: View {
         .toast(model.open, alignment: .bottom, padding: chrome ? 88 : 24)
         .statusBarHidden(!chrome)
         .preferredColorScheme(.dark)
+        .onChange(of: index) { _, _ in
+            // A recycled or previous page must not leave paging locked after a zoom.
+            if zoomed { zoomed = false }
+        }
         .onChange(of: model.total) { _, total in
             if total == 0 { dismiss() }
         }
@@ -188,7 +196,14 @@ private struct PreviewPage: View {
         let cell = model.cell(at: index)
         ZStack {
             if let image {
-                ZoomingImage(image: image, zoomed: $zoomed, tapped: tapped)
+                ZoomingImage(
+                    image: image,
+                    label: cell?.name ?? "",
+                    zoomed: $zoomed,
+                    tapped: tapped
+                )
+                // New identity resets zoom @State when the decoded original changes.
+                .id("\(cell?.id ?? "")#\(cell?.thumbVersion ?? 0)#\(pixels)")
             } else {
                 Group {
                     if let cell {
@@ -212,8 +227,9 @@ private struct PreviewPage: View {
                 .onTapGesture(perform: tapped)
             }
         }
-        .task(id: cell.map { "\($0.id)#\($0.thumbVersion)" }) {
-            guard let cell else { return }
+        .frame(maxWidth: .infinity, maxHeight: .infinity)
+        .task(id: cell.map { "\($0.id)#\($0.thumbVersion)#\(pixels)" } ?? "nil#\(pixels)") {
+            guard let cell, pixels > 0 else { return }
             failed = false
             image = await model.open.originals.image(for: cell.id, version: cell.thumbVersion, pixels: pixels)
             failed = image == nil
