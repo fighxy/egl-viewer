@@ -11,7 +11,7 @@ import org.junit.Rule
 import org.junit.Test
 import org.junit.rules.TemporaryFolder
 
-/** Host JVM tests for picked copies, clipboard names and import summary (A4 ≈ D-096). */
+/** Host JVM tests for picked copies, clipboard names, folder-tree walk and import summary (A4 / D-121). */
 class AddingTest {
     @get:Rule
     val tmp = TemporaryFolder()
@@ -104,5 +104,65 @@ class AddingTest {
         batch.cleanup()
         assertFalse(a.file.exists())
         assertFalse(b.file.exists())
+    }
+
+    /**
+     * Folder pick walks nested folders and keeps files whose MIME is empty — the old
+     * DocumentFile.isFile filter skipped those (D-121).
+     */
+    @Test
+    fun documentTreeListsNestedFilesIncludingEmptyMime() {
+        val tree = TreeChild(
+            name = "Photos",
+            isDirectory = true,
+            children = listOf(
+                TreeChild("IMG_001.JPG", isDirectory = false, mimeType = "image/jpeg"),
+                TreeChild(
+                    "Vacation",
+                    isDirectory = true,
+                    children = listOf(
+                        TreeChild("beach.png", isDirectory = false, mimeType = "image/png"),
+                        TreeChild(
+                            "Raw",
+                            isDirectory = true,
+                            children = listOf(
+                                TreeChild("shot.heic", isDirectory = false, mimeType = "image/heic"),
+                                // Empty MIME: DocumentFile.isFile would be false and skip this.
+                                TreeChild("no-mime.webp", isDirectory = false, mimeType = null),
+                                TreeChild("empty-mime.jpg", isDirectory = false, mimeType = ""),
+                            ),
+                        ),
+                    ),
+                ),
+                TreeChild("notes.txt", isDirectory = false, mimeType = "text/plain"),
+                TreeChild(".", isDirectory = false, mimeType = "image/png"),
+                TreeChild("", isDirectory = false, mimeType = "image/png"),
+            ),
+        )
+        assertEquals(
+            listOf(
+                "IMG_001.JPG",
+                "Vacation/beach.png",
+                "Vacation/Raw/shot.heic",
+                "Vacation/Raw/no-mime.webp",
+                "Vacation/Raw/empty-mime.jpg",
+                "notes.txt",
+            ),
+            collectTreeFiles(tree),
+        )
+    }
+
+    @Test
+    fun mimeExtensionsCoverPhoneFormats() {
+        assertEquals("jpg", extensionForMime("image/jpeg"))
+        assertEquals("png", extensionForMime("image/png"))
+        assertEquals("heic", extensionForMime("image/heic"))
+        assertEquals("heic", extensionForMime("image/heif"))
+        assertEquals("webp", extensionForMime("image/webp"))
+        assertEquals(null, extensionForMime("vnd.android.document/directory"))
+        assertEquals(null, extensionForMime(null))
+        assertEquals("photo.heic", fileNameWithMime("photo", "image/heic"))
+        assertEquals("photo.png", fileNameWithMime("photo.png", "image/heic"))
+        assertEquals("Imported", fileNameWithMime("..", null))
     }
 }

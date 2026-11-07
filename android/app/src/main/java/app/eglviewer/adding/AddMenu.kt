@@ -149,6 +149,8 @@ fun AddMenuButton(
                             )
                         }
                     },
+                    resolvePath = { locations.resolveFilesystemPath(it) },
+                    canReadPath = { path -> locations.canAccess(path) },
                 )
             }
             preparing = false
