@@ -2579,3 +2579,10 @@ manager reads one from the folder itself:
   is left untouched. A failure is logged and the library opens anyway.
 - They are cosmetic files of the format (docs/library-format.md §1): nothing reads them, and
   Check Library walks only `files/` and `thumbs/`.
+
+## D-118 Version 0.2.55 (2026-11-07)
+
+- **Version 0.2.55 everywhere:** the workspace crates (and `Cargo.lock`), the desktop
+  (`tauri.conf.json`, `ui/package.json`), Android (`versionName`, the version the shell gives
+  the core) and iOS (`MARKETING_VERSION`). Release tags: `v0.2.55`, `ios-v0.2.55`,
+  `android-v0.2.55`.
