@@ -2671,3 +2671,14 @@ justified grid work (D-122).
   existing `PreviewUITests` still cover swipe / rate / trash;
   `AccessibilityUITests` covers the preview description.
 - **Docs.** This decision; preview row in `ios/README.md`.
+
+## D-124 Version 0.2.77 (2026-11-07)
+
+- **Version 0.2.77 everywhere:** the workspace crates (and `Cargo.lock`), the desktop
+  (`tauri.conf.json`, `ui/package.json`), Android (`versionName`, the version the shell gives
+  the core) and iOS (`MARKETING_VERSION`). Release tags: `v0.2.77`, `ios-v0.2.77`,
+  `android-v0.2.77`.
+- **0.2.77 is a higher SemVer than 0.2.55** (patch 77 against 55). The desktop updater
+  compares versions as SemVer and is left unchanged. The iOS and Android note jobs still
+  take the previous tag with `git tag --sort=-v:refname`; for these tags that is `0.2.55`.
+  Android `versionCode` and the iOS build number stay the GitHub Actions run number.

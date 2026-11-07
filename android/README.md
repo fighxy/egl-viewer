@@ -76,8 +76,8 @@ Workflow: [`.github/workflows/mobile.yml`](../.github/workflows/mobile.yml).
 ## Releasing
 
 ```bash
-git tag android-v0.2.55          # X.Y.Z becomes versionName, the run number versionCode
-git push origin android-v0.2.55
+git tag android-v0.2.77          # X.Y.Z becomes versionName, the run number versionCode
+git push origin android-v0.2.77
 ```
 
 The workflow refuses a tag that is not `android-vX.Y.Z`
