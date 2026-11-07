@@ -23,6 +23,7 @@ Stages: **A1** foundation → **A2** browsing → **A3** preview/details → **A
 | Organizing (A5) | Folder CRUD (create / rename / move / delete); Tags screen with groups, rename / merge / delete; smart folder editor (conditions + v1 rules); Save as Smart Folder from browse |
 | Locks + app login (A6) | Locked folders (lock / unlock / recover / Lock All / label); relock on background; App Lock PIN/password (PBKDF2) + BiometricPrompt / Keystore; login overlay + Recents privacy cover |
 | Settings (A7) | Library name / storage / rebuild thumbnails; backups + restore; check and repair; export (ZIP, 7z or folder; optional passphrase of 8+ characters: age or AES-256 ZIP, AES-256 7z with hidden names; D-112, D-113) via SAF / share; Decrypt Archive (`.age` → ZIP, Save / Share; D-111); **Theme** (System / Light / Dark, DayNight tokens; D-119); App Lock (wrong-try wait survives a restart), version, language link; no Eagle |
+| System UI + grid (D-120) | Edge-to-edge with correct light/dark status + nav icon colours; `safeDrawing` insets so content clears the bars; system/gesture back walks places → Welcome (preview, sheets, selection first); borderless photo grid (crop fill, tight gutters, no inset frames) |
 | Release (A8) | Adaptive launcher + Play Store icon; Privacy screen + `PRIVACY.md` + backup exclusions; TalkBack labels for cells and ratings; 10,000-item JVM perf test; tagged APK/AAB by `android-vX.Y.Z` |
 | Where libraries live | App-specific storage, or anywhere on the phone after **All files access** (`MANAGE_EXTERNAL_STORAGE`, asked when a library outside app storage is opened; D-111); cloud-looking path opens **read-only** (D-021) |
 | Strings | English / Russian / Simplified Chinese, every screen from the catalogs (plurals included); `StringsCatalogTest` keeps the keys in step and catches hardcoded English (D-111) |
@@ -44,8 +45,8 @@ android/
     …/locks/                   AppLock, LoginScreen, LockSheets, AppLockForm
     …/settings/                SettingsScreen, LibraryInfo, Backups, Check, Export, Privacy
     …/a11y/                    StarsText, AccessibilityLabels
-    …/theme/                   EglTokens (light/dark), ThemePreference, EglTheme
-    res/values + values-night  DayNight theme + window background
+    …/theme/                   EglTokens (light/dark), ThemePreference, EglTheme, SystemBars (D-120)
+    res/values + values-night  DayNight theme + window background + light/dark system bar icons
     res/mipmap-*               Adaptive launcher icons
     ic_launcher-playstore.png  512×512 Play Store icon
   PRIVACY.md                   Store / data-handling notes

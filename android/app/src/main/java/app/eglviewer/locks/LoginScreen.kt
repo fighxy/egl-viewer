@@ -1,5 +1,6 @@
 package app.eglviewer.locks
 
+import androidx.activity.compose.BackHandler
 import androidx.compose.foundation.background
 import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Box
@@ -48,6 +49,9 @@ fun LoginScreen(lock: AppLock) {
     var password by remember { mutableStateOf("") }
     var wrong by remember { mutableStateOf(false) }
     var waitLeft by remember { mutableIntStateOf(lock.waitSecondsLeft()) }
+
+    // Stay on the lock screen; do not walk the underlying stack or exit (D-120).
+    BackHandler { /* consume */ }
     val context = LocalContext.current
     val activity = context as? FragmentActivity
 

@@ -1,6 +1,7 @@
 package app.eglviewer.screens
 
 import android.net.Uri
+import androidx.activity.compose.BackHandler
 import androidx.activity.compose.rememberLauncherForActivityResult
 import androidx.activity.result.contract.ActivityResultContracts
 import androidx.compose.foundation.BorderStroke
@@ -76,6 +77,17 @@ fun WelcomeScreen(model: AppModel, lock: AppLock) {
             onBack = { showSettings = false },
         )
         return
+    }
+
+    // At Welcome root the system may leave the app; dismiss overlays first (D-120).
+    BackHandler(enabled = showCreate || model.eaglePlan != null) {
+        when {
+            model.eaglePlan != null -> model.cancelEagle()
+            showCreate -> {
+                showCreate = false
+                createName = ""
+            }
+        }
     }
 
     val openTree = rememberLauncherForActivityResult(

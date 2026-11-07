@@ -1,6 +1,7 @@
 package app.eglviewer.preview
 
 import android.graphics.Bitmap
+import androidx.activity.compose.BackHandler
 import androidx.compose.foundation.ExperimentalFoundationApi
 import androidx.compose.foundation.background
 import androidx.compose.foundation.layout.Arrangement
@@ -54,6 +55,7 @@ import app.eglviewer.core.ItemCell
 import app.eglviewer.core.ItemsTarget
 import app.eglviewer.details.DetailsSheet
 import app.eglviewer.details.ShareFiles
+import app.eglviewer.theme.EglSystemBarIcons
 import app.eglviewer.theme.EglTokens
 import kotlinx.coroutines.flow.distinctUntilChanged
 import kotlinx.coroutines.launch
@@ -85,6 +87,16 @@ fun PreviewScreen(
         snapshotFlow { pagerState.currentPage }
             .distinctUntilChanged()
             .collect { page -> model.need(page) }
+    }
+
+    // Always-dark stage: light status / nav icons; back leaves the preview (D-120).
+    EglSystemBarIcons(darkIcons = false)
+    BackHandler {
+        when {
+            deleting -> deleting = false
+            details != null -> details = null
+            else -> onClose()
+        }
     }
 
     val index = pagerState.currentPage.coerceIn(0, (model.total - 1).coerceAtLeast(0))

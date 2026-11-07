@@ -3,7 +3,6 @@ package app.eglviewer
 import android.os.Bundle
 import android.view.WindowManager
 import androidx.activity.compose.setContent
-import androidx.activity.enableEdgeToEdge
 import androidx.activity.viewModels
 import androidx.compose.foundation.background
 import androidx.compose.foundation.layout.Box
@@ -26,8 +25,11 @@ import app.eglviewer.locks.LoginScreen
 import app.eglviewer.locks.PrivacyCover
 import app.eglviewer.screens.LibraryScreen
 import app.eglviewer.screens.WelcomeScreen
+import app.eglviewer.theme.EglSystemBarIcons
 import app.eglviewer.theme.EglTheme
 import app.eglviewer.theme.EglTokens
+import app.eglviewer.theme.eglSafeDrawingPadding
+import app.eglviewer.theme.enableEglEdgeToEdge
 import kotlinx.coroutines.launch
 
 class MainActivity : FragmentActivity() {
@@ -35,9 +37,10 @@ class MainActivity : FragmentActivity() {
 
     override fun onCreate(savedInstanceState: Bundle?) {
         super.onCreate(savedInstanceState)
-        enableEdgeToEdge()
+        enableEglEdgeToEdge()
         setContent {
             EglTheme {
+                EglSystemBarIcons()
                 val lock = remember { AppLock.standard(this) }
                 EglApp(model = model, lock = lock, activity = this)
             }
@@ -95,7 +98,8 @@ fun EglApp(model: AppModel, lock: AppLock, activity: FragmentActivity) {
     Box(
         modifier = Modifier
             .fillMaxSize()
-            .background(EglTokens.Background),
+            .background(EglTokens.Background)
+            .eglSafeDrawingPadding(),
     ) {
         when (val screen = model.screen) {
             is AppModel.Screen.Welcome -> WelcomeScreen(model = model, lock = lock)
