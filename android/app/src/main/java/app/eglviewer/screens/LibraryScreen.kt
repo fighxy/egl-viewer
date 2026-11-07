@@ -1,5 +1,6 @@
 package app.eglviewer.screens
 
+import androidx.activity.compose.BackHandler
 import androidx.compose.foundation.background
 import androidx.compose.foundation.clickable
 import androidx.compose.foundation.combinedClickable
@@ -150,6 +151,9 @@ fun LibraryScreen(
         }
         return
     }
+
+    // Places root of an open library: system back returns to Welcome (D-126).
+    BackHandler(onBack = onClose)
 
     Column(
         modifier = Modifier

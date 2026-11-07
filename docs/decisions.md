@@ -2682,3 +2682,21 @@ justified grid work (D-122).
   compares versions as SemVer and is left unchanged. The iOS and Android note jobs still
   take the previous tag with `git tag --sort=-v:refname`; for these tags that is `0.2.55`.
   Android `versionCode` and the iOS build number stay the GitHub Actions run number.
+
+## D-126 Android system back walks the in-app stack (2026-11-07)
+
+On `main`, Compose never registered an `OnBackPressedDispatcher` / `BackHandler` callback, so
+the Activity finished on every system or gesture Back press — including from preview, settings,
+a place, or the open-library places list. PR #80 drafted handlers together with system chrome
+and grid polish, but that branch did not land; this decision covers the back stack only.
+
+- **Back order.** Nested `BackHandler`s (Compose last-registered wins) walk: App Lock (consume,
+  stay locked) → preview delete/details → leave preview → browse filters / empty-trash /
+  details / selection → place → library places → Welcome. On Welcome, create / Eagle-import
+  overlays dismiss first; only at Welcome root does Back leave the activity.
+- **Screens.** Handlers live on `LoginScreen`, `PreviewScreen`, `BrowseScreen`, `TagsScreen`,
+  `SettingsScreen`, `LibraryScreen` (places root), and `WelcomeScreen` (overlays only).
+- **Out of scope.** Edge-to-edge / system-bar icon colours and borderless grid from the
+  unmerged #80 work; those stay separate.
+- **Tests.** `NavigationBackTest` documents the layer priority on the host JVM.
+- **Docs.** This decision; short note in `android/README.md`.
