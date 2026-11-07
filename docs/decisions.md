@@ -2147,8 +2147,9 @@ The fourth PR of the Android series (D-101…D-103), mirroring iOS D-096. Stacke
   copies left by a killed run are removed at launch. Files/folders from SAF: when a document
   resolves to a primary-storage path the app keeps the URI grant until the import ends;
   otherwise the bytes are copied into `picked-*` while the grant is held (Android content URIs
-  have no durable path the core can read). Paste reads the clipboard only when the user picks
-  Paste.
+  have no durable path the core can read). A Folder pick walks the whole tree, including
+  nested folders; documents with an empty MIME are still copied (D-120). Paste reads the
+  clipboard only when the user picks Paste.
 - **Import.** One `egl_add_files` per batch; progress shows over the place with Stop; when it
   ends a toast says what was added, skipped and failed. Closing the library runs the pending
   clean-ups.
@@ -2603,3 +2604,25 @@ first-class, aligned with the desktop (D-028):
   choice. Status colours (destructive / success / warning) are named tokens with dark pairs.
 - **Out of scope.** Desktop Tauri and iOS theme UI are unchanged (iOS already follows system
   colours). No shared mobile preference file with the desktop's `preferences.json`.
+
+## D-120 Android folder pick: recursive SAF walk, no MIME skip (2026-11-07)
+
+A4's Folder action (`OpenDocumentTree`, D-104) copied a picked tree into `picked-*` and handed
+the folder to `egl_add_files`. Nested folders were walked, but each child was taken only when
+`DocumentFile.isFile` was true. That helper returns false when the provider leaves the MIME
+type empty, so photos (JPEG, PNG, HEIC, WebP, …) on some trees never reached the copy and the
+library looked incomplete. Trash places still omit Add; a folder place still targets that
+folder.
+
+- **Take every non-directory.** The tree copy recurses as before; a child that is not a
+  directory is copied even when its MIME is null or blank. Directories alone decide nesting.
+  A display name with no extension may gain one from a known image/video MIME (HEIC/WebP
+  included), matching the formats the core previews (D-015 / D-104).
+- **Filesystem when readable.** If the tree URI resolves to a primary-storage path and the app
+  may read it (app storage or All files access, D-111), that path is passed straight to
+  `egl_add_files` so the core walks it; otherwise the SAF copy runs while the persistable read
+  grant is held and is released when the import ends. Temp `picked-*` copies are removed
+  afterwards (and leftovers at launch), as in D-104.
+- **Tests.** Host JVM coverage of the recursive listing (nested folders, empty MIME kept,
+  blank / "." names skipped) and of the MIME→extension map, in `:app:testDebugUnitTest`.
+- **Docs.** `android/README.md` Adding row; this decision.

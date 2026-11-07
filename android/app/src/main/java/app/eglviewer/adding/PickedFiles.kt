@@ -124,14 +124,26 @@ object ImportPaths {
         }
     }
 
+    /**
+     * A folder from [OpenDocumentTree]: every file under it, including nested folders (D-120).
+     * When [resolvePath] yields a directory the app can read ([canReadPath]), that path is
+     * handed to the core (its own recursive walk); otherwise the tree is copied into
+     * `picked-*` while the SAF grant is held. Grants are released when the import ends.
+     */
     fun fromTreeUri(
         context: Context,
         tree: Uri,
         cacheDir: File,
         takeGrant: (Uri) -> Unit = {},
         releaseGrant: (Uri) -> Unit = {},
+        resolvePath: (Uri) -> String? = { null },
+        canReadPath: (File) -> Boolean = { false },
     ): Batch {
         takeGrant(tree)
+        val resolved = resolvePath(tree)?.let { File(it) }
+        if (resolved != null && resolved.isDirectory && canReadPath(resolved)) {
+            return Batch(paths = listOf(resolved.absolutePath)) { releaseGrant(tree) }
+        }
         val root = DocumentFile.fromTreeUri(context, tree)
             ?: return Batch(emptyList()) { releaseGrant(tree) }
         val folder = PickedFile.newFolder(cacheDir)
@@ -204,14 +216,21 @@ object ImportPaths {
         }.getOrNull()
     }
 
+    /**
+     * Copies every document under [from] into [into], recursively through subfolders.
+     * Anything that is not a directory is treated as a file: [DocumentFile.isFile] is false
+     * when the MIME type is empty, which skipped photos on some providers (D-120).
+     */
     private fun copyDocumentTree(context: Context, from: DocumentFile, into: File) {
         for (child in from.listFiles()) {
-            val name = child.name?.ifEmpty { null } ?: continue
+            val rawName = child.name?.ifEmpty { null } ?: continue
             if (child.isDirectory) {
-                val dir = PickedFile.child(into, name, fallback = "Folder")
+                val dir = PickedFile.child(into, rawName, fallback = "Folder")
                 dir.mkdirs()
                 copyDocumentTree(context, child, dir)
-            } else if (child.isFile) {
+            } else {
+                // Not isFile(): empty MIME must still be copied (JPEG/PNG/HEIC/WebP, …).
+                val name = fileNameWithMime(rawName, child.type)
                 val target = PickedFile.child(into, name)
                 context.contentResolver.openInputStream(child.uri)?.use { input ->
                     FileOutputStream(target).use { output -> input.copyTo(output) }
