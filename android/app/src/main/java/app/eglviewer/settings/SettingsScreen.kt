@@ -4,6 +4,7 @@ import android.content.Intent
 import android.net.Uri
 import android.os.Build
 import android.provider.Settings
+import androidx.activity.compose.BackHandler
 import androidx.compose.foundation.background
 import androidx.compose.foundation.clickable
 import androidx.compose.foundation.layout.Arrangement
@@ -76,6 +77,14 @@ fun SettingsScreen(
     var dest by remember { mutableStateOf<SettingsDest>(SettingsDest.Hub) }
     var showAppLock by remember { mutableStateOf(false) }
     val context = LocalContext.current
+
+    BackHandler {
+        when {
+            showAppLock -> showAppLock = false
+            dest != SettingsDest.Hub -> dest = SettingsDest.Hub
+            else -> onBack()
+        }
+    }
 
     when (dest) {
         SettingsDest.Hub -> {

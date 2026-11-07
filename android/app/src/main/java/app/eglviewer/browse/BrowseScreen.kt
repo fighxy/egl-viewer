@@ -3,6 +3,7 @@ package app.eglviewer.browse
 import android.content.ClipData
 import android.graphics.Bitmap
 import android.net.Uri
+import androidx.activity.compose.BackHandler
 import androidx.compose.foundation.ExperimentalFoundationApi
 import androidx.compose.foundation.Image
 import androidx.compose.foundation.background
@@ -17,7 +18,6 @@ import androidx.compose.foundation.layout.Row
 import androidx.compose.foundation.layout.aspectRatio
 import androidx.compose.foundation.layout.fillMaxSize
 import androidx.compose.foundation.layout.fillMaxWidth
-import androidx.compose.foundation.layout.height
 import androidx.compose.foundation.layout.padding
 import androidx.compose.foundation.layout.size
 import androidx.compose.foundation.lazy.LazyColumn
@@ -57,6 +57,7 @@ import androidx.compose.ui.Modifier
 import androidx.compose.ui.draganddrop.DragAndDropEvent
 import androidx.compose.ui.draganddrop.DragAndDropTarget
 import androidx.compose.ui.draganddrop.toAndroidDragEvent
+import androidx.compose.ui.draw.clip
 import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.graphics.asImageBitmap
 import androidx.compose.ui.layout.ContentScale
@@ -146,6 +147,21 @@ fun BrowseScreen(
     }
     @Suppress("UNUSED_EXPRESSION")
     tick
+
+    // System / gesture back: leave preview, cancel selection, then return to places (D-120).
+    BackHandler {
+        when {
+            model.previewing != null -> model.closePreview()
+            model.details != null -> model.closeDetails()
+            showFilters -> showFilters = false
+            emptyTrashConfirm -> emptyTrashConfirm = false
+            model.selecting -> model.setSelecting(false)
+            else -> {
+                open.forgetPlace()
+                onBack()
+            }
+        }
+    }
 
     Box(
         modifier = Modifier
@@ -487,13 +503,16 @@ private fun SearchField(query: String, onQuery: (String) -> Unit) {
 private fun BrowseGrid(model: BrowseModel) {
     val minWidth = model.settings.size.minimumWidthDp.dp
     val density = LocalDensity.current
+    val gutter = EglTokens.GridGutter
     val pixels = with(density) { (minWidth * 1.6f).roundToPx() }
     LazyVerticalGrid(
         columns = GridCells.Adaptive(minSize = minWidth),
-        contentPadding = PaddingValues(4.dp),
-        horizontalArrangement = Arrangement.spacedBy(4.dp),
-        verticalArrangement = Arrangement.spacedBy(8.dp),
-        modifier = Modifier.fillMaxSize(),
+        contentPadding = PaddingValues(gutter),
+        horizontalArrangement = Arrangement.spacedBy(gutter),
+        verticalArrangement = Arrangement.spacedBy(gutter),
+        modifier = Modifier
+            .fillMaxSize()
+            .testTag("browse.grid"),
     ) {
         items(model.total) { index ->
             model.need(index)
@@ -544,47 +563,36 @@ private fun GridTile(
     onLongClick: () -> Unit,
 ) {
     val label = itemCellDescription(cell)
-    Column(
+    // Borderless tile like desktop: photo fills the cell (object-cover), no inset frame.
+    Box(
         modifier = Modifier
+            .fillMaxWidth()
+            .aspectRatio(1f)
+            .clip(RoundedCornerShape(EglTokens.RadiusXs))
+            .background(EglTokens.Grid)
+            .then(
+                if (selected) {
+                    Modifier.border(2.dp, EglTokens.Primary, RoundedCornerShape(EglTokens.RadiusXs))
+                } else {
+                    Modifier
+                },
+            )
             .then(if (cell != null) Modifier.testTag("item.${cell.name}") else Modifier)
             .semantics(mergeDescendants = true) { contentDescription = label }
             .combinedClickable(onClick = onClick, onLongClick = onLongClick),
-        horizontalAlignment = Alignment.CenterHorizontally,
+        contentAlignment = Alignment.Center,
     ) {
-        Box(
-            modifier = Modifier
-                .fillMaxWidth()
-                .aspectRatio(1f)
-                .background(EglTokens.Muted, RoundedCornerShape(6.dp))
-                .then(
-                    if (selected) {
-                        Modifier.border(3.dp, EglTokens.Primary, RoundedCornerShape(6.dp))
-                    } else {
-                        Modifier
-                    },
-                ),
-            contentAlignment = Alignment.Center,
-        ) {
-            ItemThumbnail(cell = cell, pixels = pixels, cache = cache)
-            if (selecting && cell != null) {
-                Icon(
-                    imageVector = if (selected) Icons.Default.CheckCircle else Icons.Default.RadioButtonUnchecked,
-                    contentDescription = null,
-                    tint = if (selected) EglTokens.Primary else EglTokens.Foreground,
-                    modifier = Modifier
-                        .align(Alignment.TopEnd)
-                        .padding(6.dp),
-                )
-            }
+        ItemThumbnail(cell = cell, pixels = pixels, cache = cache, fill = true)
+        if (selecting && cell != null) {
+            Icon(
+                imageVector = if (selected) Icons.Default.CheckCircle else Icons.Default.RadioButtonUnchecked,
+                contentDescription = null,
+                tint = if (selected) EglTokens.Primary else EglTokens.Foreground,
+                modifier = Modifier
+                    .align(Alignment.TopEnd)
+                    .padding(6.dp),
+            )
         }
-        Text(
-            text = cell?.name ?: " ",
-            color = EglTokens.MutedForeground,
-            fontSize = 11.sp,
-            maxLines = 1,
-            overflow = TextOverflow.Ellipsis,
-            modifier = Modifier.padding(top = 3.dp),
-        )
     }
 }
 
@@ -620,10 +628,11 @@ private fun ListRow(
         Box(
             modifier = Modifier
                 .size(48.dp)
-                .background(EglTokens.Muted, RoundedCornerShape(4.dp)),
+                .clip(RoundedCornerShape(4.dp))
+                .background(EglTokens.Grid),
             contentAlignment = Alignment.Center,
         ) {
-            ItemThumbnail(cell = cell, pixels = pixels, cache = cache)
+            ItemThumbnail(cell = cell, pixels = pixels, cache = cache, fill = true)
         }
         Column(modifier = Modifier.weight(1f)) {
             Text(
@@ -664,7 +673,12 @@ private fun itemCellDescription(cell: ItemCell?): String {
 }
 
 @Composable
-private fun ItemThumbnail(cell: ItemCell?, pixels: Int, cache: ThumbnailCache) {
+private fun ItemThumbnail(
+    cell: ItemCell?,
+    pixels: Int,
+    cache: ThumbnailCache,
+    fill: Boolean = false,
+) {
     var bitmap by remember(cell?.id, cell?.thumbVersion, pixels) { mutableStateOf<Bitmap?>(null) }
     LaunchedEffect(cell?.id, cell?.thumbVersion, pixels) {
         bitmap = if (cell != null) cache.image(forCell = cell, pixels = pixels) else null
@@ -674,8 +688,8 @@ private fun ItemThumbnail(cell: ItemCell?, pixels: Int, cache: ThumbnailCache) {
         bitmap != null -> Image(
             bitmap = bitmap!!.asImageBitmap(),
             contentDescription = null, // parent cell merges the TalkBack label (A8)
-            contentScale = ContentScale.Fit,
-            modifier = Modifier.fillMaxSize().padding(4.dp),
+            contentScale = if (fill) ContentScale.Crop else ContentScale.Fit,
+            modifier = Modifier.fillMaxSize(),
         )
         palette != null && palette.size >= 3 -> Box(
             modifier = Modifier

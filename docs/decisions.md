@@ -2603,3 +2603,20 @@ first-class, aligned with the desktop (D-028):
   choice. Status colours (destructive / success / warning) are named tokens with dark pairs.
 - **Out of scope.** Desktop Tauri and iOS theme UI are unchanged (iOS already follows system
   colours). No shared mobile preference file with the desktop's `preferences.json`.
+
+## D-120 Android system chrome, back stack, borderless grid (2026-11-07)
+
+Builds on D-119. Phone UX polish only (not a desktop/iOS redesign):
+
+- **System bars.** `enableEdgeToEdge` with transparent status / navigation bars; DayNight
+  `windowLightStatusBar` / `windowLightNavigationBar`; Compose `EglSystemBarIcons` keeps icon
+  colours with the resolved theme (light icons on the always-dark preview). Root content uses
+  `WindowInsets.safeDrawing` so chrome and lists are not drawn under the bars.
+- **Back.** `BackHandler` / OnBackPressedDispatcher walks the in-app stack: dismiss sheets and
+  overlays, leave preview, cancel selection, place → library places → Welcome. Only at Welcome
+  root does system back leave the activity. The app-lock screen consumes back so the lock is
+  not bypassed.
+- **Grid.** Tiles match the desktop look: no inset frame around the photo, `ContentScale.Crop`,
+  `--grid` placeholder, tight `GridGutter` spacing, selection ring only when selected.
+  Thumbnail load also tries when `thumbVersion > 0` even if `hasThumbnail` is stale.
+- **Out of scope.** Rewriting D-119 tokens; iOS / desktop grid redesign.
