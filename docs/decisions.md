@@ -2682,3 +2682,27 @@ justified grid work (D-122).
   compares versions as SemVer and is left unchanged. The iOS and Android note jobs still
   take the previous tag with `git tag --sort=-v:refname`; for these tags that is `0.2.55`.
   Android `versionCode` and the iOS build number stay the GitHub Actions run number.
+
+## D-125 Experimental GPUI Kit desktop shell (2026-11-08)
+
+Spike of a second desktop client next to Tauri/`ui/`, not a replacement. Same idea as the
+mobile shells (D-082 / D-083): prove the stack by calling Rust services directly.
+
+- **Crate.** `crates/gpui-desktop` (bin `gpui-desktop`) depends on `gpui-kit` **0.9.0**
+  (Longbridge, https://gpui-kit.com / crates.io `gpui-kit`), `app-service`, `library-core`
+  and `library-native`. Workspace pin is exact (D-002); 0.9.0 was published 2026-11-02, older
+  than the supply-chain age rule in D-003. The app never lists Zed's GPUI crates itself —
+  `gpui-kit` re-exports them.
+- **Not gpui-ce.** This spike uses Longbridge's kit (`gpui-kit` / `gpui-component` /
+  `gpui-base` over `gpui-pre`), not Community Edition packaging.
+- **What it does.** Opens a native window, opens a native `.eglib` (path field, argv, or a
+  temp copy of `fixtures/library/v5/Fixture.eglib`), loads an All-items view through
+  `LibraryService`, and shows a simple thumb / palette grid. No WebView, no Tauri IPC, no
+  Eagle.
+- **Out of scope for the spike.** Menu bar / commands (D-025), justified packing (D-067),
+  edits, import, settings, Eagle, packaging, and replacing `src-tauri` / `ui/`. Those stay
+  the product path.
+- **Run.** `cargo run -p gpui-desktop` (same `VCPKG_ROOT` / `VCPKGRS_DYNAMIC` / PATH needs as
+  the rest of the workspace for libheif). Tests: `cargo test -p gpui-desktop`.
+- **Revisit** when deciding whether a native GPUI shell becomes a real desktop track or stays
+  an experiment beside Tauri.
