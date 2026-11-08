@@ -224,6 +224,8 @@ impl RootApp {
         ));
 
         app.ensure_login_gate();
+        // Drop Spike/Fixture (and other) rows whose folders were deleted after tests or moves.
+        let _ = app.session.prune_missing_recent();
         let startup = app.session.startup(platform::skip_reopen());
         if app.login_gate.is_open() {
             app.startup_done = true;
@@ -2302,6 +2304,8 @@ impl RootApp {
         locale: Locale,
         cx: &mut Context<Self>,
     ) -> impl IntoElement {
+        // Forget rows whose library.db is gone so Welcome stays clean after temp fixtures.
+        let _ = self.session.prune_missing_recent();
         let recent = self.session.recent_libraries();
         let status = self.status.clone();
         v_flex()

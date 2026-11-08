@@ -2906,3 +2906,16 @@ folder exceeds **20 GiB**. Free id after D-134.
   `pwsh scripts/package-gpui-desktop.ps1 -CleanHugeTarget`. Not hooked into `pnpm check` (CI
   runners should not wipe build caches mid-job).
 - **Run.** From the repo root: `pwsh scripts/clean-target-if-huge.ps1`.
+
+## D-136 GPUI tests must not pollute recent libraries (2026-11-08)
+
+`gpui-desktop` tests called `library::session()`, which shared the real AppStore under
+`%LOCALAPPDATA%\egl-viewer-gpui`. Opening temp Spike/Fixture libraries wrote them into
+`recent.json`; after the temp dirs vanished, Welcome showed many "(missing)" rows.
+
+- **Tests.** `session()` uses a disposable store under the process temp dir. Production still
+  uses `session_with_emit` / `session_with_mailbox` → `platform::app_data_dir()`.
+- **Welcome.** `AppStore::prune_missing_recent` forgets rows whose `library.db` is gone;
+  Session exposes it; GPUI calls it on startup and when rendering Welcome.
+- **Verify.** `cargo test -p app-store prune_missing`; `cargo test -p gpui-desktop`
+  `test_session_does_not_pollute_persistent_recent`.

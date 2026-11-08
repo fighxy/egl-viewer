@@ -32,9 +32,7 @@ pub use app_service::{SmartDraft, lock, now_ms};
 
 use crate::webauthn::SystemWebAuthn;
 use crate::yubikey;
-use crate::{
-    Blocking, Emit, ImageRequest, ItemsTarget, ViewOpened, count, invalidated, ready,
-};
+use crate::{Blocking, Emit, ImageRequest, ItemsTarget, ViewOpened, count, invalidated, ready};
 
 /// The app's icon, for the library folder in the file manager (D-117).
 const FOLDER_ICON: library_native::FolderIcon<'static> = library_native::FolderIcon {
@@ -410,6 +408,11 @@ impl Session {
 
     pub fn forget_recent_library(&self, path: &str) -> Result<(), SourceError> {
         self.store.forget_recent(path)
+    }
+
+    /// Removes recent rows whose library folder is gone (Welcome cleanup).
+    pub fn prune_missing_recent(&self) -> Result<usize, SourceError> {
+        self.store.prune_missing_recent()
     }
 
     /// The last place, filters and selection for a library path (phase 12 / D-078).

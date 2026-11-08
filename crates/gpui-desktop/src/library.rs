@@ -9,8 +9,8 @@ use app_store::{
 };
 use desktop_session::{Emit, Event, Session, ViewOpened};
 use library_core::{
-    Folder, ItemCell, ItemId, LibraryCounts, LibraryInfo, LibraryQuery, Scope, SmartFolder, SortKey,
-    TagMode, Thumbnail,
+    Folder, ItemCell, ItemId, LibraryCounts, LibraryInfo, LibraryQuery, Scope, SmartFolder,
+    SortKey, TagMode, Thumbnail,
 };
 
 use crate::platform;
@@ -25,7 +25,6 @@ pub fn fixture_library_path() -> PathBuf {
     Path::new(env!("CARGO_MANIFEST_DIR")).join("../../fixtures/library/v5/Fixture.eglib")
 }
 
-#[allow(dead_code)]
 pub fn now_stamp() -> u64 {
     std::time::SystemTime::now()
         .duration_since(std::time::UNIX_EPOCH)
@@ -39,7 +38,10 @@ pub fn new_event_mailbox() -> EventMailbox {
 
 /// Builds a Session with a stable AppStore under the GPUI host data dir (settings persist).
 pub fn session_with_emit(emit: Emit) -> Session {
-    let root = platform::app_data_dir();
+    session_at(platform::app_data_dir(), emit)
+}
+
+fn session_at(root: PathBuf, emit: Emit) -> Session {
     let data = root.join("data");
     let home = root.join("home");
     let _ = std::fs::create_dir_all(&data);
@@ -63,9 +65,17 @@ pub fn session_with_mailbox(mailbox: EventMailbox) -> Session {
     session_with_emit(emit)
 }
 
-/// Builds a Session with a noop emit (tests).
+/// Builds a Session with a noop emit for tests.
+///
+/// Uses a disposable AppStore under the process temp dir so `open_library` never writes
+/// Spike/Fixture paths into the user's persistent recent list (`%LOCALAPPDATA%\egl-viewer-gpui`).
 pub fn session() -> Session {
-    session_with_emit(Arc::new(|_event: Event| {}))
+    let root = std::env::temp_dir().join(format!(
+        "egl-gpui-test-store-{}-{}",
+        std::process::id(),
+        now_stamp()
+    ));
+    session_at(root, Arc::new(|_event: Event| {}))
 }
 
 #[derive(Debug, Clone, PartialEq, Eq)]
@@ -365,14 +375,14 @@ pub struct OpenLibraryState {
 
 impl OpenLibraryState {
     pub fn load(session: &Session, info: LibraryInfo) -> Result<Self, library_core::SourceError> {
-        let path = info
-            .path
-            .clone()
-            .unwrap_or_else(|| session.library_folder().map(|p| p.to_string_lossy().into()).unwrap_or_default());
+        let path = info.path.clone().unwrap_or_else(|| {
+            session
+                .library_folder()
+                .map(|p| p.to_string_lossy().into())
+                .unwrap_or_default()
+        });
         let prefs = session.preferences();
-        let saved = session
-            .library_session(&path)
-            .unwrap_or_default();
+        let saved = session.library_session(&path).unwrap_or_default();
         let place = Place::from_saved(saved.place);
         let browse = prefs.browse;
         let sort = saved.screen_sort.unwrap_or(browse.sort);
@@ -529,6 +539,39 @@ mod tests {
     }
 
     #[test]
+    fn test_session_does_not_pollute_persistent_recent() {
+        let persistent = platform::app_data_dir().join("data");
+        let recent_path = persistent.join("recent.json");
+        let before = std::fs::read(&recent_path).unwrap_or_default();
+
+        let dir = tempdir().unwrap();
+        let root = create_library(dir.path(), "Spike", APP_VERSION).unwrap();
+        let opened = root.to_string_lossy().into_owned();
+        let session = session();
+        session.open_library(&opened).unwrap();
+        assert!(
+            session
+                .recent_libraries()
+                .iter()
+                .any(|entry| entry.path == opened),
+            "ephemeral store should still remember within the test session"
+        );
+        session.close_library().unwrap();
+        drop(session);
+
+        let after = std::fs::read(&recent_path).unwrap_or_default();
+        assert_eq!(
+            before, after,
+            "opening a temp Spike must not rewrite %LOCALAPPDATA%\\egl-viewer-gpui recent.json"
+        );
+        let after_text = String::from_utf8_lossy(&after);
+        assert!(
+            !after_text.contains(&opened),
+            "persistent recent must not gain this test's path: {after_text}"
+        );
+    }
+
+    #[test]
     fn opens_the_v5_fixture_and_lists_its_items() {
         let source = fixture_library_path();
         assert!(source.is_dir(), "missing fixture at {}", source.display());
@@ -545,13 +588,9 @@ mod tests {
 
     #[test]
     fn place_round_trips_saved() {
-        let folder = Place::Folder {
-            id: "F1".into(),
-        };
+        let folder = Place::Folder { id: "F1".into() };
         assert_eq!(Place::from_saved(folder.to_saved()), folder);
-        let smart = Place::Smart {
-            id: "S1".into(),
-        };
+        let smart = Place::Smart { id: "S1".into() };
         assert_eq!(Place::from_saved(smart.to_saved()), smart);
     }
 

@@ -96,6 +96,24 @@ impl AppStore {
         self.forget_library_session(path)
     }
 
+    /// Drops recent rows whose `library.db` is gone (temp fixtures, unplugged drives the user
+    /// no longer needs). Returns how many entries were removed. No write when nothing is missing.
+    pub fn prune_missing_recent(&self) -> Result<usize, SourceError> {
+        let gone: Vec<String> = self
+            .recent_libraries()
+            .into_iter()
+            .filter(|entry| entry.missing)
+            .map(|entry| entry.path)
+            .collect();
+        if gone.is_empty() {
+            return Ok(0);
+        }
+        for path in &gone {
+            self.forget_recent(path)?;
+        }
+        Ok(gone.len())
+    }
+
     /// Close Library sets it; opening a library clears it. Quitting is not an explicit close.
     pub fn set_closed_explicitly(&self, closed: bool) -> Result<(), SourceError> {
         JsonFile::new(self.dir(), RECENT).update(|file: &mut RecentFile| {
@@ -203,5 +221,23 @@ mod tests {
         store.forget_recent("/libs/A.eglib").unwrap();
         assert_eq!(store.library_to_reopen(), None);
         assert!(store.recent_libraries().is_empty());
+    }
+
+    #[test]
+    fn prune_missing_keeps_present_libraries() {
+        let data = tempfile::tempdir().unwrap();
+        let libs = tempfile::tempdir().unwrap();
+        let here = library(libs.path(), "Here");
+        let store = AppStore::new(data.path());
+        store
+            .remember_opened("/nowhere/Gone.eglib", "Gone", None, 1)
+            .unwrap();
+        store.remember_opened(&here, "Here", None, 2).unwrap();
+        assert_eq!(store.prune_missing_recent().unwrap(), 1);
+        assert_eq!(store.prune_missing_recent().unwrap(), 0);
+        let recent = store.recent_libraries();
+        assert_eq!(recent.len(), 1);
+        assert_eq!(recent[0].name, "Here");
+        assert!(!recent[0].missing);
     }
 }
