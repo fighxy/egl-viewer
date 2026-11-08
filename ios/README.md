@@ -97,6 +97,19 @@ swift test -Xlinker -L"$PWD/../../target/release" -Xlinker -rpath -Xlinker "$PWD
   `EglViewer-X.Y.Z.ipa` and `SHA256SUMS` (D-100). Never marked as the latest release, which
   belongs to the desktop updater.
 
+## Where to download
+
+There is **no App Store or TestFlight** build. Downloads are GitHub Releases only (D-100,
+D-125):
+
+- Versioned: [ios-v0.2.77](https://github.com/fighxy/egl-viewer/releases/tag/ios-v0.2.77)
+  (`EglViewer-0.2.77.ipa` + `SHA256SUMS`)
+- Rolling from `main`: [ios-latest](https://github.com/fighxy/egl-viewer/releases/tag/ios-latest)
+  (pre-release)
+
+The repo’s “Latest” release is always the **desktop** build (`vX.Y.Z`). iPhone releases use
+separate tags and are never marked latest, so the desktop updater keeps working (D-062).
+
 ## Releasing
 
 ```bash

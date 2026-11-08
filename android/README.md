@@ -73,6 +73,18 @@ Workflow: [`.github/workflows/mobile.yml`](../.github/workflows/mobile.yml).
 | `android` | NDK + cargo-ndk `.so` (cargo-ndk **4.1.2**), JVM unit tests, `assembleDebug`, then `scripts/check-android-apk.sh` on the APK (dependencies by name, `libegl_library.so` SONAME, 16 KB pages, no stray Cargo `.so`; D-115); on `android-v*` also `assembleRelease` + `bundleRelease`, checked the same way |
 | `android-release` | For a tag `android-vX.Y.Z`: GitHub Release with APK, AAB and `SHA256SUMS` (never latest) |
 
+## Where to download
+
+There is **no Google Play** listing yet. Downloads are GitHub Releases only (D-108, D-125):
+
+- Versioned: [android-v0.2.77](https://github.com/fighxy/egl-viewer/releases/tag/android-v0.2.77)
+  (`EglViewer-0.2.77.apk`, `EglViewer-0.2.77.aab`, `SHA256SUMS`)
+
+The repo’s “Latest” release is always the **desktop** build (`vX.Y.Z`). Android releases use
+separate tags and are never marked latest, so the desktop updater keeps working (D-062).
+Sideload the APK (allow installs from that source when Android asks). The AAB is for Play
+Console when a store listing exists.
+
 ## Releasing
 
 ```bash

@@ -33,6 +33,23 @@ React UI. Windows first; no AI features.
 | Android app (not a numbered phase) | Done (2026-11-05): A1–A8 (D-101…D-108, ≈ iOS D-093…D-100): Kotlin `eglcore` over JNI / `library-ffi`, real `.so` (no mock), Welcome, places, lazy grid by view id, thumbs, filters, selection; full-screen preview pager + zoom, details sheet, selection actions with undo snackbar, share originals (≤100 temp copies); adding from Gallery / Files / folder / paste / drops with duplicate question and HEIC through ImageDecoder; folders / tags / tag groups / smart folder editor; locked folders + App Lock (PIN / biometrics, relock on background); Settings with backups, check and repair, rebuilt thumbnails, export and Decrypt Archive (no Eagle); System / Light / Dark theme (D-119, AppCompatActivity so the toggle applies — D-127); libraries anywhere on the phone with All files access (D-111); Eagle library import into a new library (D-116); icon, Privacy screen, TalkBack labels, 10,000-item perf test, APK/AAB releases by tag `android-vX.Y.Z` (D-108); en / ru / zh; see [`android/README.md`](android/README.md). Not Tauri Android |
 | Mobile CI (not a numbered phase) | [`.github/workflows/mobile.yml`](.github/workflows/mobile.yml): Linux `library-ffi` and the shells' layout and strings; Android cargo-ndk `.so`, JVM unit tests, `assembleDebug`, tagged APK/AAB (`android-release`); macOS `EglCore` tests (`ios-core`), app unit and UI tests on a simulator (`ios-app`), the unsigned device IPA (`ios-ipa`, rolling `ios-latest`) (D-084, D-092, D-093, D-100, D-101, D-108) |
 
+## Downloads
+
+Mobile builds are **GitHub Releases**, not the App Store, TestFlight or Google Play
+(D-100, D-108, D-125). Each platform has its own release tag so the desktop in-app updater
+can keep `releases/latest` (D-062). Open the [Releases](https://github.com/fighxy/egl-viewer/releases)
+page and look past the “Latest” badge, or use these links for the current version:
+
+| Platform | Tag | What you get |
+|---|---|---|
+| Desktop (Windows / macOS / Linux) | [`v0.2.77`](https://github.com/fighxy/egl-viewer/releases/tag/v0.2.77) (also [`/releases/latest`](https://github.com/fighxy/egl-viewer/releases/latest)) | NSIS, DMG, AppImage, updater files |
+| iPhone | [`ios-v0.2.77`](https://github.com/fighxy/egl-viewer/releases/tag/ios-v0.2.77) | Unsigned IPA (`EglViewer-0.2.77.ipa`); sideload — see [`ios/README.md`](ios/README.md) |
+| Android | [`android-v0.2.77`](https://github.com/fighxy/egl-viewer/releases/tag/android-v0.2.77) | Signed APK + AAB; see [`android/README.md`](android/README.md) |
+| iPhone rolling | [`ios-latest`](https://github.com/fighxy/egl-viewer/releases/tag/ios-latest) (pre-release) | Latest unsigned IPA from `main` |
+
+`/releases/latest` always resolves to the **desktop** release on purpose. iPhone and Android
+releases are published with `--latest=false` so they never steal that slot.
+
 The full plan is in [`docs/spec.md` §9](docs/spec.md). The Project-store plan for auto-update is mirrored by **D-062** in [`docs/decisions.md`](docs/decisions.md); set GitHub secrets `TAURI_SIGNING_PRIVATE_KEY` (and optional `TAURI_SIGNING_PRIVATE_KEY_PASSWORD`) before tagging a release. A tag `vX.Y.Z` (the version of `tauri.conf.json`, notes in `docs/releases/X.Y.Z.md`) builds the installers and publishes the GitHub Release with them, their signatures and `latest.json` (D-100); a tag `ios-vX.Y.Z` publishes the iPhone IPA; a tag `android-vX.Y.Z` publishes the Android APK and AAB (D-108). Already-installed builds without the updater need **one last manual install** of the first updater-enabled release.
 
 ## Requirements (Windows)
