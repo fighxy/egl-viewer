@@ -2865,3 +2865,28 @@ Ivan confirms retirement.
   D-003). No new crate versions beyond existing workspace pins.
 - **Verify.** `cargo test -p gpui-desktop`; `pwsh scripts/package-gpui-desktop.ps1` on Windows
   with vcpkg libheif. Tauri/`ui/` behaviour unchanged.
+
+## D-134 GPUI Show in Explorer uses shell select, not cwd (2026-11-08)
+
+Show in Explorer from the GPUI details pane opened `target\debug` (the process cwd under
+`cargo run`) instead of the item original inside the open `.eglib`.
+
+- **Cause.** `platform::reveal_paths` spawned `explorer.exe` with a single
+  `/select,…` `CreateProcess` argument. When that path is relative, missing, or otherwise
+  rejected by Explorer, Windows opens the **process current directory** — not the media
+  file. Session `original_paths` already return absolute paths under the library root;
+  the host must not fall back to cwd.
+- **Fix.** Require absolute, existing paths; refuse relatives with an error. On Windows call
+  `SHOpenFolderAndSelectItems` / `ILCreateFromPathW` (same approach as `tauri-plugin-opener`,
+  in `reveal_win.rs` with `#![allow(unsafe_code)]` like the WebAuthn bridge). macOS / Linux
+  keep `open -R` / folder open on the resolved absolute path.
+- **Deps.** `windows` **0.62.2** on `gpui-desktop` (Windows only), same pin as
+  `desktop-session`, with Shell / Com features for reveal (D-002).
+- **Heif launch PATH.** Local vcpkg `heif.dll` may still import GPL `libx265.dll`.
+  `scripts/run-gpui-desktop.ps1` puts `installed\x64-windows\bin` on `PATH` before
+  `cargo run`. `scripts/package-gpui-desktop.ps1` still prefers decode-only
+  `bundle-heif-dlls.ps1` (D-070); if that refuses x265, it copies every vcpkg-bin DLL
+  `heif.dll` imports (dumpbin walk) so the portable layout launches, with a GPL warning.
+  CI / NSIS stay decode-only.
+- **Verify.** `cargo test -p gpui-desktop`; Show in Explorer on an RSPECT item opens the
+  file under `D:\RSPECT.eglib\files\…`, not `target\debug`.

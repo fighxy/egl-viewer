@@ -20,6 +20,8 @@ mod ops_organize;
 mod ops_phase4;
 mod phase4;
 mod platform;
+#[cfg(windows)]
+mod reveal_win;
 mod screens;
 mod theme;
 mod updater;

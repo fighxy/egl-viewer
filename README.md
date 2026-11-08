@@ -58,8 +58,8 @@ pnpm dev
 
 `pnpm dev` starts Vite and the **shipping Tauri** window with hot reload. The UI alone also runs
 in a browser (`pnpm --filter egl-viewer-ui dev`, then http://localhost:5173), without the Rust
-side. The GPUI host (cutover path): `cargo run -p gpui-desktop` (same `VCPKG_ROOT` /
-`VCPKGRS_DYNAMIC` / heif PATH as below).
+side. The GPUI host (cutover path): `pwsh scripts/run-gpui-desktop.ps1` (or
+`cargo run -p gpui-desktop` with `VCPKG_ROOT` / `VCPKGRS_DYNAMIC` / heif PATH as below).
 
 ## Commands
 
@@ -67,7 +67,7 @@ side. The GPUI host (cutover path): `cargo run -p gpui-desktop` (same `VCPKG_ROO
 |---|---|
 | `pnpm dev` | Run the **Tauri** shipping app in development mode |
 | `pnpm build` | Build the Tauri release app and the NSIS installer |
-| `cargo run -p gpui-desktop` | Run the GPUI Kit desktop host (D-133 cutover path) |
+| `pwsh scripts/run-gpui-desktop.ps1` | Run the GPUI Kit desktop host with vcpkg heif on PATH (D-133 / D-134) |
 | `pwsh scripts/package-gpui-desktop.ps1` | Stage/zip GPUI portable layout + heif DLLs |
 | `pnpm check` | Everything CI runs: rustfmt, clippy, Rust tests, Biome, TypeScript, UI tests |
 | `cargo test --workspace` | Rust tests; also regenerates the TypeScript types in `ui/src/ipc/generated/` |

@@ -59,15 +59,19 @@ pub fn skip_reopen() -> bool {
 }
 
 pub fn open_in_file_manager(path: &Path) -> Result<(), String> {
-    let path = if path.is_dir() {
-        path.to_path_buf()
+    let path = require_absolute_existing(path)?;
+    let folder = if path.is_dir() {
+        path
     } else {
-        path.parent().unwrap_or(path).to_path_buf()
+        path.parent()
+            .filter(|p| !p.as_os_str().is_empty())
+            .ok_or_else(|| "No parent folder to open".to_string())?
+            .to_path_buf()
     };
     #[cfg(windows)]
     {
         std::process::Command::new("explorer")
-            .arg(path.as_os_str())
+            .arg(folder.as_os_str())
             .spawn()
             .map(|_| ())
             .map_err(|e| e.to_string())
@@ -75,7 +79,7 @@ pub fn open_in_file_manager(path: &Path) -> Result<(), String> {
     #[cfg(target_os = "macos")]
     {
         std::process::Command::new("open")
-            .arg(path.as_os_str())
+            .arg(folder.as_os_str())
             .spawn()
             .map(|_| ())
             .map_err(|e| e.to_string())
@@ -83,7 +87,7 @@ pub fn open_in_file_manager(path: &Path) -> Result<(), String> {
     #[cfg(all(unix, not(target_os = "macos")))]
     {
         std::process::Command::new("xdg-open")
-            .arg(path.as_os_str())
+            .arg(folder.as_os_str())
             .spawn()
             .map(|_| ())
             .map_err(|e| e.to_string())
@@ -119,35 +123,55 @@ pub fn open_path(path: &Path) -> Result<(), String> {
 }
 
 /// Shows originals in Explorer / Finder / file manager.
+///
+/// Paths must be absolute and exist (Session `original_paths` under the open
+/// `.eglib`). Relative paths are refused: resolving them against the process cwd
+/// (e.g. `target\debug` under `cargo run`) must never open Explorer there (D-134).
 pub fn reveal_paths(paths: &[PathBuf]) -> Result<(), String> {
     if paths.is_empty() {
         return Ok(());
     }
+    let absolute: Vec<PathBuf> = paths
+        .iter()
+        .map(|p| require_absolute_existing(p))
+        .collect::<Result<Vec<_>, _>>()?;
     #[cfg(windows)]
     {
-        use std::os::windows::process::CommandExt;
-        // Select the first file; additional files share its folder.
-        let first = &paths[0];
-        let arg = format!("/select,{}", first.display());
-        std::process::Command::new("explorer")
-            .raw_arg(arg)
-            .spawn()
-            .map(|_| ())
-            .map_err(|e| e.to_string())
+        crate::reveal_win::reveal_absolute_paths(&absolute)
     }
     #[cfg(target_os = "macos")]
     {
         let mut cmd = std::process::Command::new("open");
         cmd.arg("-R");
-        for path in paths {
+        for path in &absolute {
             cmd.arg(path);
         }
         cmd.spawn().map(|_| ()).map_err(|e| e.to_string())
     }
     #[cfg(all(unix, not(target_os = "macos")))]
     {
-        open_in_file_manager(&paths[0])
+        open_in_file_manager(&absolute[0])
     }
+}
+
+/// Absolute, existing path only — never silently resolve against the process cwd.
+fn require_absolute_existing(path: &Path) -> Result<PathBuf, String> {
+    if path.as_os_str().is_empty() {
+        return Err("Show in Explorer: empty path".into());
+    }
+    if !path.is_absolute() {
+        return Err(format!(
+            "Show in Explorer needs an absolute library path, got {}",
+            path.display()
+        ));
+    }
+    if !path.exists() {
+        return Err(format!(
+            "Nothing to show in Explorer (missing): {}",
+            path.display()
+        ));
+    }
+    Ok(path.to_path_buf())
 }
 
 /// Puts file paths on the system clipboard (Explorer paste).
@@ -246,5 +270,35 @@ mod tests {
     #[test]
     fn reduced_motion_is_callable() {
         let _ = reduced_motion();
+    }
+
+    #[test]
+    fn reveal_refuses_relative_paths() {
+        let err = reveal_paths(&[PathBuf::from("files/00/item.jpg")]).unwrap_err();
+        assert!(
+            err.contains("absolute"),
+            "relative path must not open process cwd: {err}"
+        );
+    }
+
+    #[test]
+    fn reveal_refuses_missing_absolute() {
+        #[cfg(windows)]
+        let missing = PathBuf::from(r"C:\egl-viewer-missing-reveal-path-xyz\file.jpg");
+        #[cfg(not(windows))]
+        let missing = PathBuf::from("/egl-viewer-missing-reveal-path-xyz/file.jpg");
+        let err = reveal_paths(&[missing]).unwrap_err();
+        assert!(
+            err.contains("missing") || err.contains("Nothing"),
+            "missing absolute must error, not open cwd: {err}"
+        );
+    }
+
+    #[test]
+    fn require_absolute_accepts_existing_dir() {
+        let dir = std::env::temp_dir();
+        assert!(dir.is_absolute());
+        let got = require_absolute_existing(&dir).unwrap();
+        assert_eq!(got, dir);
     }
 }

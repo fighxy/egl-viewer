@@ -44,8 +44,10 @@ New-Item -ItemType Directory -Force -Path $stage | Out-Null
 
 Copy-Item -LiteralPath $exe -Destination (Join-Path $stage "gpui-desktop.exe") -Force
 
-# Stage libheif runtime beside the exe (D-070). Prefer the shared bundle script when
-# the host can parse its UTF-8 source (pwsh / CI); otherwise copy the two DLLs here.
+# Stage libheif runtime beside the exe (D-070 / D-134). Prefer decode-only bundle
+# (heif + libde265, refuses GPL x265). If the local vcpkg tree still links x265
+# (or other siblings), fall back to copying every vcpkg-bin DLL heif imports so
+# the portable layout launches; NSIS/CI stay on the strict bundle script.
 $heifBin = Join-Path $VcpkgRoot "installed\x64-windows\bin"
 $bundleScript = Join-Path $repo "scripts\bundle-heif-dlls.ps1"
 $heifStage = Join-Path $stage "_heif-stage"
@@ -59,7 +61,7 @@ if ($pwshCmd) {
         & $bundleScript -Dest $heifStage -VcpkgRoot $VcpkgRoot
         $bundled = $true
     } catch {
-        Write-Warning "bundle-heif-dlls.ps1 failed ($($_.Exception.Message)); copying DLLs directly."
+        Write-Warning "bundle-heif-dlls.ps1 failed ($($_.Exception.Message)); copying transitive heif DLLs."
     }
 }
 if ($bundled) {
@@ -71,14 +73,69 @@ if ($bundled) {
     }
     Remove-Item -LiteralPath $heifStage -Recurse -Force -ErrorAction SilentlyContinue
 } else {
-    foreach ($name in @("heif.dll", "libde265.dll")) {
-        $src = Join-Path $heifBin $name
-        if (-not (Test-Path -LiteralPath $src)) {
-            throw "$name not found under $heifBin. Install with: vcpkg install libheif[core,libde265]:x64-windows"
-        }
-        Copy-Item -LiteralPath $src -Destination (Join-Path $stage $name) -Force
+    function Get-DumpbinPath {
+        $vswhere = Join-Path ${env:ProgramFiles(x86)} "Microsoft Visual Studio\Installer\vswhere.exe"
+        if (-not (Test-Path -LiteralPath $vswhere)) { return $null }
+        $vsPath = & $vswhere -latest -products * -requires Microsoft.VisualStudio.Component.VC.Tools.x86.x64 -property installationPath 2>$null
+        if (-not $vsPath) { return $null }
+        $candidate = Get-ChildItem -Path (Join-Path $vsPath "VC\Tools\MSVC") -Recurse -Filter dumpbin.exe -ErrorAction SilentlyContinue |
+            Where-Object { $_.FullName -match '\\Hostx64\\x64\\dumpbin\.exe$' } |
+            Select-Object -First 1
+        if ($candidate) { return $candidate.FullName }
+        return $null
     }
-    @("heif.dll", "libde265.dll") -join "`n" | Set-Content -LiteralPath (Join-Path $stage "bundled-dlls.txt") -Encoding utf8
+    function Get-PeDependentDlls([string]$Dumpbin, [string]$DllPath) {
+        if (-not $Dumpbin) { return @() }
+        $output = & $Dumpbin /dependents $DllPath 2>$null | Out-String
+        $names = @()
+        $inSection = $false
+        foreach ($line in $output -split "`r?`n") {
+            if ($line -match 'Image has the following dependencies') { $inSection = $true; continue }
+            if ($inSection) {
+                if ($line.Trim() -eq "" -or $line -match '^\s*Summary') { break }
+                $name = $line.Trim()
+                if ($name -match '\.dll$') { $names += $name }
+            }
+        }
+        return $names
+    }
+
+    $heifDll = Join-Path $heifBin "heif.dll"
+    if (-not (Test-Path -LiteralPath $heifDll)) {
+        throw "heif.dll not found under $heifBin. Install with: vcpkg install libheif[core,libde265]:x64-windows"
+    }
+    $copied = New-Object System.Collections.Generic.List[string]
+    $queue = New-Object System.Collections.Generic.Queue[string]
+    $queue.Enqueue("heif.dll")
+    $dumpbin = Get-DumpbinPath
+    while ($queue.Count -gt 0) {
+        $name = $queue.Dequeue()
+        if ($copied.Contains($name)) { continue }
+        $src = Join-Path $heifBin $name
+        if (-not (Test-Path -LiteralPath $src)) { continue }
+        Copy-Item -LiteralPath $src -Destination (Join-Path $stage $name) -Force
+        $copied.Add($name) | Out-Null
+        foreach ($dep in Get-PeDependentDlls $dumpbin $src) {
+            $depPath = Join-Path $heifBin $dep
+            if ((Test-Path -LiteralPath $depPath) -and -not $copied.Contains($dep)) {
+                $queue.Enqueue($dep)
+            }
+        }
+    }
+    if (-not $copied.Contains("libde265.dll")) {
+        $de265 = Join-Path $heifBin "libde265.dll"
+        if (Test-Path -LiteralPath $de265) {
+            Copy-Item -LiteralPath $de265 -Destination (Join-Path $stage "libde265.dll") -Force
+            $copied.Add("libde265.dll") | Out-Null
+        }
+    }
+    if ($copied | Where-Object { $_ -match '(?i)^libx265|^x265' }) {
+        Write-Warning "Portable layout includes GPL x265 DLL(s) because this vcpkg heif links them. Reinstall libheif[core,libde265] for decode-only (D-070)."
+    }
+    if (-not $dumpbin) {
+        Write-Warning "dumpbin not found; copied only DLLs discovered without a full PE walk."
+    }
+    ($copied | Sort-Object) -join "`n" | Set-Content -LiteralPath (Join-Path $stage "bundled-dlls.txt") -Encoding utf8
     Set-Content -LiteralPath (Join-Path $stage "NOTICE-libheif.txt") -Value "libheif - LGPL-3.0-only. See https://github.com/strukturag/libheif" -Encoding utf8
     Set-Content -LiteralPath (Join-Path $stage "NOTICE-libde265.txt") -Value "libde265 - LGPL. See https://github.com/strukturag/libde265" -Encoding utf8
 }
@@ -96,7 +153,9 @@ if (Test-Path -LiteralPath $licenses) {
 $readme = @"
 egl-viewer GPUI desktop (portable)
 
-Run gpui-desktop.exe. Keep heif.dll and libde265.dll beside the exe (D-070 / D-133).
+Run gpui-desktop.exe. Keep heif runtime DLLs beside the exe (D-070 / D-133 / D-134).
+For cargo run / debug, put VCPKG installed\x64-windows\bin on PATH (includes libx265.dll
+when the local heif was not built decode-only).
 
 This layout is the dual-path packaging slice while Tauri/NSIS remains the shipping
 Windows installer. A dedicated GPUI NSIS installer and Authenticode signing are deferred.
