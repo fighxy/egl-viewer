@@ -1,0 +1,43 @@
+[package]
+name = "desktop-session"
+description = "Toolkit-free desktop Session shared by Tauri and the GPUI shell (D-127)"
+version.workspace = true
+edition.workspace = true
+rust-version.workspace = true
+license.workspace = true
+publish.workspace = true
+
+[dependencies]
+app-service.workspace = true
+app-store.workspace = true
+base64.workspace = true
+eagle-api.workspace = true
+eagle-folder.workspace = true
+library-core.workspace = true
+library-native.workspace = true
+media.workspace = true
+p256.workspace = true
+secrecy.workspace = true
+serde.workspace = true
+serde_json.workspace = true
+tokio.workspace = true
+tracing.workspace = true
+ts-rs.workspace = true
+yubikey.workspace = true
+
+[target.'cfg(windows)'.dependencies]
+windows = { version = "0.62.2", features = [
+    "Win32_Foundation",
+    "Win32_Networking_WindowsWebServices",
+    "Win32_UI_WindowsAndMessaging",
+] }
+
+[dev-dependencies]
+image.workspace = true
+media = { workspace = true, features = ["fixtures"] }
+tempfile.workspace = true
+tokio.workspace = true
+wiremock.workspace = true
+
+[lints]
+workspace = true

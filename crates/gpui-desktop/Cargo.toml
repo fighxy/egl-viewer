@@ -1,6 +1,6 @@
 [package]
 name = "gpui-desktop"
-description = "Experimental native desktop shell over app-service with GPUI Kit (D-126)"
+description = "Experimental native desktop shell over desktop-session with GPUI Kit (D-126)"
 version.workspace = true
 edition.workspace = true
 rust-version.workspace = true
@@ -12,7 +12,8 @@ name = "gpui-desktop"
 path = "src/main.rs"
 
 [dependencies]
-app-service.workspace = true
+app-store.workspace = true
+desktop-session.workspace = true
 gpui-kit.workspace = true
 library-core.workspace = true
 library-native.workspace = true

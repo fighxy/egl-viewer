@@ -1,10 +1,11 @@
-//! Thin helpers around [`app_service::LibraryService`] for the GPUI spike.
+//! Thin helpers around [`desktop_session::Session`] for the GPUI spike.
 //! Opens a native `.eglib` and serves a window of the All-items view with no IPC.
 
 use std::path::{Path, PathBuf};
 use std::sync::Arc;
 
-use app_service::{Emit, Event, LibraryService, ViewOpened};
+use app_store::{AppStore, SyncEnvironment};
+use desktop_session::{Emit, Event, Session, ViewOpened};
 use library_core::{ItemCell, LibraryInfo, LibraryQuery, Thumbnail};
 
 /// App version string the native library records in meta (matches the workspace package).
@@ -23,32 +24,46 @@ pub fn now_stamp() -> u64 {
         .unwrap_or(0)
 }
 
-/// Builds a service that drops events on the floor (no WebView to notify).
-pub fn service() -> LibraryService {
+/// Builds a [`Session`] that drops events on the floor (no UI host to notify).
+///
+/// App-store data and home live under a unique temp tree for the process so the spike
+/// never touches the shipping Tauri local-data folder.
+pub fn session() -> Session {
+    let root = std::env::temp_dir().join(format!("egl-gpui-desktop-{}", std::process::id()));
+    let data = root.join("data");
+    let home = root.join("home");
+    let _ = std::fs::create_dir_all(&data);
+    let _ = std::fs::create_dir_all(&home);
     let emit: Emit = Arc::new(|_event: Event| {});
-    LibraryService::new(APP_VERSION, emit)
+    Session::new(
+        AppStore::new(data),
+        home,
+        APP_VERSION,
+        SyncEnvironment::default(),
+        emit,
+    )
 }
 
-/// Opens `path`, then an All / newest-first view, and returns the first window of cells.
+/// Opens `path` through Session (location checks included), then an All / newest-first view.
 pub fn open_and_list(
-    service: &LibraryService,
+    session: &Session,
     path: &Path,
-    sync_folder: bool,
     start: u32,
     len: u32,
 ) -> Result<(LibraryInfo, ViewOpened, Vec<ItemCell>), library_core::SourceError> {
-    let info = service.open_library(path, sync_folder)?;
-    let opened = service.open_view(LibraryQuery::default(), &|_, _| {})?;
-    let cells = service.view_range(opened.view_id, start, len)?;
+    let _ = session.close_library();
+    let info = session.open_library(&path.to_string_lossy())?;
+    let opened = session.open_view(LibraryQuery::default(), &|_, _| {})?;
+    let cells = session.view_range(opened.view_id, start, len)?;
     Ok((info, opened, cells))
 }
 
 /// Thumbnail bytes for a grid cell, when the library has one.
-pub fn cell_thumbnail(service: &LibraryService, cell: &ItemCell) -> Option<Thumbnail> {
+pub fn cell_thumbnail(session: &Session, cell: &ItemCell) -> Option<Thumbnail> {
     if !cell.has_thumbnail {
         return None;
     }
-    service.image(&cell.id.0)
+    session.image(&format!("/{}", cell.id.0), Some(cell.thumb_version))
 }
 
 #[cfg(test)]
@@ -61,12 +76,12 @@ mod tests {
     fn opens_a_fresh_library_and_lists_zero_items() {
         let dir = tempdir().unwrap();
         let root = create_library(dir.path(), "Spike", APP_VERSION).unwrap();
-        let service = service();
-        let (info, opened, cells) = open_and_list(&service, &root, false, 0, 50).unwrap();
+        let session = session();
+        let (info, opened, cells) = open_and_list(&session, &root, 0, 50).unwrap();
         assert_eq!(info.name, "Spike");
         assert_eq!(opened.total, 0);
         assert!(cells.is_empty());
-        service.close_library().unwrap();
+        session.close_library().unwrap();
     }
 
     #[test]
@@ -81,13 +96,13 @@ mod tests {
         let dir = tempdir().unwrap();
         let root = dir.path().join("Fixture.eglib");
         copy_dir(&source, &root);
-        let service = service();
-        let (info, opened, cells) = open_and_list(&service, &root, false, 0, 50).unwrap();
+        let session = session();
+        let (info, opened, cells) = open_and_list(&session, &root, 0, 50).unwrap();
         assert_eq!(info.name, "Fixture");
         assert!(opened.total >= 1, "fixture should contain items");
         assert_eq!(cells.len(), opened.total as usize);
         assert!(cells.iter().all(|cell| !cell.name.is_empty()));
-        service.close_library().unwrap();
+        session.close_library().unwrap();
     }
 
     fn copy_dir(from: &Path, to: &Path) {

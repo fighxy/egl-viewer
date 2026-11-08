@@ -13,7 +13,7 @@ use wiremock::matchers::path;
 use wiremock::{Mock, MockServer, ResponseTemplate};
 
 use super::*;
-use crate::views::{Event, ItemsTarget};
+use crate::{Event, ItemsTarget};
 
 const ITEM: &str = "MVQTEQPE8FAQM";
 
@@ -72,7 +72,7 @@ impl FakeEagle {
 
 fn captured(name: &str) -> ResponseTemplate {
     let file = PathBuf::from(env!("CARGO_MANIFEST_DIR"))
-        .join("../fixtures/eagle-api")
+        .join("../../fixtures/eagle-api")
         .join(name);
     let capture: serde_json::Value = serde_json::from_slice(&std::fs::read(file).unwrap()).unwrap();
     let http = capture["response"]["http"].as_u64().unwrap() as u16;

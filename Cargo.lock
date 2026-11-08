@@ -1990,6 +1990,32 @@ dependencies = [
 ]
 
 [[package]]
+name = "desktop-session"
+version = "0.2.77"
+dependencies = [
+ "app-service",
+ "app-store",
+ "base64 0.22.1",
+ "eagle-api",
+ "eagle-folder",
+ "image",
+ "library-core",
+ "library-native",
+ "media",
+ "p256",
+ "secrecy 0.10.3",
+ "serde",
+ "serde_json",
+ "tempfile",
+ "tokio",
+ "tracing",
+ "ts-rs",
+ "windows 0.62.2",
+ "wiremock",
+ "yubikey",
+]
+
+[[package]]
 name = "digest"
 version = "0.10.7"
 source = "registry+https://github.com/rust-lang/crates.io-index"
@@ -2275,19 +2301,12 @@ dependencies = [
 name = "egl-viewer"
 version = "0.2.77"
 dependencies = [
- "app-service",
  "app-store",
  "arboard",
- "base64 0.22.1",
+ "desktop-session",
  "drag",
- "eagle-api",
- "eagle-folder",
- "image",
  "library-core",
  "library-native",
- "media",
- "p256",
- "secrecy 0.10.3",
  "serde",
  "serde_json",
  "tauri",
@@ -2301,9 +2320,6 @@ dependencies = [
  "tracing",
  "tracing-subscriber",
  "ts-rs",
- "windows 0.62.2",
- "wiremock",
- "yubikey",
 ]
 
 [[package]]
@@ -3447,7 +3463,8 @@ dependencies = [
 name = "gpui-desktop"
 version = "0.2.77"
 dependencies = [
- "app-service",
+ "app-store",
+ "desktop-session",
  "gpui-kit",
  "library-core",
  "library-native",

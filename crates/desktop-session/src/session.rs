@@ -1,7 +1,7 @@
 //! The desktop session: the native library through [`LibraryService`] (D-091), a running Eagle
 //! as the other source, and the app's own files (recent libraries, preferences, login), without
-//! Tauri: what the commands call, and what the tests drive (docs/architecture.md §7.4, §9, D-022,
-//! D-024).
+//! a UI toolkit (D-127): what Tauri commands and the GPUI host call, and what the tests drive
+//! (docs/architecture.md §7.4, §9, D-022, D-024).
 
 use std::path::{Path, PathBuf};
 use std::sync::atomic::{AtomicBool, Ordering};
@@ -30,11 +30,11 @@ use ts_rs::TS;
 
 pub use app_service::{SmartDraft, lock, now_ms};
 
-use crate::views::{
-    Blocking, Emit, ImageRequest, ItemsTarget, ViewOpened, count, invalidated, ready,
-};
 use crate::webauthn::SystemWebAuthn;
 use crate::yubikey;
+use crate::{
+    Blocking, Emit, ImageRequest, ItemsTarget, ViewOpened, count, invalidated, ready,
+};
 
 /// The app's icon, for the library folder in the file manager (D-117).
 const FOLDER_ICON: library_native::FolderIcon<'static> = library_native::FolderIcon {
@@ -1354,7 +1354,7 @@ mod tests {
     use library_native::{Library, OpenOptions};
 
     use super::*;
-    use crate::views::Event;
+    use crate::Event;
 
     struct Fixture {
         _data: tempfile::TempDir,
@@ -1578,7 +1578,7 @@ mod tests {
     /// The committed synthetic Eagle library with real images, in `root` (D-034).
     fn eagle_fixture(root: &std::path::Path) -> std::path::PathBuf {
         let source = std::path::Path::new(env!("CARGO_MANIFEST_DIR"))
-            .join("../fixtures/eagle-library/Synthetic.library");
+            .join("../../fixtures/eagle-library/Synthetic.library");
         let target = root.join("Synthetic.library");
         copy_dir(&source, &target);
         let images = target.join("images");

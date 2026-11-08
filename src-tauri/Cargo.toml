@@ -16,20 +16,14 @@ crate-type = ["rlib"]
 tauri-build.workspace = true
 
 [dependencies]
-app-service.workspace = true
 app-store.workspace = true
 arboard.workspace = true
-base64.workspace = true
+desktop-session.workspace = true
 drag.workspace = true
-eagle-api.workspace = true
-eagle-folder.workspace = true
 library-core.workspace = true
 library-native.workspace = true
-media.workspace = true
-secrecy.workspace = true
 serde.workspace = true
 serde_json.workspace = true
-p256.workspace = true
 tauri.workspace = true
 tauri-plugin-dialog.workspace = true
 tauri-plugin-opener.workspace = true
@@ -37,24 +31,13 @@ tokio.workspace = true
 tracing.workspace = true
 tracing-subscriber.workspace = true
 ts-rs.workspace = true
-yubikey.workspace = true
 
 [target.'cfg(any(target_os = "macos", windows, target_os = "linux"))'.dependencies]
 tauri-plugin-process.workspace = true
 tauri-plugin-updater.workspace = true
 
-[target.'cfg(windows)'.dependencies]
-windows = { version = "0.62.2", features = [
-    "Win32_Foundation",
-    "Win32_Networking_WindowsWebServices",
-    "Win32_UI_WindowsAndMessaging",
-] }
-
 [dev-dependencies]
-image.workspace = true
-media = { workspace = true, features = ["fixtures"] }
 tempfile.workspace = true
-wiremock.workspace = true
 
 [lints]
 workspace = true

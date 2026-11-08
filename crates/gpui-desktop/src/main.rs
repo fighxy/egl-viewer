@@ -1,4 +1,4 @@
-//! Experimental native desktop shell: GPUI Kit + `app-service`, no WebView / IPC (D-126).
+//! Experimental native desktop shell: GPUI Kit + `desktop-session`, no WebView / IPC (D-126).
 //!
 //! ```text
 //! cargo run -p gpui-desktop
@@ -10,7 +10,7 @@ mod library;
 use std::path::{Path, PathBuf};
 use std::sync::Arc;
 
-use app_service::LibraryService;
+use desktop_session::Session;
 use gpui_kit::assets::Assets;
 use gpui_kit::component::button::{Button, ButtonVariants as _};
 use gpui_kit::component::input::{Input, InputState};
@@ -24,7 +24,7 @@ use gpui_kit::{
 };
 use library_core::ItemCell;
 
-use crate::library::{APP_VERSION, cell_thumbnail, fixture_library_path, open_and_list, service};
+use crate::library::{APP_VERSION, cell_thumbnail, fixture_library_path, open_and_list, session};
 
 fn main() {
     tracing_subscriber::fmt()
@@ -62,7 +62,7 @@ struct ListedItem {
 }
 
 struct SpikeApp {
-    service: LibraryService,
+    session: Session,
     path_input: Entity<InputState>,
     status: SharedString,
     library_name: Option<SharedString>,
@@ -83,10 +83,10 @@ impl SpikeApp {
         });
 
         let mut app = Self {
-            service: service(),
+            session: session(),
             path_input,
             status: SharedString::from(format!(
-                "GPUI Kit spike · app-service {APP_VERSION} · pick a .eglib and Open (drop files onto the window to probe OS DnD)"
+                "GPUI Kit spike · desktop-session {APP_VERSION} · pick a .eglib and Open (drop files onto the window to probe OS DnD)"
             )),
             library_name: None,
             total: 0,
@@ -114,7 +114,7 @@ impl SpikeApp {
                 self.path_input.update(cx, |input, cx| {
                     input.set_value(path.to_string_lossy().as_ref(), window, cx);
                 });
-                self.open_path(path, false, cx);
+                self.open_path(path, cx);
             }
             Err(error) => {
                 self.status = SharedString::from(format!("Fixture copy failed: {error}"));
@@ -129,30 +129,11 @@ impl SpikeApp {
             self.open_fixture(window, cx);
             return;
         }
-        // Prefer a writable open; fall back to sync/read-only when the lock or location refuses.
-        match self.try_open(&path, false) {
-            Ok(()) => cx.notify(),
-            Err(first) => match self.try_open(&path, true) {
-                Ok(()) => {
-                    self.status = SharedString::from(format!(
-                        "Opened read-only ({first}). Path: {}",
-                        path.display()
-                    ));
-                    cx.notify();
-                }
-                Err(second) => {
-                    self.status = SharedString::from(format!("Open failed: {second}"));
-                    self.library_name = None;
-                    self.total = 0;
-                    self.items.clear();
-                    cx.notify();
-                }
-            },
-        }
+        self.open_path(path, cx);
     }
 
-    fn open_path(&mut self, path: PathBuf, sync_folder: bool, cx: &mut Context<Self>) {
-        match self.try_open(&path, sync_folder) {
+    fn open_path(&mut self, path: PathBuf, cx: &mut Context<Self>) {
+        match self.try_open(&path) {
             Ok(()) => cx.notify(),
             Err(error) => {
                 self.status = SharedString::from(format!("Open failed: {error}"));
@@ -189,20 +170,15 @@ impl SpikeApp {
         cx.notify();
     }
 
-    fn try_open(
-        &mut self,
-        path: &std::path::Path,
-        sync_folder: bool,
-    ) -> Result<(), library_core::SourceError> {
-        let _ = self.service.close_library();
-        let (info, opened, cells) = open_and_list(&self.service, path, sync_folder, 0, 120)?;
+    fn try_open(&mut self, path: &std::path::Path) -> Result<(), library_core::SourceError> {
+        let (info, opened, cells) = open_and_list(&self.session, path, 0, 120)?;
         self.library_name = Some(SharedString::from(info.name.clone()));
         self.total = opened.total;
         self.read_only = info.read_only;
         self.items = cells
             .into_iter()
             .map(|cell| {
-                let thumb = cell_thumbnail(&self.service, &cell).and_then(|thumb| {
+                let thumb = cell_thumbnail(&self.session, &cell).and_then(|thumb| {
                     let format = match thumb.content_type.as_str() {
                         "image/webp" => ImageFormat::Webp,
                         "image/png" => ImageFormat::Png,

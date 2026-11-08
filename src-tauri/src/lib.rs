@@ -2,27 +2,16 @@
 
 mod commands;
 mod drag_out;
-mod export_eagle;
 mod logs;
-mod session;
-mod views;
-#[cfg(windows)]
-mod webauthn;
-#[cfg(not(windows))]
-#[path = "webauthn_unsupported.rs"]
-mod webauthn;
 mod window;
-mod yubikey;
 
 use std::sync::Arc;
 
 use app_store::{AppStore, SyncEnvironment};
+use desktop_session::{Event, Session};
 use library_core::Thumbnail;
 use tauri::http::{Response, StatusCode, header};
 use tauri::{Emitter, Manager, RunEvent, WindowEvent};
-
-use crate::session::Session;
-use crate::views::Event;
 
 /// Import progress for the UI (docs/architecture.md §8).
 const IMPORT_PROGRESS: &str = "import-progress";

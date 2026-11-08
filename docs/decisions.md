@@ -2692,15 +2692,15 @@ Numbering note: open PR #85 already reserves **D-125** for mobile GitHub Release
 so this decision is **D-126** (not D-125).
 
 - **Crate.** `crates/gpui-desktop` (bin `gpui-desktop`) depends on `gpui-kit` **=0.9.0**
-  (Longbridge, https://gpui-kit.com / crates.io `gpui-kit`), `app-service`, `library-core`
-  and `library-native`. Workspace pin is exact (D-002); 0.9.0 was published 2026-11-02, older
-  than the supply-chain age rule in D-003. The app never lists Zed's GPUI crates itself —
-  `gpui-kit` re-exports them.
+  (Longbridge, https://gpui-kit.com / crates.io `gpui-kit`), and (after D-127)
+  `desktop-session` / `library-core` / `library-native`. Workspace pin is exact (D-002);
+  0.9.0 was published 2026-11-02, older than the supply-chain age rule in D-003. The app never
+  lists Zed's GPUI crates itself — `gpui-kit` re-exports them.
 - **Not gpui-ce.** This spike uses Longbridge's kit (`gpui-kit` / `gpui-component` /
   `gpui-base` over `gpui-pre`), not Community Edition packaging.
 - **What it does.** Opens a native window, opens a native `.eglib` (path field, argv, or a
   temp copy of `fixtures/library/v5/Fixture.eglib`), loads an All-items view through
-  `LibraryService` (`open_view` + `view_range`), and shows a simple thumb / palette grid.
+  `Session` (`open_view` + `view_range`), and shows a simple thumb / palette grid.
   OS file drop is probed via GPUI `ExternalPaths` / `on_drop` (status + optional `img`
   preview; no library import yet). No WebView, no Tauri IPC, no Eagle.
 - **Out of scope for the spike.** Menu bar / commands (D-025), justified packing (D-067),
@@ -2710,3 +2710,30 @@ so this decision is **D-126** (not D-125).
   the rest of the workspace for libheif). Tests: `cargo test -p gpui-desktop`.
 - **Revisit** when deciding whether a native GPUI shell becomes a real desktop track or stays
   an experiment beside Tauri.
+
+## D-127 Toolkit-free `desktop-session` crate (2026-11-08)
+
+Extract the desktop `Session` out of `src-tauri` so Tauri and the GPUI experiment share one
+API (GPUI migration Phase 0b).
+
+Numbering: **D-125** is reserved by open PR #85 (mobile release visibility); **D-126** is the
+GPUI Kit spike. This extract is **D-127**. Open Android work that may claim nearby numbers
+must skip 125–127.
+
+- **Crate.** `crates/desktop-session`: `Session`, Eagle session / import request types, the
+  `Clipboard` trait, export-into-Eagle, folder-icon bytes (D-117), and the existing session
+  tests. No `gpui`, no `tauri`. Depends on `app-service`, `app-store`, `eagle-api`,
+  `eagle-folder`, `library-core`, `library-native`, `media`, `yubikey`, and (on Windows) the
+  WebAuthn bridge.
+- **Hosts.** `src-tauri` is a thin command / window / `thumb` adapter over `Session`.
+  `gpui-desktop` opens libraries through the same `Session` (no direct `LibraryService`
+  glue for open/list/thumbs).
+- **YubiKey / WebAuthn (Phase 0b.4 note, not a blocker).** They live **in** `desktop-session`
+  for now (`yubikey` module + Windows `webauthn` / unsupported stub): the Session methods
+  already call them, and neither needs a Tauri or GPUI window handle today (WebAuthn uses
+  `GetForegroundWindow`). Revisit moving them under a future `egl-desktop::platform` (or a
+  host-injected `Authenticator` / PIV trait) if a GPUI host needs its own window HWND or a
+  different prompt UX; until then keep one implementation next to Session.
+- **Behaviour.** Mechanical move; no intentional Session API or library behaviour change.
+- **Verify.** `cargo test -p desktop-session`, `cargo test -p egl-viewer`,
+  `cargo test -p gpui-desktop` (with the usual `VCPKG_ROOT` / heif PATH).

@@ -1,8 +1,9 @@
 //! The open native library as an app uses it, without a UI toolkit (D-091): the views of the
 //! open library, the undo stack, item, folder, tag and lock edits, and the background tasks
-//! (imports, previews, exports). The desktop app (`src-tauri`) and the mobile C ABI
-//! (`library-ffi`) both drive a [`LibraryService`]; what is particular to one of them (a running
-//! Eagle, the app's settings files, the clipboard, YubiKey and WebAuthn) stays there.
+//! (imports, previews, exports). The desktop Session (`desktop-session`, D-127) and the mobile
+//! C ABI (`library-ffi`) both drive a [`LibraryService`]; what is particular to the desktop
+//! (a running Eagle, the app's settings files, the clipboard, YubiKey and WebAuthn) lives in
+//! `desktop-session`, not here.
 //!
 //! Where a library may live is the caller's question: the desktop checks cloud-synced and
 //! network folders (`app_store::check_location`), a phone checks its own containers. The

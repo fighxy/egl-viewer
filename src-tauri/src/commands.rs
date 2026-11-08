@@ -20,11 +20,10 @@ use tauri::ipc::Channel;
 use tauri::{AppHandle, Manager, State, WebviewWindow};
 use ts_rs::TS;
 
-use crate::session::{
-    Clipboard, EagleImportRequest, EagleLibrarySummary, EagleSessionInfo, Session, SmartDraft,
-    StartupResult,
+use desktop_session::{
+    Clipboard, EagleImportRequest, EagleLibrarySummary, EagleSessionInfo, ItemsTarget, ScopeProgress,
+    Session, SmartDraft, StartupResult, ViewOpened, count,
 };
-use crate::views::{ItemsTarget, ScopeProgress, ViewOpened, count};
 
 #[derive(Debug, Clone, PartialEq, Eq, Serialize, TS)]
 #[serde(rename_all = "camelCase")]
@@ -335,7 +334,7 @@ pub async fn unlock_with_yubikey(
 
 #[tauri::command]
 pub fn yubikey_present() -> bool {
-    crate::yubikey::present()
+    desktop_session::yubikey::present()
 }
 
 #[tauri::command]
