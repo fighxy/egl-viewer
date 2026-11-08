@@ -22,7 +22,7 @@ Stages: **A1** foundation → **A2** browsing → **A3** preview/details → **A
 | Adding (A4) | + menu: Gallery, Files, Folder, Paste; drops onto places; Trash excluded; folder context adds into folder; Folder pick walks the whole SAF tree (nested folders; empty MIME still copied — D-121) into `egl_add_files`; temp `picked-*` copies; SAF grants held until import ends; progress + Stop; duplicate dialog; HEIC via ImageDecoder platform decoder |
 | Organizing (A5) | Folder CRUD (create / rename / move / delete); Tags screen with groups, rename / merge / delete; smart folder editor (conditions + v1 rules); Save as Smart Folder from browse |
 | Locks + app login (A6) | Locked folders (lock / unlock / recover / Lock All / label); relock on background; App Lock PIN/password (PBKDF2) + BiometricPrompt / Keystore; login overlay + Recents privacy cover |
-| Settings (A7) | Library name / storage / rebuild thumbnails; backups + restore; check and repair; export (ZIP, 7z or folder; optional passphrase of 8+ characters: age or AES-256 ZIP, AES-256 7z with hidden names; D-112, D-113) via SAF / share; Decrypt Archive (`.age` → ZIP, Save / Share; D-111); **Theme** (System / Light / Dark, DayNight tokens; D-119); App Lock (wrong-try wait survives a restart), version, language link; no Eagle |
+| Settings (A7) | Library name / storage / rebuild thumbnails; backups + restore; check and repair; export (ZIP, 7z or folder; optional passphrase of 8+ characters: age or AES-256 ZIP, AES-256 7z with hidden names; D-112, D-113) via SAF / share; Decrypt Archive (`.age` → ZIP, Save / Share; D-111); **Theme** (System / Light / Dark, DayNight tokens; D-119; `MainActivity` is `AppCompatActivity` so the picker actually applies — D-127); App Lock (wrong-try wait survives a restart), version, language link; no Eagle |
 | Release (A8) | Adaptive launcher + Play Store icon; Privacy screen + `PRIVACY.md` + backup exclusions; TalkBack labels for cells and ratings; 10,000-item JVM perf test; tagged APK/AAB by `android-vX.Y.Z` |
 | Where libraries live | App-specific storage, or anywhere on the phone after **All files access** (`MANAGE_EXTERNAL_STORAGE`, asked when a library outside app storage is opened; D-111); cloud-looking path opens **read-only** (D-021) |
 | Strings | English / Russian / Simplified Chinese, every screen from the catalogs (plurals included); `StringsCatalogTest` keeps the keys in step and catches hardcoded English (D-111) |
@@ -72,6 +72,18 @@ Workflow: [`.github/workflows/mobile.yml`](../.github/workflows/mobile.yml).
 | `library-ffi` | Layout/header sync, `cargo test` / clippy for `library-ffi`; the JNI bridge against the real core on the host JVM (`scripts/check-android-jni.sh`: UTF-8 and emoji both ways, events and the platform decoder from the core's threads) |
 | `android` | NDK + cargo-ndk `.so` (cargo-ndk **4.1.2**), JVM unit tests, `assembleDebug`, then `scripts/check-android-apk.sh` on the APK (dependencies by name, `libegl_library.so` SONAME, 16 KB pages, no stray Cargo `.so`; D-115); on `android-v*` also `assembleRelease` + `bundleRelease`, checked the same way |
 | `android-release` | For a tag `android-vX.Y.Z`: GitHub Release with APK, AAB and `SHA256SUMS` (never latest) |
+
+## Where to download
+
+There is **no Google Play** listing yet. Downloads are GitHub Releases only (D-108, D-125):
+
+- Versioned: [android-v0.2.77](https://github.com/fighxy/egl-viewer/releases/tag/android-v0.2.77)
+  (`EglViewer-0.2.77.apk`, `EglViewer-0.2.77.aab`, `SHA256SUMS`)
+
+The repo’s “Latest” release is always the **desktop** build (`vX.Y.Z`). Android releases use
+separate tags and are never marked latest, so the desktop updater keeps working (D-062).
+Sideload the APK (allow installs from that source when Android asks). The AAB is for Play
+Console when a store listing exists.
 
 ## Releasing
 

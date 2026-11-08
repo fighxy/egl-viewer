@@ -398,8 +398,8 @@ jobs:
             echo "tag $GITHUB_REF_NAME, but tauri.conf.json says $CONF" >&2
             exit 1
           fi
-          NOTES="docs/releases/$VERSION.md"
-          test -f "$NOTES" || { echo "missing $NOTES" >&2; exit 1; }
+          NOTES_SRC="docs/releases/$VERSION.md"
+          test -f "$NOTES_SRC" || { echo "missing $NOTES_SRC" >&2; exit 1; }
           # Exactly one file of each kind. Tauri names the macOS updater archive without the
           # version, so every file goes into release/ under the names of earlier releases.
           one() {
@@ -430,5 +430,15 @@ jobs:
             --darwin-aarch64 "url=$BASE/egl-viewer_${VERSION}_aarch64.app.tar.gz,sig=release/egl-viewer_${VERSION}_aarch64.app.tar.gz.sig" \
             --linux-x86_64 "url=$BASE/egl-viewer_${VERSION}_amd64.AppImage,sig=release/egl-viewer_${VERSION}_amd64.AppImage.sig"
           ls -l release
+          # This release is marked latest for the desktop updater (D-062). Point at the
+          # sibling iPhone / Android tags so /releases/latest is not the only place people look
+          # (D-125).
+          {
+            cat "$NOTES_SRC"
+            echo
+            echo "Also for this version:"
+            echo "- iPhone (unsigned IPA): $GITHUB_SERVER_URL/$GITHUB_REPOSITORY/releases/tag/ios-v$VERSION"
+            echo "- Android (APK / AAB): $GITHUB_SERVER_URL/$GITHUB_REPOSITORY/releases/tag/android-v$VERSION"
+          } > notes.md
           gh release create "$GITHUB_REF_NAME" release/* \
-            --title "egl-viewer v$VERSION" --notes-file "$NOTES" --verify-tag --latest
+            --title "egl-viewer v$VERSION" --notes-file notes.md --verify-tag --latest
