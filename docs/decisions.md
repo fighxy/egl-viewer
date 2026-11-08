@@ -2811,3 +2811,24 @@ filters / locks / import-preview gaps on the same day.
 - **Deps.** No new crates (reuses `arboard` from Phase 2).
 - **Run.** `cargo run -p gpui-desktop`. Tests: `cargo test -p gpui-desktop` (23). Tauri/`ui/`
   unchanged.
+
+## D-132 GPUI Eagle / export archives / app login (Phase 4) (2026-11-08)
+
+Secondary flows on `gpui-desktop` via `desktop-session` (still experimental beside Tauri/`ui/`).
+Numbering: free id after D-131; **D-132**.
+
+- **Ships.** Unified Backup/Export overlay (ZIP / 7z / mirror / into Eagle; age or AES ZIP;
+  passphrase rules; destination memory; progress + cancel + reveal; refuse library dest).
+  Decrypt Archive (`.zip.age`) on a background thread with cancel. Library → Backup…;
+  folder/tag Export… from toolbar. Eagle import wizard (pick `.library` → create native →
+  `import_eagle_library`). Connect overlay (host/port/token; Credential Manager via Session;
+  clear token after send D-080); live browse adopts `EagleApi` library; edits/thumbs reuse
+  Session eagle routing. App login gate before Welcome (password / PIN / WebAuthn); Settings
+  login enroll (set password/PIN/WebAuthn / clear). ExportProgress Emit → Entity poll.
+- **Still open / partial.** Free multi-folder/tag picker in Backup (whole-library only for
+  free scope); compression picker UI thin (defaults Balanced); Eagle import resume/report
+  polish; dedicated connection-lost Emit (none in Session today — same as Tauri surface);
+  WebAuthn needs real YubiKey (CI uses software path in `app-store` tests only).
+- **Deps.** No new crates.
+- **Run.** `cargo run -p gpui-desktop`. Tests: `cargo test -p gpui-desktop` (30). Tauri/`ui/`
+  unchanged.

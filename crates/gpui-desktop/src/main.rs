@@ -17,6 +17,8 @@ mod library;
 mod ops;
 mod ops_dnd;
 mod ops_organize;
+mod ops_phase4;
+mod phase4;
 mod platform;
 mod screens;
 mod theme;

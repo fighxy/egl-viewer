@@ -1,6 +1,6 @@
 [package]
 name = "gpui-desktop"
-description = "Experimental native desktop shell over desktop-session with GPUI Kit (D-126 / D-129 / D-130 / D-131)"
+description = "Experimental native desktop shell over desktop-session with GPUI Kit (D-126–D-132)"
 version.workspace = true
 edition.workspace = true
 rust-version.workspace = true

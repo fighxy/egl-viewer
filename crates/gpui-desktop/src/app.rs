@@ -1,4 +1,4 @@
-//! Root GPUI entity: Welcome ↔ Library shell, commands, dialogs (Phase 1–3 / D-129–D-131).
+//! Root GPUI entity: Welcome ↔ Library shell, commands, dialogs (Phase 1–4 / D-129–D-132).
 
 use std::path::PathBuf;
 use std::sync::{Arc, Mutex};
@@ -19,7 +19,9 @@ use gpui_kit::{
     ParentElement, PathPromptOptions, Pixels, Render, SharedString, StatefulInteractiveElement,
     Styled, Subscription, Window, div, px,
 };
-use library_core::{DuplicateNotice, ImportState, ItemId, LibraryInfo, SortKey, is_web_link};
+use library_core::{
+    DuplicateNotice, ImportState, ItemId, LibraryInfo, SortKey, is_web_link,
+};
 use library_native::DuplicateChoice;
 
 use crate::browse::details::{self, DetailsModel};
@@ -31,6 +33,8 @@ use crate::commands::{self, *};
 use crate::i18n::{self, t, t_n};
 use crate::justified::{self, JustifiedLayout};
 use crate::library::{self, EventMailbox, OpenLibraryState, Place, window_title};
+use crate::ops_phase4::{DecryptUi, ExportUi, ImportEagleUi};
+use crate::phase4::LoginGate;
 use crate::platform;
 use crate::screens::library as library_ui;
 use crate::theme;
@@ -81,6 +85,30 @@ pub struct RootApp {
     pub(crate) tag_groups: Vec<library_core::TagGroup>,
     pub(crate) extensions: Vec<library_core::ExtensionCount>,
     _search_sub: Option<Subscription>,
+    // Phase 4
+    pub(crate) login_gate: LoginGate,
+    pub(crate) startup_done: bool,
+    pub(crate) pending_startup_library: Option<LibraryInfo>,
+    pub(crate) pending_startup_notice: Option<String>,
+    pub(crate) login_secret: Entity<InputState>,
+    pub(crate) show_connect: bool,
+    pub(crate) connect_host: Entity<InputState>,
+    pub(crate) connect_port: Entity<InputState>,
+    pub(crate) connect_token: Entity<InputState>,
+    pub(crate) export_ui: Option<ExportUi>,
+    pub(crate) export_password: Entity<InputState>,
+    pub(crate) export_confirm: Entity<InputState>,
+    pub(crate) eagle_host_input: Entity<InputState>,
+    pub(crate) eagle_port_input: Entity<InputState>,
+    pub(crate) eagle_token_input: Entity<InputState>,
+    pub(crate) decrypt_ui: Option<DecryptUi>,
+    pub(crate) decrypt_password: Entity<InputState>,
+    pub(crate) decrypt_result:
+        Option<Arc<Mutex<Option<Result<Option<library_core::DecryptedArchive>, String>>>>>,
+    pub(crate) decrypt_progress: Option<Arc<Mutex<(u64, u64)>>>,
+    pub(crate) import_eagle_ui: Option<ImportEagleUi>,
+    pub(crate) import_name: Entity<InputState>,
+    pub(crate) eagle_badge: Option<String>,
 }
 
 impl RootApp {
@@ -95,6 +123,17 @@ impl RootApp {
         let search_input = cx.new(|cx| {
             InputState::new(window, cx).placeholder(crate::i18n::t(prefs.locale, "shell.search"))
         });
+        let login_secret = cx.new(|cx| InputState::new(window, cx).masked(true));
+        let connect_host = cx.new(|cx| InputState::new(window, cx));
+        let connect_port = cx.new(|cx| InputState::new(window, cx));
+        let connect_token = cx.new(|cx| InputState::new(window, cx).masked(true));
+        let export_password = cx.new(|cx| InputState::new(window, cx).masked(true));
+        let export_confirm = cx.new(|cx| InputState::new(window, cx).masked(true));
+        let eagle_host_input = cx.new(|cx| InputState::new(window, cx));
+        let eagle_port_input = cx.new(|cx| InputState::new(window, cx));
+        let eagle_token_input = cx.new(|cx| InputState::new(window, cx).masked(true));
+        let decrypt_password = cx.new(|cx| InputState::new(window, cx).masked(true));
+        let import_name = cx.new(|cx| InputState::new(window, cx));
 
         let mut app = Self {
             session,
@@ -136,6 +175,28 @@ impl RootApp {
             tag_groups: Vec::new(),
             extensions: Vec::new(),
             _search_sub: None,
+            login_gate: LoginGate::Pending,
+            startup_done: false,
+            pending_startup_library: None,
+            pending_startup_notice: None,
+            login_secret,
+            show_connect: false,
+            connect_host,
+            connect_port,
+            connect_token,
+            export_ui: None,
+            export_password,
+            export_confirm,
+            eagle_host_input,
+            eagle_port_input,
+            eagle_token_input,
+            decrypt_ui: None,
+            decrypt_password,
+            decrypt_result: None,
+            decrypt_progress: None,
+            import_eagle_ui: None,
+            import_name,
+            eagle_badge: None,
         };
         app.create_location = SharedString::from(app.session.default_library_location());
         app._search_sub = Some(cx.subscribe(
@@ -151,18 +212,24 @@ impl RootApp {
             },
         ));
 
+        app.ensure_login_gate();
         let startup = app.session.startup(platform::skip_reopen());
-        if let Some(notice) = startup.notice {
-            app.status = SharedString::from(notice);
-        }
-        if let Some(info) = startup.library {
-            app.adopt_library(info, window, cx);
-        }
-
-        if let Some(arg) = std::env::args().nth(1).map(PathBuf::from) {
-            if arg.is_dir() {
-                let _ = app.open_path(arg, window, cx);
+        if app.login_gate.is_open() {
+            app.startup_done = true;
+            if let Some(notice) = startup.notice {
+                app.status = SharedString::from(notice);
             }
+            if let Some(info) = startup.library {
+                app.adopt_library(info, window, cx);
+            }
+            if let Some(arg) = std::env::args().nth(1).map(PathBuf::from) {
+                if arg.is_dir() {
+                    let _ = app.open_path(arg, window, cx);
+                }
+            }
+        } else {
+            app.pending_startup_library = startup.library;
+            app.pending_startup_notice = startup.notice;
         }
 
         let entity = cx.entity();
@@ -181,6 +248,7 @@ impl RootApp {
                         this.poll_session_events(cx);
                         this.poll_preview_tick(cx);
                         this.poll_empty_trash(cx);
+                        this.poll_decrypt(cx);
                     })
                     .is_err()
                 {
@@ -292,7 +360,9 @@ impl RootApp {
                     }
                     cx.notify();
                 }
-                Event::ExportProgress(_) => {}
+                Event::ExportProgress(progress) => {
+                    self.on_export_progress(progress, cx);
+                }
             }
         }
         if needs_refresh {
@@ -401,6 +471,8 @@ impl RootApp {
         self.preview = None;
         self.preview_payload = None;
         self.space_gesture = None;
+        self.eagle_badge = None;
+        self.export_ui = None;
         self.details = DetailsModel {
             count: 0,
             item: None,
@@ -536,14 +608,21 @@ impl RootApp {
             .default_library_parent
             .clone()
             .unwrap_or_else(|| self.session.default_library_location());
+        let login_method = self
+            .session
+            .login_status()
+            .map(|s| s.method)
+            .unwrap_or(app_store::LoginMethod::None);
         let entity = cx.entity();
+        let password = cx.new(|cx| InputState::new(window, cx).masked(true));
+        let pin = cx.new(|cx| InputState::new(window, cx).masked(true));
 
         window.open_dialog(cx, move |dialog, _, _| {
             dialog.title(t(locale, "settings.title")).child(
                 v_flex()
                     .gap_3()
                     .p_2()
-                    .w(px(440.))
+                    .w(px(460.))
                     .child(Label::new(t(locale, "settings.general")).font_bold())
                     .child(Label::new(format!(
                         "{}: {}",
@@ -614,7 +693,121 @@ impl RootApp {
                                     .detach();
                                 }
                             }),
-                    ),
+                    )
+                    .child(Label::new(t(locale, "settings.login")).font_bold())
+                    .child(Label::new(format!(
+                        "{}: {}",
+                        t(locale, "settings.loginMethod"),
+                        RootApp::login_method_label(locale, login_method)
+                    )))
+                    .child(Label::new(t(locale, "login.password")).text_sm())
+                    .child(Input::new(&password))
+                    .child({
+                        let entity = entity.clone();
+                        let password = password.clone();
+                        Button::new("set-login-password")
+                            .outline()
+                            .label(t(locale, "settings.setPassword"))
+                            .on_click(move |_, _, cx| {
+                                let secret = password.read(cx).value().to_string();
+                                entity.update(cx, |this, cx| {
+                                    match this.session.set_login_password(secret) {
+                                        Ok(status) => {
+                                            this.status = SharedString::from(format!(
+                                                "{}: {}",
+                                                t(this.locale, "settings.loginUpdated"),
+                                                RootApp::login_method_label(
+                                                    this.locale,
+                                                    status.method,
+                                                )
+                                            ));
+                                        }
+                                        Err(error) => {
+                                            this.status = SharedString::from(format!("{error}"));
+                                        }
+                                    }
+                                    cx.notify();
+                                });
+                            })
+                    })
+                    .child(Label::new(t(locale, "login.pin")).text_sm())
+                    .child(Input::new(&pin))
+                    .child({
+                        let entity = entity.clone();
+                        let pin = pin.clone();
+                        Button::new("set-login-pin")
+                            .outline()
+                            .label(t(locale, "settings.setPin"))
+                            .on_click(move |_, _, cx| {
+                                let secret = pin.read(cx).value().to_string();
+                                entity.update(cx, |this, cx| {
+                                    match this.session.set_login_pin(secret) {
+                                        Ok(status) => {
+                                            this.status = SharedString::from(format!(
+                                                "{}: {}",
+                                                t(this.locale, "settings.loginUpdated"),
+                                                RootApp::login_method_label(
+                                                    this.locale,
+                                                    status.method,
+                                                )
+                                            ));
+                                        }
+                                        Err(error) => {
+                                            this.status = SharedString::from(format!("{error}"));
+                                        }
+                                    }
+                                    cx.notify();
+                                });
+                            })
+                    })
+                    .child({
+                        let entity = entity.clone();
+                        Button::new("set-login-webauthn")
+                            .outline()
+                            .label(t(locale, "settings.setWebAuthn"))
+                            .on_click(move |_, _, cx| {
+                                entity.update(cx, |this, cx| {
+                                    match this.session.set_login_webauthn() {
+                                        Ok(status) => {
+                                            this.status = SharedString::from(format!(
+                                                "{}: {}",
+                                                t(this.locale, "settings.loginUpdated"),
+                                                RootApp::login_method_label(
+                                                    this.locale,
+                                                    status.method,
+                                                )
+                                            ));
+                                        }
+                                        Err(error) => {
+                                            this.status = SharedString::from(format!("{error}"));
+                                        }
+                                    }
+                                    cx.notify();
+                                });
+                            })
+                    })
+                    .child({
+                        let entity = entity.clone();
+                        Button::new("clear-login")
+                            .ghost()
+                            .label(t(locale, "settings.clearLogin"))
+                            .on_click(move |_, _, cx| {
+                                entity.update(cx, |this, cx| {
+                                    match this.session.clear_login() {
+                                        Ok(_) => {
+                                            this.status = SharedString::from(t(
+                                                this.locale,
+                                                "settings.loginCleared",
+                                            ));
+                                        }
+                                        Err(error) => {
+                                            this.status = SharedString::from(format!("{error}"));
+                                        }
+                                    }
+                                    cx.notify();
+                                });
+                            })
+                    }),
             )
         });
     }
@@ -1390,6 +1583,16 @@ impl Render for RootApp {
         let has_library = self.library.is_some();
         let focus = self.focus.clone();
 
+        if !self.login_gate.is_open() {
+            return v_flex()
+                .id("root")
+                .size_full()
+                .bg(theme.background)
+                .text_color(theme.foreground)
+                .child(self.render_login_gate(&theme, locale, cx))
+                .into_any_element();
+        }
+
         v_flex()
             .id("root")
             .size_full()
@@ -1575,6 +1778,18 @@ impl Render for RootApp {
                 this.imports_open = !this.imports_open;
                 cx.notify();
             }))
+            .on_action(cx.listener(|this, _: &BackupExport, window, cx| {
+                this.open_backup_export(window, cx);
+            }))
+            .on_action(cx.listener(|this, _: &DecryptArchive, window, cx| {
+                this.open_decrypt_archive(window, cx);
+            }))
+            .on_action(cx.listener(|this, _: &ImportEagleLibrary, window, cx| {
+                this.begin_import_eagle(window, cx);
+            }))
+            .on_action(cx.listener(|this, _: &ConnectEagle, window, cx| {
+                this.begin_connect_eagle(window, cx);
+            }))
             .on_action(cx.listener(|this, _: &SortByAdded, _, cx| {
                 this.set_sort(SortKey::DateAdded, cx);
             }))
@@ -1662,6 +1877,19 @@ impl Render for RootApp {
             .when_some(self.preview.as_ref(), |el, preview| {
                 el.child(preview::render_preview(preview, locale, cx.entity()))
             })
+            .when(self.export_ui.is_some(), |el| {
+                el.child(self.render_export_overlay(&theme, locale, cx))
+            })
+            .when(self.decrypt_ui.is_some(), |el| {
+                el.child(self.render_decrypt_overlay(&theme, locale, cx))
+            })
+            .when(self.show_connect, |el| {
+                el.child(self.render_connect_overlay(&theme, locale, cx))
+            })
+            .when(self.import_eagle_ui.is_some(), |el| {
+                el.child(self.render_import_eagle_overlay(&theme, locale, cx))
+            })
+            .into_any_element()
     }
 }
 
@@ -1713,8 +1941,40 @@ impl RootApp {
                         this.open_settings(window, cx);
                     })),
             )
+            .child(
+                Button::new("mb-decrypt")
+                    .ghost()
+                    .label(t(locale, "commands.file.decryptArchive"))
+                    .on_click(cx.listener(|this, _, window, cx| {
+                        this.open_decrypt_archive(window, cx);
+                    })),
+            )
+            .child(
+                Button::new("mb-import-eagle")
+                    .ghost()
+                    .label(t(locale, "commands.file.importEagle"))
+                    .on_click(cx.listener(|this, _, window, cx| {
+                        this.begin_import_eagle(window, cx);
+                    })),
+            )
+            .child(
+                Button::new("mb-connect-eagle")
+                    .ghost()
+                    .label(t(locale, "commands.file.connectEagle"))
+                    .on_click(cx.listener(|this, _, window, cx| {
+                        this.begin_connect_eagle(window, cx);
+                    })),
+            )
             .when(has_library, |el| {
                 el.child(
+                    Button::new("mb-backup")
+                        .ghost()
+                        .label(t(locale, "commands.library.backup"))
+                        .on_click(cx.listener(|this, _, window, cx| {
+                            this.open_backup_export(window, cx);
+                        })),
+                )
+                .child(
                     Button::new("mb-lib-settings")
                         .ghost()
                         .label(t(locale, "commands.library.settings"))
@@ -1742,6 +2002,13 @@ impl RootApp {
                         .on_click(cx.listener(|this, _, window, cx| {
                             this.pick_add_files(window, cx);
                         })),
+                )
+            })
+            .when_some(self.eagle_badge.as_ref(), |el, badge| {
+                el.child(
+                    Label::new(badge.clone())
+                        .text_xs()
+                        .text_color(theme.muted_foreground),
                 )
             })
             .child(div().flex_1())
@@ -1949,21 +2216,20 @@ impl RootApp {
                             .border_color(theme.border)
                             .child(Label::new(t(locale, "welcome.eagle")).text_sm().font_bold())
                             .child(
-                                Label::new(t(locale, "welcome.eagleLater"))
-                                    .text_xs()
-                                    .text_color(theme.muted_foreground),
-                            )
-                            .child(
                                 Button::new("welcome-import-eagle")
                                     .ghost()
                                     .label(t(locale, "welcome.importEagle"))
-                                    .disabled(true),
+                                    .on_click(cx.listener(|this, _, window, cx| {
+                                        this.begin_import_eagle(window, cx);
+                                    })),
                             )
                             .child(
                                 Button::new("welcome-connect-eagle")
                                     .ghost()
                                     .label(t(locale, "welcome.connectEagle"))
-                                    .disabled(true),
+                                    .on_click(cx.listener(|this, _, window, cx| {
+                                        this.begin_connect_eagle(window, cx);
+                                    })),
                             ),
                     )
                     .when(!status.is_empty(), |el| {
@@ -2014,6 +2280,32 @@ impl RootApp {
                     .child(Label::new(lib.info.name.clone()).font_bold())
                     .child(
                         Label::new(i18n::t_n(locale, "shell.statusItems", lib.total)).text_sm(),
+                    )
+                    .when_some(lib.place.open_folder_id().map(|s| s.to_owned()), |el, id| {
+                        let name = library::folder_name(&lib.folders, &id)
+                            .unwrap_or_else(|| id.clone());
+                        el.child(
+                            Button::new("tb-export-folder")
+                                .ghost()
+                                .label(t(locale, "exportUi.titleExportFolder"))
+                                .on_click(cx.listener(move |this, _, window, cx| {
+                                    this.open_export_folder(id.clone(), name.clone(), window, cx);
+                                })),
+                        )
+                    })
+                    .when(
+                        lib.filters.tags.len() == 1,
+                        |el| {
+                            let tag = lib.filters.tags[0].clone();
+                            el.child(
+                                Button::new("tb-export-tag")
+                                    .ghost()
+                                    .label(t(locale, "exportUi.titleExportTag"))
+                                    .on_click(cx.listener(move |this, _, window, cx| {
+                                        this.open_export_tag(tag.clone(), window, cx);
+                                    })),
+                            )
+                        },
                     )
                     .child(
                         div()

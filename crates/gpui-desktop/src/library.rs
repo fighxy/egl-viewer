@@ -459,6 +459,19 @@ pub fn window_title(info: Option<&LibraryInfo>) -> String {
     }
 }
 
+/// Display name for a folder id in the tree.
+pub fn folder_name(folders: &[Folder], id: &str) -> Option<String> {
+    for folder in folders {
+        if folder.id == id {
+            return Some(folder.name.clone());
+        }
+        if let Some(name) = folder_name(&folder.children, id) {
+            return Some(name);
+        }
+    }
+    None
+}
+
 /// Locked folders in tree order (D-059 Locked folders section).
 pub fn locked_folders(folders: &[Folder]) -> Vec<Folder> {
     let mut out = Vec::new();
