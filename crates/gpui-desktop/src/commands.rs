@@ -75,6 +75,10 @@ actions!(
         SortAscending,
         SortDescending,
         OpenSortMenu,
+        SwitchLibrary,
+        ClearRecentHistory,
+        ClearCacheReload,
+        RevealLibrary,
         FocusDetails,
         MoveFocusLeft,
         MoveFocusRight,
@@ -147,9 +151,14 @@ pub const SHORTCUTS: &[ShortcutEntry] = &[
         keys: "Ctrl+Shift+N",
     },
     ShortcutEntry {
+        id: "library.switch",
+        label_key: "libraryMenu.switch",
+        keys: "Ctrl+L",
+    },
+    ShortcutEntry {
         id: "library.lockAll",
         label_key: "commands.library.lockAll",
-        keys: "Ctrl+L",
+        keys: "Ctrl+Shift+L",
     },
     ShortcutEntry {
         id: "view.fullScreen",
@@ -232,7 +241,8 @@ pub fn bind_keymap(cx: &mut App) {
         KeyBinding::new("ctrl-v", PasteFiles, None),
         KeyBinding::new("ctrl-shift-n", NewFolder, None),
         KeyBinding::new("f2", RenameFolder, None),
-        KeyBinding::new("ctrl-l", LockAll, None),
+        KeyBinding::new("ctrl-l", SwitchLibrary, None),
+        KeyBinding::new("ctrl-shift-l", LockAll, None),
         KeyBinding::new("f11", ToggleFullScreen, None),
         KeyBinding::new("ctrl-b", ToggleSidebar, None),
         KeyBinding::new("ctrl-i", ToggleDetails, None),
@@ -258,4 +268,23 @@ pub fn bind_keymap(cx: &mut App) {
         KeyBinding::new("pageup", MoveFocusPageUp, None),
         KeyBinding::new("pagedown", MoveFocusPageDown, None),
     ]);
+}
+
+#[cfg(test)]
+mod tests {
+    use super::SHORTCUTS;
+
+    #[test]
+    fn switch_library_takes_ctrl_l() {
+        let switch = SHORTCUTS
+            .iter()
+            .find(|entry| entry.id == "library.switch")
+            .expect("switch shortcut");
+        assert_eq!(switch.keys, "Ctrl+L");
+        let lock = SHORTCUTS
+            .iter()
+            .find(|entry| entry.id == "library.lockAll")
+            .expect("lock shortcut");
+        assert_eq!(lock.keys, "Ctrl+Shift+L");
+    }
 }

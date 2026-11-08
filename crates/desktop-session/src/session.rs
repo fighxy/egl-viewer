@@ -410,6 +410,11 @@ impl Session {
         self.store.forget_recent(path)
     }
 
+    /// Library → Clear History. `keep` is the open library and stays in the list.
+    pub fn clear_recent_history(&self, keep: Option<&str>) -> Result<usize, SourceError> {
+        self.store.clear_recent_history(keep)
+    }
+
     /// Removes recent rows whose library folder is gone (Welcome cleanup).
     pub fn prune_missing_recent(&self) -> Result<usize, SourceError> {
         self.store.prune_missing_recent()

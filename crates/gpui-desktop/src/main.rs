@@ -14,6 +14,7 @@ mod dnd;
 mod i18n;
 mod justified;
 mod library;
+mod menus;
 mod ops;
 mod ops_dnd;
 mod ops_organize;
@@ -23,6 +24,7 @@ mod platform;
 #[cfg(windows)]
 mod reveal_win;
 mod screens;
+mod settings_ui;
 mod theme;
 mod updater;
 
@@ -46,7 +48,7 @@ fn main() {
         apply_theme(app_store::Theme::System, cx);
 
         let window_options = WindowOptions {
-            window_bounds: Some(WindowBounds::centered(size(px(1100.), px(720.),), cx)),
+            window_bounds: Some(WindowBounds::centered(size(px(1100.), px(720.)), cx)),
             titlebar: Some(Default::default()),
             ..Default::default()
         };

@@ -2919,3 +2919,32 @@ folder exceeds **20 GiB**. Free id after D-134.
   Session exposes it; GPUI calls it on startup and when rendering Welcome.
 - **Verify.** `cargo test -p app-store prune_missing`; `cargo test -p gpui-desktop`
   `test_session_does_not_pollute_persistent_recent`.
+
+## D-137 GPUI Library menu and Eagle-style Settings (2026-11-08)
+
+The GPUI host showed library commands as a row of buttons. Eagle's Library menu is
+Create…, Open…, Switch… (`Ctrl+L`) with the open library checked and its path under the
+name, Clear History, Clear Cache and Reload, and Merge….
+
+- **Menu bar.** File, Edit, View, Library and Help are dropdowns. Library owns create,
+  open and switch. File keeps add, import, Eagle, close, Settings and Exit.
+- **Switch.** The submenu lists recent libraries (name, path, a check on the open one).
+  `Ctrl+L` opens the same list. Lock All on this host is `Ctrl+Shift+L`. The Tauri
+  command registry still binds `Ctrl+L` to Lock All until cutover.
+- **Clear History.** `AppStore::clear_recent_history` drops every recent row except the
+  open library. A removed path also loses its saved place, as Forget does.
+- **Clear Cache and Reload.** A writable native library calls `rebuild_thumbnails` (the
+  `thumbs/` cache; the old file stays until the new preview replaces it) and reloads the
+  view. A read-only library reloads and says thumbnails were not rebuilt. A live Eagle
+  library has no local thumbnail cache here; the view reloads and the status says Eagle
+  serves its own thumbnails.
+- **Merge.** There is no merge-libraries command (merging tags is a different action).
+  The item is left out.
+- **Settings.** A window with a search field and General, Library and Login on the left,
+  the section on the right, Apply (write, stay open), Save (write and close) and Cancel
+  (drop the draft). General: theme swatches, language, thumbnail size (the grid zoom that
+  is stored; there is no interface-zoom percent), reopen last library, ask before trash.
+  Library: default folder for new libraries. Login: password, PIN, WebAuthn and clear,
+  which take effect immediately rather than with the draft. No AI or plugin sections.
+- **Verify.** `cargo test -p app-store clear_recent`; `cargo test -p app-store same_library`;
+  `cargo test -p gpui-desktop`.

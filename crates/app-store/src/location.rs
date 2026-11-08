@@ -131,6 +131,16 @@ fn strip_verbatim(path: &Path) -> PathBuf {
     path.to_path_buf()
 }
 
+/// Recent rows and the open library can differ by slash and ASCII case (Windows).
+pub fn same_library_path(a: &str, b: &str) -> bool {
+    fn norm(path: &str) -> String {
+        path.replace('/', "\\")
+            .trim_end_matches('\\')
+            .to_ascii_lowercase()
+    }
+    !a.is_empty() && !b.is_empty() && norm(a) == norm(b)
+}
+
 /// A UNC path. Canonicalizing turns mapped network drives into UNC paths on Windows.
 fn is_network_path(path: &Path) -> bool {
     let text = path.to_string_lossy();
@@ -251,6 +261,14 @@ mod tests {
             ),
             Err(LocationProblem::NetworkPath)
         );
+    }
+
+    #[test]
+    fn same_library_path_ignores_slash_and_ascii_case() {
+        assert!(same_library_path(r"C:\Libs\A.eglib", r"c:/libs/A.eglib"));
+        assert!(same_library_path(r"C:\Libs\A.eglib\", r"C:\Libs\A.eglib"));
+        assert!(!same_library_path(r"C:\Libs\A.eglib", r"C:\Libs\B.eglib"));
+        assert!(!same_library_path("", r"C:\Libs\A.eglib"));
     }
 
     #[test]

@@ -187,6 +187,7 @@ egl-viewer/
                              Eagle, preferences / recent / login, clipboard trait, YubiKey PIV and
                              Windows WebAuthn; no gpui, no tauri. Shared by src-tauri and gpui-desktop
   gpui-desktop/              GPUI Kit host over desktop-session (D-126…D-133); portable zip + CI dual path;
+                             Library menu and Settings window (D-137);
                              not yet the sole Windows release (Tauri stays until cutover is confirmed)
   src-tauri/                 shipping Tauri app crate until cutover: thin adapter over desktop-session
     commands.rs              IPC over Session; libraries, imports, views, items, Eagle, locks, …

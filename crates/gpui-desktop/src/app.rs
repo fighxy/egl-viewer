@@ -4,14 +4,13 @@ use std::path::PathBuf;
 use std::sync::{Arc, Mutex};
 use std::time::Duration;
 
-use app_store::{BrowsePreferences, Locale, Theme, ViewMode};
+use app_store::{BrowsePreferences, Locale, Preferences, Theme, ViewMode};
 use desktop_session::{Event, ItemsTarget, Session};
 use gpui_kit::component::button::{Button, ButtonVariants as _};
 use gpui_kit::component::input::{Input, InputEvent, InputState};
 use gpui_kit::component::label::Label;
 use gpui_kit::component::{
-    ActiveTheme, Disableable as _, StyledExt as _, WindowExt as _, h_flex, h_resizable,
-    resizable_panel, v_flex,
+    ActiveTheme, StyledExt as _, WindowExt as _, h_flex, h_resizable, resizable_panel, v_flex,
 };
 use gpui_kit::prelude::FluentBuilder as _;
 use gpui_kit::{
@@ -19,9 +18,7 @@ use gpui_kit::{
     ParentElement, PathPromptOptions, Pixels, Render, SharedString, StatefulInteractiveElement,
     Styled, Subscription, Window, div, px,
 };
-use library_core::{
-    DuplicateNotice, ImportState, ItemId, LibraryInfo, SortKey, is_web_link,
-};
+use library_core::{DuplicateNotice, ImportState, ItemId, LibraryInfo, SortKey, is_web_link};
 use library_native::DuplicateChoice;
 
 use crate::browse::details::{self, DetailsModel};
@@ -58,7 +55,7 @@ pub struct RootApp {
     events: EventMailbox,
     focus: FocusHandle,
     pub(crate) locale: Locale,
-    theme_pref: Theme,
+    pub(crate) theme_pref: Theme,
     pub(crate) status: SharedString,
     pub(crate) library: Option<OpenLibraryState>,
     items: Vec<ListedItem>,
@@ -70,7 +67,16 @@ pub struct RootApp {
     pub(crate) drag_active: bool,
     /// Last folder row hit during an in-window folder drag (`id`, zone).
     pub(crate) folder_drop_zone: Option<(String, crate::dnd::FolderZone)>,
-    fullscreen: bool,
+    pub(crate) fullscreen: bool,
+    pub(crate) show_switch: bool,
+    pub(crate) show_settings: bool,
+    pub(crate) settings_section: crate::settings_ui::SettingsSection,
+    pub(crate) settings_draft: Preferences,
+    pub(crate) settings_query: SharedString,
+    pub(crate) settings_search: Entity<InputState>,
+    pub(crate) settings_password: Entity<InputState>,
+    pub(crate) settings_pin: Entity<InputState>,
+    _settings_search_sub: Option<Subscription>,
     quit_pending: bool,
     create_name: Entity<InputState>,
     create_location: SharedString,
@@ -126,8 +132,7 @@ impl RootApp {
         let prefs = session.preferences();
         theme::apply_theme(prefs.theme, cx);
 
-        let create_name =
-            cx.new(|cx| InputState::new(window, cx).default_value("My Library"));
+        let create_name = cx.new(|cx| InputState::new(window, cx).default_value("My Library"));
         let search_input = cx.new(|cx| {
             InputState::new(window, cx).placeholder(crate::i18n::t(prefs.locale, "shell.search"))
         });
@@ -142,6 +147,11 @@ impl RootApp {
         let eagle_token_input = cx.new(|cx| InputState::new(window, cx).masked(true));
         let decrypt_password = cx.new(|cx| InputState::new(window, cx).masked(true));
         let import_name = cx.new(|cx| InputState::new(window, cx));
+        let settings_search = cx.new(|cx| {
+            InputState::new(window, cx).placeholder(crate::i18n::t(prefs.locale, "settings.search"))
+        });
+        let settings_password = cx.new(|cx| InputState::new(window, cx).masked(true));
+        let settings_pin = cx.new(|cx| InputState::new(window, cx).masked(true));
 
         let mut app = Self {
             session,
@@ -159,6 +169,15 @@ impl RootApp {
             drag_active: false,
             folder_drop_zone: None,
             fullscreen: false,
+            show_switch: false,
+            show_settings: false,
+            settings_section: crate::settings_ui::SettingsSection::General,
+            settings_draft: prefs.clone(),
+            settings_query: SharedString::default(),
+            settings_search: settings_search.clone(),
+            settings_password,
+            settings_pin,
+            _settings_search_sub: None,
             quit_pending: false,
             create_name,
             create_location: SharedString::from(""),
@@ -213,12 +232,25 @@ impl RootApp {
         app._search_sub = Some(cx.subscribe(
             &search_input,
             |this, input, event: &InputEvent, cx| {
-                if matches!(
-                    event,
-                    InputEvent::PressEnter { .. } | InputEvent::Blur
-                ) {
+                if matches!(event, InputEvent::PressEnter { .. } | InputEvent::Blur) {
                     let text = input.read(cx).value().to_string();
                     this.apply_search(text, cx);
+                }
+            },
+        ));
+        app._settings_search_sub = Some(cx.subscribe(
+            &settings_search,
+            |this, input, event: &InputEvent, cx| {
+                if matches!(event, InputEvent::Change) {
+                    let text = input.read(cx).value().to_string();
+                    this.settings_query = SharedString::from(text.clone());
+                    let visible = crate::settings_ui::visible_sections(this.locale, &text);
+                    if !visible.contains(&this.settings_section)
+                        && let Some(section) = visible.first().copied()
+                    {
+                        this.settings_section = section;
+                    }
+                    cx.notify();
                 }
             },
         ));
@@ -339,16 +371,13 @@ impl RootApp {
             Ok(CheckOutcome::Update(update)) => {
                 self.pending_update_url = Some(update.url.clone());
                 self.status = SharedString::from(
-                    t(self.locale, "updates.silentAvailable")
-                        .replace("{version}", &update.version),
+                    t(self.locale, "updates.silentAvailable").replace("{version}", &update.version),
                 );
             }
             Err(error) => {
                 if self.status.as_ref() == t(self.locale, "updates.checking") {
-                    self.status = SharedString::from(format!(
-                        "{}: {error}",
-                        t(self.locale, "updates.error")
-                    ));
+                    self.status =
+                        SharedString::from(format!("{}: {error}", t(self.locale, "updates.error")));
                 }
             }
         }
@@ -422,8 +451,7 @@ impl RootApp {
             match event {
                 Event::ViewsInvalidated(views) => {
                     if let Some(lib) = self.library.as_mut() {
-                        if let Some(updated) =
-                            views.views.iter().find(|v| v.view_id == lib.view_id)
+                        if let Some(updated) = views.views.iter().find(|v| v.view_id == lib.view_id)
                         {
                             lib.total = updated.total;
                             needs_refresh = true;
@@ -445,10 +473,7 @@ impl RootApp {
                             self.pending_duplicate = Some((progress.id, dup));
                         }
                     }
-                    if matches!(
-                        progress.state,
-                        ImportState::Done | ImportState::Cancelled
-                    ) {
+                    if matches!(progress.state, ImportState::Done | ImportState::Cancelled) {
                         needs_refresh = true;
                     }
                     cx.notify();
@@ -486,7 +511,7 @@ impl RootApp {
         }
     }
 
-    fn recompute_justified(&mut self) {
+    pub(crate) fn recompute_justified(&mut self) {
         let Some(lib) = self.library.as_ref() else {
             self.justified = None;
             return;
@@ -532,7 +557,13 @@ impl RootApp {
         }
     }
 
-    fn open_path(&mut self, path: PathBuf, window: &mut Window, cx: &mut Context<Self>) {
+    pub(crate) fn drop_preview(&mut self) {
+        self.preview = None;
+        self.preview_payload = None;
+        self.space_gesture = None;
+    }
+
+    pub(crate) fn open_path(&mut self, path: PathBuf, window: &mut Window, cx: &mut Context<Self>) {
         if let Some(lib) = self.library.take() {
             lib.persist_session(&self.session);
             lib.persist_browse_prefs(&self.session);
@@ -676,233 +707,14 @@ impl RootApp {
 
     fn set_theme(&mut self, theme_pref: Theme, cx: &mut Context<Self>) {
         self.theme_pref = theme_pref;
+        if self.show_settings {
+            self.settings_draft.theme = theme_pref;
+        }
         let mut prefs = self.session.preferences();
         prefs.theme = theme_pref;
         let _ = self.session.save_preferences(prefs);
         theme::apply_theme(theme_pref, cx);
         cx.notify();
-    }
-
-    fn set_locale(&mut self, locale: Locale, cx: &mut Context<Self>) {
-        self.locale = locale;
-        let mut prefs = self.session.preferences();
-        prefs.locale = locale;
-        let _ = self.session.save_preferences(prefs);
-        cx.notify();
-    }
-
-    fn open_settings(&mut self, window: &mut Window, cx: &mut Context<Self>) {
-        let locale = self.locale;
-        let theme_pref = self.theme_pref;
-        let prefs = self.session.preferences();
-        let reopen = prefs.reopen_last_library;
-        let confirm_trash = prefs.confirm_before_trash;
-        let default_folder = prefs
-            .default_library_parent
-            .clone()
-            .unwrap_or_else(|| self.session.default_library_location());
-        let login_method = self
-            .session
-            .login_status()
-            .map(|s| s.method)
-            .unwrap_or(app_store::LoginMethod::None);
-        let entity = cx.entity();
-        let password = cx.new(|cx| InputState::new(window, cx).masked(true));
-        let pin = cx.new(|cx| InputState::new(window, cx).masked(true));
-
-        window.open_dialog(cx, move |dialog, _, _| {
-            dialog.title(t(locale, "settings.title")).child(
-                v_flex()
-                    .gap_3()
-                    .p_2()
-                    .w(px(460.))
-                    .child(Label::new(t(locale, "settings.general")).font_bold())
-                    .child(Label::new(format!(
-                        "{}: {}",
-                        t(locale, "settings.theme"),
-                        t(locale, theme::theme_label_key(theme_pref))
-                    )))
-                    .child(
-                        h_flex()
-                            .gap_2()
-                            .child(theme_btn(locale, Theme::System, theme_pref, &entity))
-                            .child(theme_btn(locale, Theme::Light, theme_pref, &entity))
-                            .child(theme_btn(locale, Theme::Dark, theme_pref, &entity)),
-                    )
-                    .child(Label::new(t(locale, "settings.language")))
-                    .child(
-                        h_flex()
-                            .gap_2()
-                            .child(locale_btn("en", Locale::En, locale, &entity))
-                            .child(locale_btn("ru", Locale::Ru, locale, &entity))
-                            .child(locale_btn("zh", Locale::ZhCn, locale, &entity)),
-                    )
-                    .child(pref_toggle(
-                        "reopen",
-                        t(locale, "settings.reopen"),
-                        reopen,
-                        &entity,
-                        |p, on| p.reopen_last_library = on,
-                    ))
-                    .child(pref_toggle(
-                        "trash",
-                        t(locale, "settings.confirmTrash"),
-                        confirm_trash,
-                        &entity,
-                        |p, on| p.confirm_before_trash = on,
-                    ))
-                    .child(Label::new(format!(
-                        "{}: {default_folder}",
-                        t(locale, "settings.defaultFolder")
-                    )))
-                    .child(
-                        Button::new("settings-browse-default")
-                            .label(t(locale, "common.browse"))
-                            .on_click({
-                                let entity = entity.clone();
-                                move |_, _, cx| {
-                                    let entity = entity.clone();
-                                    let rx = cx.prompt_for_paths(PathPromptOptions {
-                                        files: false,
-                                        directories: true,
-                                        multiple: false,
-                                        prompt: Some(SharedString::from("Default library folder")),
-                                    });
-                                    cx.spawn(async move |cx| {
-                                        if let Ok(Ok(Some(paths))) = rx.await {
-                                            if let Some(path) = paths.into_iter().next() {
-                                                entity
-                                                    .update(cx, |this, cx| {
-                                                        let mut prefs = this.session.preferences();
-                                                        prefs.default_library_parent =
-                                                            Some(path.to_string_lossy().into());
-                                                        let _ = this.session.save_preferences(prefs);
-                                                        cx.notify();
-                                                    })
-                                                    ;
-                                            }
-                                        }
-                                    })
-                                    .detach();
-                                }
-                            }),
-                    )
-                    .child(Label::new(t(locale, "settings.login")).font_bold())
-                    .child(Label::new(format!(
-                        "{}: {}",
-                        t(locale, "settings.loginMethod"),
-                        RootApp::login_method_label(locale, login_method)
-                    )))
-                    .child(Label::new(t(locale, "login.password")).text_sm())
-                    .child(Input::new(&password))
-                    .child({
-                        let entity = entity.clone();
-                        let password = password.clone();
-                        Button::new("set-login-password")
-                            .outline()
-                            .label(t(locale, "settings.setPassword"))
-                            .on_click(move |_, _, cx| {
-                                let secret = password.read(cx).value().to_string();
-                                entity.update(cx, |this, cx| {
-                                    match this.session.set_login_password(secret) {
-                                        Ok(status) => {
-                                            this.status = SharedString::from(format!(
-                                                "{}: {}",
-                                                t(this.locale, "settings.loginUpdated"),
-                                                RootApp::login_method_label(
-                                                    this.locale,
-                                                    status.method,
-                                                )
-                                            ));
-                                        }
-                                        Err(error) => {
-                                            this.status = SharedString::from(format!("{error}"));
-                                        }
-                                    }
-                                    cx.notify();
-                                });
-                            })
-                    })
-                    .child(Label::new(t(locale, "login.pin")).text_sm())
-                    .child(Input::new(&pin))
-                    .child({
-                        let entity = entity.clone();
-                        let pin = pin.clone();
-                        Button::new("set-login-pin")
-                            .outline()
-                            .label(t(locale, "settings.setPin"))
-                            .on_click(move |_, _, cx| {
-                                let secret = pin.read(cx).value().to_string();
-                                entity.update(cx, |this, cx| {
-                                    match this.session.set_login_pin(secret) {
-                                        Ok(status) => {
-                                            this.status = SharedString::from(format!(
-                                                "{}: {}",
-                                                t(this.locale, "settings.loginUpdated"),
-                                                RootApp::login_method_label(
-                                                    this.locale,
-                                                    status.method,
-                                                )
-                                            ));
-                                        }
-                                        Err(error) => {
-                                            this.status = SharedString::from(format!("{error}"));
-                                        }
-                                    }
-                                    cx.notify();
-                                });
-                            })
-                    })
-                    .child({
-                        let entity = entity.clone();
-                        Button::new("set-login-webauthn")
-                            .outline()
-                            .label(t(locale, "settings.setWebAuthn"))
-                            .on_click(move |_, _, cx| {
-                                entity.update(cx, |this, cx| {
-                                    match this.session.set_login_webauthn() {
-                                        Ok(status) => {
-                                            this.status = SharedString::from(format!(
-                                                "{}: {}",
-                                                t(this.locale, "settings.loginUpdated"),
-                                                RootApp::login_method_label(
-                                                    this.locale,
-                                                    status.method,
-                                                )
-                                            ));
-                                        }
-                                        Err(error) => {
-                                            this.status = SharedString::from(format!("{error}"));
-                                        }
-                                    }
-                                    cx.notify();
-                                });
-                            })
-                    })
-                    .child({
-                        let entity = entity.clone();
-                        Button::new("clear-login")
-                            .ghost()
-                            .label(t(locale, "settings.clearLogin"))
-                            .on_click(move |_, _, cx| {
-                                entity.update(cx, |this, cx| {
-                                    match this.session.clear_login() {
-                                        Ok(_) => {
-                                            this.status = SharedString::from(t(
-                                                this.locale,
-                                                "settings.loginCleared",
-                                            ));
-                                        }
-                                        Err(error) => {
-                                            this.status = SharedString::from(format!("{error}"));
-                                        }
-                                    }
-                                    cx.notify();
-                                });
-                            })
-                    }),
-            )
-        });
     }
 
     fn open_about(&mut self, window: &mut Window, cx: &mut Context<Self>) {
@@ -1137,11 +949,9 @@ impl RootApp {
                 .on_ok({
                     let entity = entity.clone();
                     move |_, window, cx| {
-                        entity
-                            .update(cx, |this, _cx| {
-                                this.shutdown();
-                            })
-                            ;
+                        entity.update(cx, |this, _cx| {
+                            this.shutdown();
+                        });
                         window.remove_window();
                         true
                     }
@@ -1149,12 +959,10 @@ impl RootApp {
                 .on_cancel({
                     let entity = entity.clone();
                     move |_, _, cx| {
-                        entity
-                            .update(cx, |this, cx| {
-                                this.quit_pending = false;
-                                cx.notify();
-                            })
-                            ;
+                        entity.update(cx, |this, cx| {
+                            this.quit_pending = false;
+                            cx.notify();
+                        });
                         true
                     }
                 })
@@ -1245,8 +1053,7 @@ impl RootApp {
             found
         };
         if let Some(&focus) = indices.last() {
-            lib.selection
-                .select_indices(&lib.cells, &indices, focus);
+            lib.selection.select_indices(&lib.cells, &indices, focus);
             lib.persist_session(&self.session);
         }
         self.refresh_details(cx);
@@ -1323,17 +1130,11 @@ impl RootApp {
             return;
         }
         if count == 1 {
-            let id = lib
-                .selection
-                .ids
-                .iter()
-                .next()
-                .cloned()
-                .or_else(|| {
-                    lib.selection
-                        .focus
-                        .and_then(|i| lib.cells.get(i).map(|c| c.id.0.clone()))
-                });
+            let id = lib.selection.ids.iter().next().cloned().or_else(|| {
+                lib.selection
+                    .focus
+                    .and_then(|i| lib.cells.get(i).map(|c| c.id.0.clone()))
+            });
             let Some(id) = id else {
                 self.details.count = 1;
                 cx.notify();
@@ -1371,13 +1172,7 @@ impl RootApp {
             cx.notify();
             return;
         }
-        let ids: Vec<ItemId> = lib
-            .selection
-            .ids
-            .iter()
-            .cloned()
-            .map(ItemId)
-            .collect();
+        let ids: Vec<ItemId> = lib.selection.ids.iter().cloned().map(ItemId).collect();
         let target = ItemsTarget {
             view_id: Some(lib.view_id),
             all: false,
@@ -1420,14 +1215,13 @@ impl RootApp {
         let Some(lib) = self.library.as_ref() else {
             return;
         };
-        let index = lib
-            .selection
-            .focus
-            .or_else(|| {
-                lib.selection.ids.iter().next().and_then(|id| {
-                    lib.cells.iter().position(|c| c.id.0 == *id)
-                })
-            });
+        let index = lib.selection.focus.or_else(|| {
+            lib.selection
+                .ids
+                .iter()
+                .next()
+                .and_then(|id| lib.cells.iter().position(|c| c.id.0 == *id))
+        });
         let Some(index) = index else {
             return;
         };
@@ -1514,7 +1308,12 @@ impl RootApp {
         cx.notify();
     }
 
-    pub(crate) fn preview_pan_start(&mut self, origin_x: f32, origin_y: f32, cx: &mut Context<Self>) {
+    pub(crate) fn preview_pan_start(
+        &mut self,
+        origin_x: f32,
+        origin_y: f32,
+        cx: &mut Context<Self>,
+    ) {
         if let Some(preview) = self.preview.as_mut() {
             if preview.zoom > 1.0 {
                 preview.drag_origin = Some((origin_x, origin_y));
@@ -1652,7 +1451,12 @@ impl RootApp {
         }
     }
 
-    fn persist_panel_widths(&mut self, left: Option<Pixels>, right: Option<Pixels>, cx: &mut Context<Self>) {
+    fn persist_panel_widths(
+        &mut self,
+        left: Option<Pixels>,
+        right: Option<Pixels>,
+        cx: &mut Context<Self>,
+    ) {
         let Some(lib) = self.library.as_mut() else {
             return;
         };
@@ -1692,75 +1496,10 @@ impl RootApp {
     }
 }
 
-fn theme_btn(
-    locale: Locale,
-    theme_pref: Theme,
-    current: Theme,
-    entity: &Entity<RootApp>,
-) -> Button {
-    let entity = entity.clone();
-    Button::new(SharedString::from(format!("theme-{theme_pref:?}")))
-        .label(t(locale, theme::theme_label_key(theme_pref)))
-        .when(theme_pref == current, |b| b.primary())
-        .when(theme_pref != current, |b| b.ghost())
-        .on_click(move |_, _, cx| {
-            entity
-                .update(cx, |this, cx| this.set_theme(theme_pref, cx))
-                ;
-        })
-}
-
-fn locale_btn(
-    id: &'static str,
-    locale: Locale,
-    current: Locale,
-    entity: &Entity<RootApp>,
-) -> Button {
-    let entity = entity.clone();
-    let label = match locale {
-        Locale::En => "English",
-        Locale::Ru => "Русский",
-        Locale::ZhCn => "简体中文",
-    };
-    Button::new(id)
-        .label(label)
-        .when(locale == current, |b| b.primary())
-        .when(locale != current, |b| b.ghost())
-        .on_click(move |_, _, cx| {
-            entity
-                .update(cx, |this, cx| this.set_locale(locale, cx))
-                ;
-        })
-}
-
-fn pref_toggle(
-    id: &'static str,
-    label: String,
-    on: bool,
-    entity: &Entity<RootApp>,
-    update: impl Fn(&mut app_store::Preferences, bool) + 'static,
-) -> Button {
-    let entity = entity.clone();
-    Button::new(id)
-        .label(format!("{} ({})", label, if on { "on" } else { "off" }))
-        .on_click(move |_, _, cx| {
-            let next = !on;
-            entity
-                .update(cx, |this, cx| {
-                    let mut prefs = this.session.preferences();
-                    update(&mut prefs, next);
-                    let _ = this.session.save_preferences(prefs);
-                    cx.notify();
-                })
-                ;
-        })
-}
-
 impl Render for RootApp {
     fn render(&mut self, _window: &mut Window, cx: &mut Context<Self>) -> impl IntoElement {
         let theme = cx.theme().clone();
         let locale = self.locale;
-        let has_library = self.library.is_some();
         let focus = self.focus.clone();
 
         if !self.login_gate.is_open() {
@@ -1945,6 +1684,18 @@ impl Render for RootApp {
             .on_action(cx.listener(|this, _: &DeleteFolder, window, cx| {
                 this.delete_open_folder(window, cx);
             }))
+            .on_action(cx.listener(|this, _: &SwitchLibrary, _, cx| {
+                this.toggle_switch(cx);
+            }))
+            .on_action(cx.listener(|this, _: &ClearRecentHistory, _, cx| {
+                this.clear_recent_history(cx);
+            }))
+            .on_action(cx.listener(|this, _: &ClearCacheReload, _, cx| {
+                this.clear_cache_and_reload(cx);
+            }))
+            .on_action(cx.listener(|this, _: &RevealLibrary, _, cx| {
+                this.reveal_library(cx);
+            }))
             .on_action(cx.listener(|this, _: &LockAll, _, cx| {
                 this.lock_all_unlocked(cx);
             }))
@@ -2042,14 +1793,12 @@ impl Render for RootApp {
             .on_action(cx.listener(|this, _: &MoveFocusPageDown, _, cx| {
                 this.move_focus("pagedown", cx);
             }))
-            .child(self.render_menubar(has_library, &theme, locale, cx))
+            .child(self.render_menubar(&theme, cx))
             .when(self.show_create, |el| {
                 el.child(self.render_create_overlay(&theme, locale, cx))
             })
             .when(
-                self.library
-                    .as_ref()
-                    .is_some_and(|lib| lib.info.read_only),
+                self.library.as_ref().is_some_and(|lib| lib.info.read_only),
                 |el| el.child(library_ui::render_read_only_banner(locale)),
             )
             .child(if self.library.is_some() {
@@ -2072,169 +1821,17 @@ impl Render for RootApp {
             .when(self.import_eagle_ui.is_some(), |el| {
                 el.child(self.render_import_eagle_overlay(&theme, locale, cx))
             })
+            .when(self.show_switch, |el| {
+                el.child(self.render_switch_overlay(&theme, locale, cx))
+            })
+            .when(self.show_settings, |el| {
+                el.child(self.render_settings(&theme, locale, cx))
+            })
             .into_any_element()
     }
 }
 
 impl RootApp {
-    fn render_menubar(
-        &self,
-        has_library: bool,
-        theme: &gpui_kit::component::theme::Theme,
-        locale: Locale,
-        cx: &mut Context<Self>,
-    ) -> impl IntoElement {
-        h_flex()
-            .id("menubar")
-            .w_full()
-            .items_center()
-            .gap_1()
-            .px_2()
-            .py_1()
-            .border_b_1()
-            .border_color(theme.border)
-            .child(
-                Button::new("mb-new")
-                    .ghost()
-                    .label(t(locale, "commands.file.newLibrary"))
-                    .on_click(cx.listener(|this, _, _, cx| this.begin_create_library(cx))),
-            )
-            .child(
-                Button::new("mb-open")
-                    .ghost()
-                    .label(t(locale, "commands.file.openLibrary"))
-                    .on_click(cx.listener(|this, _, window, cx| {
-                        this.pick_open_library(window, cx);
-                    })),
-            )
-            .child(
-                Button::new("mb-close")
-                    .ghost()
-                    .label(t(locale, "commands.file.closeLibrary"))
-                    .disabled(!has_library)
-                    .on_click(cx.listener(|this, _, window, cx| {
-                        this.close_library(window, cx);
-                    })),
-            )
-            .child(
-                Button::new("mb-settings")
-                    .ghost()
-                    .label(t(locale, "commands.file.settings"))
-                    .on_click(cx.listener(|this, _, window, cx| {
-                        this.open_settings(window, cx);
-                    })),
-            )
-            .child(
-                Button::new("mb-decrypt")
-                    .ghost()
-                    .label(t(locale, "commands.file.decryptArchive"))
-                    .on_click(cx.listener(|this, _, window, cx| {
-                        this.open_decrypt_archive(window, cx);
-                    })),
-            )
-            .child(
-                Button::new("mb-import-eagle")
-                    .ghost()
-                    .label(t(locale, "commands.file.importEagle"))
-                    .on_click(cx.listener(|this, _, window, cx| {
-                        this.begin_import_eagle(window, cx);
-                    })),
-            )
-            .child(
-                Button::new("mb-connect-eagle")
-                    .ghost()
-                    .label(t(locale, "commands.file.connectEagle"))
-                    .on_click(cx.listener(|this, _, window, cx| {
-                        this.begin_connect_eagle(window, cx);
-                    })),
-            )
-            .when(has_library, |el| {
-                el.child(
-                    Button::new("mb-backup")
-                        .ghost()
-                        .label(t(locale, "commands.library.backup"))
-                        .on_click(cx.listener(|this, _, window, cx| {
-                            this.open_backup_export(window, cx);
-                        })),
-                )
-                .child(
-                    Button::new("mb-lib-settings")
-                        .ghost()
-                        .label(t(locale, "commands.library.settings"))
-                        .on_click(cx.listener(|this, _, window, cx| {
-                            this.open_library_settings(window, cx);
-                        })),
-                )
-                .child(
-                    Button::new("mb-undo")
-                        .ghost()
-                        .label({
-                            match self.session.undo_status() {
-                                Some(status) => {
-                                    format!("{} ({})", t(locale, "commands.edit.undo"), status.items)
-                                }
-                                None => t(locale, "commands.edit.undo"),
-                            }
-                        })
-                        .on_click(cx.listener(|this, _, _, cx| this.undo_last(cx))),
-                )
-                .child(
-                    Button::new("mb-add")
-                        .ghost()
-                        .label(t(locale, "commands.file.addFiles"))
-                        .on_click(cx.listener(|this, _, window, cx| {
-                            this.pick_add_files(window, cx);
-                        })),
-                )
-            })
-            .when_some(self.eagle_badge.as_ref(), |el, badge| {
-                el.child(
-                    Label::new(badge.clone())
-                        .text_xs()
-                        .text_color(theme.muted_foreground),
-                )
-            })
-            .child(div().flex_1())
-            .child(
-                Button::new("mb-shortcuts")
-                    .ghost()
-                    .label(t(locale, "commands.help.shortcuts"))
-                    .on_click(cx.listener(|this, _, window, cx| {
-                        this.open_shortcuts(window, cx);
-                    })),
-            )
-            .child(
-                Button::new("mb-updates")
-                    .ghost()
-                    .label(t(locale, "commands.help.checkForUpdates"))
-                    .on_click(cx.listener(|this, _, window, cx| {
-                        this.open_check_for_updates(window, cx);
-                    })),
-            )
-            .child(
-                Button::new("mb-logs")
-                    .ghost()
-                    .label(t(locale, "commands.help.openLogFolder"))
-                    .on_click(cx.listener(|this, _, window, cx| {
-                        this.open_log_folder(window, cx);
-                    })),
-            )
-            .child(
-                Button::new("mb-about")
-                    .ghost()
-                    .label(t(locale, "commands.help.about"))
-                    .on_click(cx.listener(|this, _, window, cx| this.open_about(window, cx))),
-            )
-            .child(
-                Button::new("mb-exit")
-                    .ghost()
-                    .label(t(locale, "commands.file.exit"))
-                    .on_click(cx.listener(|this, _, window, cx| {
-                        let _ = this.request_quit(window, cx);
-                    })),
-            )
-    }
-
     fn render_create_overlay(
         &self,
         theme: &gpui_kit::component::theme::Theme,
@@ -2349,7 +1946,11 @@ impl RootApp {
                                     })),
                             ),
                     )
-                    .child(Label::new(t(locale, "welcome.recent")).text_sm().font_bold())
+                    .child(
+                        Label::new(t(locale, "welcome.recent"))
+                            .text_sm()
+                            .font_bold(),
+                    )
                     .child(if recent.is_empty() {
                         Label::new(t(locale, "welcome.noRecent"))
                             .text_sm()
@@ -2378,9 +1979,15 @@ impl RootApp {
                                             library.name,
                                             if library.missing { " (missing)" } else { "" }
                                         ))
-                                        .on_click(cx.listener(move |this, _, window, cx| {
-                                            this.open_path(PathBuf::from(&path_open), window, cx);
-                                        })),
+                                        .on_click(
+                                            cx.listener(move |this, _, window, cx| {
+                                                this.open_path(
+                                                    PathBuf::from(&path_open),
+                                                    window,
+                                                    cx,
+                                                );
+                                            }),
+                                        ),
                                     )
                                     .child(
                                         Button::new(SharedString::from(format!(
@@ -2389,12 +1996,14 @@ impl RootApp {
                                         )))
                                         .ghost()
                                         .label("×")
-                                        .on_click(cx.listener(move |this, _, _, cx| {
-                                            let _ = this
-                                                .session
-                                                .forget_recent_library(&path_forget);
-                                            cx.notify();
-                                        })),
+                                        .on_click(
+                                            cx.listener(move |this, _, _, cx| {
+                                                let _ = this
+                                                    .session
+                                                    .forget_recent_library(&path_forget);
+                                                cx.notify();
+                                            }),
+                                        ),
                                     )
                                     .into_any_element()
                             }))
@@ -2479,16 +2088,11 @@ impl RootApp {
             .child(library_ui::render_status_bar(lib, locale))
             .when(!self.status.is_empty(), |el| {
                 el.child(
-                    h_flex()
-                        .id("status-message")
-                        .w_full()
-                        .px_3()
-                        .py_1()
-                        .child(
-                            Label::new(self.status.clone())
-                                .text_xs()
-                                .text_color(theme.muted_foreground),
-                        ),
+                    h_flex().id("status-message").w_full().px_3().py_1().child(
+                        Label::new(self.status.clone())
+                            .text_xs()
+                            .text_color(theme.muted_foreground),
+                    ),
                 )
             })
             .when(self.imports_open, |el| {
@@ -2510,12 +2114,9 @@ impl RootApp {
                         .border_t_1()
                         .border_color(theme.border)
                         .child(
-                            Label::new(format!(
-                                "{} — {done}/{total}",
-                                t(locale, "trash.emptying")
-                            ))
-                            .text_sm()
-                            .flex_1(),
+                            Label::new(format!("{} — {done}/{total}", t(locale, "trash.emptying")))
+                                .text_sm()
+                                .flex_1(),
                         )
                         .child(
                             Button::new("empty-trash-cancel")
@@ -2550,228 +2151,226 @@ impl RootApp {
             .border_b_1()
             .border_color(theme.border)
             .child(Label::new(lib.info.name.clone()).font_bold())
-            .child(
-                Label::new(i18n::t_n(locale, "shell.statusItems", lib.total)).text_sm(),
+            .child(Label::new(i18n::t_n(locale, "shell.statusItems", lib.total)).text_sm())
+            .when_some(
+                lib.place.open_folder_id().map(|s| s.to_owned()),
+                |el, id| {
+                    let name =
+                        library::folder_name(&lib.folders, &id).unwrap_or_else(|| id.clone());
+                    el.child(
+                        Button::new("tb-export-folder")
+                            .ghost()
+                            .label(t(locale, "exportUi.titleExportFolder"))
+                            .on_click(cx.listener(move |this, _, window, cx| {
+                                this.open_export_folder(id.clone(), name.clone(), window, cx);
+                            })),
+                    )
+                },
             )
-                    .when_some(lib.place.open_folder_id().map(|s| s.to_owned()), |el, id| {
-                        let name = library::folder_name(&lib.folders, &id)
-                            .unwrap_or_else(|| id.clone());
-                        el.child(
-                            Button::new("tb-export-folder")
-                                .ghost()
-                                .label(t(locale, "exportUi.titleExportFolder"))
-                                .on_click(cx.listener(move |this, _, window, cx| {
-                                    this.open_export_folder(id.clone(), name.clone(), window, cx);
-                                })),
-                        )
-                    })
-                    .when(
-                        lib.filters.tags.len() == 1,
-                        |el| {
-                            let tag = lib.filters.tags[0].clone();
-                            el.child(
-                                Button::new("tb-export-tag")
-                                    .ghost()
-                                    .label(t(locale, "exportUi.titleExportTag"))
-                                    .on_click(cx.listener(move |this, _, window, cx| {
-                                        this.open_export_tag(tag.clone(), window, cx);
-                                    })),
-                            )
-                        },
+            .when(lib.filters.tags.len() == 1, |el| {
+                let tag = lib.filters.tags[0].clone();
+                el.child(
+                    Button::new("tb-export-tag")
+                        .ghost()
+                        .label(t(locale, "exportUi.titleExportTag"))
+                        .on_click(cx.listener(move |this, _, window, cx| {
+                            this.open_export_tag(tag.clone(), window, cx);
+                        })),
+                )
+            })
+            .child(
+                div()
+                    .id("search-field")
+                    .w(px(220.))
+                    .child(Input::new(&self.search_input)),
+            )
+            .when(!lib.filters.is_empty(), |el| {
+                el.child(
+                    Button::new("tb-clear-filters")
+                        .ghost()
+                        .label(t(locale, "filters.clear"))
+                        .on_click(cx.listener(|this, _, window, cx| {
+                            this.clear_filters(window, cx);
+                        })),
+                )
+            })
+            .child(
+                h_flex()
+                    .gap_1()
+                    .child(
+                        Button::new("tb-filter-tags")
+                            .ghost()
+                            .label({
+                                if lib.filters.tags.is_empty() {
+                                    t(locale, "filters.tags")
+                                } else {
+                                    format!(
+                                        "{} ({})",
+                                        t(locale, "filters.tags"),
+                                        lib.filters.tags.len()
+                                    )
+                                }
+                            })
+                            .on_click(cx.listener(|this, _, window, cx| {
+                                this.open_tag_mode_menu(window, cx);
+                            })),
                     )
                     .child(
-                        div()
-                            .id("search-field")
-                            .w(px(220.))
-                            .child(Input::new(&self.search_input)),
+                        Button::new("tb-filter-folders")
+                            .ghost()
+                            .label({
+                                if lib.filters.folders.is_empty() {
+                                    t(locale, "filters.folders")
+                                } else {
+                                    format!(
+                                        "{} ({})",
+                                        t(locale, "filters.folders"),
+                                        lib.filters.folders.len()
+                                    )
+                                }
+                            })
+                            .on_click(cx.listener(|this, _, window, cx| {
+                                this.open_folder_filter_menu(window, cx);
+                            })),
                     )
-                    .when(!lib.filters.is_empty(), |el| {
-                        el.child(
-                            Button::new("tb-clear-filters")
-                                .ghost()
-                                .label(t(locale, "filters.clear"))
-                                .on_click(cx.listener(|this, _, window, cx| {
-                                    this.clear_filters(window, cx);
-                                })),
-                        )
-                    })
                     .child(
-                        h_flex()
-                            .gap_1()
-                            .child(
-                                Button::new("tb-filter-tags")
-                                    .ghost()
-                                    .label({
-                                        if lib.filters.tags.is_empty() {
-                                            t(locale, "filters.tags")
-                                        } else {
-                                            format!(
-                                                "{} ({})",
-                                                t(locale, "filters.tags"),
-                                                lib.filters.tags.len()
-                                            )
-                                        }
-                                    })
-                                    .on_click(cx.listener(|this, _, window, cx| {
-                                        this.open_tag_mode_menu(window, cx);
-                                    })),
+                        Button::new("tb-filter-type")
+                            .ghost()
+                            .label(
+                                lib.filters
+                                    .ext
+                                    .as_ref()
+                                    .map(|e| e.to_uppercase())
+                                    .unwrap_or_else(|| t(locale, "filters.type")),
                             )
-                            .child(
-                                Button::new("tb-filter-folders")
-                                    .ghost()
-                                    .label({
-                                        if lib.filters.folders.is_empty() {
-                                            t(locale, "filters.folders")
-                                        } else {
-                                            format!(
-                                                "{} ({})",
-                                                t(locale, "filters.folders"),
-                                                lib.filters.folders.len()
-                                            )
-                                        }
-                                    })
-                                    .on_click(cx.listener(|this, _, window, cx| {
-                                        this.open_folder_filter_menu(window, cx);
-                                    })),
+                            .on_click(cx.listener(|this, _, window, cx| {
+                                this.open_filter_type_menu(window, cx);
+                            })),
+                    )
+                    .child(
+                        Button::new("tb-filter-shape")
+                            .ghost()
+                            .label(
+                                lib.filters
+                                    .shape
+                                    .clone()
+                                    .unwrap_or_else(|| t(locale, "filters.shape")),
                             )
-                            .child(
-                                Button::new("tb-filter-type")
-                                    .ghost()
-                                    .label(
-                                        lib.filters
-                                            .ext
-                                            .as_ref()
-                                            .map(|e| e.to_uppercase())
-                                            .unwrap_or_else(|| t(locale, "filters.type")),
-                                    )
-                                    .on_click(cx.listener(|this, _, window, cx| {
-                                        this.open_filter_type_menu(window, cx);
-                                    })),
-                            )
-                            .child(
-                                Button::new("tb-filter-shape")
-                                    .ghost()
-                                    .label(
-                                        lib.filters
-                                            .shape
-                                            .clone()
-                                            .unwrap_or_else(|| t(locale, "filters.shape")),
-                                    )
-                                    .on_click(cx.listener(|this, _, window, cx| {
-                                        this.open_filter_shape_menu(window, cx);
-                                    })),
-                            )
-                            .child(Label::new(t(locale, "filters.rating")).text_xs())
-                            .children((0..=5).map(|star| {
-                                let selected = lib.filters.rating == Some(star);
-                                let entity = entity.clone();
-                                Button::new(SharedString::from(format!("rate-filter-{star}")))
-                                    .when(selected, |b| b.primary())
-                                    .when(!selected, |b| b.ghost())
-                                    .label(if star == 0 {
-                                        t(locale, "filters.unrated")
+                            .on_click(cx.listener(|this, _, window, cx| {
+                                this.open_filter_shape_menu(window, cx);
+                            })),
+                    )
+                    .child(Label::new(t(locale, "filters.rating")).text_xs())
+                    .children((0..=5).map(|star| {
+                        let selected = lib.filters.rating == Some(star);
+                        let entity = entity.clone();
+                        Button::new(SharedString::from(format!("rate-filter-{star}")))
+                            .when(selected, |b| b.primary())
+                            .when(!selected, |b| b.ghost())
+                            .label(if star == 0 {
+                                t(locale, "filters.unrated")
+                            } else {
+                                format!("{star}★")
+                            })
+                            .on_click(move |_, _, cx| {
+                                entity.update(cx, |this, cx| {
+                                    let next = if this
+                                        .library
+                                        .as_ref()
+                                        .is_some_and(|lib| lib.filters.rating == Some(star))
+                                    {
+                                        None
                                     } else {
-                                        format!("{star}★")
-                                    })
-                                    .on_click(move |_, _, cx| {
-                                        entity.update(cx, |this, cx| {
-                                            let next = if this
-                                                .library
-                                                .as_ref()
-                                                .is_some_and(|lib| lib.filters.rating == Some(star))
-                                            {
-                                                None
-                                            } else {
-                                                Some(star)
-                                            };
-                                            this.set_rating_filter(next, cx);
-                                        });
-                                    })
-                            })),
-                    )
-                    .child(div().flex_1())
-                    .child(
-                        Button::new("tb-add")
-                            .primary()
-                            .label(t(locale, "commands.file.addFiles"))
-                            .on_click(cx.listener(|this, _, window, cx| {
-                                this.pick_add_files(window, cx);
-                            })),
-                    )
-                    .child(
-                        Button::new("tb-imports")
-                            .ghost()
-                            .label(t(locale, "import.panel"))
-                            .on_click(cx.listener(|this, _, _, cx| {
-                                this.imports_open = !this.imports_open;
-                                cx.notify();
-                            })),
-                    )
-                    .child(
-                        Button::new("tb-sort")
-                            .ghost()
-                            .label(t(locale, "commands.view.sortBy"))
-                            .on_click(cx.listener(|this, _, window, cx| {
-                                this.open_sort_menu(window, cx);
-                            })),
-                    )
-                    .child(
-                        Button::new("tb-grid")
-                            .label(t(locale, "commands.view.grid"))
-                            .when(mode == ViewMode::Grid, |b| b.primary())
-                            .when(mode != ViewMode::Grid, |b| b.ghost())
-                            .on_click(cx.listener(|this, _, _, cx| {
-                                this.update_browse(|b| b.view_mode = ViewMode::Grid, cx);
-                            })),
-                    )
-                    .child(
-                        Button::new("tb-list")
-                            .label(t(locale, "commands.view.list"))
-                            .when(mode == ViewMode::List, |b| b.primary())
-                            .when(mode != ViewMode::List, |b| b.ghost())
-                            .on_click(cx.listener(|this, _, _, cx| {
-                                this.update_browse(|b| b.view_mode = ViewMode::List, cx);
-                            })),
-                    )
-                    .child(
-                        Button::new("tb-smaller")
-                            .ghost()
-                            .label("−")
-                            .on_click(cx.listener(|this, _, _, cx| {
-                                this.update_browse(
-                                    |b| {
-                                        b.thumbnail_size = b
-                                            .thumbnail_size
-                                            .saturating_sub(20)
-                                            .max(BrowsePreferences::MIN_THUMBNAIL);
-                                    },
-                                    cx,
-                                );
-                            })),
-                    )
-                    .child(
-                        Button::new("tb-larger")
-                            .ghost()
-                            .label("+")
-                            .on_click(cx.listener(|this, _, _, cx| {
-                                this.update_browse(
-                                    |b| {
-                                        b.thumbnail_size = (b.thumbnail_size + 20)
-                                            .min(BrowsePreferences::MAX_THUMBNAIL);
-                                    },
-                                    cx,
-                                );
-                            })),
-                    )
-                    .child(
-                        Button::new("tb-names")
-                            .label(t(locale, "commands.view.showNames"))
-                            .when(lib.browse.show_names, |b| b.primary())
-                            .when(!lib.browse.show_names, |b| b.ghost())
-                            .on_click(cx.listener(|this, _, _, cx| {
-                                this.update_browse(|b| b.show_names = !b.show_names, cx);
-                            })),
-                    )
+                                        Some(star)
+                                    };
+                                    this.set_rating_filter(next, cx);
+                                });
+                            })
+                    })),
+            )
+            .child(div().flex_1())
+            .child(
+                Button::new("tb-add")
+                    .primary()
+                    .label(t(locale, "commands.file.addFiles"))
+                    .on_click(cx.listener(|this, _, window, cx| {
+                        this.pick_add_files(window, cx);
+                    })),
+            )
+            .child(
+                Button::new("tb-imports")
+                    .ghost()
+                    .label(t(locale, "import.panel"))
+                    .on_click(cx.listener(|this, _, _, cx| {
+                        this.imports_open = !this.imports_open;
+                        cx.notify();
+                    })),
+            )
+            .child(
+                Button::new("tb-sort")
+                    .ghost()
+                    .label(t(locale, "commands.view.sortBy"))
+                    .on_click(cx.listener(|this, _, window, cx| {
+                        this.open_sort_menu(window, cx);
+                    })),
+            )
+            .child(
+                Button::new("tb-grid")
+                    .label(t(locale, "commands.view.grid"))
+                    .when(mode == ViewMode::Grid, |b| b.primary())
+                    .when(mode != ViewMode::Grid, |b| b.ghost())
+                    .on_click(cx.listener(|this, _, _, cx| {
+                        this.update_browse(|b| b.view_mode = ViewMode::Grid, cx);
+                    })),
+            )
+            .child(
+                Button::new("tb-list")
+                    .label(t(locale, "commands.view.list"))
+                    .when(mode == ViewMode::List, |b| b.primary())
+                    .when(mode != ViewMode::List, |b| b.ghost())
+                    .on_click(cx.listener(|this, _, _, cx| {
+                        this.update_browse(|b| b.view_mode = ViewMode::List, cx);
+                    })),
+            )
+            .child(
+                Button::new("tb-smaller")
+                    .ghost()
+                    .label("−")
+                    .on_click(cx.listener(|this, _, _, cx| {
+                        this.update_browse(
+                            |b| {
+                                b.thumbnail_size = b
+                                    .thumbnail_size
+                                    .saturating_sub(20)
+                                    .max(BrowsePreferences::MIN_THUMBNAIL);
+                            },
+                            cx,
+                        );
+                    })),
+            )
+            .child(
+                Button::new("tb-larger")
+                    .ghost()
+                    .label("+")
+                    .on_click(cx.listener(|this, _, _, cx| {
+                        this.update_browse(
+                            |b| {
+                                b.thumbnail_size =
+                                    (b.thumbnail_size + 20).min(BrowsePreferences::MAX_THUMBNAIL);
+                            },
+                            cx,
+                        );
+                    })),
+            )
+            .child(
+                Button::new("tb-names")
+                    .label(t(locale, "commands.view.showNames"))
+                    .when(lib.browse.show_names, |b| b.primary())
+                    .when(!lib.browse.show_names, |b| b.ghost())
+                    .on_click(cx.listener(|this, _, _, cx| {
+                        this.update_browse(|b| b.show_names = !b.show_names, cx);
+                    })),
+            )
             .child(
                 Button::new("tb-sub")
                     .label(t(locale, "commands.view.includeSubfolders"))
@@ -2828,10 +2427,8 @@ impl RootApp {
                             move |bounds, _, cx| {
                                 if let Some(first) = bounds.first() {
                                     let width = first.size.width.as_f32();
-                                    let origin =
-                                        (first.origin.x.as_f32(), first.origin.y.as_f32());
-                                    let needs_relayout = (entity.read(cx).grid_width - width)
-                                        .abs()
+                                    let origin = (first.origin.x.as_f32(), first.origin.y.as_f32());
+                                    let needs_relayout = (entity.read(cx).grid_width - width).abs()
                                         > 1.0
                                         && width > 40.0;
                                     entity.update(cx, |this, _cx| {

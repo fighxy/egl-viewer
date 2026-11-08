@@ -8,6 +8,7 @@ use ts_rs::TS;
 
 use crate::AppStore;
 use crate::json_file::JsonFile;
+use crate::location::same_library_path;
 
 const RECENT: &str = "recent.json";
 const MAX_ENTRIES: usize = 20;
@@ -94,6 +95,23 @@ impl AppStore {
         })?;
         // The last place for that path is useless once it leaves Recent.
         self.forget_library_session(path)
+    }
+
+    /// Library → Clear History. Drops every recent row except `keep` (the library that is open).
+    /// `None` clears the list. Removed rows also lose their saved place, as Forget does.
+    /// Returns how many entries were removed. No write when nothing matches.
+    pub fn clear_recent_history(&self, keep: Option<&str>) -> Result<usize, SourceError> {
+        let remove: Vec<String> = self
+            .recent_libraries()
+            .into_iter()
+            .filter(|entry| keep.is_none_or(|keep| !same_library_path(&entry.path, keep)))
+            .map(|entry| entry.path)
+            .collect();
+        let removed = remove.len();
+        for path in remove {
+            self.forget_recent(&path)?;
+        }
+        Ok(removed)
     }
 
     /// Drops recent rows whose `library.db` is gone (temp fixtures, unplugged drives the user
@@ -239,5 +257,25 @@ mod tests {
         assert_eq!(recent.len(), 1);
         assert_eq!(recent[0].name, "Here");
         assert!(!recent[0].missing);
+    }
+
+    #[test]
+    fn clear_recent_history_keeps_the_open_library() {
+        let data = tempfile::tempdir().unwrap();
+        let libs = tempfile::tempdir().unwrap();
+        let here = library(libs.path(), "Here");
+        let other = library(libs.path(), "Other");
+        let store = AppStore::new(data.path());
+        store.remember_opened(&other, "Other", None, 1).unwrap();
+        store.remember_opened(&here, "Here", None, 2).unwrap();
+        assert_eq!(store.clear_recent_history(Some(&here)).unwrap(), 1);
+        let recent = store.recent_libraries();
+        assert_eq!(recent.len(), 1);
+        assert_eq!(recent[0].name, "Here");
+        assert_eq!(store.library_to_reopen().as_deref(), Some(here.as_str()));
+        assert_eq!(store.clear_recent_history(None).unwrap(), 1);
+        assert!(store.recent_libraries().is_empty());
+        assert_eq!(store.library_to_reopen(), None);
+        assert_eq!(store.clear_recent_history(None).unwrap(), 0);
     }
 }

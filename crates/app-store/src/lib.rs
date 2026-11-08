@@ -15,7 +15,9 @@ pub mod settings;
 
 use std::path::PathBuf;
 
-pub use location::{SyncEnvironment, check_location, default_library_parent, display_path};
+pub use location::{
+    SyncEnvironment, check_location, default_library_parent, display_path, same_library_path,
+};
 pub use login::{
     Authenticator, LoginMethod, LoginProof, LoginStatus, SoftwareAuthenticator, WebAuthnAssertion,
     WebAuthnCredential,
