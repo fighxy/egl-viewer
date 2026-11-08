@@ -1,0 +1,131 @@
+//! GPUI actions + keymap for Phase 1 browse shell (logical ids mirror `ui/src/commands/registry.ts`).
+//! Commands of later phases are absent, not disabled.
+
+use gpui_kit::{App, KeyBinding, actions};
+
+actions!(
+    egl,
+    [
+        NewLibrary,
+        OpenLibrary,
+        CloseLibrary,
+        Settings,
+        Exit,
+        ThemeSystem,
+        ThemeLight,
+        ThemeDark,
+        ToggleFullScreen,
+        ToggleSidebar,
+        ToggleDetails,
+        Shortcuts,
+        About,
+        OpenLogFolder,
+        ViewGrid,
+        ViewList,
+        LargerThumbs,
+        SmallerThumbs,
+        ToggleShowNames,
+        ToggleIncludeSubfolders,
+        SelectAll,
+        PreviewStub,
+        FindStub,
+        SortByAdded,
+        SortByName,
+        SortAscending,
+        SortDescending,
+    ]
+);
+
+/// Shortcuts shown in Help → Keyboard Shortcuts and bound globally.
+pub struct ShortcutEntry {
+    #[allow(dead_code)]
+    pub id: &'static str,
+    pub label_key: &'static str,
+    pub keys: &'static str,
+}
+
+pub const SHORTCUTS: &[ShortcutEntry] = &[
+    ShortcutEntry {
+        id: "file.openLibrary",
+        label_key: "commands.file.openLibrary",
+        keys: "Ctrl+O",
+    },
+    ShortcutEntry {
+        id: "file.closeLibrary",
+        label_key: "commands.file.closeLibrary",
+        keys: "Ctrl+W",
+    },
+    ShortcutEntry {
+        id: "file.settings",
+        label_key: "commands.file.settings",
+        keys: "Ctrl+,",
+    },
+    ShortcutEntry {
+        id: "edit.selectAll",
+        label_key: "commands.edit.selectAll",
+        keys: "Ctrl+A",
+    },
+    ShortcutEntry {
+        id: "edit.find",
+        label_key: "commands.edit.find",
+        keys: "Ctrl+F",
+    },
+    ShortcutEntry {
+        id: "view.fullScreen",
+        label_key: "commands.view.fullScreen",
+        keys: "F11",
+    },
+    ShortcutEntry {
+        id: "view.sidebar",
+        label_key: "commands.view.sidebar",
+        keys: "Ctrl+B",
+    },
+    ShortcutEntry {
+        id: "view.details",
+        label_key: "commands.view.details",
+        keys: "Ctrl+I",
+    },
+    ShortcutEntry {
+        id: "view.grid",
+        label_key: "commands.view.grid",
+        keys: "Ctrl+1",
+    },
+    ShortcutEntry {
+        id: "view.list",
+        label_key: "commands.view.list",
+        keys: "Ctrl+2",
+    },
+    ShortcutEntry {
+        id: "view.larger",
+        label_key: "commands.view.larger",
+        keys: "Ctrl+=",
+    },
+    ShortcutEntry {
+        id: "view.smaller",
+        label_key: "commands.view.smaller",
+        keys: "Ctrl+-",
+    },
+    ShortcutEntry {
+        id: "help.shortcuts",
+        label_key: "commands.help.shortcuts",
+        keys: "F1",
+    },
+];
+
+pub fn bind_keymap(cx: &mut App) {
+    cx.bind_keys([
+        KeyBinding::new("ctrl-o", OpenLibrary, None),
+        KeyBinding::new("ctrl-w", CloseLibrary, None),
+        KeyBinding::new("ctrl-,", Settings, None),
+        KeyBinding::new("ctrl-a", SelectAll, None),
+        KeyBinding::new("ctrl-f", FindStub, None),
+        KeyBinding::new("f11", ToggleFullScreen, None),
+        KeyBinding::new("ctrl-b", ToggleSidebar, None),
+        KeyBinding::new("ctrl-i", ToggleDetails, None),
+        KeyBinding::new("ctrl-1", ViewGrid, None),
+        KeyBinding::new("ctrl-2", ViewList, None),
+        KeyBinding::new("ctrl-=", LargerThumbs, None),
+        KeyBinding::new("ctrl--", SmallerThumbs, None),
+        KeyBinding::new("f1", Shortcuts, None),
+    ]);
+}

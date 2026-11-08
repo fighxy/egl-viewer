@@ -1,0 +1,1097 @@
+//! Root GPUI entity: Welcome ↔ Library shell, commands, dialogs (Phase 1 / D-129).
+
+use std::path::PathBuf;
+
+use app_store::{BrowsePreferences, Locale, Theme, ViewMode};
+use desktop_session::Session;
+use gpui_kit::component::button::{Button, ButtonVariants as _};
+use gpui_kit::component::input::{Input, InputState};
+use gpui_kit::component::label::Label;
+use gpui_kit::component::{
+    ActiveTheme, Disableable as _, StyledExt as _, WindowExt as _, h_flex, v_flex,
+};
+use gpui_kit::prelude::FluentBuilder as _;
+use gpui_kit::{
+    AppContext as _, Context, Entity, FocusHandle, InteractiveElement, IntoElement, ParentElement,
+    PathPromptOptions, Render, SharedString, StatefulInteractiveElement, Styled, Window,
+    div, px,
+};
+use library_core::LibraryInfo;
+
+use crate::browse::grid::{self, ListedItem};
+use crate::browse::sidebar;
+use crate::commands::{self, *};
+use crate::i18n::{self, t};
+use crate::library::{self, OpenLibraryState, Place, window_title};
+use crate::platform;
+use crate::screens::library as library_ui;
+use crate::theme;
+
+pub struct RootApp {
+    session: Session,
+    focus: FocusHandle,
+    locale: Locale,
+    theme_pref: Theme,
+    status: SharedString,
+    pub(crate) library: Option<OpenLibraryState>,
+    items: Vec<ListedItem>,
+    fullscreen: bool,
+    quit_pending: bool,
+    create_name: Entity<InputState>,
+    create_location: SharedString,
+    show_create: bool,
+}
+
+impl RootApp {
+    pub fn new(window: &mut Window, cx: &mut Context<Self>) -> Self {
+        let session = library::session();
+        let prefs = session.preferences();
+        theme::apply_theme(prefs.theme, cx);
+
+        let create_name =
+            cx.new(|cx| InputState::new(window, cx).default_value("My Library"));
+
+        let mut app = Self {
+            session,
+            focus: cx.focus_handle(),
+            locale: prefs.locale,
+            theme_pref: prefs.theme,
+            status: SharedString::from(""),
+            library: None,
+            items: Vec::new(),
+            fullscreen: false,
+            quit_pending: false,
+            create_name,
+            create_location: SharedString::from(""),
+            show_create: false,
+        };
+        app.create_location = SharedString::from(app.session.default_library_location());
+
+        let startup = app.session.startup(platform::no_reopen_requested());
+        if let Some(notice) = startup.notice {
+            app.status = SharedString::from(notice);
+        }
+        if let Some(info) = startup.library {
+            app.adopt_library(info, window, cx);
+        }
+
+        if let Some(arg) = std::env::args().nth(1).map(PathBuf::from) {
+            if arg.is_dir() {
+                let _ = app.open_path(arg, window, cx);
+            }
+        }
+
+        let entity = cx.entity();
+        window.on_window_should_close(cx, move |window, cx| {
+            entity.update(cx, |this, cx| this.request_quit(window, cx))
+        });
+
+        window.set_window_title(&window_title(None));
+        app
+    }
+
+    fn adopt_library(&mut self, info: LibraryInfo, window: &mut Window, cx: &mut Context<Self>) {
+        match OpenLibraryState::load(&self.session, info) {
+            Ok(state) => {
+                window.set_window_title(&window_title(Some(&state.info)));
+                self.items = grid::load_listed(&self.session, &state.cells);
+                self.status = SharedString::from("");
+                self.library = Some(state);
+                cx.notify();
+            }
+            Err(error) => {
+                self.status = SharedString::from(format!("Open failed: {error}"));
+                let _ = self.session.close_library();
+                cx.notify();
+            }
+        }
+    }
+
+    fn open_path(&mut self, path: PathBuf, window: &mut Window, cx: &mut Context<Self>) {
+        if let Some(lib) = self.library.take() {
+            lib.persist_session(&self.session);
+            lib.persist_browse_prefs(&self.session);
+            self.session.close_view(lib.view_id);
+        }
+        let _ = self.session.close_library();
+        match self.session.open_library(&path.to_string_lossy()) {
+            Ok(info) => self.adopt_library(info, window, cx),
+            Err(error) => {
+                self.status = SharedString::from(format!("Open failed: {error}"));
+                self.library = None;
+                self.items.clear();
+                window.set_window_title(&window_title(None));
+                cx.notify();
+            }
+        }
+    }
+
+    fn close_library(&mut self, window: &mut Window, cx: &mut Context<Self>) {
+        if let Some(lib) = self.library.take() {
+            lib.persist_session(&self.session);
+            lib.persist_browse_prefs(&self.session);
+            self.session.close_view(lib.view_id);
+        }
+        let _ = self.session.close_library();
+        self.items.clear();
+        window.set_window_title(&window_title(None));
+        cx.notify();
+    }
+
+    fn refresh_view(&mut self, cx: &mut Context<Self>) {
+        if let Some(lib) = self.library.as_mut() {
+            if let Err(error) = lib.refresh_view(&self.session) {
+                self.status = SharedString::from(format!("View failed: {error}"));
+            } else {
+                self.items = grid::load_listed(&self.session, &lib.cells);
+                lib.persist_session(&self.session);
+                lib.persist_browse_prefs(&self.session);
+            }
+            cx.notify();
+        }
+    }
+
+    pub(crate) fn set_place(&mut self, place: Place, cx: &mut Context<Self>) {
+        if let Some(lib) = self.library.as_mut() {
+            lib.place = place;
+            lib.selection.clear();
+        }
+        self.refresh_view(cx);
+    }
+
+    fn pick_open_library(&mut self, window: &mut Window, cx: &mut Context<Self>) {
+        let rx = cx.prompt_for_paths(PathPromptOptions {
+            files: false,
+            directories: true,
+            multiple: false,
+            prompt: Some(SharedString::from(t(self.locale, "welcome.open"))),
+        });
+        cx.spawn_in(window, async move |this, cx| {
+            let path = match rx.await {
+                Ok(Ok(Some(paths))) => paths.into_iter().next(),
+                _ => None,
+            };
+            if let Some(path) = path {
+                let _ = this.update_in(cx, |this, window, cx| {
+                    this.open_path(path, window, cx);
+                });
+            }
+        })
+        .detach();
+    }
+
+    fn begin_create_library(&mut self, cx: &mut Context<Self>) {
+        self.create_location = SharedString::from(self.session.default_library_location());
+        self.show_create = true;
+        cx.notify();
+    }
+
+    fn confirm_create_library(&mut self, window: &mut Window, cx: &mut Context<Self>) {
+        let name = self.create_name.read(cx).value().to_string();
+        let parent = self.create_location.to_string();
+        self.show_create = false;
+        match self.session.create_library(&parent, name.trim()) {
+            Ok(info) => self.adopt_library(info, window, cx),
+            Err(error) => {
+                self.status = SharedString::from(format!("Create failed: {error}"));
+                cx.notify();
+            }
+        }
+    }
+
+    fn pick_create_location(&mut self, window: &mut Window, cx: &mut Context<Self>) {
+        let rx = cx.prompt_for_paths(PathPromptOptions {
+            files: false,
+            directories: true,
+            multiple: false,
+            prompt: Some(SharedString::from(t(self.locale, "createLibrary.location"))),
+        });
+        cx.spawn_in(window, async move |this, cx| {
+            if let Ok(Ok(Some(paths))) = rx.await {
+                if let Some(path) = paths.into_iter().next() {
+                    let _ = this.update(cx, |this, cx| {
+                        this.create_location =
+                            SharedString::from(path.to_string_lossy().to_string());
+                        cx.notify();
+                    });
+                }
+            }
+        })
+        .detach();
+    }
+
+    fn set_theme(&mut self, theme_pref: Theme, cx: &mut Context<Self>) {
+        self.theme_pref = theme_pref;
+        let mut prefs = self.session.preferences();
+        prefs.theme = theme_pref;
+        let _ = self.session.save_preferences(prefs);
+        theme::apply_theme(theme_pref, cx);
+        cx.notify();
+    }
+
+    fn set_locale(&mut self, locale: Locale, cx: &mut Context<Self>) {
+        self.locale = locale;
+        let mut prefs = self.session.preferences();
+        prefs.locale = locale;
+        let _ = self.session.save_preferences(prefs);
+        cx.notify();
+    }
+
+    fn open_settings(&mut self, window: &mut Window, cx: &mut Context<Self>) {
+        let locale = self.locale;
+        let theme_pref = self.theme_pref;
+        let prefs = self.session.preferences();
+        let reopen = prefs.reopen_last_library;
+        let confirm_trash = prefs.confirm_before_trash;
+        let default_folder = prefs
+            .default_library_parent
+            .clone()
+            .unwrap_or_else(|| self.session.default_library_location());
+        let entity = cx.entity();
+
+        window.open_dialog(cx, move |dialog, _, _| {
+            dialog.title(t(locale, "settings.title")).child(
+                v_flex()
+                    .gap_3()
+                    .p_2()
+                    .w(px(440.))
+                    .child(Label::new(t(locale, "settings.general")).font_bold())
+                    .child(Label::new(format!(
+                        "{}: {}",
+                        t(locale, "settings.theme"),
+                        t(locale, theme::theme_label_key(theme_pref))
+                    )))
+                    .child(
+                        h_flex()
+                            .gap_2()
+                            .child(theme_btn(locale, Theme::System, theme_pref, &entity))
+                            .child(theme_btn(locale, Theme::Light, theme_pref, &entity))
+                            .child(theme_btn(locale, Theme::Dark, theme_pref, &entity)),
+                    )
+                    .child(Label::new(t(locale, "settings.language")))
+                    .child(
+                        h_flex()
+                            .gap_2()
+                            .child(locale_btn("en", Locale::En, locale, &entity))
+                            .child(locale_btn("ru", Locale::Ru, locale, &entity))
+                            .child(locale_btn("zh", Locale::ZhCn, locale, &entity)),
+                    )
+                    .child(pref_toggle(
+                        "reopen",
+                        t(locale, "settings.reopen"),
+                        reopen,
+                        &entity,
+                        |p, on| p.reopen_last_library = on,
+                    ))
+                    .child(pref_toggle(
+                        "trash",
+                        t(locale, "settings.confirmTrash"),
+                        confirm_trash,
+                        &entity,
+                        |p, on| p.confirm_before_trash = on,
+                    ))
+                    .child(Label::new(format!(
+                        "{}: {default_folder}",
+                        t(locale, "settings.defaultFolder")
+                    )))
+                    .child(
+                        Button::new("settings-browse-default")
+                            .label(t(locale, "common.browse"))
+                            .on_click({
+                                let entity = entity.clone();
+                                move |_, _, cx| {
+                                    let entity = entity.clone();
+                                    let rx = cx.prompt_for_paths(PathPromptOptions {
+                                        files: false,
+                                        directories: true,
+                                        multiple: false,
+                                        prompt: Some(SharedString::from("Default library folder")),
+                                    });
+                                    cx.spawn(async move |cx| {
+                                        if let Ok(Ok(Some(paths))) = rx.await {
+                                            if let Some(path) = paths.into_iter().next() {
+                                                entity
+                                                    .update(cx, |this, cx| {
+                                                        let mut prefs = this.session.preferences();
+                                                        prefs.default_library_parent =
+                                                            Some(path.to_string_lossy().into());
+                                                        let _ = this.session.save_preferences(prefs);
+                                                        cx.notify();
+                                                    })
+                                                    ;
+                                            }
+                                        }
+                                    })
+                                    .detach();
+                                }
+                            }),
+                    ),
+            )
+        });
+    }
+
+    fn open_about(&mut self, window: &mut Window, cx: &mut Context<Self>) {
+        let locale = self.locale;
+        let version = library::APP_VERSION;
+        let os = std::env::consts::OS;
+        window.open_dialog(cx, move |dialog, _, _| {
+            dialog.title(t(locale, "about.title")).child(
+                v_flex()
+                    .gap_2()
+                    .p_2()
+                    .child(Label::new(format!(
+                        "{}: {version}",
+                        t(locale, "about.version")
+                    )))
+                    .child(Label::new(format!(
+                        "{}: gpui-kit 0.9.0",
+                        t(locale, "about.toolkit")
+                    )))
+                    .child(Label::new(format!("{}: {os}", t(locale, "about.os")))),
+            )
+        });
+    }
+
+    fn open_shortcuts(&mut self, window: &mut Window, cx: &mut Context<Self>) {
+        let locale = self.locale;
+        let rows: Vec<(String, String)> = commands::SHORTCUTS
+            .iter()
+            .map(|e| (t(locale, e.label_key), e.keys.to_string()))
+            .collect();
+        window.open_dialog(cx, move |dialog, _, _| {
+            let rows = rows.clone();
+            dialog.title(t(locale, "shortcuts.title")).child(
+                v_flex()
+                    .gap_1()
+                    .p_2()
+                    .w(px(420.))
+                    .children(rows.into_iter().map(|(label, keys)| {
+                        h_flex()
+                            .w_full()
+                            .justify_between()
+                            .child(Label::new(label).text_sm())
+                            .child(Label::new(keys).text_sm())
+                            .into_any_element()
+                    })),
+            )
+        });
+    }
+
+    fn open_log_folder(&mut self, _window: &mut Window, cx: &mut Context<Self>) {
+        let dir = platform::log_dir();
+        let _ = std::fs::create_dir_all(&dir);
+        if let Err(error) = platform::open_in_file_manager(&dir) {
+            self.status = SharedString::from(error);
+            cx.notify();
+        }
+    }
+
+    fn request_quit(&mut self, window: &mut Window, cx: &mut Context<Self>) -> bool {
+        if self.quit_pending {
+            self.shutdown();
+            return true;
+        }
+        self.quit_pending = true;
+        let locale = self.locale;
+        let entity = cx.entity();
+        window.open_dialog(cx, move |dialog, _, _| {
+            dialog
+                .title(t(locale, "quit.title"))
+                .child(Label::new(t(locale, "quit.message")))
+                .on_ok({
+                    let entity = entity.clone();
+                    move |_, window, cx| {
+                        entity
+                            .update(cx, |this, _cx| {
+                                this.shutdown();
+                            })
+                            ;
+                        window.remove_window();
+                        true
+                    }
+                })
+                .on_cancel({
+                    let entity = entity.clone();
+                    move |_, _, cx| {
+                        entity
+                            .update(cx, |this, cx| {
+                                this.quit_pending = false;
+                                cx.notify();
+                            })
+                            ;
+                        true
+                    }
+                })
+        });
+        false
+    }
+
+    fn shutdown(&mut self) {
+        if let Some(lib) = self.library.take() {
+            lib.persist_session(&self.session);
+            lib.persist_browse_prefs(&self.session);
+            self.session.close_view(lib.view_id);
+        }
+        let _ = self.session.close_library();
+    }
+
+    pub(crate) fn select_item(
+        &mut self,
+        index: usize,
+        ctrl: bool,
+        shift: bool,
+        cx: &mut Context<Self>,
+    ) {
+        let Some(lib) = self.library.as_mut() else {
+            return;
+        };
+        let Some(cell) = lib.cells.get(index).cloned() else {
+            return;
+        };
+        if shift {
+            lib.selection.extend_to(&lib.cells, index);
+        } else if ctrl {
+            lib.selection.toggle(&cell.id.0, index);
+        } else {
+            lib.selection.select_only(&cell.id.0, index);
+        }
+        lib.persist_session(&self.session);
+        cx.notify();
+    }
+
+    fn update_browse(&mut self, f: impl FnOnce(&mut BrowsePreferences), cx: &mut Context<Self>) {
+        if let Some(lib) = self.library.as_mut() {
+            f(&mut lib.browse);
+            lib.browse = lib.browse.clamped();
+            lib.persist_browse_prefs(&self.session);
+            cx.notify();
+        }
+    }
+}
+
+fn theme_btn(
+    locale: Locale,
+    theme_pref: Theme,
+    current: Theme,
+    entity: &Entity<RootApp>,
+) -> Button {
+    let entity = entity.clone();
+    Button::new(SharedString::from(format!("theme-{theme_pref:?}")))
+        .label(t(locale, theme::theme_label_key(theme_pref)))
+        .when(theme_pref == current, |b| b.primary())
+        .when(theme_pref != current, |b| b.ghost())
+        .on_click(move |_, _, cx| {
+            entity
+                .update(cx, |this, cx| this.set_theme(theme_pref, cx))
+                ;
+        })
+}
+
+fn locale_btn(
+    id: &'static str,
+    locale: Locale,
+    current: Locale,
+    entity: &Entity<RootApp>,
+) -> Button {
+    let entity = entity.clone();
+    let label = match locale {
+        Locale::En => "English",
+        Locale::Ru => "Русский",
+        Locale::ZhCn => "简体中文",
+    };
+    Button::new(id)
+        .label(label)
+        .when(locale == current, |b| b.primary())
+        .when(locale != current, |b| b.ghost())
+        .on_click(move |_, _, cx| {
+            entity
+                .update(cx, |this, cx| this.set_locale(locale, cx))
+                ;
+        })
+}
+
+fn pref_toggle(
+    id: &'static str,
+    label: String,
+    on: bool,
+    entity: &Entity<RootApp>,
+    update: impl Fn(&mut app_store::Preferences, bool) + 'static,
+) -> Button {
+    let entity = entity.clone();
+    Button::new(id)
+        .label(format!("{} ({})", label, if on { "on" } else { "off" }))
+        .on_click(move |_, _, cx| {
+            let next = !on;
+            entity
+                .update(cx, |this, cx| {
+                    let mut prefs = this.session.preferences();
+                    update(&mut prefs, next);
+                    let _ = this.session.save_preferences(prefs);
+                    cx.notify();
+                })
+                ;
+        })
+}
+
+impl Render for RootApp {
+    fn render(&mut self, _window: &mut Window, cx: &mut Context<Self>) -> impl IntoElement {
+        let theme = cx.theme().clone();
+        let locale = self.locale;
+        let has_library = self.library.is_some();
+        let focus = self.focus.clone();
+
+        v_flex()
+            .id("root")
+            .size_full()
+            .bg(theme.background)
+            .text_color(theme.foreground)
+            .track_focus(&focus)
+            .on_action(cx.listener(|this, _: &NewLibrary, _, cx| {
+                this.begin_create_library(cx);
+            }))
+            .on_action(cx.listener(|this, _: &OpenLibrary, window, cx| {
+                this.pick_open_library(window, cx);
+            }))
+            .on_action(cx.listener(|this, _: &CloseLibrary, window, cx| {
+                this.close_library(window, cx);
+            }))
+            .on_action(cx.listener(|this, _: &Settings, window, cx| {
+                this.open_settings(window, cx);
+            }))
+            .on_action(cx.listener(|this, _: &Exit, window, cx| {
+                let _ = this.request_quit(window, cx);
+            }))
+            .on_action(cx.listener(|this, _: &ThemeSystem, _, cx| {
+                this.set_theme(Theme::System, cx);
+            }))
+            .on_action(cx.listener(|this, _: &ThemeLight, _, cx| {
+                this.set_theme(Theme::Light, cx);
+            }))
+            .on_action(cx.listener(|this, _: &ThemeDark, _, cx| {
+                this.set_theme(Theme::Dark, cx);
+            }))
+            .on_action(cx.listener(|this, _: &ToggleFullScreen, window, cx| {
+                this.fullscreen = !this.fullscreen;
+                // GPUI Window::toggle_or set fullscreen when available; track state for menu check.
+                let _ = window;
+                cx.notify();
+            }))
+            .on_action(cx.listener(|this, _: &ToggleSidebar, _, cx| {
+                if let Some(lib) = this.library.as_mut() {
+                    lib.left_open = !lib.left_open;
+                    lib.persist_browse_prefs(&this.session);
+                    cx.notify();
+                }
+            }))
+            .on_action(cx.listener(|this, _: &ToggleDetails, _, cx| {
+                if let Some(lib) = this.library.as_mut() {
+                    lib.right_open = !lib.right_open;
+                    lib.persist_browse_prefs(&this.session);
+                    cx.notify();
+                }
+            }))
+            .on_action(cx.listener(|this, _: &Shortcuts, window, cx| {
+                this.open_shortcuts(window, cx);
+            }))
+            .on_action(cx.listener(|this, _: &About, window, cx| {
+                this.open_about(window, cx);
+            }))
+            .on_action(cx.listener(|this, _: &OpenLogFolder, window, cx| {
+                this.open_log_folder(window, cx);
+            }))
+            .on_action(cx.listener(|this, _: &ViewGrid, _, cx| {
+                this.update_browse(|b| b.view_mode = ViewMode::Grid, cx);
+            }))
+            .on_action(cx.listener(|this, _: &ViewList, _, cx| {
+                this.update_browse(|b| b.view_mode = ViewMode::List, cx);
+            }))
+            .on_action(cx.listener(|this, _: &LargerThumbs, _, cx| {
+                this.update_browse(
+                    |b| {
+                        b.thumbnail_size =
+                            (b.thumbnail_size + 20).min(BrowsePreferences::MAX_THUMBNAIL);
+                    },
+                    cx,
+                );
+            }))
+            .on_action(cx.listener(|this, _: &SmallerThumbs, _, cx| {
+                this.update_browse(
+                    |b| {
+                        b.thumbnail_size = b
+                            .thumbnail_size
+                            .saturating_sub(20)
+                            .max(BrowsePreferences::MIN_THUMBNAIL);
+                    },
+                    cx,
+                );
+            }))
+            .on_action(cx.listener(|this, _: &ToggleShowNames, _, cx| {
+                this.update_browse(|b| b.show_names = !b.show_names, cx);
+            }))
+            .on_action(cx.listener(|this, _: &ToggleIncludeSubfolders, _, cx| {
+                if let Some(lib) = this.library.as_mut() {
+                    lib.browse.include_subfolders = !lib.browse.include_subfolders;
+                }
+                this.refresh_view(cx);
+            }))
+            .on_action(cx.listener(|this, _: &SelectAll, _, cx| {
+                if let Some(lib) = this.library.as_mut() {
+                    lib.selection.select_all(&lib.cells);
+                    lib.persist_session(&this.session);
+                    cx.notify();
+                }
+            }))
+            .on_action(cx.listener(|this, _: &PreviewStub, _, cx| {
+                this.status = SharedString::from("Preview arrives in Phase 2.");
+                cx.notify();
+            }))
+            .on_action(cx.listener(|this, _: &FindStub, _, cx| {
+                this.status = SharedString::from("Search arrives with filters in Phase 3.");
+                cx.notify();
+            }))
+            .child(self.render_menubar(has_library, &theme, locale, cx))
+            .when(self.show_create, |el| {
+                el.child(self.render_create_overlay(&theme, locale, cx))
+            })
+            .when(
+                self.library
+                    .as_ref()
+                    .is_some_and(|lib| lib.info.read_only),
+                |el| el.child(library_ui::render_read_only_banner(locale)),
+            )
+            .child(if self.library.is_some() {
+                self.render_library(&theme, locale, cx).into_any_element()
+            } else {
+                self.render_welcome(&theme, locale, cx).into_any_element()
+            })
+    }
+}
+
+impl RootApp {
+    fn render_menubar(
+        &self,
+        has_library: bool,
+        theme: &gpui_kit::component::theme::Theme,
+        locale: Locale,
+        cx: &mut Context<Self>,
+    ) -> impl IntoElement {
+        h_flex()
+            .id("menubar")
+            .w_full()
+            .items_center()
+            .gap_1()
+            .px_2()
+            .py_1()
+            .border_b_1()
+            .border_color(theme.border)
+            .child(
+                Button::new("mb-new")
+                    .ghost()
+                    .label(t(locale, "commands.file.newLibrary"))
+                    .on_click(cx.listener(|this, _, _, cx| this.begin_create_library(cx))),
+            )
+            .child(
+                Button::new("mb-open")
+                    .ghost()
+                    .label(t(locale, "commands.file.openLibrary"))
+                    .on_click(cx.listener(|this, _, window, cx| {
+                        this.pick_open_library(window, cx);
+                    })),
+            )
+            .child(
+                Button::new("mb-close")
+                    .ghost()
+                    .label(t(locale, "commands.file.closeLibrary"))
+                    .disabled(!has_library)
+                    .on_click(cx.listener(|this, _, window, cx| {
+                        this.close_library(window, cx);
+                    })),
+            )
+            .child(
+                Button::new("mb-settings")
+                    .ghost()
+                    .label(t(locale, "commands.file.settings"))
+                    .on_click(cx.listener(|this, _, window, cx| {
+                        this.open_settings(window, cx);
+                    })),
+            )
+            .child(div().flex_1())
+            .child(
+                Button::new("mb-shortcuts")
+                    .ghost()
+                    .label(t(locale, "commands.help.shortcuts"))
+                    .on_click(cx.listener(|this, _, window, cx| {
+                        this.open_shortcuts(window, cx);
+                    })),
+            )
+            .child(
+                Button::new("mb-logs")
+                    .ghost()
+                    .label(t(locale, "commands.help.openLogFolder"))
+                    .on_click(cx.listener(|this, _, window, cx| {
+                        this.open_log_folder(window, cx);
+                    })),
+            )
+            .child(
+                Button::new("mb-about")
+                    .ghost()
+                    .label(t(locale, "commands.help.about"))
+                    .on_click(cx.listener(|this, _, window, cx| this.open_about(window, cx))),
+            )
+            .child(
+                Button::new("mb-exit")
+                    .ghost()
+                    .label(t(locale, "commands.file.exit"))
+                    .on_click(cx.listener(|this, _, window, cx| {
+                        let _ = this.request_quit(window, cx);
+                    })),
+            )
+    }
+
+    fn render_create_overlay(
+        &self,
+        theme: &gpui_kit::component::theme::Theme,
+        locale: Locale,
+        cx: &mut Context<Self>,
+    ) -> impl IntoElement {
+        v_flex()
+            .id("create-overlay")
+            .absolute()
+            .inset_0()
+            .flex()
+            .items_center()
+            .justify_center()
+            .bg(theme.background.opacity(0.55))
+            .child(
+                v_flex()
+                    .w(px(420.))
+                    .gap_3()
+                    .p_4()
+                    .rounded(theme.radius_lg)
+                    .border_1()
+                    .border_color(theme.border)
+                    .bg(theme.popover)
+                    .child(Label::new(t(locale, "createLibrary.title")).font_bold())
+                    .child(Label::new(t(locale, "createLibrary.name")).text_sm())
+                    .child(Input::new(&self.create_name))
+                    .child(Label::new(t(locale, "createLibrary.location")).text_sm())
+                    .child(
+                        Label::new(self.create_location.clone())
+                            .text_xs()
+                            .text_color(theme.muted_foreground),
+                    )
+                    .child(
+                        h_flex()
+                            .gap_2()
+                            .child(
+                                Button::new("create-browse")
+                                    .label(t(locale, "common.browse"))
+                                    .on_click(cx.listener(|this, _, window, cx| {
+                                        this.pick_create_location(window, cx);
+                                    })),
+                            )
+                            .child(div().flex_1())
+                            .child(
+                                Button::new("create-cancel")
+                                    .label(t(locale, "common.cancel"))
+                                    .on_click(cx.listener(|this, _, _, cx| {
+                                        this.show_create = false;
+                                        cx.notify();
+                                    })),
+                            )
+                            .child(
+                                Button::new("create-ok")
+                                    .primary()
+                                    .label(t(locale, "createLibrary.create"))
+                                    .on_click(cx.listener(|this, _, window, cx| {
+                                        this.confirm_create_library(window, cx);
+                                    })),
+                            ),
+                    ),
+            )
+    }
+
+    fn render_welcome(
+        &self,
+        theme: &gpui_kit::component::theme::Theme,
+        locale: Locale,
+        cx: &mut Context<Self>,
+    ) -> impl IntoElement {
+        let recent = self.session.recent_libraries();
+        let status = self.status.clone();
+        v_flex()
+            .id("welcome")
+            .size_full()
+            .items_center()
+            .justify_center()
+            .p_8()
+            .child(
+                v_flex()
+                    .w(px(480.))
+                    .gap_4()
+                    .p_6()
+                    .rounded(theme.radius)
+                    .border_1()
+                    .border_color(theme.border)
+                    .bg(theme.secondary)
+                    .child(Label::new(t(locale, "welcome.title")).text_xl().font_bold())
+                    .child(
+                        Label::new(t(locale, "welcome.description"))
+                            .text_sm()
+                            .text_color(theme.muted_foreground),
+                    )
+                    .child(
+                        h_flex()
+                            .w_full()
+                            .gap_2()
+                            .child(
+                                Button::new("welcome-create")
+                                    .primary()
+                                    .label(t(locale, "welcome.create"))
+                                    .on_click(cx.listener(|this, _, _, cx| {
+                                        this.begin_create_library(cx);
+                                    })),
+                            )
+                            .child(
+                                Button::new("welcome-open")
+                                    .label(t(locale, "welcome.open"))
+                                    .on_click(cx.listener(|this, _, window, cx| {
+                                        this.pick_open_library(window, cx);
+                                    })),
+                            ),
+                    )
+                    .child(Label::new(t(locale, "welcome.recent")).text_sm().font_bold())
+                    .child(if recent.is_empty() {
+                        Label::new(t(locale, "welcome.noRecent"))
+                            .text_sm()
+                            .text_color(theme.muted_foreground)
+                            .into_any_element()
+                    } else {
+                        v_flex()
+                            .w_full()
+                            .gap_1()
+                            .children(recent.into_iter().map(|library| {
+                                let path_open = library.path.clone();
+                                let path_forget = library.path.clone();
+                                h_flex()
+                                    .id(SharedString::from(format!("recent-{}", library.path)))
+                                    .w_full()
+                                    .items_center()
+                                    .gap_1()
+                                    .child(
+                                        Button::new(SharedString::from(format!(
+                                            "recent-open-{}",
+                                            library.path
+                                        )))
+                                        .ghost()
+                                        .label(format!(
+                                            "{}{}",
+                                            library.name,
+                                            if library.missing { " (missing)" } else { "" }
+                                        ))
+                                        .on_click(cx.listener(move |this, _, window, cx| {
+                                            this.open_path(PathBuf::from(&path_open), window, cx);
+                                        })),
+                                    )
+                                    .child(
+                                        Button::new(SharedString::from(format!(
+                                            "forget-{}",
+                                            library.path
+                                        )))
+                                        .ghost()
+                                        .label("×")
+                                        .on_click(cx.listener(move |this, _, _, cx| {
+                                            let _ = this
+                                                .session
+                                                .forget_recent_library(&path_forget);
+                                            cx.notify();
+                                        })),
+                                    )
+                                    .into_any_element()
+                            }))
+                            .into_any_element()
+                    })
+                    .child(
+                        v_flex()
+                            .w_full()
+                            .gap_1()
+                            .pt_4()
+                            .border_t_1()
+                            .border_color(theme.border)
+                            .child(Label::new(t(locale, "welcome.eagle")).text_sm().font_bold())
+                            .child(
+                                Label::new(t(locale, "welcome.eagleLater"))
+                                    .text_xs()
+                                    .text_color(theme.muted_foreground),
+                            )
+                            .child(
+                                Button::new("welcome-import-eagle")
+                                    .ghost()
+                                    .label(t(locale, "welcome.importEagle"))
+                                    .disabled(true),
+                            )
+                            .child(
+                                Button::new("welcome-connect-eagle")
+                                    .ghost()
+                                    .label(t(locale, "welcome.connectEagle"))
+                                    .disabled(true),
+                            ),
+                    )
+                    .when(!status.is_empty(), |el| {
+                        el.child(
+                            Label::new(status)
+                                .text_sm()
+                                .text_color(theme.muted_foreground),
+                        )
+                    }),
+            )
+    }
+
+    fn render_library(
+        &self,
+        theme: &gpui_kit::component::theme::Theme,
+        locale: Locale,
+        cx: &mut Context<Self>,
+    ) -> impl IntoElement {
+        let lib = self.library.as_ref().unwrap();
+        let left_w = lib.left_width as f32;
+        let right_w = lib.right_width as f32;
+        let mode = lib.browse.view_mode;
+
+        v_flex()
+            .id("library-shell")
+            .flex_1()
+            .size_full()
+            .min_h(px(0.))
+            .child(
+                h_flex()
+                    .id("toolbar")
+                    .w_full()
+                    .items_center()
+                    .gap_2()
+                    .px_3()
+                    .py_1()
+                    .border_b_1()
+                    .border_color(theme.border)
+                    .child(Label::new(lib.info.name.clone()).font_bold())
+                    .child(
+                        Label::new(i18n::t_n(locale, "shell.statusItems", lib.total)).text_sm(),
+                    )
+                    .child(div().flex_1())
+                    .child(
+                        Button::new("tb-grid")
+                            .label(t(locale, "commands.view.grid"))
+                            .when(mode == ViewMode::Grid, |b| b.primary())
+                            .when(mode != ViewMode::Grid, |b| b.ghost())
+                            .on_click(cx.listener(|this, _, _, cx| {
+                                this.update_browse(|b| b.view_mode = ViewMode::Grid, cx);
+                            })),
+                    )
+                    .child(
+                        Button::new("tb-list")
+                            .label(t(locale, "commands.view.list"))
+                            .when(mode == ViewMode::List, |b| b.primary())
+                            .when(mode != ViewMode::List, |b| b.ghost())
+                            .on_click(cx.listener(|this, _, _, cx| {
+                                this.update_browse(|b| b.view_mode = ViewMode::List, cx);
+                            })),
+                    )
+                    .child(
+                        Button::new("tb-smaller")
+                            .ghost()
+                            .label("−")
+                            .on_click(cx.listener(|this, _, _, cx| {
+                                this.update_browse(
+                                    |b| {
+                                        b.thumbnail_size = b
+                                            .thumbnail_size
+                                            .saturating_sub(20)
+                                            .max(BrowsePreferences::MIN_THUMBNAIL);
+                                    },
+                                    cx,
+                                );
+                            })),
+                    )
+                    .child(
+                        Button::new("tb-larger")
+                            .ghost()
+                            .label("+")
+                            .on_click(cx.listener(|this, _, _, cx| {
+                                this.update_browse(
+                                    |b| {
+                                        b.thumbnail_size = (b.thumbnail_size + 20)
+                                            .min(BrowsePreferences::MAX_THUMBNAIL);
+                                    },
+                                    cx,
+                                );
+                            })),
+                    )
+                    .child(
+                        Button::new("tb-names")
+                            .label(t(locale, "commands.view.showNames"))
+                            .when(lib.browse.show_names, |b| b.primary())
+                            .when(!lib.browse.show_names, |b| b.ghost())
+                            .on_click(cx.listener(|this, _, _, cx| {
+                                this.update_browse(|b| b.show_names = !b.show_names, cx);
+                            })),
+                    )
+                    .child(
+                        Button::new("tb-sub")
+                            .label(t(locale, "commands.view.includeSubfolders"))
+                            .when(lib.browse.include_subfolders, |b| b.primary())
+                            .when(!lib.browse.include_subfolders, |b| b.ghost())
+                            .on_click(cx.listener(|this, _, _, cx| {
+                                if let Some(lib) = this.library.as_mut() {
+                                    lib.browse.include_subfolders = !lib.browse.include_subfolders;
+                                }
+                                this.refresh_view(cx);
+                            })),
+                    ),
+            )
+            .child(
+                h_flex()
+                    .id("shell-body")
+                    .flex_1()
+                    .w_full()
+                    .min_h(px(0.))
+                    .overflow_hidden()
+                    .when(lib.left_open, |el| {
+                        el.child(
+                            div()
+                                .id("left-pane")
+                                .w(px(left_w))
+                                .h_full()
+                                .border_r_1()
+                                .border_color(theme.border)
+                                .child(sidebar::render_sidebar(lib, locale, cx.entity())),
+                        )
+                    })
+                    .child(
+                        div()
+                            .id("center-pane")
+                            .flex_1()
+                            .h_full()
+                            .overflow_y_scroll()
+                            .child(grid::render_items(
+                                lib,
+                                &self.items,
+                                locale,
+                                theme,
+                                cx.entity(),
+                            )),
+                    )
+                    .when(lib.right_open, |el| {
+                        el.child(
+                            div()
+                                .id("right-pane")
+                                .w(px(right_w))
+                                .h_full()
+                                .border_l_1()
+                                .border_color(theme.border)
+                                .child(library_ui::render_details_stub(locale)),
+                        )
+                    }),
+            )
+            .child(library_ui::render_status_bar(lib, locale))
+    }
+}

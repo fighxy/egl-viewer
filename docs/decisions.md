@@ -2737,3 +2737,29 @@ must skip 125–127.
 - **Behaviour.** Mechanical move; no intentional Session API or library behaviour change.
 - **Verify.** `cargo test -p desktop-session`, `cargo test -p egl-viewer`,
   `cargo test -p gpui-desktop` (with the usual `VCPKG_ROOT` / heif PATH).
+
+## D-129 GPUI browse shell (Phase 1) (2026-11-08)
+
+First usable native browse UI on `gpui-desktop`, still experimental beside Tauri/`ui/`.
+
+Numbering: **D-125** reserved by open PR #85; **D-126** spike; **D-127** session extract;
+**D-128** claimed by Android preview-swipe work. This phase is **D-129**.
+
+- **Ships.** Welcome (create / open / recent / forget); startup reopen + `--no-reopen`
+  (Shift-at-start still deferred as in D-032); library chrome (menubar strip, left scopes +
+  read-only folder tree, toolbar grid/list/thumb size/names/subfolders, status, read-only
+  banner, details stub); wrap grid and list with Session thumbs / palette placeholders;
+  click / Ctrl / Shift / Select All selection; command actions + keymap; Settings → General
+  (theme, locale, reopen, trash confirm, default folder); About and Keyboard Shortcuts;
+  quit confirm; Open Log Folder; GPUI `prompt_for_paths` for open/create location; per-library
+  session restore (place / sort / selection / panel prefs) via `desktop-session`.
+- **i18n.** en / ru / zh-CN catalogs for Welcome and shell chrome inside the crate (mechanical
+  port of the React keys); locale preference persists in the GPUI AppStore.
+- **AppStore.** Stable `%LOCALAPPDATA%\egl-viewer-gpui` (not the Tauri app id) so prefs survive
+  restarts without colliding with the shipping desktop until cutover.
+- **Not yet.** Justified packing is implemented and tested in Rust but the live grid still
+  wraps; virtualization, rubber-band, Enter→details focus, F11 fullscreen platform toggle,
+  resizable panel drag persistence beyond width prefs, and Eagle Welcome actions stay for
+  follow-ups. Eagle buttons are present but disabled.
+- **Run.** `cargo run -p gpui-desktop` (optional path / `--no-reopen`). Tests:
+  `cargo test -p gpui-desktop`. Tauri/`ui/` unchanged.
