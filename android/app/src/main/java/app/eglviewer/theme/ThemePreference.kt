@@ -7,6 +7,11 @@ import androidx.appcompat.app.AppCompatDelegate
  * App theme override — same three choices as the desktop (D-028 / D-119):
  * System, Light, Dark. Stored in SharedPreferences; applied with
  * [AppCompatDelegate.setDefaultNightMode].
+ *
+ * The launcher activity must be an [androidx.appcompat.app.AppCompatActivity]
+ * (D-127): night-mode changes only recreate AppCompat activities, which is how
+ * Compose [androidx.compose.foundation.isSystemInDarkTheme] and DayNight
+ * resources pick up Light / Dark overrides.
  */
 enum class ThemePreference(val wire: String) {
     System("system"),

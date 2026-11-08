@@ -521,6 +521,13 @@ jobs:
             echo "The IPA is **unsigned**: sign it with your own Apple ID when you install it"
             echo "(AltStore, SideStore, Sideloadly or Xcode). See ios/README.md, \"Install\"."
             echo
+            echo "Not on the App Store or TestFlight — GitHub Releases only (D-125). This tag is"
+            echo "never marked latest; \`/releases/latest\` is the desktop build."
+            echo
+            echo "Also for this version:"
+            echo "- Desktop: $GITHUB_SERVER_URL/$GITHUB_REPOSITORY/releases/tag/v$VERSION"
+            echo "- Android: $GITHUB_SERVER_URL/$GITHUB_REPOSITORY/releases/tag/android-v$VERSION"
+            echo
             echo "Check the download: \`sha256sum -c SHA256SUMS\`."
           } > notes.md
           ARGS=(--title "egl-viewer for iPhone $VERSION" --notes-file notes.md --verify-tag --latest=false)
@@ -568,7 +575,14 @@ jobs:
             fi
             echo "The APK and the AAB are signed with the project's release key: an update"
             echo "installs over the previous version. Android may ask to allow installs from"
-            echo "this source. See android/README.md, \"Releasing\"."
+            echo "this source. See android/README.md, \"Where to download\"."
+            echo
+            echo "Not on Google Play yet — GitHub Releases only (D-125). This tag is never"
+            echo "marked latest; \`/releases/latest\` is the desktop build."
+            echo
+            echo "Also for this version:"
+            echo "- Desktop: $GITHUB_SERVER_URL/$GITHUB_REPOSITORY/releases/tag/v$VERSION"
+            echo "- iPhone: $GITHUB_SERVER_URL/$GITHUB_REPOSITORY/releases/tag/ios-v$VERSION"
             echo
             echo "Check the download: \`sha256sum -c SHA256SUMS\`."
           } > notes.md
