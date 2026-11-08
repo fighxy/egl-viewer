@@ -60,6 +60,9 @@ pnpm dev
 in a browser (`pnpm --filter egl-viewer-ui dev`, then http://localhost:5173), without the Rust
 side. The GPUI host (cutover path): `pwsh scripts/run-gpui-desktop.ps1` (or
 `cargo run -p gpui-desktop` with `VCPKG_ROOT` / `VCPKGRS_DYNAMIC` / heif PATH as below).
+If workspace `target/` grows past 20 GiB on Windows,
+`pwsh scripts/clean-target-if-huge.ps1` runs `cargo clean` (D-135; never touches `.eglib` or
+vcpkg).
 
 ## Commands
 
@@ -69,6 +72,8 @@ side. The GPUI host (cutover path): `pwsh scripts/run-gpui-desktop.ps1` (or
 | `pnpm build` | Build the Tauri release app and the NSIS installer |
 | `pwsh scripts/run-gpui-desktop.ps1` | Run the GPUI Kit desktop host with vcpkg heif on PATH (D-133 / D-134) |
 | `pwsh scripts/package-gpui-desktop.ps1` | Stage/zip GPUI portable layout + heif DLLs |
+| `pwsh scripts/clean-target-if-huge.ps1` | If workspace `target/` is over 20 GiB, run `cargo clean` (D-135; never touches `.eglib` / vcpkg) |
+| `pwsh scripts/package-gpui-desktop.ps1 -CleanHugeTarget` | Same size check before a GPUI portable build |
 | `pnpm check` | Everything CI runs: rustfmt, clippy, Rust tests, Biome, TypeScript, UI tests |
 | `cargo test --workspace` | Rust tests; also regenerates the TypeScript types in `ui/src/ipc/generated/` |
 | `pnpm test` | UI tests (Vitest) |

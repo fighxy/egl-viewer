@@ -2890,3 +2890,19 @@ Show in Explorer from the GPUI details pane opened `target\debug` (the process c
   CI / NSIS stay decode-only.
 - **Verify.** `cargo test -p gpui-desktop`; Show in Explorer on an RSPECT item opens the
   file under `D:\RSPECT.eglib\files\…`, not `target\debug`.
+
+## D-135 Auto-clean workspace `target/` over 20 GiB (2026-11-08)
+
+GPUI Kit and the full workspace leave large `target/` trees on Windows; reclaim disk when the
+folder exceeds **20 GiB**. Free id after D-134.
+
+- **Script.** `scripts/clean-target-if-huge.ps1` measures only the workspace `target/` under the
+  repo root, reports size vs threshold, and if over 20 GiB runs `cargo clean` (or `Remove-Item`
+  on `target/` when cargo is missing). `-WhatIf` / `-Force` / `-ThresholdGiB` for dry-run,
+  unconditional clean, and a different limit.
+- **Safety.** Never deletes `.eglib` libraries, `vcpkg`, `dist/`, `node_modules/`, or any path
+  outside repo `target/`. Refuses if `target` resolves outside the repo root.
+- **Wiring.** Documented in README Commands. Optional flag on packaging:
+  `pwsh scripts/package-gpui-desktop.ps1 -CleanHugeTarget`. Not hooked into `pnpm check` (CI
+  runners should not wipe build caches mid-job).
+- **Run.** From the repo root: `pwsh scripts/clean-target-if-huge.ps1`.

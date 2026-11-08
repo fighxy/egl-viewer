@@ -7,12 +7,14 @@
 #   pwsh scripts/package-gpui-desktop.ps1
 #   pwsh scripts/package-gpui-desktop.ps1 -SkipBuild
 #   pwsh scripts/package-gpui-desktop.ps1 -OutDir dist/gpui-desktop -NoZip
+#   pwsh scripts/package-gpui-desktop.ps1 -CleanHugeTarget   # cargo clean if target/ > 20 GiB (D-135)
 
 param(
     [string]$OutDir = "dist/gpui-desktop",
     [string]$VcpkgRoot = $(if ($env:VCPKG_ROOT) { $env:VCPKG_ROOT } elseif ($env:VCPKG_INSTALLATION_ROOT) { $env:VCPKG_INSTALLATION_ROOT } else { "C:\vcpkg" }),
     [switch]$SkipBuild,
-    [switch]$NoZip
+    [switch]$NoZip,
+    [switch]$CleanHugeTarget
 )
 
 Set-StrictMode -Version Latest
@@ -20,6 +22,13 @@ $ErrorActionPreference = "Stop"
 
 $repo = Resolve-Path (Join-Path $PSScriptRoot "..")
 Set-Location $repo
+
+if ($CleanHugeTarget) {
+    $cleanScript = Join-Path $repo "scripts\clean-target-if-huge.ps1"
+    Write-Host "Checking workspace target/ size (D-135)…"
+    & $cleanScript
+    if ($LASTEXITCODE -ne 0) { throw "clean-target-if-huge.ps1 failed" }
+}
 
 if (-not $SkipBuild) {
     Write-Host "Building gpui-desktop (release)…"
