@@ -1,4 +1,4 @@
-//! Experimental native desktop shell: GPUI Kit + `app-service`, no WebView / IPC (D-125).
+//! Experimental native desktop shell: GPUI Kit + `app-service`, no WebView / IPC (D-126).
 //!
 //! ```text
 //! cargo run -p gpui-desktop
@@ -18,9 +18,9 @@ use gpui_kit::component::label::Label;
 use gpui_kit::component::{ActiveTheme, Icon, IconName, StyledExt as _, h_flex, v_flex};
 use gpui_kit::prelude::FluentBuilder as _;
 use gpui_kit::{
-    AppContext as _, Context, Entity, Image, ImageFormat, InteractiveElement, IntoElement,
-    ParentElement, Render, SharedString, StatefulInteractiveElement, Styled, StyledImage as _,
-    Window, WindowBounds, WindowOptions, div, img, px, rgb, size,
+    AppContext as _, Context, Entity, ExternalPaths, Image, ImageFormat, InteractiveElement,
+    IntoElement, ParentElement, Render, SharedString, StatefulInteractiveElement, Styled,
+    StyledImage as _, Window, WindowBounds, WindowOptions, div, img, px, rgb, size,
 };
 use library_core::ItemCell;
 
@@ -71,6 +71,9 @@ struct SpikeApp {
     read_only: bool,
     /// Keeps a temp copy of the repo fixture alive for the process lifetime.
     fixture_scratch: Option<PathBuf>,
+    /// Last OS file-drop paths (Phase 0.6 probe); first image may feed [`drop_preview`].
+    drop_paths: Vec<PathBuf>,
+    drop_preview: Option<Arc<Image>>,
 }
 
 impl SpikeApp {
@@ -83,13 +86,15 @@ impl SpikeApp {
             service: service(),
             path_input,
             status: SharedString::from(format!(
-                "GPUI Kit spike · app-service {APP_VERSION} · pick a .eglib and Open"
+                "GPUI Kit spike · app-service {APP_VERSION} · pick a .eglib and Open (drop files onto the window to probe OS DnD)"
             )),
             library_name: None,
             total: 0,
             items: Vec::new(),
             read_only: false,
             fixture_scratch: None,
+            drop_paths: Vec::new(),
+            drop_preview: None,
         };
 
         // Auto-open argv / the repo fixture when the folder exists. The checked-in
@@ -157,6 +162,31 @@ impl SpikeApp {
                 cx.notify();
             }
         }
+    }
+
+    /// Phase 0.6: OS file drop → status + optional `img` of the first image path.
+    /// Does not import into the library (that is Phase 3).
+    fn on_os_file_drop(&mut self, paths: &ExternalPaths, cx: &mut Context<Self>) {
+        let list: Vec<PathBuf> = paths.paths().to_vec();
+        let summary = if list.is_empty() {
+            "OS drop: empty path list".to_string()
+        } else {
+            let names: Vec<String> = list
+                .iter()
+                .take(5)
+                .map(|p| p.display().to_string())
+                .collect();
+            let more = if list.len() > 5 {
+                format!(" (+{} more)", list.len() - 5)
+            } else {
+                String::new()
+            };
+            format!("OS drop OK ({} path{}): {}{}", list.len(), if list.len() == 1 { "" } else { "s" }, names.join(", "), more)
+        };
+        self.drop_preview = list.iter().find_map(|path| load_drop_preview(path));
+        self.drop_paths = list;
+        self.status = SharedString::from(summary);
+        cx.notify();
     }
 
     fn try_open(
@@ -267,6 +297,31 @@ impl Render for SpikeApp {
                             ))
                             .text_sm(),
                         )
+                    })
+                    .when(!self.drop_paths.is_empty(), |el| {
+                        let preview = self.drop_preview.clone();
+                        el.child(
+                            h_flex()
+                                .gap_2()
+                                .items_center()
+                                .child(
+                                    Label::new(format!(
+                                        "Last drop: {} path{}",
+                                        self.drop_paths.len(),
+                                        if self.drop_paths.len() == 1 { "" } else { "s" }
+                                    ))
+                                    .text_sm()
+                                    .text_color(theme.muted_foreground),
+                                )
+                                .when_some(preview, |row, image| {
+                                    row.child(
+                                        img(image)
+                                            .w(px(64.))
+                                            .h(px(64.))
+                                            .object_fit(gpui_kit::ObjectFit::Contain),
+                                    )
+                                }),
+                        )
                     }),
             )
             .child(
@@ -276,6 +331,10 @@ impl Render for SpikeApp {
                     .w_full()
                     .overflow_y_scroll()
                     .p_4()
+                    // OS file drop lands as ExternalPaths on active_drag; on_drop receives it.
+                    .on_drop(cx.listener(|this, paths: &ExternalPaths, _window, cx| {
+                        this.on_os_file_drop(paths, cx);
+                    }))
                     .child(if self.items.is_empty() {
                         div()
                             .size_full()
@@ -284,7 +343,7 @@ impl Render for SpikeApp {
                             .justify_center()
                             .child(
                                 Label::new(
-                                    "No items yet. Open a native .eglib (or the repo fixture).",
+                                    "No items yet. Open a native .eglib (or the repo fixture). Drop files here to probe OS DnD.",
                                 )
                                 .text_color(theme.muted_foreground),
                             )
@@ -310,6 +369,24 @@ impl Render for SpikeApp {
                     }),
             )
     }
+}
+
+/// Best-effort decode of a dropped image for the Phase 0.6 `img` probe.
+fn load_drop_preview(path: &Path) -> Option<Arc<Image>> {
+    let ext = path
+        .extension()
+        .and_then(|e| e.to_str())
+        .unwrap_or("")
+        .to_ascii_lowercase();
+    let format = match ext.as_str() {
+        "png" => ImageFormat::Png,
+        "jpg" | "jpeg" => ImageFormat::Jpeg,
+        "webp" => ImageFormat::Webp,
+        "gif" => ImageFormat::Gif,
+        _ => return None,
+    };
+    let bytes = std::fs::read(path).ok()?;
+    Some(Arc::new(Image::from_bytes(format, bytes)))
 }
 
 fn item_card(
