@@ -1651,27 +1651,42 @@ impl RootApp {
     }
 
     fn persist_panel_widths(&mut self, left: Option<Pixels>, right: Option<Pixels>, cx: &mut Context<Self>) {
-        if let Some(lib) = self.library.as_mut() {
-            if let Some(w) = left {
-                lib.left_width = w.as_f32().round().clamp(160.0, 480.0) as u32;
+        let Some(lib) = self.library.as_mut() else {
+            return;
+        };
+        let mut changed = false;
+        if let Some(w) = left {
+            let next = w.as_f32().round().clamp(160.0, 480.0) as u32;
+            if lib.left_width != next {
+                lib.left_width = next;
+                changed = true;
             }
-            if let Some(w) = right {
-                lib.right_width = w.as_f32().round().clamp(200.0, 560.0) as u32;
-            }
-            lib.persist_browse_prefs(&self.session);
-            let deducted = (if lib.left_open {
-                lib.left_width as f32
-            } else {
-                0.0
-            }) + (if lib.right_open {
-                lib.right_width as f32
-            } else {
-                0.0
-            });
-            self.grid_width = (1100.0 - deducted).max(200.0);
-            self.recompute_justified();
-            cx.notify();
         }
+        if let Some(w) = right {
+            let next = w.as_f32().round().clamp(200.0, 560.0) as u32;
+            if lib.right_width != next {
+                lib.right_width = next;
+                changed = true;
+            }
+        }
+        // h_resizable calls on_resize during layout. Notifying on every call re-enters
+        // render on the same stack and overflows when a library is first opened.
+        if !changed {
+            return;
+        }
+        lib.persist_browse_prefs(&self.session);
+        let deducted = (if lib.left_open {
+            lib.left_width as f32
+        } else {
+            0.0
+        }) + (if lib.right_open {
+            lib.right_width as f32
+        } else {
+            0.0
+        });
+        self.grid_width = (1100.0 - deducted).max(200.0);
+        self.recompute_justified();
+        cx.notify();
     }
 }
 
@@ -2036,7 +2051,7 @@ impl Render for RootApp {
                 |el| el.child(library_ui::render_read_only_banner(locale)),
             )
             .child(if self.library.is_some() {
-                self.render_library(&theme, locale, cx).into_any_element()
+                self.render_library(&theme, locale, cx)
             } else {
                 self.render_welcome(&theme, locale, cx).into_any_element()
             })
@@ -2421,7 +2436,7 @@ impl RootApp {
         theme: &gpui_kit::component::theme::Theme,
         locale: Locale,
         cx: &mut Context<Self>,
-    ) -> impl IntoElement {
+    ) -> gpui_kit::AnyElement {
         let lib = self.library.as_ref().unwrap();
         let left_w = lib.left_width as f32;
         let right_w = lib.right_width as f32;
@@ -2429,6 +2444,20 @@ impl RootApp {
         let entity = cx.entity();
         let left_open = lib.left_open;
         let right_open = lib.right_open;
+        // Split + type-erase: one nested `impl IntoElement` for the whole shell overflows
+        // the main thread stack on Windows debug builds when opening a library.
+        let toolbar = self.render_library_toolbar(lib, theme, locale, mode, entity.clone(), cx);
+        let body = self.render_library_body(
+            lib,
+            theme,
+            locale,
+            left_w,
+            right_w,
+            left_open,
+            right_open,
+            entity.clone(),
+            cx,
+        );
 
         v_flex()
             .id("library-shell")
@@ -2441,20 +2470,85 @@ impl RootApp {
                     entity.update(cx, |this, cx| this.handle_external_drop(paths, cx));
                 }
             })
+            .child(toolbar)
+            .child(body)
+            .child(library_ui::render_status_bar(lib, locale))
+            .when(!self.status.is_empty(), |el| {
+                el.child(
+                    h_flex()
+                        .id("status-message")
+                        .w_full()
+                        .px_3()
+                        .py_1()
+                        .child(
+                            Label::new(self.status.clone())
+                                .text_xs()
+                                .text_color(theme.muted_foreground),
+                        ),
+                )
+            })
+            .when(self.imports_open, |el| {
+                el.child(self.render_imports_panel(locale, theme, cx))
+            })
+            .when_some(self.pending_duplicate.clone(), |el, (id, notice)| {
+                el.child(self.render_duplicate_banner(id, &notice, locale, cx))
+            })
+            .when(self.emptying_trash, |el| {
+                let (done, total) = self.empty_trash_progress;
+                el.child(
+                    h_flex()
+                        .id("empty-trash-chrome")
+                        .w_full()
+                        .items_center()
+                        .gap_3()
+                        .px_3()
+                        .py_2()
+                        .border_t_1()
+                        .border_color(theme.border)
+                        .child(
+                            Label::new(format!(
+                                "{} — {done}/{total}",
+                                t(locale, "trash.emptying")
+                            ))
+                            .text_sm()
+                            .flex_1(),
+                        )
+                        .child(
+                            Button::new("empty-trash-cancel")
+                                .outline()
+                                .label(t(locale, "trash.cancelEmpty"))
+                                .on_click(cx.listener(|this, _, _, cx| {
+                                    this.cancel_empty_trash(cx);
+                                })),
+                        ),
+                )
+            })
+            .into_any_element()
+    }
+
+    #[inline(never)]
+    fn render_library_toolbar(
+        &self,
+        lib: &OpenLibraryState,
+        theme: &gpui_kit::component::theme::Theme,
+        locale: Locale,
+        mode: ViewMode,
+        entity: Entity<Self>,
+        cx: &mut Context<Self>,
+    ) -> gpui_kit::AnyElement {
+        h_flex()
+            .id("toolbar")
+            .w_full()
+            .items_center()
+            .gap_2()
+            .px_3()
+            .py_1()
+            .border_b_1()
+            .border_color(theme.border)
+            .child(Label::new(lib.info.name.clone()).font_bold())
             .child(
-                h_flex()
-                    .id("toolbar")
-                    .w_full()
-                    .items_center()
-                    .gap_2()
-                    .px_3()
-                    .py_1()
-                    .border_b_1()
-                    .border_color(theme.border)
-                    .child(Label::new(lib.info.name.clone()).font_bold())
-                    .child(
-                        Label::new(i18n::t_n(locale, "shell.statusItems", lib.total)).text_sm(),
-                    )
+                Label::new(i18n::t_n(locale, "shell.statusItems", lib.total)).text_sm(),
+            )
                     .when_some(lib.place.open_folder_id().map(|s| s.to_owned()), |el, id| {
                         let name = library::folder_name(&lib.folders, &id)
                             .unwrap_or_else(|| id.clone());
@@ -2674,169 +2768,148 @@ impl RootApp {
                                 this.update_browse(|b| b.show_names = !b.show_names, cx);
                             })),
                     )
+            .child(
+                Button::new("tb-sub")
+                    .label(t(locale, "commands.view.includeSubfolders"))
+                    .when(lib.browse.include_subfolders, |b| b.primary())
+                    .when(!lib.browse.include_subfolders, |b| b.ghost())
+                    .on_click(cx.listener(|this, _, _, cx| {
+                        if let Some(lib) = this.library.as_mut() {
+                            lib.browse.include_subfolders = !lib.browse.include_subfolders;
+                        }
+                        this.refresh_view(cx);
+                    })),
+            )
+            .into_any_element()
+    }
+
+    #[inline(never)]
+    fn render_library_body(
+        &self,
+        lib: &OpenLibraryState,
+        theme: &gpui_kit::component::theme::Theme,
+        locale: Locale,
+        left_w: f32,
+        right_w: f32,
+        left_open: bool,
+        right_open: bool,
+        entity: Entity<Self>,
+        _cx: &mut Context<Self>,
+    ) -> gpui_kit::AnyElement {
+        h_resizable("shell-body")
+            .child(
+                resizable_panel()
+                    .size(px(left_w))
+                    .size_range(px(160.)..px(480.))
+                    .visible(left_open)
                     .child(
-                        Button::new("tb-sub")
-                            .label(t(locale, "commands.view.includeSubfolders"))
-                            .when(lib.browse.include_subfolders, |b| b.primary())
-                            .when(!lib.browse.include_subfolders, |b| b.ghost())
-                            .on_click(cx.listener(|this, _, _, cx| {
-                                if let Some(lib) = this.library.as_mut() {
-                                    lib.browse.include_subfolders = !lib.browse.include_subfolders;
-                                }
-                                this.refresh_view(cx);
-                            })),
+                        div()
+                            .id("left-pane")
+                            .size_full()
+                            .border_r_1()
+                            .border_color(theme.border)
+                            .child(sidebar::render_sidebar(
+                                lib,
+                                locale,
+                                entity.clone(),
+                                &self.tag_vocabulary,
+                            )),
                     ),
             )
             .child(
-                h_resizable("shell-body")
-                    .child(
-                        resizable_panel()
-                            .size(px(left_w))
-                            .size_range(px(160.)..px(480.))
-                            .visible(left_open)
-                            .child(
-                                div()
-                                    .id("left-pane")
-                                    .size_full()
-                                    .border_r_1()
-                                    .border_color(theme.border)
-                                    .child(sidebar::render_sidebar(
-                                        lib,
-                                        locale,
-                                        entity.clone(),
-                                        &self.tag_vocabulary,
-                                    )),
-                            ),
-                    )
-                    .child(
-                        resizable_panel().child(
-                            div()
-                                .on_children_prepainted({
-                                    let entity = entity.clone();
-                                    move |bounds, _, cx| {
-                                        if let Some(first) = bounds.first() {
-                                            let width = first.size.width.as_f32();
-                                            let origin =
-                                                (first.origin.x.as_f32(), first.origin.y.as_f32());
-                                            entity.update(cx, |this, cx| {
-                                                let width_changed =
-                                                    (this.grid_width - width).abs() > 1.0;
-                                                this.grid_origin = origin;
-                                                if width_changed && width > 40.0 {
-                                                    this.grid_width = width;
-                                                    this.recompute_justified();
-                                                    cx.notify();
-                                                }
-                                            });
+                resizable_panel().child(
+                    div()
+                        .on_children_prepainted({
+                            let entity = entity.clone();
+                            move |bounds, _, cx| {
+                                if let Some(first) = bounds.first() {
+                                    let width = first.size.width.as_f32();
+                                    let origin =
+                                        (first.origin.x.as_f32(), first.origin.y.as_f32());
+                                    let needs_relayout = (entity.read(cx).grid_width - width)
+                                        .abs()
+                                        > 1.0
+                                        && width > 40.0;
+                                    entity.update(cx, |this, _cx| {
+                                        this.grid_origin = origin;
+                                        if needs_relayout {
+                                            this.grid_width = width;
+                                            this.recompute_justified();
                                         }
+                                    });
+                                    if needs_relayout {
+                                        let entity = entity.clone();
+                                        cx.spawn(async move |cx| {
+                                            let _ = entity.update(cx, |_this, cx| {
+                                                cx.notify();
+                                            });
+                                        })
+                                        .detach();
                                     }
-                                })
-                                .id("center-pane")
-                                .size_full()
-                                .overflow_hidden()
-                                .child(grid::render_items(
-                                    lib,
-                                    &self.items,
-                                    locale,
-                                    theme,
-                                    entity.clone(),
-                                    self.justified.as_ref(),
-                                    self.rubber.as_ref(),
-                                    self.grid_width,
-                                )),
-                        ),
-                    )
-                    .child(
-                        resizable_panel()
-                            .size(px(right_w))
-                            .size_range(px(200.)..px(560.))
-                            .visible(right_open)
-                            .child(
-                                div()
-                                    .id("right-pane")
-                                    .size_full()
-                                    .border_l_1()
-                                    .border_color(theme.border)
-                                    .child(details::render_details(
-                                        lib,
-                                        &self.details,
-                                        locale,
-                                        theme,
-                                        entity.clone(),
-                                    )),
-                            ),
-                    )
-                    .on_resize({
-                        let entity = entity.clone();
-                        move |state, _, cx| {
-                            let sizes = state.read(cx).sizes().clone();
-                            entity.update(cx, |this, cx| {
-                                let left = if left_open {
-                                    sizes.first().copied()
-                                } else {
-                                    None
-                                };
-                                let right = if right_open {
-                                    sizes.last().copied().filter(|_| sizes.len() >= 2)
-                                } else {
-                                    None
-                                };
-                                this.persist_panel_widths(left, right, cx);
-                            });
-                        }
-                    }),
+                                }
+                            }
+                        })
+                        .id("center-pane")
+                        .size_full()
+                        .overflow_hidden()
+                        .child(grid::render_items(
+                            lib,
+                            &self.items,
+                            locale,
+                            theme,
+                            entity.clone(),
+                            self.justified.as_ref(),
+                            self.rubber.as_ref(),
+                            self.grid_width,
+                        )),
+                ),
             )
-            .child(library_ui::render_status_bar(lib, locale))
-            .when(!self.status.is_empty(), |el| {
-                el.child(
-                    h_flex()
-                        .id("status-message")
-                        .w_full()
-                        .px_3()
-                        .py_1()
-                        .child(
-                            Label::new(self.status.clone())
-                                .text_xs()
-                                .text_color(theme.muted_foreground),
-                        ),
-                )
+            .child(
+                resizable_panel()
+                    .size(px(right_w))
+                    .size_range(px(200.)..px(560.))
+                    .visible(right_open)
+                    .child(
+                        div()
+                            .id("right-pane")
+                            .size_full()
+                            .border_l_1()
+                            .border_color(theme.border)
+                            .child(details::render_details(
+                                lib,
+                                &self.details,
+                                locale,
+                                theme,
+                                entity.clone(),
+                            )),
+                    ),
+            )
+            .on_resize({
+                let entity = entity.clone();
+                move |state, _, cx| {
+                    let sizes = state.read(cx).sizes().clone();
+                    // Defer width persistence out of the layout/resize pass.
+                    // Synchronous cx.notify() here re-enters render and overflows.
+                    let left = if left_open {
+                        sizes.first().copied()
+                    } else {
+                        None
+                    };
+                    let right = if right_open {
+                        sizes.last().copied().filter(|_| sizes.len() >= 2)
+                    } else {
+                        None
+                    };
+                    let entity = entity.clone();
+                    cx.spawn(async move |cx| {
+                        let _ = entity.update(cx, |this, cx| {
+                            this.persist_panel_widths(left, right, cx);
+                        });
+                    })
+                    .detach();
+                }
             })
-            .when(self.imports_open, |el| {
-                el.child(self.render_imports_panel(locale, theme, cx))
-            })
-            .when_some(self.pending_duplicate.clone(), |el, (id, notice)| {
-                el.child(self.render_duplicate_banner(id, &notice, locale, cx))
-            })
-            .when(self.emptying_trash, |el| {
-                let (done, total) = self.empty_trash_progress;
-                el.child(
-                    h_flex()
-                        .id("empty-trash-chrome")
-                        .w_full()
-                        .items_center()
-                        .gap_3()
-                        .px_3()
-                        .py_2()
-                        .border_t_1()
-                        .border_color(theme.border)
-                        .child(
-                            Label::new(format!(
-                                "{} — {done}/{total}",
-                                t(locale, "trash.emptying")
-                            ))
-                            .text_sm()
-                            .flex_1(),
-                        )
-                        .child(
-                            Button::new("empty-trash-cancel")
-                                .outline()
-                                .label(t(locale, "trash.cancelEmpty"))
-                                .on_click(cx.listener(|this, _, _, cx| {
-                                    this.cancel_empty_trash(cx);
-                                })),
-                        ),
-                )
-            })
+            .into_any_element()
     }
 
     fn render_imports_panel(
