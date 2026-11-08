@@ -1,12 +1,15 @@
 package app.eglviewer.theme
 
+import androidx.appcompat.app.AppCompatActivity
 import androidx.appcompat.app.AppCompatDelegate
+import app.eglviewer.MainActivity
 import androidx.compose.ui.graphics.Color
 import org.junit.Assert.assertEquals
 import org.junit.Assert.assertNotEquals
+import org.junit.Assert.assertTrue
 import org.junit.Test
 
-/** Host JVM tests for System / Light / Dark (D-119). */
+/** Host JVM tests for System / Light / Dark (D-119 / D-127). */
 class ThemePreferenceTest {
     @Test
     fun wireValuesMatchDesktop() {
@@ -30,6 +33,12 @@ class ThemePreferenceTest {
         assertEquals(AppCompatDelegate.MODE_NIGHT_FOLLOW_SYSTEM, ThemePreference.System.nightMode())
         assertEquals(AppCompatDelegate.MODE_NIGHT_NO, ThemePreference.Light.nightMode())
         assertEquals(AppCompatDelegate.MODE_NIGHT_YES, ThemePreference.Dark.nightMode())
+    }
+
+    @Test
+    fun mainActivityIsAppCompatSoNightModeApplies() {
+        // setDefaultNightMode only recreates AppCompatActivity (D-127).
+        assertTrue(AppCompatActivity::class.java.isAssignableFrom(MainActivity::class.java))
     }
 
     @Test

@@ -16,6 +16,7 @@ import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.remember
 import androidx.compose.runtime.rememberCoroutineScope
 import androidx.compose.runtime.setValue
+import androidx.appcompat.app.AppCompatActivity
 import androidx.compose.ui.Modifier
 import androidx.fragment.app.FragmentActivity
 import androidx.lifecycle.Lifecycle
@@ -30,7 +31,12 @@ import app.eglviewer.theme.EglTheme
 import app.eglviewer.theme.EglTokens
 import kotlinx.coroutines.launch
 
-class MainActivity : FragmentActivity() {
+/**
+ * AppCompatActivity so ThemePreference / AppCompatDelegate.setDefaultNightMode
+ * recreates us and updates uiMode (D-127). Still a FragmentActivity for
+ * BiometricPrompt (D-106).
+ */
+class MainActivity : AppCompatActivity() {
     private val model: AppModel by viewModels()
 
     override fun onCreate(savedInstanceState: Bundle?) {
