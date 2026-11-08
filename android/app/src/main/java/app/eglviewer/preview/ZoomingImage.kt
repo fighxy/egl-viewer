@@ -1,6 +1,7 @@
 package app.eglviewer.preview
 
 import android.graphics.Bitmap
+import androidx.compose.foundation.ExperimentalFoundationApi
 import androidx.compose.foundation.gestures.detectTapGestures
 import androidx.compose.foundation.gestures.rememberTransformableState
 import androidx.compose.foundation.gestures.transformable
@@ -20,25 +21,35 @@ import androidx.compose.ui.graphics.asImageBitmap
 import androidx.compose.ui.graphics.graphicsLayer
 import androidx.compose.ui.input.pointer.pointerInput
 import androidx.compose.ui.layout.ContentScale
+import androidx.compose.ui.platform.testTag
 
 /**
  * Pinch / double-tap zoom over a decoded original. While zoomed, [onZoomed] is true so the
- * pager stops paging (A3 ≈ D-095).
+ * pager stops paging (A3 ≈ D-095). At fit size, pan is not consumed so [HorizontalPager]
+ * keeps horizontal swipes (D-128); the default `transformable` `canPan = { true }` was
+ * eating those drags.
  */
+@OptIn(ExperimentalFoundationApi::class)
 @Composable
 fun ZoomingImage(
     bitmap: Bitmap,
     onZoomed: (Boolean) -> Unit,
     onSingleTap: () -> Unit,
+    contentDescription: String? = null,
     modifier: Modifier = Modifier,
 ) {
     var scale by remember { mutableFloatStateOf(1f) }
     var offset by remember { mutableStateOf(Offset.Zero) }
+
+    fun publishZoomed(next: Float) {
+        onZoomed(next > ZOOMED_EPSILON)
+    }
+
     val state = rememberTransformableState { zoomChange, panChange, _ ->
         val next = (scale * zoomChange).coerceIn(1f, 6f)
         scale = next
-        offset = if (next <= 1.01f) Offset.Zero else offset + panChange
-        onZoomed(next > 1.01f)
+        offset = if (next <= ZOOMED_EPSILON) Offset.Zero else offset + panChange
+        publishZoomed(next)
     }
 
     Box(
@@ -48,7 +59,7 @@ fun ZoomingImage(
                 detectTapGestures(
                     onTap = { onSingleTap() },
                     onDoubleTap = {
-                        if (scale > 1.01f) {
+                        if (scale > ZOOMED_EPSILON) {
                             scale = 1f
                             offset = Offset.Zero
                             onZoomed(false)
@@ -59,12 +70,17 @@ fun ZoomingImage(
                     },
                 )
             }
-            .transformable(state = state),
+            // Only consume pans while zoomed; otherwise the pager owns horizontal swipes.
+            .transformable(
+                state = state,
+                canPan = { scale > ZOOMED_EPSILON },
+            )
+            .testTag("preview.zoom"),
         contentAlignment = Alignment.Center,
     ) {
         Image(
             bitmap = bitmap.asImageBitmap(),
-            contentDescription = null,
+            contentDescription = contentDescription,
             contentScale = ContentScale.Fit,
             modifier = Modifier
                 .fillMaxSize()
@@ -77,3 +93,6 @@ fun ZoomingImage(
         )
     }
 }
+
+/** Scale above fit counts as zoomed for pager locking and pan consumption (D-128). */
+internal const val ZOOMED_EPSILON = 1.01f

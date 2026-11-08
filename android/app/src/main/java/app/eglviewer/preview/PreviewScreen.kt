@@ -29,6 +29,7 @@ import androidx.compose.material3.TextButton
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.LaunchedEffect
 import androidx.compose.runtime.getValue
+import androidx.compose.runtime.key
 import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.remember
 import androidx.compose.runtime.rememberCoroutineScope
@@ -85,7 +86,11 @@ fun PreviewScreen(
     LaunchedEffect(pagerState) {
         snapshotFlow { pagerState.currentPage }
             .distinctUntilChanged()
-            .collect { page -> model.need(page) }
+            .collect { page ->
+                // A recycled or previous page must not leave paging locked after a zoom (D-128).
+                zoomed = false
+                model.need(page)
+            }
     }
 
     // System back: dismiss delete / details first, then leave the preview (D-126).
@@ -99,12 +104,13 @@ fun PreviewScreen(
 
     val index = pagerState.currentPage.coerceIn(0, (model.total - 1).coerceAtLeast(0))
     val cell = model.cell(at = index)
+    // Decode at least 1px so a transient zero density/edge never skips the original (D-123/D-128).
     val pixels = with(density) {
         val edge = maxOf(
             context.resources.displayMetrics.widthPixels,
             context.resources.displayMetrics.heightPixels,
         )
-        (edge * 1.5f).toInt()
+        maxOf((edge * 1.5f).toInt(), 1)
     }
 
     Box(
@@ -210,6 +216,7 @@ private fun PreviewPage(
 
     LaunchedEffect(cell?.id, cell?.thumbVersion, pixels) {
         val c = cell ?: return@LaunchedEffect
+        if (pixels <= 0) return@LaunchedEffect
         bitmap = originals.image(forId = c.id, version = c.thumbVersion, pixels = pixels)
         failed = bitmap == null
     }
@@ -222,11 +229,17 @@ private fun PreviewPage(
     ) {
         val image = bitmap
         when {
-            image != null -> ZoomingImage(
-                bitmap = image,
-                onZoomed = onZoomed,
-                onSingleTap = onSingleTap,
-            )
+            image != null -> {
+                // New identity resets zoom @State when the decoded original changes.
+                key("${cell?.id.orEmpty()}#${cell?.thumbVersion ?: 0}#$pixels") {
+                    ZoomingImage(
+                        bitmap = image,
+                        onZoomed = onZoomed,
+                        onSingleTap = onSingleTap,
+                        contentDescription = cell?.name,
+                    )
+                }
+            }
             failed && cell != null -> Text(
                 text = cell.ext.uppercase().ifEmpty { "?" },
                 color = Color.White.copy(alpha = 0.6f),
