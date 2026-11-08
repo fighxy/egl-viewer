@@ -58,6 +58,30 @@ pub fn skip_reopen() -> bool {
     no_reopen_requested() || shift_held_at_start()
 }
 
+/// Runs `work` on a fresh thread and returns once that thread has been started.
+///
+/// Windows `CreateProcess` / `SHOpenFolderAndSelectItems` pump the calling thread's
+/// Win32 queue. GPUI is inside a mutable `App` borrow while handling the click that
+/// starts them, so the pump panics and the process exits (D-139).
+pub(crate) fn schedule_detached(
+    name: &str,
+    work: impl FnOnce() + Send + 'static,
+) -> Result<(), String> {
+    std::thread::Builder::new()
+        .name(name.to_string())
+        .spawn(work)
+        .map(|_| ())
+        .map_err(|error| error.to_string())
+}
+
+fn spawn_command(mut command: std::process::Command) -> Result<(), String> {
+    schedule_detached("shell-open", move || {
+        if let Err(error) = command.spawn() {
+            tracing::warn!("could not start a shell process: {error}");
+        }
+    })
+}
+
 pub fn open_in_file_manager(path: &Path) -> Result<(), String> {
     let path = require_absolute_existing(path)?;
     let folder = if path.is_dir() {
@@ -70,27 +94,21 @@ pub fn open_in_file_manager(path: &Path) -> Result<(), String> {
     };
     #[cfg(windows)]
     {
-        std::process::Command::new("explorer")
-            .arg(folder.as_os_str())
-            .spawn()
-            .map(|_| ())
-            .map_err(|e| e.to_string())
+        let mut command = std::process::Command::new("explorer");
+        command.arg(folder.as_os_str());
+        spawn_command(command)
     }
     #[cfg(target_os = "macos")]
     {
-        std::process::Command::new("open")
-            .arg(folder.as_os_str())
-            .spawn()
-            .map(|_| ())
-            .map_err(|e| e.to_string())
+        let mut command = std::process::Command::new("open");
+        command.arg(folder.as_os_str());
+        spawn_command(command)
     }
     #[cfg(all(unix, not(target_os = "macos")))]
     {
-        std::process::Command::new("xdg-open")
-            .arg(folder.as_os_str())
-            .spawn()
-            .map(|_| ())
-            .map_err(|e| e.to_string())
+        let mut command = std::process::Command::new("xdg-open");
+        command.arg(folder.as_os_str());
+        spawn_command(command)
     }
 }
 
@@ -98,27 +116,21 @@ pub fn open_in_file_manager(path: &Path) -> Result<(), String> {
 pub fn open_path(path: &Path) -> Result<(), String> {
     #[cfg(windows)]
     {
-        std::process::Command::new("cmd")
-            .args(["/C", "start", "", &path.to_string_lossy()])
-            .spawn()
-            .map(|_| ())
-            .map_err(|e| e.to_string())
+        let mut command = std::process::Command::new("cmd");
+        command.args(["/C", "start", "", &path.to_string_lossy()]);
+        spawn_command(command)
     }
     #[cfg(target_os = "macos")]
     {
-        std::process::Command::new("open")
-            .arg(path.as_os_str())
-            .spawn()
-            .map(|_| ())
-            .map_err(|e| e.to_string())
+        let mut command = std::process::Command::new("open");
+        command.arg(path.as_os_str());
+        spawn_command(command)
     }
     #[cfg(all(unix, not(target_os = "macos")))]
     {
-        std::process::Command::new("xdg-open")
-            .arg(path.as_os_str())
-            .spawn()
-            .map(|_| ())
-            .map_err(|e| e.to_string())
+        let mut command = std::process::Command::new("xdg-open");
+        command.arg(path.as_os_str());
+        spawn_command(command)
     }
 }
 
@@ -141,12 +153,12 @@ pub fn reveal_paths(paths: &[PathBuf]) -> Result<(), String> {
     }
     #[cfg(target_os = "macos")]
     {
-        let mut cmd = std::process::Command::new("open");
-        cmd.arg("-R");
+        let mut command = std::process::Command::new("open");
+        command.arg("-R");
         for path in &absolute {
-            cmd.arg(path);
+            command.arg(path);
         }
-        cmd.spawn().map(|_| ()).map_err(|e| e.to_string())
+        spawn_command(command)
     }
     #[cfg(all(unix, not(target_os = "macos")))]
     {
@@ -193,30 +205,24 @@ pub fn copy_files(paths: &[PathBuf]) -> Result<u32, String> {
 
 /// Opens an http(s) URL in the system browser.
 pub fn open_url(url: &str) -> Result<(), String> {
-    let url = url.trim();
+    let url = url.trim().to_string();
     #[cfg(windows)]
     {
-        std::process::Command::new("cmd")
-            .args(["/C", "start", "", url])
-            .spawn()
-            .map(|_| ())
-            .map_err(|e| e.to_string())
+        let mut command = std::process::Command::new("cmd");
+        command.args(["/C", "start", "", url.as_str()]);
+        spawn_command(command)
     }
     #[cfg(target_os = "macos")]
     {
-        std::process::Command::new("open")
-            .arg(url)
-            .spawn()
-            .map(|_| ())
-            .map_err(|e| e.to_string())
+        let mut command = std::process::Command::new("open");
+        command.arg(&url);
+        spawn_command(command)
     }
     #[cfg(all(unix, not(target_os = "macos")))]
     {
-        std::process::Command::new("xdg-open")
-            .arg(url)
-            .spawn()
-            .map(|_| ())
-            .map_err(|e| e.to_string())
+        let mut command = std::process::Command::new("xdg-open");
+        command.arg(&url);
+        spawn_command(command)
     }
 }
 
@@ -295,6 +301,20 @@ mod tests {
     }
 
     #[test]
+    fn detached_shell_work_is_not_on_the_calling_thread() {
+        let (tx, rx) = std::sync::mpsc::channel();
+        let caller = std::thread::current().id();
+        schedule_detached("shell-open-test", move || {
+            let _ = tx.send(std::thread::current().id());
+        })
+        .unwrap();
+        let worker = rx
+            .recv_timeout(std::time::Duration::from_secs(2))
+            .expect("shell thread");
+        assert_ne!(worker, caller);
+    }
+
+    #[test]
     fn require_absolute_accepts_existing_dir() {
         let dir = std::env::temp_dir();
         assert!(dir.is_absolute());
@@ -310,9 +330,8 @@ mod tests {
         if std::env::var_os("EGL_REVEAL_SMOKE").is_none() {
             return;
         }
-        let sample = PathBuf::from(
-            r"D:\RSPECT.eglib\files\00\01M66R00V194J7YTDJD77PAZ00\PICT0145.JPG",
-        );
+        let sample =
+            PathBuf::from(r"D:\RSPECT.eglib\files\00\01M66R00V194J7YTDJD77PAZ00\PICT0145.JPG");
         assert!(
             sample.is_file(),
             "RSPECT sample missing: {}",
@@ -324,6 +343,11 @@ mod tests {
             .expect("target/debug");
         std::env::set_current_dir(&debug_dir).expect("chdir target/debug");
         assert_eq!(std::env::current_dir().unwrap(), debug_dir);
+        #[cfg(windows)]
+        let done = crate::reveal_win::install_shell_thread_probe();
         reveal_paths(&[sample]).expect("reveal must select the .eglib file, not cwd");
+        #[cfg(windows)]
+        done.recv_timeout(std::time::Duration::from_secs(15))
+            .expect("explorer-reveal finished");
     }
 }

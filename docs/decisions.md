@@ -2948,3 +2948,33 @@ name, Clear History, Clear Cache and Reload, and Merge….
   which take effect immediately rather than with the draft. No AI or plugin sections.
 - **Verify.** `cargo test -p app-store clear_recent`; `cargo test -p app-store same_library`;
   `cargo test -p gpui-desktop`.
+
+## D-138 GPUI minimum window is 960×600 (2026-11-08)
+
+The GPUI host opened at 1100×720 with no minimum, so the frame could be dragged down to a
+square or smaller and the side bars no longer fit. Tauri stays 900×600 (`tauri.conf.json`).
+
+- **Open.** `WindowOptions::window_min_size` is 960×600 (gpui-kit / GPUI `window_min_size`).
+  The requested size is clamped up on each axis that is below that minimum; 1100×720 is
+  already larger and stays. Width and height are different numbers.
+- **Verify.** `cargo test -p gpui-desktop min_window`; `cargo test -p gpui-desktop clamp`.
+
+## D-139 Show in Explorer must not re-enter the GPUI message loop (2026-11-08)
+
+Show in Explorer opened an Explorer window and then `gpui-desktop` exited.
+
+- **Cause.** Not a window-close and not `WM_QUIT`. The details button calls
+  `SHOpenFolderAndSelectItems` on the UI thread while GPUI is inside `Window::dispatch_event`
+  (`gpui` `window.rs` around the input callback, mutable `App` borrow). The shell API runs a
+  nested Win32 loop (`SHOpenOrGetFolderView` → `CallWindowProcW` on the GPUI window). Paint,
+  activation and the 32 ms session poll then borrow `App` again. The poll's
+  `AsyncApp::update_entity` unwraps that borrow and panics (`async_context.rs`). Explorer is
+  already visible. `CreateProcess` (`explorer.exe`, `cmd /C start`) can pump the same queue
+  (GPUI's own Windows note on `Command::spawn`).
+- **Fix.** Group and validate paths on the caller so a bad path still reaches the status bar.
+  `SHOpenFolderAndSelectItems` / `ShellExecuteEx` run on a thread named `explorer-reveal`.
+  File-manager, open-with, and URL `Command`s run on `shell-open`. The click returns and
+  drops the `App` borrow before the shell call. A sent activation is handled afterwards.
+  Unit tests skip the real shell unless `EGL_REVEAL_SMOKE=1`.
+- **Verify.** `cargo test -p gpui-desktop reveal_shell_is_not`; `cargo test -p gpui-desktop detached_shell`.
+  Show in Explorer on an item: Explorer selects the file and gpui-desktop stays open.

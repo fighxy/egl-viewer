@@ -351,7 +351,7 @@ No library open; the first screen after login (D-017). The login gate is section
 └─────────────────────────────────────────────────────────────────┘
 ```
 
-- The left bar is 200–360 px wide and the right bar 280–480 px; both can be resized and are toggled with `Ctrl+B` and `Ctrl+I`. Widths and open state are remembered. Below about 1200 px of window width the right bar slides over the grid instead of taking space. The smallest window is 900 × 600.
+- The left bar is 200–360 px wide and the right bar 280–480 px; both can be resized and are toggled with `Ctrl+B` and `Ctrl+I`. Widths and open state are remembered. Below about 1200 px of window width the right bar slides over the grid instead of taking space. The smallest Tauri window is 900 × 600. The GPUI host's minimum is 960 × 600 (D-138).
 - A read-only library shows a banner above the toolbar with the reason: open in another instance (with **Open for editing**), inside a sync folder, or on a read-only medium. The window title and the status bar show a badge; so does a connected Eagle.
 
 **Left bar**, top to bottom:

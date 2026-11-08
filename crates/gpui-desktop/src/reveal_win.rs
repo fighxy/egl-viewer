@@ -19,11 +19,27 @@ use windows::Win32::UI::WindowsAndMessaging::SW_SHOWNORMAL;
 use windows::core::{HSTRING, PCWSTR, w};
 
 /// Reveal absolute existing paths in Explorer, selecting each file in its folder.
+///
+/// The shell call runs on `explorer-reveal`, not the caller. `SHOpenFolderAndSelectItems`
+/// pumps the Win32 queue (`SHOpenOrGetFolderView` → the GPUI window procedure). From a
+/// click, `App` is already mutably borrowed, so that re-entry panics and the process
+/// exits after Explorer has opened (D-139).
 pub fn reveal_absolute_paths(paths: &[PathBuf]) -> Result<(), String> {
     if paths.is_empty() {
         return Ok(());
     }
+    let grouped = group_by_parent(paths)?;
+    crate::platform::schedule_detached("explorer-reveal", move || {
+        let result = reveal_grouped(grouped);
+        #[cfg(test)]
+        note_shell_thread();
+        if let Err(error) = result {
+            tracing::warn!("Show in Explorer: {error}");
+        }
+    })
+}
 
+fn group_by_parent(paths: &[PathBuf]) -> Result<HashMap<PathBuf, Vec<PathBuf>>, String> {
     let mut grouped: HashMap<PathBuf, Vec<PathBuf>> = HashMap::new();
     for path in paths {
         let parent = path
@@ -32,6 +48,15 @@ pub fn reveal_absolute_paths(paths: &[PathBuf]) -> Result<(), String> {
             .ok_or_else(|| format!("No parent folder for {}", path.display()))?
             .to_path_buf();
         grouped.entry(parent).or_default().push(path.clone());
+    }
+    Ok(grouped)
+}
+
+fn reveal_grouped(grouped: HashMap<PathBuf, Vec<PathBuf>>) -> Result<(), String> {
+    // Unit tests must not open Explorer. The opt-in smoke test sets EGL_REVEAL_SMOKE.
+    #[cfg(test)]
+    if std::env::var_os("EGL_REVEAL_SMOKE").is_none() {
+        return Ok(());
     }
 
     // Idempotent; already-initialized COM returns an error we ignore (same as opener).
@@ -45,9 +70,9 @@ pub fn reveal_absolute_paths(paths: &[PathBuf]) -> Result<(), String> {
             .collect::<Result<Vec<_>, _>>()?;
         let ptrs: Vec<*const ITEMIDLIST> = item_ids.iter().map(|item| item.item).collect();
 
-        if let Err(error) = unsafe {
-            SHOpenFolderAndSelectItems(parent_id.item, Some(ptrs.as_slice()), 0)
-        } {
+        if let Err(error) =
+            unsafe { SHOpenFolderAndSelectItems(parent_id.item, Some(ptrs.as_slice()), 0) }
+        {
             // Electron / opener fallback: some hosts return "file not found" even when
             // the path exists; open the parent folder without selection.
             if error.code().0 == ERROR_FILE_NOT_FOUND.0 as i32 {
@@ -57,11 +82,7 @@ pub fn reveal_absolute_paths(paths: &[PathBuf]) -> Result<(), String> {
                     cbSize: std::mem::size_of::<SHELLEXECUTEINFOW>() as u32,
                     nShow: SW_SHOWNORMAL.0,
                     lpFile: PCWSTR(parent_id.hstring.as_ptr()),
-                    lpClass: if is_dir {
-                        w!("folder")
-                    } else {
-                        PCWSTR::null()
-                    },
+                    lpClass: if is_dir { w!("folder") } else { PCWSTR::null() },
                     lpVerb: if is_dir {
                         w!("explore")
                     } else {
@@ -77,6 +98,24 @@ pub fn reveal_absolute_paths(paths: &[PathBuf]) -> Result<(), String> {
     }
 
     Ok(())
+}
+
+#[cfg(test)]
+fn note_shell_thread() {
+    if let Some(tx) = SHELL_THREAD.lock().unwrap().as_ref() {
+        let _ = tx.send(std::thread::current().id());
+    }
+}
+
+#[cfg(test)]
+static SHELL_THREAD: std::sync::Mutex<Option<std::sync::mpsc::Sender<std::thread::ThreadId>>> =
+    std::sync::Mutex::new(None);
+
+#[cfg(test)]
+pub(crate) fn install_shell_thread_probe() -> std::sync::mpsc::Receiver<std::thread::ThreadId> {
+    let (tx, rx) = std::sync::mpsc::channel();
+    *SHELL_THREAD.lock().unwrap() = Some(tx);
+    rx
 }
 
 struct OwnedItemIdList {
@@ -104,5 +143,25 @@ impl Drop for OwnedItemIdList {
         if !self.item.is_null() {
             unsafe { ILFree(Some(self.item)) };
         }
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn reveal_shell_is_not_on_the_calling_thread() {
+        let rx = install_shell_thread_probe();
+        let dir = tempfile::tempdir().unwrap();
+        let file = dir.path().join("item.txt");
+        std::fs::write(&file, b"x").unwrap();
+        let caller = std::thread::current().id();
+        reveal_absolute_paths(std::slice::from_ref(&file)).unwrap();
+        let worker = rx
+            .recv_timeout(std::time::Duration::from_secs(2))
+            .expect("explorer-reveal thread");
+        assert_ne!(worker, caller);
+        *SHELL_THREAD.lock().unwrap() = None;
     }
 }
