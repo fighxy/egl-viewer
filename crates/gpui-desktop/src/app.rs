@@ -1,4 +1,4 @@
-//! Root GPUI entity: Welcome ↔ Library shell, commands, dialogs (Phase 1–2 / D-129 / D-130).
+//! Root GPUI entity: Welcome ↔ Library shell, commands, dialogs (Phase 1–3 / D-129–D-131).
 
 use std::path::PathBuf;
 use std::time::Duration;
@@ -6,7 +6,7 @@ use std::time::Duration;
 use app_store::{BrowsePreferences, Locale, Theme, ViewMode};
 use desktop_session::{Event, ItemsTarget, Session};
 use gpui_kit::component::button::{Button, ButtonVariants as _};
-use gpui_kit::component::input::{Input, InputState};
+use gpui_kit::component::input::{Input, InputEvent, InputState};
 use gpui_kit::component::label::Label;
 use gpui_kit::component::{
     ActiveTheme, Disableable as _, StyledExt as _, WindowExt as _, h_flex, h_resizable,
@@ -14,10 +14,12 @@ use gpui_kit::component::{
 };
 use gpui_kit::prelude::FluentBuilder as _;
 use gpui_kit::{
-    AppContext as _, Context, Entity, FocusHandle, InteractiveElement, IntoElement, ParentElement,
-    PathPromptOptions, Pixels, Render, SharedString, Styled, Window, div, px,
+    AppContext as _, Context, Entity, ExternalPaths, FocusHandle, InteractiveElement, IntoElement,
+    ParentElement, PathPromptOptions, Pixels, Render, SharedString, StatefulInteractiveElement,
+    Styled, Subscription, Window, div, px,
 };
-use library_core::{ItemId, LibraryInfo, SortKey, is_web_link};
+use library_core::{DuplicateNotice, ImportState, ItemId, LibraryInfo, SortKey, is_web_link};
+use library_native::DuplicateChoice;
 
 use crate::browse::details::{self, DetailsModel};
 use crate::browse::grid::{self, ListedItem};
@@ -40,12 +42,12 @@ pub struct RubberBand {
 }
 
 pub struct RootApp {
-    session: Session,
+    pub(crate) session: Session,
     events: EventMailbox,
     focus: FocusHandle,
-    locale: Locale,
+    pub(crate) locale: Locale,
     theme_pref: Theme,
-    status: SharedString,
+    pub(crate) status: SharedString,
     pub(crate) library: Option<OpenLibraryState>,
     items: Vec<ListedItem>,
     justified: Option<JustifiedLayout>,
@@ -57,10 +59,14 @@ pub struct RootApp {
     create_name: Entity<InputState>,
     create_location: SharedString,
     show_create: bool,
-    details: DetailsModel,
+    pub(crate) details: DetailsModel,
     preview: Option<PreviewState>,
     preview_payload: Option<PreviewPayload>,
     space_gesture: Option<SpaceGesture>,
+    pub(crate) search_input: Entity<InputState>,
+    pub(crate) imports_open: bool,
+    pub(crate) pending_duplicate: Option<(u64, DuplicateNotice)>,
+    _search_sub: Option<Subscription>,
 }
 
 impl RootApp {
@@ -72,6 +78,9 @@ impl RootApp {
 
         let create_name =
             cx.new(|cx| InputState::new(window, cx).default_value("My Library"));
+        let search_input = cx.new(|cx| {
+            InputState::new(window, cx).placeholder(crate::i18n::t(prefs.locale, "shell.search"))
+        });
 
         let mut app = Self {
             session,
@@ -101,8 +110,24 @@ impl RootApp {
             preview: None,
             preview_payload: None,
             space_gesture: None,
+            search_input: search_input.clone(),
+            imports_open: false,
+            pending_duplicate: None,
+            _search_sub: None,
         };
         app.create_location = SharedString::from(app.session.default_library_location());
+        app._search_sub = Some(cx.subscribe(
+            &search_input,
+            |this, input, event: &InputEvent, cx| {
+                if matches!(
+                    event,
+                    InputEvent::PressEnter { .. } | InputEvent::Blur
+                ) {
+                    let text = input.read(cx).value().to_string();
+                    this.apply_search(text, cx);
+                }
+            },
+        ));
 
         let startup = app.session.startup(platform::skip_reopen());
         if let Some(notice) = startup.notice {
@@ -123,7 +148,7 @@ impl RootApp {
             entity.update(cx, |this, cx| this.request_quit(window, cx))
         });
 
-        // Poll Session Emit mailbox → Entity notify (views-invalidated).
+        // Poll Session Emit mailbox → Entity notify (views-invalidated / import).
         cx.spawn(async move |this, cx| {
             loop {
                 cx.background_executor()
@@ -194,7 +219,30 @@ impl RootApp {
                         }
                     }
                 }
-                Event::ImportProgress(_) | Event::ExportProgress(_) => {}
+                Event::ImportProgress(progress) => {
+                    self.status = SharedString::from(format!(
+                        "{} {}/{} (+{} dup={} fail={})",
+                        t(self.locale, "import.progress"),
+                        progress.processed,
+                        progress.total,
+                        progress.added,
+                        progress.duplicates,
+                        progress.failed
+                    ));
+                    if progress.state == ImportState::WaitingForDecision {
+                        if let Some(dup) = progress.duplicate.clone() {
+                            self.pending_duplicate = Some((progress.id, dup));
+                        }
+                    }
+                    if matches!(
+                        progress.state,
+                        ImportState::Done | ImportState::Cancelled
+                    ) {
+                        needs_refresh = true;
+                    }
+                    cx.notify();
+                }
+                Event::ExportProgress(_) => {}
             }
         }
         if needs_refresh {
@@ -237,16 +285,26 @@ impl RootApp {
         self.justified = Some(grid::build_justified(lib, self.grid_width));
     }
 
-    fn adopt_library(&mut self, info: LibraryInfo, window: &mut Window, cx: &mut Context<Self>) {
+    pub(crate) fn adopt_library(
+        &mut self,
+        info: LibraryInfo,
+        window: &mut Window,
+        cx: &mut Context<Self>,
+    ) {
         match OpenLibraryState::load(&self.session, info) {
             Ok(state) => {
                 window.set_window_title(&window_title(Some(&state.info)));
+                let search = state.filters.search_text.clone();
                 self.items = grid::load_listed(&self.session, &state.cells);
                 self.status = SharedString::from("");
                 self.library = Some(state);
                 self.preview = None;
                 self.preview_payload = None;
                 self.space_gesture = None;
+                self.pending_duplicate = None;
+                self.search_input.update(cx, |input, cx| {
+                    input.set_value(search, window, cx);
+                });
                 self.recompute_justified();
                 self.refresh_details(cx);
             }
@@ -301,7 +359,7 @@ impl RootApp {
         cx.notify();
     }
 
-    fn refresh_view(&mut self, cx: &mut Context<Self>) {
+    pub(crate) fn refresh_view(&mut self, cx: &mut Context<Self>) {
         if let Some(lib) = self.library.as_mut() {
             if let Err(error) = lib.refresh_view(&self.session) {
                 self.status = SharedString::from(format!("View failed: {error}"));
@@ -826,7 +884,7 @@ impl RootApp {
         }
     }
 
-    fn refresh_details(&mut self, cx: &mut Context<Self>) {
+    pub(crate) fn refresh_details(&mut self, cx: &mut Context<Self>) {
         let Some(lib) = self.library.as_ref() else {
             self.details = DetailsModel {
                 count: 0,
@@ -931,7 +989,7 @@ impl RootApp {
         cx.notify();
     }
 
-    fn selection_target(&self) -> Option<ItemsTarget> {
+    pub(crate) fn selection_target(&self) -> Option<ItemsTarget> {
         let lib = self.library.as_ref()?;
         let ids: Vec<ItemId> = lib.selection.ids.iter().cloned().map(ItemId).collect();
         if ids.is_empty() {
@@ -1401,8 +1459,64 @@ impl Render for RootApp {
             .on_action(cx.listener(|this, _: &CopyOriginals, _, cx| {
                 this.copy_selection(cx);
             }))
-            .on_action(cx.listener(|this, _: &FindStub, _, cx| {
-                this.status = SharedString::from("Search arrives with filters in Phase 3.");
+            .on_action(cx.listener(|this, _: &Find, window, cx| {
+                this.focus_search(window, cx);
+            }))
+            .on_action(cx.listener(|this, _: &Undo, _, cx| {
+                this.undo_last(cx);
+            }))
+            .on_action(cx.listener(|this, _: &TrashSelection, window, cx| {
+                if this
+                    .library
+                    .as_ref()
+                    .is_some_and(|lib| matches!(lib.place, Place::Trash))
+                {
+                    this.delete_permanently_selection(window, cx);
+                } else {
+                    this.trash_selection(window, cx);
+                }
+            }))
+            .on_action(cx.listener(|this, _: &RestoreSelection, _, cx| {
+                this.restore_selection(cx);
+            }))
+            .on_action(cx.listener(|this, _: &DeletePermanently, window, cx| {
+                this.delete_permanently_selection(window, cx);
+            }))
+            .on_action(cx.listener(|this, _: &EmptyTrash, window, cx| {
+                this.empty_trash(window, cx);
+            }))
+            .on_action(cx.listener(|this, _: &AddFiles, window, cx| {
+                this.pick_add_files(window, cx);
+            }))
+            .on_action(cx.listener(|this, _: &ImportFolder, window, cx| {
+                this.pick_import_folder(window, cx);
+            }))
+            .on_action(cx.listener(|this, _: &PasteFiles, _, cx| {
+                this.paste_files(cx);
+            }))
+            .on_action(cx.listener(|this, _: &NewFolder, window, cx| {
+                this.create_folder(window, cx);
+            }))
+            .on_action(cx.listener(|this, _: &RenameFolder, window, cx| {
+                this.rename_open_folder(window, cx);
+            }))
+            .on_action(cx.listener(|this, _: &DeleteFolder, window, cx| {
+                this.delete_open_folder(window, cx);
+            }))
+            .on_action(cx.listener(|this, _: &LockAll, _, cx| {
+                this.lock_all_unlocked(cx);
+            }))
+            .on_action(cx.listener(|this, _: &LibrarySettings, window, cx| {
+                this.open_library_settings(window, cx);
+            }))
+            .on_action(cx.listener(|this, _: &ClearFilters, window, cx| {
+                this.clear_filters(window, cx);
+            }))
+            .on_action(cx.listener(|this, _: &SaveSmartFolder, window, cx| {
+                this.save_as_smart_folder(window, cx);
+            }))
+            .on_action(cx.listener(|this, _: &ToggleImportsPanel, _, cx| {
+                this.imports_open = !this.imports_open;
                 cx.notify();
             }))
             .on_action(cx.listener(|this, _: &SortByAdded, _, cx| {
@@ -1543,6 +1657,37 @@ impl RootApp {
                         this.open_settings(window, cx);
                     })),
             )
+            .when(has_library, |el| {
+                el.child(
+                    Button::new("mb-lib-settings")
+                        .ghost()
+                        .label(t(locale, "commands.library.settings"))
+                        .on_click(cx.listener(|this, _, window, cx| {
+                            this.open_library_settings(window, cx);
+                        })),
+                )
+                .child(
+                    Button::new("mb-undo")
+                        .ghost()
+                        .label({
+                            match self.session.undo_status() {
+                                Some(status) => {
+                                    format!("{} ({})", t(locale, "commands.edit.undo"), status.items)
+                                }
+                                None => t(locale, "commands.edit.undo"),
+                            }
+                        })
+                        .on_click(cx.listener(|this, _, _, cx| this.undo_last(cx))),
+                )
+                .child(
+                    Button::new("mb-add")
+                        .ghost()
+                        .label(t(locale, "commands.file.addFiles"))
+                        .on_click(cx.listener(|this, _, window, cx| {
+                            this.pick_add_files(window, cx);
+                        })),
+                )
+            })
             .child(div().flex_1())
             .child(
                 Button::new("mb-shortcuts")
@@ -1794,6 +1939,12 @@ impl RootApp {
             .flex_1()
             .size_full()
             .min_h(px(0.))
+            .on_drop({
+                let entity = entity.clone();
+                move |paths: &ExternalPaths, _, cx| {
+                    entity.update(cx, |this, cx| this.handle_external_drop(paths, cx));
+                }
+            })
             .child(
                 h_flex()
                     .id("toolbar")
@@ -1808,7 +1959,71 @@ impl RootApp {
                     .child(
                         Label::new(i18n::t_n(locale, "shell.statusItems", lib.total)).text_sm(),
                     )
+                    .child(
+                        div()
+                            .id("search-field")
+                            .w(px(220.))
+                            .child(Input::new(&self.search_input)),
+                    )
+                    .when(!lib.filters.is_empty(), |el| {
+                        el.child(
+                            Button::new("tb-clear-filters")
+                                .ghost()
+                                .label(t(locale, "filters.clear"))
+                                .on_click(cx.listener(|this, _, window, cx| {
+                                    this.clear_filters(window, cx);
+                                })),
+                        )
+                    })
+                    .child(
+                        h_flex()
+                            .gap_1()
+                            .child(Label::new(t(locale, "filters.rating")).text_xs())
+                            .children((0..=5).map(|star| {
+                                let selected = lib.filters.rating == Some(star);
+                                let entity = entity.clone();
+                                Button::new(SharedString::from(format!("rate-filter-{star}")))
+                                    .when(selected, |b| b.primary())
+                                    .when(!selected, |b| b.ghost())
+                                    .label(if star == 0 {
+                                        t(locale, "filters.unrated")
+                                    } else {
+                                        format!("{star}★")
+                                    })
+                                    .on_click(move |_, _, cx| {
+                                        entity.update(cx, |this, cx| {
+                                            let next = if this
+                                                .library
+                                                .as_ref()
+                                                .is_some_and(|lib| lib.filters.rating == Some(star))
+                                            {
+                                                None
+                                            } else {
+                                                Some(star)
+                                            };
+                                            this.set_rating_filter(next, cx);
+                                        });
+                                    })
+                            })),
+                    )
                     .child(div().flex_1())
+                    .child(
+                        Button::new("tb-add")
+                            .primary()
+                            .label(t(locale, "commands.file.addFiles"))
+                            .on_click(cx.listener(|this, _, window, cx| {
+                                this.pick_add_files(window, cx);
+                            })),
+                    )
+                    .child(
+                        Button::new("tb-imports")
+                            .ghost()
+                            .label(t(locale, "import.panel"))
+                            .on_click(cx.listener(|this, _, _, cx| {
+                                this.imports_open = !this.imports_open;
+                                cx.notify();
+                            })),
+                    )
                     .child(
                         Button::new("tb-sort")
                             .ghost()
@@ -1982,5 +2197,160 @@ impl RootApp {
                     }),
             )
             .child(library_ui::render_status_bar(lib, locale))
+            .when(!self.status.is_empty(), |el| {
+                el.child(
+                    h_flex()
+                        .id("status-message")
+                        .w_full()
+                        .px_3()
+                        .py_1()
+                        .child(
+                            Label::new(self.status.clone())
+                                .text_xs()
+                                .text_color(theme.muted_foreground),
+                        ),
+                )
+            })
+            .when(self.imports_open, |el| {
+                el.child(self.render_imports_panel(locale, theme, cx))
+            })
+            .when_some(self.pending_duplicate.clone(), |el, (id, notice)| {
+                el.child(self.render_duplicate_banner(id, &notice, locale, cx))
+            })
+    }
+
+    fn render_imports_panel(
+        &self,
+        locale: Locale,
+        theme: &gpui_kit::component::theme::Theme,
+        cx: &mut Context<Self>,
+    ) -> impl IntoElement {
+        let imports = self.session.imports();
+        v_flex()
+            .id("imports-panel")
+            .w_full()
+            .max_h(px(160.))
+            .border_t_1()
+            .border_color(theme.border)
+            .p_2()
+            .gap_1()
+            .overflow_y_scroll()
+            .child(
+                h_flex()
+                    .justify_between()
+                    .child(Label::new(t(locale, "import.panel")).font_bold())
+                    .child(
+                        Button::new("imports-close")
+                            .ghost()
+                            .label(t(locale, "common.cancel"))
+                            .on_click(cx.listener(|this, _, _, cx| {
+                                this.imports_open = false;
+                                cx.notify();
+                            })),
+                    ),
+            )
+            .when(imports.is_empty(), |el| {
+                el.child(
+                    Label::new(t(locale, "import.empty"))
+                        .text_xs()
+                        .text_color(theme.muted_foreground),
+                )
+            })
+            .children(imports.into_iter().map(|progress| {
+                let id = progress.id;
+                let entity = cx.entity();
+                h_flex()
+                    .id(SharedString::from(format!("import-{id}")))
+                    .gap_2()
+                    .items_center()
+                    .child(
+                        Label::new(format!(
+                            "#{} {:?} {}/{}",
+                            id, progress.state, progress.processed, progress.total
+                        ))
+                        .text_xs()
+                        .flex_1(),
+                    )
+                    .child(
+                        Button::new(SharedString::from(format!("cancel-import-{id}")))
+                            .ghost()
+                            .label(t(locale, "import.cancel"))
+                            .on_click(move |_, _, cx| {
+                                entity.update(cx, |this, cx| this.cancel_import(id, cx));
+                            }),
+                    )
+            }))
+    }
+
+    fn render_duplicate_banner(
+        &self,
+        id: u64,
+        notice: &DuplicateNotice,
+        locale: Locale,
+        cx: &mut Context<Self>,
+    ) -> impl IntoElement {
+        let entity = cx.entity();
+        h_flex()
+            .id("duplicate-banner")
+            .w_full()
+            .gap_2()
+            .px_3()
+            .py_2()
+            .border_t_1()
+            .child(
+                Label::new(format!(
+                    "{}: {}",
+                    t(locale, "import.duplicate"),
+                    notice.path
+                ))
+                .text_sm()
+                .flex_1(),
+            )
+            .child({
+                let entity = entity.clone();
+                Button::new("dup-skip")
+                    .outline()
+                    .label(t(locale, "import.skip"))
+                    .on_click(move |_, _, cx| {
+                        entity.update(cx, |this, cx| {
+                            this.answer_duplicate(id, DuplicateChoice::Skip, cx);
+                        });
+                    })
+            })
+            .child({
+                let entity = entity.clone();
+                Button::new("dup-add")
+                    .outline()
+                    .label(t(locale, "import.addAnyway"))
+                    .on_click(move |_, _, cx| {
+                        entity.update(cx, |this, cx| {
+                            this.answer_duplicate(id, DuplicateChoice::AddAnyway, cx);
+                        });
+                    })
+            })
+            .when(notice.target_folder.is_some(), |el| {
+                let entity = entity.clone();
+                el.child(
+                    Button::new("dup-folder")
+                        .outline()
+                        .label(t(locale, "import.addToFolder"))
+                        .on_click(move |_, _, cx| {
+                            entity.update(cx, |this, cx| {
+                                this.answer_duplicate(id, DuplicateChoice::AddToFolder, cx);
+                            });
+                        }),
+                )
+            })
+            .child({
+                let entity = entity.clone();
+                Button::new("dup-cancel")
+                    .ghost()
+                    .label(t(locale, "import.cancel"))
+                    .on_click(move |_, _, cx| {
+                        entity.update(cx, |this, cx| {
+                            this.answer_duplicate(id, DuplicateChoice::Cancel, cx);
+                        });
+                    })
+            })
     }
 }

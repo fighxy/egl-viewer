@@ -2785,6 +2785,30 @@ Numbering: **D-125** reserved by open PR #85; **D-126** spike; **D-127** session
   Best-effort appear fade; skipped when `EGL_REDUCED_MOTION` / Windows `MinAnimate=0`.
 - **Deps.** `arboard`, `image`, `media`, `serde_json`, Windows `winreg` (reduced-motion) on
   `gpui-desktop` only (D-002 / D-003).
-- **Not yet.** In-place edits / trash actions (Phase 3); morph-from-cell View Transitions
-  (plan §7 best-effort); search / filters / Eagle.
+- **Not yet (superseded by D-131 for edits).** Morph-from-cell View Transitions (plan §7
+  best-effort); Eagle.
 - **Run.** `cargo run -p gpui-desktop`. Tests: `cargo test -p gpui-desktop`. Tauri/`ui/` unchanged.
+
+## D-131 GPUI edits / organize / import / locks (Phase 3 slice) (2026-11-08)
+
+Day-to-day native-library editing on `gpui-desktop` via `desktop-session` (still experimental
+beside Tauri/`ui/`). Numbering: free id after D-130; **D-131**.
+
+- **Ships (working slices).** Details edits through Session: name/note/link dialogs, rating
+  stars, add/remove tags (dimmed partial tags on multi-select), Trash / Restore / Delete
+  permanently / Empty Trash with confirms + Settings `confirm_before_trash`, Undo `Ctrl+Z`
+  with dynamic menu label. Search `Ctrl+F` + rating filter chips + Clear filters; query /
+  session persistence for search + filters. Folder create / rename / delete (+ trash items
+  option), Locked folders section + unlock password + lock open folder + Lock All `Ctrl+L`
+  (relock unlocked). Smart folders list + open + Save as smart folder from current query.
+  Add Files / Import Folder / OS `ExternalPaths` drop / Paste (image via arboard; file-list
+  clipboard still gap), Imports panel + duplicate banner answers. Library Settings: rename,
+  reveal, stats, backups list + restore, Back Up Now, Check, Rebuild Thumbnails.
+- **Not yet / partial.** Full Filter bar modes (Tags Any/All/Exact/None, Folders, Type,
+  Shape); tag groups CRUD + vocabulary suggestions + recent; smart rule editor UI; YubiKey
+  bind/unbind/unlock UI; recovery file save UI; in-window DnD (folder nest/reorder, item→
+  folder/tag/trash, manual reorder); OS drag-out originals; folder properties / Manual drag
+  reorder cells; preview_import reviewed dialog; Imports history polish.
+- **Deps.** No new crates (reuses `arboard` from Phase 2).
+- **Run.** `cargo run -p gpui-desktop`. Tests: `cargo test -p gpui-desktop` (includes
+  rename+undo fixture). Tauri/`ui/` unchanged.

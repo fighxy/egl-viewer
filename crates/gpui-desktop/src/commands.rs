@@ -1,4 +1,4 @@
-//! GPUI actions + keymap for Phase 1–2 (logical ids mirror `ui/src/commands/registry.ts`).
+//! GPUI actions + keymap for Phase 1–3 (logical ids mirror `ui/src/commands/registry.ts`).
 //! Commands of later phases are absent, not disabled.
 
 use gpui_kit::{App, KeyBinding, actions};
@@ -10,6 +10,7 @@ actions!(
         OpenLibrary,
         CloseLibrary,
         Settings,
+        LibrarySettings,
         Exit,
         ThemeSystem,
         ThemeLight,
@@ -39,7 +40,22 @@ actions!(
         OpenOriginal,
         RevealOriginals,
         CopyOriginals,
-        FindStub,
+        Find,
+        Undo,
+        TrashSelection,
+        RestoreSelection,
+        DeletePermanently,
+        EmptyTrash,
+        AddFiles,
+        ImportFolder,
+        PasteFiles,
+        NewFolder,
+        RenameFolder,
+        DeleteFolder,
+        LockAll,
+        ToggleImportsPanel,
+        ClearFilters,
+        SaveSmartFolder,
         SortByAdded,
         SortByCreated,
         SortByModified,
@@ -91,6 +107,16 @@ pub const SHORTCUTS: &[ShortcutEntry] = &[
         keys: "Ctrl+,",
     },
     ShortcutEntry {
+        id: "file.addFiles",
+        label_key: "commands.file.addFiles",
+        keys: "Ctrl+Shift+A",
+    },
+    ShortcutEntry {
+        id: "edit.undo",
+        label_key: "commands.edit.undo",
+        keys: "Ctrl+Z",
+    },
+    ShortcutEntry {
         id: "edit.selectAll",
         label_key: "commands.edit.selectAll",
         keys: "Ctrl+A",
@@ -99,6 +125,26 @@ pub const SHORTCUTS: &[ShortcutEntry] = &[
         id: "edit.find",
         label_key: "commands.edit.find",
         keys: "Ctrl+F",
+    },
+    ShortcutEntry {
+        id: "edit.trash",
+        label_key: "commands.edit.trash",
+        keys: "Delete",
+    },
+    ShortcutEntry {
+        id: "edit.paste",
+        label_key: "commands.edit.pasteFiles",
+        keys: "Ctrl+V",
+    },
+    ShortcutEntry {
+        id: "folder.new",
+        label_key: "commands.folder.new",
+        keys: "Ctrl+Shift+N",
+    },
+    ShortcutEntry {
+        id: "library.lockAll",
+        label_key: "commands.library.lockAll",
+        keys: "Ctrl+L",
     },
     ShortcutEntry {
         id: "view.fullScreen",
@@ -173,7 +219,15 @@ pub fn bind_keymap(cx: &mut App) {
         KeyBinding::new("ctrl-w", CloseLibrary, None),
         KeyBinding::new("ctrl-,", Settings, None),
         KeyBinding::new("ctrl-a", SelectAll, None),
-        KeyBinding::new("ctrl-f", FindStub, None),
+        KeyBinding::new("ctrl-f", Find, None),
+        KeyBinding::new("ctrl-z", Undo, None),
+        KeyBinding::new("delete", TrashSelection, None),
+        KeyBinding::new("backspace", TrashSelection, None),
+        KeyBinding::new("ctrl-shift-a", AddFiles, None),
+        KeyBinding::new("ctrl-v", PasteFiles, None),
+        KeyBinding::new("ctrl-shift-n", NewFolder, None),
+        KeyBinding::new("f2", RenameFolder, None),
+        KeyBinding::new("ctrl-l", LockAll, None),
         KeyBinding::new("f11", ToggleFullScreen, None),
         KeyBinding::new("ctrl-b", ToggleSidebar, None),
         KeyBinding::new("ctrl-i", ToggleDetails, None),

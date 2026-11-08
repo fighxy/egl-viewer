@@ -5,11 +5,12 @@ use std::path::{Path, PathBuf};
 use std::sync::{Arc, Mutex};
 
 use app_store::{
-    AppStore, BrowsePreferences, LibrarySession, SavedPlace, SyncEnvironment, Theme,
+    AppStore, BrowsePreferences, LibrarySession, SavedFilters, SavedPlace, SyncEnvironment, Theme,
 };
 use desktop_session::{Emit, Event, Session, ViewOpened};
 use library_core::{
-    Folder, ItemCell, ItemId, LibraryCounts, LibraryInfo, LibraryQuery, Scope, SortKey, Thumbnail,
+    Folder, ItemCell, ItemId, LibraryCounts, LibraryInfo, LibraryQuery, Scope, SmartFolder, SortKey,
+    TagMode, Thumbnail,
 };
 
 use crate::platform;
@@ -74,6 +75,7 @@ pub enum Place {
     Untagged,
     Trash,
     Folder { id: String },
+    Smart { id: String },
 }
 
 impl Place {
@@ -84,7 +86,7 @@ impl Place {
             SavedPlace::Untagged => Self::Untagged,
             SavedPlace::Trash => Self::Trash,
             SavedPlace::Folder { id } => Self::Folder { id },
-            SavedPlace::Smart { .. } => Self::All,
+            SavedPlace::Smart { id } => Self::Smart { id },
         }
     }
 
@@ -95,6 +97,7 @@ impl Place {
             Self::Untagged => SavedPlace::Untagged,
             Self::Trash => SavedPlace::Trash,
             Self::Folder { id } => SavedPlace::Folder { id: id.clone() },
+            Self::Smart { id } => SavedPlace::Smart { id: id.clone() },
         }
     }
 
@@ -108,16 +111,97 @@ impl Place {
                 id: id.clone(),
                 include_descendants: include_subfolders,
             },
+            Self::Smart { id } => Scope::Smart { id: id.clone() },
+        }
+    }
+
+    pub fn open_folder_id(&self) -> Option<&str> {
+        match self {
+            Self::Folder { id } => Some(id.as_str()),
+            _ => None,
         }
     }
 }
 
-pub fn query_for(place: &Place, browse: &BrowsePreferences, sort: SortKey, ascending: bool) -> LibraryQuery {
+/// Active filter chips (Phase 3.C) — mirrors `SavedFilters` plus search text.
+#[derive(Debug, Clone, PartialEq, Eq, Default)]
+pub struct ActiveFilters {
+    pub tags: Vec<String>,
+    pub tag_mode: TagMode,
+    pub folders: Vec<String>,
+    pub folder_mode: TagMode,
+    pub ext: Option<String>,
+    pub rating: Option<u8>,
+    pub shape: Option<String>,
+    pub search_text: String,
+}
+
+impl ActiveFilters {
+    pub fn from_saved(filters: &SavedFilters, search_text: String) -> Self {
+        Self {
+            tags: filters.tags.clone(),
+            tag_mode: filters.tag_mode,
+            folders: filters.folders.clone(),
+            folder_mode: filters.folder_mode,
+            ext: filters.ext.clone(),
+            rating: filters.rating,
+            shape: filters.shape.clone(),
+            search_text,
+        }
+    }
+
+    pub fn to_saved(&self) -> SavedFilters {
+        SavedFilters {
+            tags: self.tags.clone(),
+            tag_mode: self.tag_mode,
+            folders: self.folders.clone(),
+            folder_mode: self.folder_mode,
+            ext: self.ext.clone(),
+            rating: self.rating,
+            shape: self.shape.clone(),
+        }
+    }
+
+    pub fn is_empty(&self) -> bool {
+        self.tags.is_empty()
+            && self.folders.is_empty()
+            && self.ext.is_none()
+            && self.rating.is_none()
+            && self.shape.is_none()
+            && self.search_text.trim().is_empty()
+    }
+
+    pub fn clear(&mut self) {
+        *self = Self::default();
+    }
+}
+
+pub fn query_for(
+    place: &Place,
+    browse: &BrowsePreferences,
+    sort: SortKey,
+    ascending: bool,
+    filters: &ActiveFilters,
+) -> LibraryQuery {
     LibraryQuery {
         scope: place.to_scope(browse.include_subfolders),
+        tag_mode: filters.tag_mode,
+        tags: filters.tags.clone(),
+        extra_folder_ids: filters.folders.clone(),
+        folder_mode: filters.folder_mode,
+        ext: filters.ext.clone(),
+        rating: filters.rating,
+        shape: filters.shape.clone(),
+        text: {
+            let trimmed = filters.search_text.trim();
+            if trimmed.is_empty() {
+                None
+            } else {
+                Some(trimmed.to_string())
+            }
+        },
         sort,
         ascending,
-        ..LibraryQuery::default()
     }
 }
 
@@ -265,11 +349,13 @@ pub struct OpenLibraryState {
     pub dimensions: Vec<[u32; 2]>,
     pub counts: LibraryCounts,
     pub folders: Vec<Folder>,
+    pub smart_folders: Vec<SmartFolder>,
     pub expanded: HashSet<String>,
     pub selection: Selection,
     pub sort: SortKey,
     pub ascending: bool,
     pub browse: BrowsePreferences,
+    pub filters: ActiveFilters,
     pub left_open: bool,
     pub right_open: bool,
     pub left_width: u32,
@@ -291,11 +377,13 @@ impl OpenLibraryState {
         let browse = prefs.browse;
         let sort = saved.screen_sort.unwrap_or(browse.sort);
         let ascending = saved.screen_ascending.unwrap_or(browse.ascending);
-        let query = query_for(&place, &browse, sort, ascending);
+        let filters = ActiveFilters::from_saved(&saved.filters, saved.search_text);
+        let query = query_for(&place, &browse, sort, ascending, &filters);
         let (opened, cells) = open_view_window(session, query, 0, 500)?;
         let dimensions = session.view_dimensions(opened.view_id).unwrap_or_default();
         let counts = session.counts().unwrap_or_default();
         let folders = session.folder_tree().unwrap_or_default();
+        let smart_folders = session.smart_folders().unwrap_or_default();
         let selection = Selection::from_saved(&saved.selection);
         Ok(Self {
             info,
@@ -306,11 +394,13 @@ impl OpenLibraryState {
             dimensions,
             counts,
             folders,
+            smart_folders,
             expanded: HashSet::new(),
             selection,
             sort,
             ascending,
             browse,
+            filters,
             left_open: prefs.layout.left_open,
             right_open: prefs.layout.right_open,
             left_width: prefs.layout.left_width,
@@ -321,7 +411,13 @@ impl OpenLibraryState {
 
     pub fn refresh_view(&mut self, session: &Session) -> Result<(), library_core::SourceError> {
         session.close_view(self.view_id);
-        let query = query_for(&self.place, &self.browse, self.sort, self.ascending);
+        let query = query_for(
+            &self.place,
+            &self.browse,
+            self.sort,
+            self.ascending,
+            &self.filters,
+        );
         let (opened, cells) = open_view_window(session, query, 0, 500)?;
         self.view_id = opened.view_id;
         self.total = opened.total;
@@ -329,14 +425,15 @@ impl OpenLibraryState {
         self.dimensions = session.view_dimensions(opened.view_id).unwrap_or_default();
         self.counts = session.counts().unwrap_or_default();
         self.folders = session.folder_tree().unwrap_or_default();
+        self.smart_folders = session.smart_folders().unwrap_or_default();
         Ok(())
     }
 
     pub fn persist_session(&self, session: &Session) {
         let saved = LibrarySession {
             place: self.place.to_saved(),
-            filters: Default::default(),
-            search_text: String::new(),
+            filters: self.filters.to_saved(),
+            search_text: self.filters.search_text.clone(),
             selection: self.selection.to_saved(),
             screen_sort: Some(self.sort),
             screen_ascending: Some(self.ascending),
@@ -360,6 +457,34 @@ pub fn window_title(info: Option<&LibraryInfo>) -> String {
         Some(info) => format!("{} — egl-viewer", info.name),
         None => "egl-viewer".into(),
     }
+}
+
+/// Locked folders in tree order (D-059 Locked folders section).
+pub fn locked_folders(folders: &[Folder]) -> Vec<Folder> {
+    let mut out = Vec::new();
+    collect_locked(folders, &mut out);
+    out
+}
+
+fn collect_locked(folders: &[Folder], out: &mut Vec<Folder>) {
+    for folder in folders {
+        if folder.is_locked {
+            out.push(folder.clone());
+        }
+        collect_locked(&folder.children, out);
+    }
+}
+
+/// Folders tree with locked folders removed from the regular tree (they live in Locked).
+pub fn unlocked_tree(folders: &[Folder]) -> Vec<Folder> {
+    folders
+        .iter()
+        .filter(|f| !f.is_locked)
+        .map(|f| Folder {
+            children: unlocked_tree(&f.children),
+            ..f.clone()
+        })
+        .collect()
 }
 
 #[allow(dead_code)]
@@ -411,6 +536,49 @@ mod tests {
             id: "F1".into(),
         };
         assert_eq!(Place::from_saved(folder.to_saved()), folder);
+        let smart = Place::Smart {
+            id: "S1".into(),
+        };
+        assert_eq!(Place::from_saved(smart.to_saved()), smart);
+    }
+
+    #[test]
+    fn query_for_includes_search_and_rating_filter() {
+        let filters = ActiveFilters {
+            search_text: "poster".into(),
+            rating: Some(3),
+            ..ActiveFilters::default()
+        };
+        let query = query_for(
+            &Place::All,
+            &BrowsePreferences::default(),
+            SortKey::DateAdded,
+            false,
+            &filters,
+        );
+        assert_eq!(query.text.as_deref(), Some("poster"));
+        assert_eq!(query.rating, Some(3));
+    }
+
+    #[test]
+    fn apply_item_edit_rename_on_fixture() {
+        use library_core::ItemEdit;
+
+        let source = fixture_library_path();
+        let dir = tempdir().unwrap();
+        let root = dir.path().join("Fixture.eglib");
+        copy_dir(&source, &root).unwrap();
+        let session = session();
+        let info = session.open_library(&root.to_string_lossy()).unwrap();
+        let state = OpenLibraryState::load(&session, info).unwrap();
+        let id = state.cells[0].id.0.clone();
+        let renamed = session
+            .apply_item_edit(&id, ItemEdit::Rename("Phase3Rename".into()))
+            .unwrap();
+        assert_eq!(renamed.name, "Phase3Rename");
+        let undone = session.undo().unwrap();
+        assert!(undone.is_some());
+        session.close_library().unwrap();
     }
 
     #[test]

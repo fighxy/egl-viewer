@@ -13,6 +13,7 @@ mod dialogs;
 mod i18n;
 mod justified;
 mod library;
+mod ops;
 mod platform;
 mod screens;
 mod theme;
