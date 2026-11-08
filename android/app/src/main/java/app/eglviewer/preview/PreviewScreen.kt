@@ -1,6 +1,7 @@
 package app.eglviewer.preview
 
 import android.graphics.Bitmap
+import androidx.activity.compose.BackHandler
 import androidx.compose.foundation.ExperimentalFoundationApi
 import androidx.compose.foundation.background
 import androidx.compose.foundation.layout.Arrangement
@@ -85,6 +86,15 @@ fun PreviewScreen(
         snapshotFlow { pagerState.currentPage }
             .distinctUntilChanged()
             .collect { page -> model.need(page) }
+    }
+
+    // System back: dismiss delete / details first, then leave the preview (D-126).
+    BackHandler {
+        when {
+            deleting -> deleting = false
+            details != null -> details = null
+            else -> onClose()
+        }
     }
 
     val index = pagerState.currentPage.coerceIn(0, (model.total - 1).coerceAtLeast(0))

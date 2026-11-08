@@ -3,6 +3,7 @@ package app.eglviewer.browse
 import android.content.ClipData
 import android.graphics.Bitmap
 import android.net.Uri
+import androidx.activity.compose.BackHandler
 import androidx.compose.foundation.ExperimentalFoundationApi
 import androidx.compose.foundation.Image
 import androidx.compose.foundation.background
@@ -146,6 +147,21 @@ fun BrowseScreen(
     }
     @Suppress("UNUSED_EXPRESSION")
     tick
+
+    // System / gesture back: leave preview, cancel selection, then return to places (D-126).
+    BackHandler {
+        when {
+            model.previewing != null -> model.closePreview()
+            model.details != null -> model.closeDetails()
+            showFilters -> showFilters = false
+            emptyTrashConfirm -> emptyTrashConfirm = false
+            model.selecting -> model.setSelecting(false)
+            else -> {
+                open.forgetPlace()
+                onBack()
+            }
+        }
+    }
 
     Box(
         modifier = Modifier
