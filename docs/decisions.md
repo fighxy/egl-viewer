@@ -2745,21 +2745,25 @@ First usable native browse UI on `gpui-desktop`, still experimental beside Tauri
 Numbering: **D-125** reserved by open PR #85; **D-126** spike; **D-127** session extract;
 **D-128** claimed by Android preview-swipe work. This phase is **D-129**.
 
-- **Ships.** Welcome (create / open / recent / forget); startup reopen + `--no-reopen`
-  (Shift-at-start still deferred as in D-032); library chrome (menubar strip, left scopes +
-  read-only folder tree, toolbar grid/list/thumb size/names/subfolders, status, read-only
-  banner, details stub); wrap grid and list with Session thumbs / palette placeholders;
-  click / Ctrl / Shift / Select All selection; command actions + keymap; Settings → General
-  (theme, locale, reopen, trash confirm, default folder); About and Keyboard Shortcuts;
-  quit confirm; Open Log Folder; GPUI `prompt_for_paths` for open/create location; per-library
-  session restore (place / sort / selection / panel prefs) via `desktop-session`.
+- **Ships.** Welcome (create / open / recent / forget); startup reopen + `--no-reopen` +
+  Shift-at-start via `device_query` (closes the D-032 Windows-key gap for the GPUI host);
+  library chrome (menubar strip, left scopes + read-only folder tree, toolbar
+  grid/list/thumb size/names/subfolders/Sort By, status, read-only banner, details stub);
+  live justified grid + list with Kit `v_virtual_list`, Session thumbs / palette placeholders;
+  click / Ctrl / Shift / Select All / rubber-band / arrow keys / Enter→details; cell
+  `aria_label`s; Kit `h_resizable` panel drag with width persistence; real F11 via
+  `Window::toggle_fullscreen`; About with `EGL_COMMIT`; Session `Emit` mailbox → Entity poll
+  for `views-invalidated`; command actions + keymap; Settings → General; Shortcuts; quit
+  confirm; Open Log Folder; GPUI `prompt_for_paths`; per-library session restore.
 - **i18n.** en / ru / zh-CN catalogs for Welcome and shell chrome inside the crate (mechanical
   port of the React keys); locale preference persists in the GPUI AppStore.
 - **AppStore.** Stable `%LOCALAPPDATA%\egl-viewer-gpui` (not the Tauri app id) so prefs survive
   restarts without colliding with the shipping desktop until cutover.
-- **Not yet.** Justified packing is implemented and tested in Rust but the live grid still
-  wraps; virtualization, rubber-band, Enter→details focus, F11 fullscreen platform toggle,
-  resizable panel drag persistence beyond width prefs, and Eagle Welcome actions stay for
-  follow-ups. Eagle buttons are present but disabled.
+- **Deps.** `device_query = "=4.0.1"` (safe Shift query; crate contains the Win32/FFI `unsafe`,
+  not this package — D-002 / D-003 / D-032).
+- **Not yet / deferred.** Search field remains a stub label (Phase 3); Eagle Welcome actions
+  stay disabled (Phase 4); windowed `view_range` fetch beyond the first 500 cells can tighten
+  further for huge libraries; Tauri host still lacks Shift-at-start (unchanged D-032 for
+  shipping). Rubber-band hit-testing uses content coordinates best-effort.
 - **Run.** `cargo run -p gpui-desktop` (optional path / `--no-reopen`). Tests:
   `cargo test -p gpui-desktop`. Tauri/`ui/` unchanged.

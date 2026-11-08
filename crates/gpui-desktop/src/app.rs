@@ -1,40 +1,54 @@
 //! Root GPUI entity: Welcome ↔ Library shell, commands, dialogs (Phase 1 / D-129).
 
 use std::path::PathBuf;
+use std::time::Duration;
 
 use app_store::{BrowsePreferences, Locale, Theme, ViewMode};
-use desktop_session::Session;
+use desktop_session::{Event, Session};
 use gpui_kit::component::button::{Button, ButtonVariants as _};
 use gpui_kit::component::input::{Input, InputState};
 use gpui_kit::component::label::Label;
 use gpui_kit::component::{
-    ActiveTheme, Disableable as _, StyledExt as _, WindowExt as _, h_flex, v_flex,
+    ActiveTheme, Disableable as _, StyledExt as _, WindowExt as _, h_flex, h_resizable,
+    resizable_panel, v_flex,
 };
 use gpui_kit::prelude::FluentBuilder as _;
 use gpui_kit::{
     AppContext as _, Context, Entity, FocusHandle, InteractiveElement, IntoElement, ParentElement,
-    PathPromptOptions, Render, SharedString, StatefulInteractiveElement, Styled, Window,
-    div, px,
+    PathPromptOptions, Pixels, Render, SharedString, Styled, Window, div, px,
 };
-use library_core::LibraryInfo;
+use library_core::{LibraryInfo, SortKey};
 
 use crate::browse::grid::{self, ListedItem};
 use crate::browse::sidebar;
 use crate::commands::{self, *};
 use crate::i18n::{self, t};
-use crate::library::{self, OpenLibraryState, Place, window_title};
+use crate::justified::{self, JustifiedLayout};
+use crate::library::{self, EventMailbox, OpenLibraryState, Place, window_title};
 use crate::platform;
 use crate::screens::library as library_ui;
 use crate::theme;
 
+/// Rubber-band selection rectangle in grid content coordinates.
+#[derive(Debug, Clone, Copy)]
+pub struct RubberBand {
+    pub start: (f32, f32),
+    pub current: (f32, f32),
+}
+
 pub struct RootApp {
     session: Session,
+    events: EventMailbox,
     focus: FocusHandle,
     locale: Locale,
     theme_pref: Theme,
     status: SharedString,
     pub(crate) library: Option<OpenLibraryState>,
     items: Vec<ListedItem>,
+    justified: Option<JustifiedLayout>,
+    grid_width: f32,
+    grid_origin: (f32, f32),
+    rubber: Option<RubberBand>,
     fullscreen: bool,
     quit_pending: bool,
     create_name: Entity<InputState>,
@@ -44,7 +58,8 @@ pub struct RootApp {
 
 impl RootApp {
     pub fn new(window: &mut Window, cx: &mut Context<Self>) -> Self {
-        let session = library::session();
+        let events = library::new_event_mailbox();
+        let session = library::session_with_mailbox(events.clone());
         let prefs = session.preferences();
         theme::apply_theme(prefs.theme, cx);
 
@@ -53,12 +68,17 @@ impl RootApp {
 
         let mut app = Self {
             session,
+            events,
             focus: cx.focus_handle(),
             locale: prefs.locale,
             theme_pref: prefs.theme,
             status: SharedString::from(""),
             library: None,
             items: Vec::new(),
+            justified: None,
+            grid_width: 800.0,
+            grid_origin: (0.0, 0.0),
+            rubber: None,
             fullscreen: false,
             quit_pending: false,
             create_name,
@@ -67,7 +87,7 @@ impl RootApp {
         };
         app.create_location = SharedString::from(app.session.default_library_location());
 
-        let startup = app.session.startup(platform::no_reopen_requested());
+        let startup = app.session.startup(platform::skip_reopen());
         if let Some(notice) = startup.notice {
             app.status = SharedString::from(notice);
         }
@@ -86,8 +106,89 @@ impl RootApp {
             entity.update(cx, |this, cx| this.request_quit(window, cx))
         });
 
+        // Poll Session Emit mailbox → Entity notify (views-invalidated).
+        cx.spawn(async move |this, cx| {
+            loop {
+                cx.background_executor()
+                    .timer(Duration::from_millis(32))
+                    .await;
+                if this
+                    .update(cx, |this, cx| this.poll_session_events(cx))
+                    .is_err()
+                {
+                    break;
+                }
+            }
+        })
+        .detach();
+
         window.set_window_title(&window_title(None));
         app
+    }
+
+    fn poll_session_events(&mut self, cx: &mut Context<Self>) {
+        let pending: Vec<Event> = self
+            .events
+            .lock()
+            .map(|mut q| q.drain(..).collect())
+            .unwrap_or_default();
+        if pending.is_empty() {
+            return;
+        }
+        let mut needs_refresh = false;
+        for event in pending {
+            match event {
+                Event::ViewsInvalidated(views) => {
+                    if let Some(lib) = self.library.as_mut() {
+                        if let Some(updated) =
+                            views.views.iter().find(|v| v.view_id == lib.view_id)
+                        {
+                            lib.total = updated.total;
+                            needs_refresh = true;
+                        }
+                    }
+                }
+                Event::ImportProgress(_) | Event::ExportProgress(_) => {}
+            }
+        }
+        if needs_refresh {
+            self.reload_current_window(cx);
+        }
+    }
+
+    fn reload_current_window(&mut self, cx: &mut Context<Self>) {
+        let Some(lib) = self.library.as_mut() else {
+            return;
+        };
+        match self.session.view_range(lib.view_id, 0, 500) {
+            Ok(cells) => {
+                lib.cells = cells;
+                lib.dimensions = self
+                    .session
+                    .view_dimensions(lib.view_id)
+                    .unwrap_or_default();
+                self.items = grid::load_listed(&self.session, &lib.cells);
+                self.recompute_justified();
+                cx.notify();
+            }
+            Err(error) => {
+                // View may have been dropped; fall back to a fresh open.
+                self.status = SharedString::from(format!("View refresh failed: {error}"));
+                self.refresh_view(cx);
+            }
+        }
+    }
+
+    fn recompute_justified(&mut self) {
+        let Some(lib) = self.library.as_ref() else {
+            self.justified = None;
+            return;
+        };
+        if lib.browse.view_mode != ViewMode::Grid || lib.cells.is_empty() {
+            self.justified = None;
+            return;
+        }
+        self.justified = Some(grid::build_justified(lib, self.grid_width));
     }
 
     fn adopt_library(&mut self, info: LibraryInfo, window: &mut Window, cx: &mut Context<Self>) {
@@ -97,6 +198,7 @@ impl RootApp {
                 self.items = grid::load_listed(&self.session, &state.cells);
                 self.status = SharedString::from("");
                 self.library = Some(state);
+                self.recompute_justified();
                 cx.notify();
             }
             Err(error) => {
@@ -134,6 +236,8 @@ impl RootApp {
         }
         let _ = self.session.close_library();
         self.items.clear();
+        self.justified = None;
+        self.rubber = None;
         window.set_window_title(&window_title(None));
         cx.notify();
     }
@@ -146,9 +250,24 @@ impl RootApp {
                 self.items = grid::load_listed(&self.session, &lib.cells);
                 lib.persist_session(&self.session);
                 lib.persist_browse_prefs(&self.session);
+                self.recompute_justified();
             }
             cx.notify();
         }
+    }
+
+    fn set_sort(&mut self, sort: SortKey, cx: &mut Context<Self>) {
+        if let Some(lib) = self.library.as_mut() {
+            lib.sort = sort;
+        }
+        self.refresh_view(cx);
+    }
+
+    fn set_ascending(&mut self, ascending: bool, cx: &mut Context<Self>) {
+        if let Some(lib) = self.library.as_mut() {
+            lib.ascending = ascending;
+        }
+        self.refresh_view(cx);
     }
 
     pub(crate) fn set_place(&mut self, place: Place, cx: &mut Context<Self>) {
@@ -333,6 +452,7 @@ impl RootApp {
     fn open_about(&mut self, window: &mut Window, cx: &mut Context<Self>) {
         let locale = self.locale;
         let version = library::APP_VERSION;
+        let commit = library::APP_COMMIT.unwrap_or("unknown");
         let os = std::env::consts::OS;
         window.open_dialog(cx, move |dialog, _, _| {
             dialog.title(t(locale, "about.title")).child(
@@ -344,10 +464,98 @@ impl RootApp {
                         t(locale, "about.version")
                     )))
                     .child(Label::new(format!(
+                        "{}: {commit}",
+                        t(locale, "about.commit")
+                    )))
+                    .child(Label::new(format!(
                         "{}: gpui-kit 0.9.0",
                         t(locale, "about.toolkit")
                     )))
                     .child(Label::new(format!("{}: {os}", t(locale, "about.os")))),
+            )
+        });
+    }
+
+    fn open_sort_menu(&mut self, window: &mut Window, cx: &mut Context<Self>) {
+        let Some(lib) = self.library.as_ref() else {
+            return;
+        };
+        let locale = self.locale;
+        let current = lib.sort;
+        let ascending = lib.ascending;
+        let folder_open = matches!(lib.place, Place::Folder { .. });
+        let entity = cx.entity();
+        window.open_dialog(cx, move |dialog, _, _| {
+            let keys: &[(&str, SortKey)] = if folder_open {
+                &[
+                    ("sort.added", SortKey::DateAdded),
+                    ("sort.btime", SortKey::DateCreated),
+                    ("sort.mtime", SortKey::DateModified),
+                    ("sort.name", SortKey::Title),
+                    ("sort.ext", SortKey::Extension),
+                    ("sort.size", SortKey::FileSize),
+                    ("sort.resolution", SortKey::Resolution),
+                    ("sort.star", SortKey::Rating),
+                    ("sort.tag", SortKey::FirstTag),
+                    ("sort.random", SortKey::Random),
+                    ("sort.manual", SortKey::Manual),
+                ]
+            } else {
+                &[
+                    ("sort.added", SortKey::DateAdded),
+                    ("sort.btime", SortKey::DateCreated),
+                    ("sort.mtime", SortKey::DateModified),
+                    ("sort.name", SortKey::Title),
+                    ("sort.ext", SortKey::Extension),
+                    ("sort.size", SortKey::FileSize),
+                    ("sort.resolution", SortKey::Resolution),
+                    ("sort.star", SortKey::Rating),
+                    ("sort.tag", SortKey::FirstTag),
+                    ("sort.random", SortKey::Random),
+                ]
+            };
+            dialog.title(t(locale, "sort.title")).child(
+                v_flex()
+                    .gap_1()
+                    .p_2()
+                    .w(px(320.))
+                    .children(keys.iter().map(|(key, sort)| {
+                        let entity = entity.clone();
+                        let sort = *sort;
+                        Button::new(SharedString::from(format!("sort-{key}")))
+                            .label(t(locale, key))
+                            .when(sort == current, |b| b.primary())
+                            .when(sort != current, |b| b.ghost())
+                            .on_click(move |_, _, cx| {
+                                entity.update(cx, |this, cx| this.set_sort(sort, cx));
+                            })
+                            .into_any_element()
+                    }))
+                    .child(
+                        h_flex()
+                            .gap_2()
+                            .pt_2()
+                            .child({
+                                let entity = entity.clone();
+                                Button::new("sort-asc")
+                                    .label(t(locale, "sort.ascending"))
+                                    .when(ascending, |b| b.primary())
+                                    .when(!ascending, |b| b.ghost())
+                                    .on_click(move |_, _, cx| {
+                                        entity.update(cx, |this, cx| this.set_ascending(true, cx));
+                                    })
+                            })
+                            .child({
+                                let entity = entity.clone();
+                                Button::new("sort-desc")
+                                    .label(t(locale, "sort.descending"))
+                                    .when(!ascending, |b| b.primary())
+                                    .when(ascending, |b| b.ghost())
+                                    .on_click(move |_, _, cx| {
+                                        entity.update(cx, |this, cx| this.set_ascending(false, cx));
+                                    })
+                            }),
+                    ),
             )
         });
     }
@@ -459,11 +667,129 @@ impl RootApp {
         cx.notify();
     }
 
+    pub(crate) fn begin_rubber(&mut self, window_pos: (f32, f32), cx: &mut Context<Self>) {
+        let origin = self.grid_origin;
+        let content = (window_pos.0 - origin.0, window_pos.1 - origin.1);
+        self.rubber = Some(RubberBand {
+            start: content,
+            current: content,
+        });
+        cx.notify();
+    }
+
+    pub(crate) fn update_rubber(&mut self, window_pos: (f32, f32), cx: &mut Context<Self>) {
+        let Some(band) = self.rubber.as_mut() else {
+            return;
+        };
+        let origin = self.grid_origin;
+        band.current = (window_pos.0 - origin.0, window_pos.1 - origin.1);
+        cx.notify();
+    }
+
+    pub(crate) fn end_rubber(&mut self, cx: &mut Context<Self>) {
+        let Some(band) = self.rubber.take() else {
+            return;
+        };
+        let rect = justified::band_rect(band.start, band.current);
+        if (rect.right - rect.left) < 3.0 && (rect.bottom - rect.top) < 3.0 {
+            cx.notify();
+            return;
+        }
+        let Some(lib) = self.library.as_mut() else {
+            cx.notify();
+            return;
+        };
+        let indices = if let Some(layout) = self.justified.as_ref() {
+            justified::indices_in_rect(layout, lib.cells.len(), rect)
+        } else {
+            // List mode: one row ≈ 48px with 8px padding.
+            let mut found = Vec::new();
+            for index in 0..lib.cells.len() {
+                let top = 8.0 + index as f32 * 48.0;
+                let bottom = top + 48.0;
+                if bottom >= rect.top && top <= rect.bottom {
+                    found.push(index);
+                }
+            }
+            found
+        };
+        if let Some(&focus) = indices.last() {
+            lib.selection
+                .select_indices(&lib.cells, &indices, focus);
+            lib.persist_session(&self.session);
+        }
+        cx.notify();
+    }
+
+    fn move_focus(&mut self, key: &str, cx: &mut Context<Self>) {
+        let Some(lib) = self.library.as_mut() else {
+            return;
+        };
+        let total = lib.cells.len();
+        if total == 0 {
+            return;
+        }
+        let page_rows = 5usize;
+        let next = if let Some(layout) = self.justified.as_ref() {
+            justified::move_focus_justified(key, lib.selection.focus, layout, page_rows)
+        } else {
+            let columns = if lib.browse.view_mode == ViewMode::List {
+                1
+            } else {
+                ((self.grid_width / (lib.browse.thumbnail_size as f32 + 16.0)).floor() as usize)
+                    .max(1)
+            };
+            justified::move_focus_list(key, lib.selection.focus, total, columns, page_rows)
+        };
+        let Some(index) = next else {
+            return;
+        };
+        if let Some(cell) = lib.cells.get(index).cloned() {
+            lib.selection.select_only(&cell.id.0, index);
+            lib.persist_session(&self.session);
+            cx.notify();
+        }
+    }
+
+    fn focus_details_panel(&mut self, cx: &mut Context<Self>) {
+        if let Some(lib) = self.library.as_mut() {
+            lib.right_open = true;
+            lib.persist_browse_prefs(&self.session);
+            self.status = SharedString::from(t(self.locale, "shell.detailsStub"));
+            cx.notify();
+        }
+    }
+
     fn update_browse(&mut self, f: impl FnOnce(&mut BrowsePreferences), cx: &mut Context<Self>) {
         if let Some(lib) = self.library.as_mut() {
             f(&mut lib.browse);
             lib.browse = lib.browse.clamped();
             lib.persist_browse_prefs(&self.session);
+            self.recompute_justified();
+            cx.notify();
+        }
+    }
+
+    fn persist_panel_widths(&mut self, left: Option<Pixels>, right: Option<Pixels>, cx: &mut Context<Self>) {
+        if let Some(lib) = self.library.as_mut() {
+            if let Some(w) = left {
+                lib.left_width = w.as_f32().round().clamp(160.0, 480.0) as u32;
+            }
+            if let Some(w) = right {
+                lib.right_width = w.as_f32().round().clamp(200.0, 560.0) as u32;
+            }
+            lib.persist_browse_prefs(&self.session);
+            let deducted = (if lib.left_open {
+                lib.left_width as f32
+            } else {
+                0.0
+            }) + (if lib.right_open {
+                lib.right_width as f32
+            } else {
+                0.0
+            });
+            self.grid_width = (1100.0 - deducted).max(200.0);
+            self.recompute_justified();
             cx.notify();
         }
     }
@@ -571,9 +897,8 @@ impl Render for RootApp {
                 this.set_theme(Theme::Dark, cx);
             }))
             .on_action(cx.listener(|this, _: &ToggleFullScreen, window, cx| {
-                this.fullscreen = !this.fullscreen;
-                // GPUI Window::toggle_or set fullscreen when available; track state for menu check.
-                let _ = window;
+                window.toggle_fullscreen();
+                this.fullscreen = window.is_fullscreen();
                 cx.notify();
             }))
             .on_action(cx.listener(|this, _: &ToggleSidebar, _, cx| {
@@ -648,6 +973,75 @@ impl Render for RootApp {
             .on_action(cx.listener(|this, _: &FindStub, _, cx| {
                 this.status = SharedString::from("Search arrives with filters in Phase 3.");
                 cx.notify();
+            }))
+            .on_action(cx.listener(|this, _: &SortByAdded, _, cx| {
+                this.set_sort(SortKey::DateAdded, cx);
+            }))
+            .on_action(cx.listener(|this, _: &SortByCreated, _, cx| {
+                this.set_sort(SortKey::DateCreated, cx);
+            }))
+            .on_action(cx.listener(|this, _: &SortByModified, _, cx| {
+                this.set_sort(SortKey::DateModified, cx);
+            }))
+            .on_action(cx.listener(|this, _: &SortByName, _, cx| {
+                this.set_sort(SortKey::Title, cx);
+            }))
+            .on_action(cx.listener(|this, _: &SortByExt, _, cx| {
+                this.set_sort(SortKey::Extension, cx);
+            }))
+            .on_action(cx.listener(|this, _: &SortBySize, _, cx| {
+                this.set_sort(SortKey::FileSize, cx);
+            }))
+            .on_action(cx.listener(|this, _: &SortByResolution, _, cx| {
+                this.set_sort(SortKey::Resolution, cx);
+            }))
+            .on_action(cx.listener(|this, _: &SortByRating, _, cx| {
+                this.set_sort(SortKey::Rating, cx);
+            }))
+            .on_action(cx.listener(|this, _: &SortByTag, _, cx| {
+                this.set_sort(SortKey::FirstTag, cx);
+            }))
+            .on_action(cx.listener(|this, _: &SortByRandom, _, cx| {
+                this.set_sort(SortKey::Random, cx);
+            }))
+            .on_action(cx.listener(|this, _: &SortByManual, _, cx| {
+                this.set_sort(SortKey::Manual, cx);
+            }))
+            .on_action(cx.listener(|this, _: &SortAscending, _, cx| {
+                this.set_ascending(true, cx);
+            }))
+            .on_action(cx.listener(|this, _: &SortDescending, _, cx| {
+                this.set_ascending(false, cx);
+            }))
+            .on_action(cx.listener(|this, _: &OpenSortMenu, window, cx| {
+                this.open_sort_menu(window, cx);
+            }))
+            .on_action(cx.listener(|this, _: &FocusDetails, _, cx| {
+                this.focus_details_panel(cx);
+            }))
+            .on_action(cx.listener(|this, _: &MoveFocusLeft, _, cx| {
+                this.move_focus("left", cx);
+            }))
+            .on_action(cx.listener(|this, _: &MoveFocusRight, _, cx| {
+                this.move_focus("right", cx);
+            }))
+            .on_action(cx.listener(|this, _: &MoveFocusUp, _, cx| {
+                this.move_focus("up", cx);
+            }))
+            .on_action(cx.listener(|this, _: &MoveFocusDown, _, cx| {
+                this.move_focus("down", cx);
+            }))
+            .on_action(cx.listener(|this, _: &MoveFocusHome, _, cx| {
+                this.move_focus("home", cx);
+            }))
+            .on_action(cx.listener(|this, _: &MoveFocusEnd, _, cx| {
+                this.move_focus("end", cx);
+            }))
+            .on_action(cx.listener(|this, _: &MoveFocusPageUp, _, cx| {
+                this.move_focus("pageup", cx);
+            }))
+            .on_action(cx.listener(|this, _: &MoveFocusPageDown, _, cx| {
+                this.move_focus("pagedown", cx);
             }))
             .child(self.render_menubar(has_library, &theme, locale, cx))
             .when(self.show_create, |el| {
@@ -957,6 +1351,9 @@ impl RootApp {
         let left_w = lib.left_width as f32;
         let right_w = lib.right_width as f32;
         let mode = lib.browse.view_mode;
+        let entity = cx.entity();
+        let left_open = lib.left_open;
+        let right_open = lib.right_open;
 
         v_flex()
             .id("library-shell")
@@ -978,6 +1375,14 @@ impl RootApp {
                         Label::new(i18n::t_n(locale, "shell.statusItems", lib.total)).text_sm(),
                     )
                     .child(div().flex_1())
+                    .child(
+                        Button::new("tb-sort")
+                            .ghost()
+                            .label(t(locale, "commands.view.sortBy"))
+                            .on_click(cx.listener(|this, _, window, cx| {
+                                this.open_sort_menu(window, cx);
+                            })),
+                    )
                     .child(
                         Button::new("tb-grid")
                             .label(t(locale, "commands.view.grid"))
@@ -1049,47 +1454,91 @@ impl RootApp {
                     ),
             )
             .child(
-                h_flex()
-                    .id("shell-body")
-                    .flex_1()
-                    .w_full()
-                    .min_h(px(0.))
-                    .overflow_hidden()
-                    .when(lib.left_open, |el| {
-                        el.child(
-                            div()
-                                .id("left-pane")
-                                .w(px(left_w))
-                                .h_full()
-                                .border_r_1()
-                                .border_color(theme.border)
-                                .child(sidebar::render_sidebar(lib, locale, cx.entity())),
-                        )
-                    })
+                h_resizable("shell-body")
                     .child(
-                        div()
-                            .id("center-pane")
-                            .flex_1()
-                            .h_full()
-                            .overflow_y_scroll()
-                            .child(grid::render_items(
-                                lib,
-                                &self.items,
-                                locale,
-                                theme,
-                                cx.entity(),
-                            )),
+                        resizable_panel()
+                            .size(px(left_w))
+                            .size_range(px(160.)..px(480.))
+                            .visible(left_open)
+                            .child(
+                                div()
+                                    .id("left-pane")
+                                    .size_full()
+                                    .border_r_1()
+                                    .border_color(theme.border)
+                                    .child(sidebar::render_sidebar(lib, locale, entity.clone())),
+                            ),
                     )
-                    .when(lib.right_open, |el| {
-                        el.child(
+                    .child(
+                        resizable_panel().child(
                             div()
-                                .id("right-pane")
-                                .w(px(right_w))
-                                .h_full()
-                                .border_l_1()
-                                .border_color(theme.border)
-                                .child(library_ui::render_details_stub(locale)),
-                        )
+                                .on_children_prepainted({
+                                    let entity = entity.clone();
+                                    move |bounds, _, cx| {
+                                        if let Some(first) = bounds.first() {
+                                            let width = first.size.width.as_f32();
+                                            let origin =
+                                                (first.origin.x.as_f32(), first.origin.y.as_f32());
+                                            entity.update(cx, |this, cx| {
+                                                let width_changed =
+                                                    (this.grid_width - width).abs() > 1.0;
+                                                this.grid_origin = origin;
+                                                if width_changed && width > 40.0 {
+                                                    this.grid_width = width;
+                                                    this.recompute_justified();
+                                                    cx.notify();
+                                                }
+                                            });
+                                        }
+                                    }
+                                })
+                                .id("center-pane")
+                                .size_full()
+                                .overflow_hidden()
+                                .child(grid::render_items(
+                                    lib,
+                                    &self.items,
+                                    locale,
+                                    theme,
+                                    entity.clone(),
+                                    self.justified.as_ref(),
+                                    self.rubber.as_ref(),
+                                    self.grid_width,
+                                )),
+                        ),
+                    )
+                    .child(
+                        resizable_panel()
+                            .size(px(right_w))
+                            .size_range(px(200.)..px(560.))
+                            .visible(right_open)
+                            .child(
+                                div()
+                                    .id("right-pane")
+                                    .size_full()
+                                    .border_l_1()
+                                    .border_color(theme.border)
+                                    .child(library_ui::render_details_stub(locale)),
+                            ),
+                    )
+                    .on_resize({
+                        let entity = entity.clone();
+                        move |state, _, cx| {
+                            let sizes = state.read(cx).sizes().clone();
+                            entity.update(cx, |this, cx| {
+                                let left = if left_open {
+                                    sizes.first().copied()
+                                } else {
+                                    None
+                                };
+                                let right = if right_open {
+                                    sizes.last().copied().filter(|_| sizes.len() >= 2)
+                                } else {
+                                    None
+                                };
+                                this.persist_panel_widths(left, right, cx);
+                            });
+                        }
                     }),
             )
             .child(library_ui::render_status_bar(lib, locale))

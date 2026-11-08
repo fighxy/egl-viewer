@@ -1,7 +1,7 @@
 //! Left bar: scopes + read-only folder tree.
 
 use app_store::Locale;
-use gpui_kit::component::{StyledExt as _, h_flex, label::Label, v_flex};
+use gpui_kit::component::{h_flex, label::Label, v_flex};
 use gpui_kit::prelude::FluentBuilder as _;
 use gpui_kit::{
     AnyElement, App, Entity, InteractiveElement, IntoElement, ParentElement, SharedString,

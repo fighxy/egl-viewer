@@ -1,11 +1,9 @@
 //! Shared library chrome snippets (status / banners / details stub).
 
 use app_store::Locale;
-use gpui_kit::component::{StyledExt as _, h_flex, label::Label, v_flex};
+use gpui_kit::component::{h_flex, label::Label, v_flex};
 use gpui_kit::prelude::FluentBuilder as _;
-use gpui_kit::{
-    InteractiveElement, IntoElement, ParentElement, StatefulInteractiveElement, Styled, div,
-};
+use gpui_kit::{InteractiveElement, IntoElement, ParentElement, Styled, div};
 
 use crate::i18n::{t, t_n};
 use crate::library::OpenLibraryState;

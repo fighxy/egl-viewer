@@ -1,4 +1,4 @@
-//! Host helpers: data dirs, logs, reveal in Explorer (D-129).
+//! Host helpers: data dirs, logs, reveal in Explorer, Shift-at-start (D-129 / D-032).
 //! File pickers use GPUI `App::prompt_for_paths` from the root entity (see `app.rs`).
 
 use std::path::{Path, PathBuf};
@@ -33,10 +33,29 @@ pub fn init_logging() {
     let _ = tracing_subscriber::fmt().with_env_filter(filter).try_init();
 }
 
-/// `--no-reopen` skips restoring the last library (same as Tauri). Shift-at-start remains
-/// unimplemented without a safe Win32 wrapper (D-032), same as the shipping host today.
+/// `--no-reopen` skips restoring the last library (same as Tauri).
 pub fn no_reopen_requested() -> bool {
     std::env::args().any(|arg| arg == "--no-reopen")
+}
+
+/// Holding Shift at start skips reopening the last library (D-017 / D-022 / D-032).
+/// Uses `device_query` so this crate never writes `unsafe` (D-032).
+pub fn shift_held_at_start() -> bool {
+    #[cfg(any(windows, target_os = "macos", target_os = "linux"))]
+    {
+        use device_query::{DeviceQuery, DeviceState, Keycode};
+        let keys = DeviceState::new().get_keys();
+        keys.contains(&Keycode::LShift) || keys.contains(&Keycode::RShift)
+    }
+    #[cfg(not(any(windows, target_os = "macos", target_os = "linux")))]
+    {
+        false
+    }
+}
+
+/// Skip reopen when `--no-reopen` or Shift is held at process start.
+pub fn skip_reopen() -> bool {
+    no_reopen_requested() || shift_held_at_start()
 }
 
 pub fn open_in_file_manager(path: &Path) -> Result<(), String> {
@@ -78,5 +97,10 @@ mod tests {
     #[test]
     fn app_data_dir_is_non_empty() {
         assert!(!app_data_dir().as_os_str().is_empty());
+    }
+
+    #[test]
+    fn shift_query_does_not_panic() {
+        let _ = shift_held_at_start();
     }
 }

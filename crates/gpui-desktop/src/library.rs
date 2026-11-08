@@ -2,7 +2,7 @@
 
 use std::collections::HashSet;
 use std::path::{Path, PathBuf};
-use std::sync::Arc;
+use std::sync::{Arc, Mutex};
 
 use app_store::{
     AppStore, BrowsePreferences, LibrarySession, SavedPlace, SyncEnvironment, Theme,
@@ -15,6 +15,10 @@ use library_core::{
 use crate::platform;
 
 pub const APP_VERSION: &str = env!("CARGO_PKG_VERSION");
+pub const APP_COMMIT: Option<&str> = option_env!("EGL_COMMIT");
+
+/// Shared mailbox for Session → GPUI Emit events (views-invalidated, later import/export).
+pub type EventMailbox = Arc<Mutex<Vec<Event>>>;
 
 pub fn fixture_library_path() -> PathBuf {
     Path::new(env!("CARGO_MANIFEST_DIR")).join("../../fixtures/library/v5/Fixture.eglib")
@@ -28,14 +32,17 @@ pub fn now_stamp() -> u64 {
         .unwrap_or(0)
 }
 
+pub fn new_event_mailbox() -> EventMailbox {
+    Arc::new(Mutex::new(Vec::new()))
+}
+
 /// Builds a Session with a stable AppStore under the GPUI host data dir (settings persist).
-pub fn session() -> Session {
+pub fn session_with_emit(emit: Emit) -> Session {
     let root = platform::app_data_dir();
     let data = root.join("data");
     let home = root.join("home");
     let _ = std::fs::create_dir_all(&data);
     let _ = std::fs::create_dir_all(&home);
-    let emit: Emit = Arc::new(|_event: Event| {});
     Session::new(
         AppStore::new(data),
         home,
@@ -43,6 +50,21 @@ pub fn session() -> Session {
         SyncEnvironment::default(),
         emit,
     )
+}
+
+/// Session that pushes events into `mailbox` (Emit → Entity via RootApp poll).
+pub fn session_with_mailbox(mailbox: EventMailbox) -> Session {
+    let emit: Emit = Arc::new(move |event: Event| {
+        if let Ok(mut queue) = mailbox.lock() {
+            queue.push(event);
+        }
+    });
+    session_with_emit(emit)
+}
+
+/// Builds a Session with a noop emit (tests).
+pub fn session() -> Session {
+    session_with_emit(Arc::new(|_event: Event| {}))
 }
 
 #[derive(Debug, Clone, PartialEq, Eq)]
@@ -148,18 +170,22 @@ pub fn copy_dir(from: &Path, to: &Path) -> std::io::Result<()> {
 pub struct Selection {
     pub ids: HashSet<String>,
     pub anchor: Option<usize>,
+    /// Keyboard / rubber-band focus index into the current view window.
+    pub focus: Option<usize>,
 }
 
 impl Selection {
     pub fn clear(&mut self) {
         self.ids.clear();
         self.anchor = None;
+        self.focus = None;
     }
 
     pub fn select_only(&mut self, id: &str, index: usize) {
         self.ids.clear();
         self.ids.insert(id.to_string());
         self.anchor = Some(index);
+        self.focus = Some(index);
     }
 
     pub fn toggle(&mut self, id: &str, index: usize) {
@@ -167,6 +193,7 @@ impl Selection {
             self.ids.insert(id.to_string());
         }
         self.anchor = Some(index);
+        self.focus = Some(index);
     }
 
     pub fn extend_to(&mut self, cells: &[ItemCell], index: usize) {
@@ -185,11 +212,24 @@ impl Selection {
         for cell in cells.iter().take(hi + 1).skip(lo) {
             self.ids.insert(cell.id.0.clone());
         }
+        self.focus = Some(index);
+    }
+
+    pub fn select_indices(&mut self, cells: &[ItemCell], indices: &[usize], focus: usize) {
+        self.ids.clear();
+        for &index in indices {
+            if let Some(cell) = cells.get(index) {
+                self.ids.insert(cell.id.0.clone());
+            }
+        }
+        self.anchor = Some(focus);
+        self.focus = Some(focus);
     }
 
     pub fn select_all(&mut self, cells: &[ItemCell]) {
         self.ids = cells.iter().map(|c| c.id.0.clone()).collect();
         self.anchor = Some(0);
+        self.focus = cells.first().map(|_| 0);
     }
 
     pub fn count(&self) -> usize {
@@ -211,6 +251,7 @@ impl Selection {
         Self {
             ids: saved.ids.iter().cloned().collect(),
             anchor: None,
+            focus: None,
         }
     }
 }
