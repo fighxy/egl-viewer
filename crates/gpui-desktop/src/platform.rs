@@ -301,4 +301,29 @@ mod tests {
         let got = require_absolute_existing(&dir).unwrap();
         assert_eq!(got, dir);
     }
+
+    /// Live smoke: from `target\debug` cwd, reveal a real RSPECT original (D-134).
+    /// Opt-in: `EGL_REVEAL_SMOKE=1 cargo test -p gpui-desktop reveal_rspect -- --ignored`.
+    #[test]
+    #[ignore = "opens Explorer; set EGL_REVEAL_SMOKE=1"]
+    fn reveal_rspect_original_from_debug_cwd() {
+        if std::env::var_os("EGL_REVEAL_SMOKE").is_none() {
+            return;
+        }
+        let sample = PathBuf::from(
+            r"D:\RSPECT.eglib\files\00\01M66R00V194J7YTDJD77PAZ00\PICT0145.JPG",
+        );
+        assert!(
+            sample.is_file(),
+            "RSPECT sample missing: {}",
+            sample.display()
+        );
+        let debug_dir = PathBuf::from(env!("CARGO_MANIFEST_DIR"))
+            .join("../../target/debug")
+            .canonicalize()
+            .expect("target/debug");
+        std::env::set_current_dir(&debug_dir).expect("chdir target/debug");
+        assert_eq!(std::env::current_dir().unwrap(), debug_dir);
+        reveal_paths(&[sample]).expect("reveal must select the .eglib file, not cwd");
+    }
 }
