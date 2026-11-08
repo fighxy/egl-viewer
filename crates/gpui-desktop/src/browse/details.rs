@@ -5,13 +5,13 @@ use std::sync::Arc;
 use app_store::Locale;
 use gpui_kit::component::button::{Button, ButtonVariants as _};
 use gpui_kit::component::label::Label;
-use gpui_kit::component::{h_flex, v_flex};
+use gpui_kit::component::{Disableable as _, StyledExt as _, h_flex, v_flex};
 use gpui_kit::prelude::FluentBuilder as _;
 use gpui_kit::{
     Entity, Image, InteractiveElement, IntoElement, ParentElement, SharedString,
     StatefulInteractiveElement, Styled, StyledImage as _, div, img, px, rgb,
 };
-use library_core::{Folder, Item, ItemCell, SelectionTags};
+use library_core::{Folder, Item, ItemCell, SelectionTags, SortKey};
 
 use crate::app::RootApp;
 use crate::browse::format::{format_bytes, format_date, format_dimensions};
@@ -37,6 +37,10 @@ pub fn render_details(
 ) -> gpui_kit::AnyElement {
     let in_trash = matches!(state.place, crate::library::Place::Trash);
     let read_only = state.info.read_only;
+    let open_folder = match &state.place {
+        crate::library::Place::Folder { id } => find_folder(state.folders.as_slice(), id),
+        _ => None,
+    };
 
     v_flex()
         .id("details-panel")
@@ -45,7 +49,21 @@ pub fn render_details(
         .gap_3()
         .overflow_y_scroll()
         .child(match model.count {
-            0 => empty_placeholder(locale, theme).into_any_element(),
+            0 => {
+                if let Some(folder) = open_folder {
+                    folder_properties(
+                        folder,
+                        locale,
+                        theme,
+                        entity,
+                        read_only,
+                        state.browse.include_subfolders,
+                    )
+                    .into_any_element()
+                } else {
+                    empty_placeholder(locale, theme).into_any_element()
+                }
+            }
             1 => {
                 if let Some(item) = model.item.as_ref() {
                     single_item(
@@ -571,15 +589,153 @@ fn folder_names(folders: &[Folder], ids: &[String], locale: Locale) -> String {
 }
 
 fn find_folder_name(folders: &[Folder], id: &str) -> Option<String> {
+    find_folder(folders, id).map(|f| f.name.clone())
+}
+
+fn find_folder<'a>(folders: &'a [Folder], id: &str) -> Option<&'a Folder> {
     for folder in folders {
         if folder.id == id {
-            return Some(folder.name.clone());
+            return Some(folder);
         }
-        if let Some(name) = find_folder_name(&folder.children, id) {
-            return Some(name);
+        if let Some(found) = find_folder(&folder.children, id) {
+            return Some(found);
         }
     }
     None
+}
+
+fn folder_properties(
+    folder: &Folder,
+    locale: Locale,
+    theme: &gpui_kit::component::theme::Theme,
+    entity: Entity<RootApp>,
+    read_only: bool,
+    include_subfolders: bool,
+) -> impl IntoElement {
+    let id = folder.id.clone();
+    let color = folder.icon_color.clone();
+    let order = folder.order_by;
+    v_flex()
+        .id("folder-properties")
+        .gap_3()
+        .child(Label::new(folder.name.clone()).font_bold())
+        .child(
+            Label::new(format!(
+                "{} · {}",
+                t_n(locale, "folder.itemsHere", folder.image_count.unwrap_or(0)),
+                t_n(
+                    locale,
+                    "folder.itemsWithSubs",
+                    folder.descendant_image_count.unwrap_or(0)
+                )
+            ))
+            .text_xs()
+            .text_color(theme.muted_foreground),
+        )
+        .when(!folder.description.is_empty(), |el| {
+            el.child(Label::new(folder.description.clone()).text_sm())
+        })
+        .when(!read_only, |el| {
+            let desc = entity.clone();
+            let fid = id.clone();
+            el.child(
+                Button::new("fp-desc")
+                    .ghost()
+                    .label(t(locale, "folder.editDescription"))
+                    .on_click(move |_, window, cx| {
+                        desc.update(cx, |this, cx| {
+                            this.edit_folder_description(window, cx, fid.clone());
+                        });
+                    }),
+            )
+        })
+        .child(Label::new(t(locale, "folder.colour")).text_xs())
+        .child(
+            h_flex().gap_1().children(
+                std::iter::once(None)
+                    .chain(library_core::FOLDER_COLORS.iter().copied().map(Some))
+                    .map(|c| {
+                        let entity = entity.clone();
+                        let fid = id.clone();
+                        let selected = color.as_deref() == c;
+                        let label = c.unwrap_or("none");
+                        Button::new(SharedString::from(format!("fp-color-{label}")))
+                            .when(selected, |b| b.primary())
+                            .when(!selected, |b| b.ghost())
+                            .label(label)
+                            .disabled(read_only)
+                            .on_click(move |_, _, cx| {
+                                if read_only {
+                                    return;
+                                }
+                                entity.update(cx, |this, cx| {
+                                    this.set_folder_color(
+                                        fid.clone(),
+                                        c.map(str::to_owned),
+                                        cx,
+                                    );
+                                });
+                            })
+                    }),
+            ),
+        )
+        .when(!folder.tags.is_empty(), |el| {
+            el.child(
+                Label::new(format!(
+                    "{}: {}",
+                    t(locale, "folder.tags"),
+                    folder.tags.join(", ")
+                ))
+                .text_sm(),
+            )
+        })
+        .child(Label::new(t(locale, "sort.title")).text_xs())
+        .child(
+            h_flex().gap_1().children(
+                [
+                    (None, "sort.global"),
+                    (Some(SortKey::Manual), "sort.manual"),
+                    (Some(SortKey::DateAdded), "sort.added"),
+                    (Some(SortKey::Title), "sort.name"),
+                    (Some(SortKey::Rating), "sort.star"),
+                ]
+                .into_iter()
+                .map(|(key, label)| {
+                    let entity = entity.clone();
+                    let fid = id.clone();
+                    let selected = order == key;
+                    Button::new(SharedString::from(format!("fp-sort-{label}")))
+                        .when(selected, |b| b.primary())
+                        .when(!selected, |b| b.ghost())
+                        .label(t(locale, label))
+                        .disabled(read_only)
+                        .on_click(move |_, _, cx| {
+                            if read_only {
+                                return;
+                            }
+                            entity.update(cx, |this, cx| {
+                                this.set_folder_sort(
+                                    fid.clone(),
+                                    key,
+                                    key.map(|_| true),
+                                    cx,
+                                );
+                            });
+                        })
+                }),
+            ),
+        )
+        .when(order == Some(SortKey::Manual) && !read_only, |el| {
+            el.child(
+                Label::new(if include_subfolders {
+                    t(locale, "folder.manualHintSubs")
+                } else {
+                    t(locale, "folder.manualHint")
+                })
+                .text_xs()
+                .text_color(theme.muted_foreground),
+            )
+        })
 }
 
 fn stack_preview(

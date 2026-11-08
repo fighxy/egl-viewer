@@ -1,6 +1,7 @@
 //! Phase 3 Session-backed mutations: edits, trash, folders, import, locks, maintenance.
 
 use std::path::PathBuf;
+use std::sync::{Arc, Mutex};
 
 use gpui_kit::component::button::{Button, ButtonVariants as _};
 use gpui_kit::component::input::{Input, InputState};
@@ -272,19 +273,66 @@ impl RootApp {
     }
 
     fn run_empty_trash(&mut self, cx: &mut Context<Self>) {
-        match self.session.empty_trash(&|_, _| {}) {
-            Ok(n) => {
-                self.status = SharedString::from(t_n(self.locale, "trash.emptied", n));
-                if let Some(lib) = self.library.as_mut() {
-                    lib.selection.clear();
-                }
-                self.reload_after_write(cx);
-            }
-            Err(error) => {
-                self.status = SharedString::from(format!("{error}"));
-                cx.notify();
-            }
+        if self.emptying_trash {
+            return;
         }
+        let session = Arc::clone(&self.session);
+        let progress = Arc::new(Mutex::new((0u32, 0u32)));
+        let progress_ui = Arc::clone(&progress);
+        let result: crate::app::EmptyTrashResult = Arc::new(Mutex::new(None));
+        let result_thread = Arc::clone(&result);
+        self.emptying_trash = true;
+        self.empty_trash_progress = (0, 0);
+        self.empty_trash_result = Some(result);
+        self.status = SharedString::from(t(self.locale, "trash.emptying"));
+        cx.notify();
+
+        // Progress Arc is polled from RootApp; Cancel calls session.cancel_empty_trash().
+        let progress_poll = Arc::clone(&progress_ui);
+        std::thread::spawn(move || {
+            let outcome = session.empty_trash(&|done, total| {
+                if let Ok(mut g) = progress_poll.lock() {
+                    *g = (done, total);
+                }
+            });
+            let mapped = outcome.map_err(|e| e.to_string());
+            if let Ok(mut g) = result_thread.lock() {
+                *g = Some(mapped);
+            }
+        });
+
+        // Mirror progress into the entity on the UI poll loop via empty_trash_progress.
+        let entity = cx.entity();
+        cx.spawn(async move |this, cx| {
+            loop {
+                cx.background_executor()
+                    .timer(std::time::Duration::from_millis(50))
+                    .await;
+                let cont = this
+                    .update(cx, |this, cx| {
+                        if let Ok(g) = progress_ui.lock() {
+                            this.empty_trash_progress = *g;
+                        }
+                        if !this.emptying_trash {
+                            return false;
+                        }
+                        cx.notify();
+                        true
+                    })
+                    .unwrap_or(false);
+                if !cont {
+                    break;
+                }
+                let _ = &entity;
+            }
+        })
+        .detach();
+    }
+
+    pub(crate) fn cancel_empty_trash(&mut self, cx: &mut Context<Self>) {
+        self.session.cancel_empty_trash();
+        self.status = SharedString::from(t(self.locale, "trash.emptyCancelled"));
+        cx.notify();
     }
 
     pub(crate) fn open_add_tag_dialog(&mut self, window: &mut Window, cx: &mut Context<Self>) {
@@ -422,7 +470,6 @@ impl RootApp {
         self.refresh_view(cx);
     }
 
-    #[allow(dead_code)] // wired when tag chips land in the filter bar
     pub(crate) fn toggle_tag_filter(&mut self, tag: String, cx: &mut Context<Self>) {
         if let Some(lib) = self.library.as_mut() {
             if let Some(pos) = lib.filters.tags.iter().position(|t| t == &tag) {
@@ -669,27 +716,7 @@ impl RootApp {
     }
 
     pub(crate) fn pick_import_folder(&mut self, window: &mut Window, cx: &mut Context<Self>) {
-        let rx = cx.prompt_for_paths(PathPromptOptions {
-            files: false,
-            directories: true,
-            multiple: false,
-            prompt: Some(SharedString::from(t(
-                self.locale,
-                "commands.file.importFolder",
-            ))),
-        });
-        cx.spawn_in(window, async move |this, cx| {
-            let path = match rx.await {
-                Ok(Ok(Some(paths))) => paths.into_iter().next(),
-                _ => None,
-            };
-            if let Some(path) = path {
-                let _ = this.update(cx, |this, cx| {
-                    this.start_import(vec![path], cx);
-                });
-            }
-        })
-        .detach();
+        self.pick_import_folder_reviewed(window, cx);
     }
 
     pub(crate) fn paste_files(&mut self, cx: &mut Context<Self>) {
@@ -903,6 +930,7 @@ impl RootApp {
                                                         lib.place = Place::All;
                                                     }
                                                     this.reload_after_write(cx);
+                                                    this.offer_save_recovery(window, &key, cx);
                                                 }
                                                 Err(error) => {
                                                     this.status =
@@ -1215,9 +1243,12 @@ impl RootApp {
         });
     }
 
-    fn reload_after_write(&mut self, cx: &mut Context<Self>) {
+    pub(crate) fn reload_after_write(&mut self, cx: &mut Context<Self>) {
         self.refresh_view(cx);
         self.refresh_details(cx);
+        self.tag_vocabulary = self.session.tag_vocabulary().unwrap_or_default();
+        self.tag_groups = self.session.tag_groups().unwrap_or_default();
+        self.extensions = self.session.extensions().unwrap_or_default();
     }
 }
 

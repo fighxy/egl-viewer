@@ -1,6 +1,7 @@
 //! Root GPUI entity: Welcome ↔ Library shell, commands, dialogs (Phase 1–3 / D-129–D-131).
 
 use std::path::PathBuf;
+use std::sync::{Arc, Mutex};
 use std::time::Duration;
 
 use app_store::{BrowsePreferences, Locale, Theme, ViewMode};
@@ -27,7 +28,7 @@ use crate::browse::preview::{self, PreviewState, SpaceGesture};
 use crate::browse::preview_image::{self, PreviewPayload};
 use crate::browse::sidebar;
 use crate::commands::{self, *};
-use crate::i18n::{self, t};
+use crate::i18n::{self, t, t_n};
 use crate::justified::{self, JustifiedLayout};
 use crate::library::{self, EventMailbox, OpenLibraryState, Place, window_title};
 use crate::platform;
@@ -41,8 +42,11 @@ pub struct RubberBand {
     pub current: (f32, f32),
 }
 
+/// Background Empty Trash completion (thread → UI poll).
+pub(crate) type EmptyTrashResult = Arc<Mutex<Option<Result<u32, String>>>>;
+
 pub struct RootApp {
-    pub(crate) session: Session,
+    pub(crate) session: Arc<Session>,
     events: EventMailbox,
     focus: FocusHandle,
     pub(crate) locale: Locale,
@@ -53,7 +57,11 @@ pub struct RootApp {
     justified: Option<JustifiedLayout>,
     grid_width: f32,
     grid_origin: (f32, f32),
-    rubber: Option<RubberBand>,
+    pub(crate) rubber: Option<RubberBand>,
+    /// True while an in-window DnD is active (suppresses rubber-band).
+    pub(crate) drag_active: bool,
+    /// Last folder row hit during an in-window folder drag (`id`, zone).
+    pub(crate) folder_drop_zone: Option<(String, crate::dnd::FolderZone)>,
     fullscreen: bool,
     quit_pending: bool,
     create_name: Entity<InputState>,
@@ -66,13 +74,19 @@ pub struct RootApp {
     pub(crate) search_input: Entity<InputState>,
     pub(crate) imports_open: bool,
     pub(crate) pending_duplicate: Option<(u64, DuplicateNotice)>,
+    pub(crate) emptying_trash: bool,
+    pub(crate) empty_trash_progress: (u32, u32),
+    pub(crate) empty_trash_result: Option<EmptyTrashResult>,
+    pub(crate) tag_vocabulary: Vec<library_core::Tag>,
+    pub(crate) tag_groups: Vec<library_core::TagGroup>,
+    pub(crate) extensions: Vec<library_core::ExtensionCount>,
     _search_sub: Option<Subscription>,
 }
 
 impl RootApp {
     pub fn new(window: &mut Window, cx: &mut Context<Self>) -> Self {
         let events = library::new_event_mailbox();
-        let session = library::session_with_mailbox(events.clone());
+        let session = Arc::new(library::session_with_mailbox(events.clone()));
         let prefs = session.preferences();
         theme::apply_theme(prefs.theme, cx);
 
@@ -95,6 +109,8 @@ impl RootApp {
             grid_width: 800.0,
             grid_origin: (0.0, 0.0),
             rubber: None,
+            drag_active: false,
+            folder_drop_zone: None,
             fullscreen: false,
             quit_pending: false,
             create_name,
@@ -113,6 +129,12 @@ impl RootApp {
             search_input: search_input.clone(),
             imports_open: false,
             pending_duplicate: None,
+            emptying_trash: false,
+            empty_trash_progress: (0, 0),
+            empty_trash_result: None,
+            tag_vocabulary: Vec::new(),
+            tag_groups: Vec::new(),
+            extensions: Vec::new(),
             _search_sub: None,
         };
         app.create_location = SharedString::from(app.session.default_library_location());
@@ -158,6 +180,7 @@ impl RootApp {
                     .update(cx, |this, cx| {
                         this.poll_session_events(cx);
                         this.poll_preview_tick(cx);
+                        this.poll_empty_trash(cx);
                     })
                     .is_err()
                 {
@@ -169,6 +192,33 @@ impl RootApp {
 
         window.set_window_title(&window_title(None));
         app
+    }
+
+    fn poll_empty_trash(&mut self, cx: &mut Context<Self>) {
+        let Some(result) = self.empty_trash_result.clone() else {
+            return;
+        };
+        let finished = result.lock().ok().and_then(|mut g| g.take());
+        if let Some(finished) = finished {
+            self.emptying_trash = false;
+            self.empty_trash_result = None;
+            match finished {
+                Ok(n) => {
+                    self.status = SharedString::from(t_n(self.locale, "trash.emptied", n));
+                    if let Some(lib) = self.library.as_mut() {
+                        lib.selection.clear();
+                    }
+                    self.refresh_view(cx);
+                    self.refresh_details(cx);
+                }
+                Err(error) => {
+                    self.status = SharedString::from(error);
+                    cx.notify();
+                }
+            }
+        } else if self.emptying_trash {
+            cx.notify();
+        }
     }
 
     fn poll_preview_tick(&mut self, cx: &mut Context<Self>) {
@@ -302,6 +352,9 @@ impl RootApp {
                 self.preview_payload = None;
                 self.space_gesture = None;
                 self.pending_duplicate = None;
+                self.tag_vocabulary = self.session.tag_vocabulary().unwrap_or_default();
+                self.tag_groups = self.session.tag_groups().unwrap_or_default();
+                self.extensions = self.session.extensions().unwrap_or_default();
                 self.search_input.update(cx, |input, cx| {
                     input.set_value(search, window, cx);
                 });
@@ -785,6 +838,9 @@ impl RootApp {
     }
 
     pub(crate) fn begin_rubber(&mut self, window_pos: (f32, f32), cx: &mut Context<Self>) {
+        if self.drag_active {
+            return;
+        }
         let origin = self.grid_origin;
         let content = (window_pos.0 - origin.0, window_pos.1 - origin.1);
         self.rubber = Some(RubberBand {
@@ -1978,6 +2034,69 @@ impl RootApp {
                     .child(
                         h_flex()
                             .gap_1()
+                            .child(
+                                Button::new("tb-filter-tags")
+                                    .ghost()
+                                    .label({
+                                        if lib.filters.tags.is_empty() {
+                                            t(locale, "filters.tags")
+                                        } else {
+                                            format!(
+                                                "{} ({})",
+                                                t(locale, "filters.tags"),
+                                                lib.filters.tags.len()
+                                            )
+                                        }
+                                    })
+                                    .on_click(cx.listener(|this, _, window, cx| {
+                                        this.open_tag_mode_menu(window, cx);
+                                    })),
+                            )
+                            .child(
+                                Button::new("tb-filter-folders")
+                                    .ghost()
+                                    .label({
+                                        if lib.filters.folders.is_empty() {
+                                            t(locale, "filters.folders")
+                                        } else {
+                                            format!(
+                                                "{} ({})",
+                                                t(locale, "filters.folders"),
+                                                lib.filters.folders.len()
+                                            )
+                                        }
+                                    })
+                                    .on_click(cx.listener(|this, _, window, cx| {
+                                        this.open_folder_filter_menu(window, cx);
+                                    })),
+                            )
+                            .child(
+                                Button::new("tb-filter-type")
+                                    .ghost()
+                                    .label(
+                                        lib.filters
+                                            .ext
+                                            .as_ref()
+                                            .map(|e| e.to_uppercase())
+                                            .unwrap_or_else(|| t(locale, "filters.type")),
+                                    )
+                                    .on_click(cx.listener(|this, _, window, cx| {
+                                        this.open_filter_type_menu(window, cx);
+                                    })),
+                            )
+                            .child(
+                                Button::new("tb-filter-shape")
+                                    .ghost()
+                                    .label(
+                                        lib.filters
+                                            .shape
+                                            .clone()
+                                            .unwrap_or_else(|| t(locale, "filters.shape")),
+                                    )
+                                    .on_click(cx.listener(|this, _, window, cx| {
+                                        this.open_filter_shape_menu(window, cx);
+                                    })),
+                            )
                             .child(Label::new(t(locale, "filters.rating")).text_xs())
                             .children((0..=5).map(|star| {
                                 let selected = lib.filters.rating == Some(star);
@@ -2115,7 +2234,12 @@ impl RootApp {
                                     .size_full()
                                     .border_r_1()
                                     .border_color(theme.border)
-                                    .child(sidebar::render_sidebar(lib, locale, entity.clone())),
+                                    .child(sidebar::render_sidebar(
+                                        lib,
+                                        locale,
+                                        entity.clone(),
+                                        &self.tag_vocabulary,
+                                    )),
                             ),
                     )
                     .child(
@@ -2216,6 +2340,36 @@ impl RootApp {
             })
             .when_some(self.pending_duplicate.clone(), |el, (id, notice)| {
                 el.child(self.render_duplicate_banner(id, &notice, locale, cx))
+            })
+            .when(self.emptying_trash, |el| {
+                let (done, total) = self.empty_trash_progress;
+                el.child(
+                    h_flex()
+                        .id("empty-trash-chrome")
+                        .w_full()
+                        .items_center()
+                        .gap_3()
+                        .px_3()
+                        .py_2()
+                        .border_t_1()
+                        .border_color(theme.border)
+                        .child(
+                            Label::new(format!(
+                                "{} — {done}/{total}",
+                                t(locale, "trash.emptying")
+                            ))
+                            .text_sm()
+                            .flex_1(),
+                        )
+                        .child(
+                            Button::new("empty-trash-cancel")
+                                .outline()
+                                .label(t(locale, "trash.cancelEmpty"))
+                                .on_click(cx.listener(|this, _, _, cx| {
+                                    this.cancel_empty_trash(cx);
+                                })),
+                        ),
+                )
             })
     }
 

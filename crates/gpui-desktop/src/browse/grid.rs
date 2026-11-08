@@ -12,12 +12,14 @@ use gpui_kit::{
     ParentElement, Pixels, SharedString, StatefulInteractiveElement, Styled, StyledImage as _,
     Window, div, img, px, rgb, size,
 };
-use library_core::ItemCell;
+use library_core::{ItemCell, ItemId, SortKey};
 
 use crate::app::{RootApp, RubberBand};
+use crate::dnd::{self, DragPayload};
 use crate::i18n::t;
 use crate::justified::{self, CellDimensions, JustifiedLayout, PADDING, pack_justified};
-use crate::library::{OpenLibraryState, Selection, cell_thumbnail};
+use crate::library::{OpenLibraryState, Place, Selection, cell_thumbnail};
+use crate::ops_dnd::DropIntent;
 
 #[derive(Clone)]
 pub struct ListedItem {
@@ -90,8 +92,20 @@ pub fn render_items(
             .into_any_element();
     }
 
+    let reorderable = state.sort == SortKey::Manual
+        && matches!(state.place, Place::Folder { .. })
+        && !state.info.read_only;
+    let folder_id = state.place.open_folder_id().map(str::to_owned);
     match state.browse.view_mode {
-        ViewMode::List => render_virtual_list(items, &state.selection, theme, entity, rubber),
+        ViewMode::List => render_virtual_list(
+            items,
+            &state.selection,
+            theme,
+            entity,
+            rubber,
+            reorderable,
+            folder_id,
+        ),
         ViewMode::Grid => {
             if let Some(layout) = layout {
                 render_justified_virtual(
@@ -103,9 +117,11 @@ pub fn render_items(
                     layout,
                     rubber,
                     container_width,
+                    reorderable,
+                    folder_id,
                 )
             } else {
-                render_wrap_grid(state, items, &state.selection, theme, entity)
+                render_wrap_grid(state, items, &state.selection, theme, entity, reorderable, folder_id)
             }
         }
     }
@@ -170,6 +186,8 @@ fn render_virtual_list(
     theme: &gpui_kit::component::theme::Theme,
     entity: Entity<RootApp>,
     rubber: Option<&RubberBand>,
+    reorderable: bool,
+    folder_id: Option<String>,
 ) -> gpui_kit::AnyElement {
     let row_h = px(48.);
     let sizes = Rc::new(vec![size(px(100.), row_h); items.len()]);
@@ -179,7 +197,8 @@ fn render_virtual_list(
         let items = items.to_vec();
         let selection = selection.clone();
         let theme = theme.clone();
-        move |_, range, _, _| {
+        let folder_id = folder_id.clone();
+        move |this, range, _, _| {
             range
                 .map(|index| {
                     let item = &items[index];
@@ -188,7 +207,8 @@ fn render_virtual_list(
                     let entity = list_entity.clone();
                     let title = format!("{}.{}", item.cell.name, item.cell.ext);
                     let preview = thumb_or_palette(item, 40.0, theme.muted, theme.muted_foreground);
-                    h_flex()
+                    let payload = this.drag_payload_for_index(index);
+                    let mut row = h_flex()
                         .id(SharedString::from(format!("list-{index}")))
                         .w_full()
                         .items_center()
@@ -212,8 +232,19 @@ fn render_virtual_list(
                                     this.open_preview_at(index, cx);
                                 }
                             });
-                        })
-                        .child(preview)
+                        });
+                    row = attach_item_drag(row, payload, list_entity.clone());
+                    if reorderable {
+                        if let Some(folder_id) = folder_id.clone() {
+                            row = attach_cell_drop(
+                                row,
+                                list_entity.clone(),
+                                folder_id,
+                                Some(item.cell.id.clone()),
+                            );
+                        }
+                    }
+                    row.child(preview)
                         .child(Label::new(title).text_sm())
                         .into_any_element()
                 })
@@ -242,6 +273,8 @@ fn render_justified_virtual(
     layout: &JustifiedLayout,
     rubber: Option<&RubberBand>,
     container_width: f32,
+    reorderable: bool,
+    folder_id: Option<String>,
 ) -> gpui_kit::AnyElement {
     let sizes: Rc<Vec<gpui_kit::Size<Pixels>>> = Rc::new(
         layout
@@ -257,7 +290,8 @@ fn render_justified_virtual(
         let items = items.to_vec();
         let selection = selection.clone();
         let theme = theme.clone();
-        move |_, range, _, _| {
+        let folder_id = folder_id.clone();
+        move |this, range, _, _| {
             range
                 .filter_map(|row_ix| {
                     let row = rows.get(row_ix)?;
@@ -280,7 +314,8 @@ fn render_justified_virtual(
                                 theme.muted,
                                 theme.muted_foreground,
                             );
-                            let cell_el = v_flex()
+                            let payload = this.drag_payload_for_index(index);
+                            let mut cell_el = v_flex()
                                 .id(SharedString::from(format!("grid-{index}")))
                                 .absolute()
                                 .left(px(PADDING + cell.left))
@@ -303,7 +338,19 @@ fn render_justified_virtual(
                                             this.open_preview_at(index, cx);
                                         }
                                     });
-                                })
+                                });
+                            cell_el = attach_item_drag(cell_el, payload, list_entity.clone());
+                            if reorderable {
+                                if let Some(folder_id) = folder_id.clone() {
+                                    cell_el = attach_cell_drop(
+                                        cell_el,
+                                        list_entity.clone(),
+                                        folder_id,
+                                        Some(item.cell.id.clone()),
+                                    );
+                                }
+                            }
+                            cell_el
                                 .child(
                                     div()
                                         .w(px(cell.width))
@@ -319,8 +366,8 @@ fn render_justified_virtual(
                                             .overflow_hidden()
                                             .text_ellipsis(),
                                     )
-                                });
-                            cell_el.into_any_element()
+                                })
+                                .into_any_element()
                         }));
                     Some(row_el.into_any_element())
                 })
@@ -347,9 +394,12 @@ fn render_wrap_grid(
     selection: &Selection,
     theme: &gpui_kit::component::theme::Theme,
     entity: Entity<RootApp>,
+    reorderable: bool,
+    folder_id: Option<String>,
 ) -> gpui_kit::AnyElement {
     let size = state.browse.thumbnail_size as f32;
     let show_names = state.browse.show_names;
+    let view_id = state.view_id;
     div()
         .id("item-grid-wrap")
         .w_full()
@@ -359,10 +409,18 @@ fn render_wrap_grid(
         .p_2()
         .children(items.iter().enumerate().map(|(index, item)| {
             let selected = selection.contains(&item.cell.id);
-            let entity = entity.clone();
+            let entity_click = entity.clone();
+            let entity_drag = entity.clone();
+            let entity_drop = entity.clone();
             let title = format!("{}.{}", item.cell.name, item.cell.ext);
             let preview = thumb_or_palette(item, size, theme.muted, theme.muted_foreground);
-            v_flex()
+            let ids = if selected && selection.count() > 1 {
+                selection.ids.iter().cloned().map(ItemId).collect()
+            } else {
+                vec![item.cell.id.clone()]
+            };
+            let payload = DragPayload::items(view_id, ids, title.clone());
+            let mut cell = v_flex()
                 .id(SharedString::from(format!("grid-{index}")))
                 .w(px(size + 8.0))
                 .gap_1()
@@ -373,14 +431,25 @@ fn render_wrap_grid(
                 .on_click(move |event, _, cx| {
                     let mods = event.modifiers();
                     let double = event.click_count() >= 2;
-                    entity.update(cx, |this, cx| {
+                    entity_click.update(cx, |this, cx| {
                         this.select_item(index, mods.control, mods.shift, cx);
                         if double && !mods.control && !mods.shift {
                             this.open_preview_at(index, cx);
                         }
                     });
-                })
-                .child(preview)
+                });
+            cell = attach_item_drag(cell, Some(payload), entity_drag);
+            if reorderable {
+                if let Some(folder_id) = folder_id.clone() {
+                    cell = attach_cell_drop(
+                        cell,
+                        entity_drop,
+                        folder_id,
+                        Some(item.cell.id.clone()),
+                    );
+                }
+            }
+            cell.child(preview)
                 .when(show_names, |el| {
                     el.child(
                         Label::new(title)
@@ -393,6 +462,66 @@ fn render_wrap_grid(
                 .into_any_element()
         }))
         .into_any_element()
+}
+
+fn attach_item_drag<E>(
+    el: E,
+    payload: Option<DragPayload>,
+    entity: Entity<RootApp>,
+) -> E
+where
+    E: InteractiveElement + StatefulInteractiveElement,
+{
+    let Some(payload) = payload else {
+        return el;
+    };
+    el.on_drag(payload, {
+        let entity = entity.clone();
+        move |payload, point, window, cx| {
+            entity.update(cx, |this, cx| {
+                this.drag_active = true;
+                this.rubber = None;
+                cx.notify();
+            });
+            dnd::ghost(payload, point, window, cx)
+        }
+    })
+}
+
+fn attach_cell_drop<E>(
+    el: E,
+    entity: Entity<RootApp>,
+    folder_id: String,
+    before_id: Option<ItemId>,
+) -> E
+where
+    E: InteractiveElement,
+{
+    let folder_for_can = folder_id.clone();
+    let before_for_can = before_id.clone();
+    let entity_can = entity.clone();
+    el.can_drop(move |dragged, _, cx| {
+        let Some(payload) = dragged.downcast_ref::<DragPayload>() else {
+            return false;
+        };
+        entity_can.read(cx).can_accept_drop(
+            payload,
+            &DropIntent::Cell {
+                folder_id: folder_for_can.clone(),
+                before_id: before_for_can.clone(),
+            },
+        )
+    })
+    .on_drop(move |payload: &DragPayload, _, cx| {
+        let intent = DropIntent::Cell {
+            folder_id: folder_id.clone(),
+            before_id: before_id.clone(),
+        };
+        entity.update(cx, |this, cx| {
+            this.drag_active = false;
+            this.handle_drop(payload, intent, cx);
+        });
+    })
 }
 
 fn thumb_or_palette(
