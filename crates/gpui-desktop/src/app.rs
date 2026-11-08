@@ -1,10 +1,10 @@
-//! Root GPUI entity: Welcome ↔ Library shell, commands, dialogs (Phase 1 / D-129).
+//! Root GPUI entity: Welcome ↔ Library shell, commands, dialogs (Phase 1–2 / D-129 / D-130).
 
 use std::path::PathBuf;
 use std::time::Duration;
 
 use app_store::{BrowsePreferences, Locale, Theme, ViewMode};
-use desktop_session::{Event, Session};
+use desktop_session::{Event, ItemsTarget, Session};
 use gpui_kit::component::button::{Button, ButtonVariants as _};
 use gpui_kit::component::input::{Input, InputState};
 use gpui_kit::component::label::Label;
@@ -17,9 +17,12 @@ use gpui_kit::{
     AppContext as _, Context, Entity, FocusHandle, InteractiveElement, IntoElement, ParentElement,
     PathPromptOptions, Pixels, Render, SharedString, Styled, Window, div, px,
 };
-use library_core::{LibraryInfo, SortKey};
+use library_core::{ItemId, LibraryInfo, SortKey, is_web_link};
 
+use crate::browse::details::{self, DetailsModel};
 use crate::browse::grid::{self, ListedItem};
+use crate::browse::preview::{self, PreviewState, SpaceGesture};
+use crate::browse::preview_image::{self, PreviewPayload};
 use crate::browse::sidebar;
 use crate::commands::{self, *};
 use crate::i18n::{self, t};
@@ -54,6 +57,10 @@ pub struct RootApp {
     create_name: Entity<InputState>,
     create_location: SharedString,
     show_create: bool,
+    details: DetailsModel,
+    preview: Option<PreviewState>,
+    preview_payload: Option<PreviewPayload>,
+    space_gesture: Option<SpaceGesture>,
 }
 
 impl RootApp {
@@ -84,6 +91,16 @@ impl RootApp {
             create_name,
             create_location: SharedString::from(""),
             show_create: false,
+            details: DetailsModel {
+                count: 0,
+                item: None,
+                thumb: None,
+                selection: None,
+                stack_thumbs: Vec::new(),
+            },
+            preview: None,
+            preview_payload: None,
+            space_gesture: None,
         };
         app.create_location = SharedString::from(app.session.default_library_location());
 
@@ -113,7 +130,10 @@ impl RootApp {
                     .timer(Duration::from_millis(32))
                     .await;
                 if this
-                    .update(cx, |this, cx| this.poll_session_events(cx))
+                    .update(cx, |this, cx| {
+                        this.poll_session_events(cx);
+                        this.poll_preview_tick(cx);
+                    })
                     .is_err()
                 {
                     break;
@@ -124,6 +144,32 @@ impl RootApp {
 
         window.set_window_title(&window_title(None));
         app
+    }
+
+    fn poll_preview_tick(&mut self, cx: &mut Context<Self>) {
+        let mut notify = false;
+        if let Some(gesture) = self.space_gesture.as_mut() {
+            if gesture.mark_held_if_due() {
+                notify = true;
+            }
+            if !platform::space_key_down() {
+                if let Some(gesture) = self.space_gesture.take() {
+                    if gesture.end() {
+                        self.close_preview(cx);
+                        return;
+                    }
+                    notify = true;
+                }
+            }
+        }
+        if let Some(preview) = self.preview.as_mut() {
+            if preview.tick_appear() {
+                notify = true;
+            }
+        }
+        if notify {
+            cx.notify();
+        }
     }
 
     fn poll_session_events(&mut self, cx: &mut Context<Self>) {
@@ -198,8 +244,11 @@ impl RootApp {
                 self.items = grid::load_listed(&self.session, &state.cells);
                 self.status = SharedString::from("");
                 self.library = Some(state);
+                self.preview = None;
+                self.preview_payload = None;
+                self.space_gesture = None;
                 self.recompute_justified();
-                cx.notify();
+                self.refresh_details(cx);
             }
             Err(error) => {
                 self.status = SharedString::from(format!("Open failed: {error}"));
@@ -238,6 +287,16 @@ impl RootApp {
         self.items.clear();
         self.justified = None;
         self.rubber = None;
+        self.preview = None;
+        self.preview_payload = None;
+        self.space_gesture = None;
+        self.details = DetailsModel {
+            count: 0,
+            item: None,
+            thumb: None,
+            selection: None,
+            stack_thumbs: Vec::new(),
+        };
         window.set_window_title(&window_title(None));
         cx.notify();
     }
@@ -664,7 +723,7 @@ impl RootApp {
             lib.selection.select_only(&cell.id.0, index);
         }
         lib.persist_session(&self.session);
-        cx.notify();
+        self.refresh_details(cx);
     }
 
     pub(crate) fn begin_rubber(&mut self, window_pos: (f32, f32), cx: &mut Context<Self>) {
@@ -718,10 +777,18 @@ impl RootApp {
                 .select_indices(&lib.cells, &indices, focus);
             lib.persist_session(&self.session);
         }
-        cx.notify();
+        self.refresh_details(cx);
     }
 
     fn move_focus(&mut self, key: &str, cx: &mut Context<Self>) {
+        if self.preview.is_some() {
+            match key {
+                "left" => self.preview_step(-1, cx),
+                "right" => self.preview_step(1, cx),
+                _ => {}
+            }
+            return;
+        }
         let Some(lib) = self.library.as_mut() else {
             return;
         };
@@ -747,7 +814,7 @@ impl RootApp {
         if let Some(cell) = lib.cells.get(index).cloned() {
             lib.selection.select_only(&cell.id.0, index);
             lib.persist_session(&self.session);
-            cx.notify();
+            self.refresh_details(cx);
         }
     }
 
@@ -755,9 +822,352 @@ impl RootApp {
         if let Some(lib) = self.library.as_mut() {
             lib.right_open = true;
             lib.persist_browse_prefs(&self.session);
-            self.status = SharedString::from(t(self.locale, "shell.detailsStub"));
+            self.refresh_details(cx);
+        }
+    }
+
+    fn refresh_details(&mut self, cx: &mut Context<Self>) {
+        let Some(lib) = self.library.as_ref() else {
+            self.details = DetailsModel {
+                count: 0,
+                item: None,
+                thumb: None,
+                selection: None,
+                stack_thumbs: Vec::new(),
+            };
+            cx.notify();
+            return;
+        };
+        let count = lib.selection.count();
+        if count == 0 {
+            self.details = DetailsModel {
+                count: 0,
+                item: None,
+                thumb: None,
+                selection: None,
+                stack_thumbs: Vec::new(),
+            };
+            cx.notify();
+            return;
+        }
+        if count == 1 {
+            let id = lib
+                .selection
+                .ids
+                .iter()
+                .next()
+                .cloned()
+                .or_else(|| {
+                    lib.selection
+                        .focus
+                        .and_then(|i| lib.cells.get(i).map(|c| c.id.0.clone()))
+                });
+            let Some(id) = id else {
+                self.details.count = 1;
+                cx.notify();
+                return;
+            };
+            let item = self.session.item_detail(&id).ok().flatten();
+            let thumb = lib
+                .cells
+                .iter()
+                .find(|c| c.id.0 == id)
+                .and_then(|cell| preview_image::thumb_image(&self.session, cell))
+                .or_else(|| {
+                    item.as_ref().and_then(|item| {
+                        if item.no_thumbnail {
+                            return None;
+                        }
+                        let cell = library_core::ItemCell {
+                            id: item.id.clone(),
+                            name: item.name.clone(),
+                            ext: item.ext.clone(),
+                            has_thumbnail: !item.no_thumbnail,
+                            thumb_version: item.thumb_version,
+                            ..Default::default()
+                        };
+                        preview_image::thumb_image(&self.session, &cell)
+                    })
+                });
+            self.details = DetailsModel {
+                count: 1,
+                item,
+                thumb,
+                selection: None,
+                stack_thumbs: Vec::new(),
+            };
+            cx.notify();
+            return;
+        }
+        let ids: Vec<ItemId> = lib
+            .selection
+            .ids
+            .iter()
+            .cloned()
+            .map(ItemId)
+            .collect();
+        let target = ItemsTarget {
+            view_id: Some(lib.view_id),
+            all: false,
+            ids,
+        };
+        let selection = self.session.selection_tags(target).ok();
+        let stack_thumbs = selection
+            .as_ref()
+            .map(|sel| {
+                sel.stack
+                    .iter()
+                    .map(|cell| preview_image::thumb_image(&self.session, cell))
+                    .collect()
+            })
+            .unwrap_or_default();
+        self.details = DetailsModel {
+            count,
+            item: None,
+            thumb: None,
+            selection,
+            stack_thumbs,
+        };
+        cx.notify();
+    }
+
+    fn selection_target(&self) -> Option<ItemsTarget> {
+        let lib = self.library.as_ref()?;
+        let ids: Vec<ItemId> = lib.selection.ids.iter().cloned().map(ItemId).collect();
+        if ids.is_empty() {
+            return None;
+        }
+        Some(ItemsTarget {
+            view_id: Some(lib.view_id),
+            all: false,
+            ids,
+        })
+    }
+
+    pub(crate) fn open_preview(&mut self, cx: &mut Context<Self>) {
+        let Some(lib) = self.library.as_ref() else {
+            return;
+        };
+        let index = lib
+            .selection
+            .focus
+            .or_else(|| {
+                lib.selection.ids.iter().next().and_then(|id| {
+                    lib.cells.iter().position(|c| c.id.0 == *id)
+                })
+            });
+        let Some(index) = index else {
+            return;
+        };
+        self.open_preview_at(index, cx);
+    }
+
+    pub(crate) fn open_preview_at(&mut self, index: usize, cx: &mut Context<Self>) {
+        let Some(lib) = self.library.as_ref() else {
+            return;
+        };
+        let Some(cell) = lib.cells.get(index).cloned() else {
+            return;
+        };
+        let total = lib.total.max(lib.cells.len() as u32);
+        let payload = preview_image::preview_payload(&self.session, &cell);
+        let image = payload.as_ref().map(|p| p.to_image());
+        self.preview_payload = payload;
+        self.preview = Some(PreviewState::new(
+            index,
+            total,
+            format!("{}.{}", cell.name, cell.ext),
+            image,
+        ));
+        if let Some(lib) = self.library.as_mut() {
+            lib.selection.select_only(&cell.id.0, index);
+            lib.persist_session(&self.session);
+        }
+        self.refresh_details(cx);
+    }
+
+    pub(crate) fn close_preview(&mut self, cx: &mut Context<Self>) {
+        self.preview = None;
+        self.preview_payload = None;
+        cx.notify();
+    }
+
+    pub(crate) fn preview_step(&mut self, step: i32, cx: &mut Context<Self>) {
+        let Some(preview) = self.preview.as_ref() else {
+            return;
+        };
+        let next = preview.index as i32 + step;
+        if next < 0 {
+            return;
+        }
+        let next = next as usize;
+        let total = self
+            .library
+            .as_ref()
+            .map(|lib| lib.cells.len())
+            .unwrap_or(0);
+        if next >= total {
+            return;
+        }
+        let mut state = PreviewState::new(next, preview.total, "", None);
+        state.appear = 1.0;
+        self.preview = Some(state);
+        self.open_preview_at(next, cx);
+    }
+
+    pub(crate) fn preview_zoom(&mut self, factor: f32, cx: &mut Context<Self>) {
+        if let Some(preview) = self.preview.as_mut() {
+            let next = preview.zoom * factor;
+            preview.zoom_to(next);
             cx.notify();
         }
+    }
+
+    pub(crate) fn preview_zoom_reset(&mut self, cx: &mut Context<Self>) {
+        if let Some(preview) = self.preview.as_mut() {
+            preview.zoom_to(1.0);
+            cx.notify();
+        }
+    }
+
+    pub(crate) fn preview_rotate(&mut self, cx: &mut Context<Self>) {
+        let Some(preview) = self.preview.as_mut() else {
+            return;
+        };
+        preview.rotate_cw();
+        let degrees = preview.rotation;
+        if let Some(payload) = self.preview_payload.as_ref() {
+            preview.image = payload.rotated(degrees);
+        }
+        cx.notify();
+    }
+
+    pub(crate) fn preview_pan_start(&mut self, origin_x: f32, origin_y: f32, cx: &mut Context<Self>) {
+        if let Some(preview) = self.preview.as_mut() {
+            if preview.zoom > 1.0 {
+                preview.drag_origin = Some((origin_x, origin_y));
+                cx.notify();
+            }
+        }
+    }
+
+    pub(crate) fn preview_pan_move(&mut self, x: f32, y: f32, cx: &mut Context<Self>) {
+        let Some(preview) = self.preview.as_mut() else {
+            return;
+        };
+        let Some((ox, oy)) = preview.drag_origin else {
+            return;
+        };
+        preview.offset = (x - ox, y - oy);
+        cx.notify();
+    }
+
+    pub(crate) fn preview_pan_end(&mut self, cx: &mut Context<Self>) {
+        if let Some(preview) = self.preview.as_mut() {
+            preview.drag_origin = None;
+            cx.notify();
+        }
+    }
+
+    fn space_preview_down(&mut self, cx: &mut Context<Self>) {
+        if self.library.is_none() {
+            return;
+        }
+        if self.space_gesture.is_some() {
+            return;
+        }
+        let is_open = self.preview.is_some();
+        let (gesture, should_open) = SpaceGesture::begin(is_open);
+        self.space_gesture = Some(gesture);
+        if should_open {
+            self.open_preview(cx);
+        } else {
+            cx.notify();
+        }
+    }
+
+    pub(crate) fn open_original(&mut self, cx: &mut Context<Self>) {
+        let Some(lib) = self.library.as_ref() else {
+            return;
+        };
+        let id = lib
+            .selection
+            .focus
+            .and_then(|i| lib.cells.get(i).map(|c| c.id.clone()))
+            .or_else(|| lib.selection.ids.iter().next().map(|id| ItemId(id.clone())));
+        let Some(id) = id else {
+            return;
+        };
+        match self.session.original_paths(&[id]) {
+            Ok(paths) => {
+                for path in paths {
+                    if let Err(error) = platform::open_path(&path) {
+                        self.status = SharedString::from(error);
+                    }
+                }
+            }
+            Err(error) => {
+                self.status = SharedString::from(format!("{error}"));
+            }
+        }
+        cx.notify();
+    }
+
+    pub(crate) fn reveal_selection(&mut self, cx: &mut Context<Self>) {
+        let Some(target) = self.selection_target() else {
+            return;
+        };
+        match self
+            .session
+            .selected_ids(target)
+            .and_then(|ids| self.session.original_paths(&ids))
+        {
+            Ok(paths) => {
+                if let Err(error) = platform::reveal_paths(&paths) {
+                    self.status = SharedString::from(error);
+                }
+            }
+            Err(error) => {
+                self.status = SharedString::from(format!("{error}"));
+            }
+        }
+        cx.notify();
+    }
+
+    pub(crate) fn copy_selection(&mut self, cx: &mut Context<Self>) {
+        let Some(target) = self.selection_target() else {
+            return;
+        };
+        match self
+            .session
+            .selected_ids(target)
+            .and_then(|ids| self.session.original_paths(&ids))
+        {
+            Ok(paths) => match platform::copy_files(&paths) {
+                Ok(n) => {
+                    self.status = SharedString::from(format!("Copied {n} file(s)"));
+                }
+                Err(error) => {
+                    self.status = SharedString::from(error);
+                }
+            },
+            Err(error) => {
+                self.status = SharedString::from(format!("{error}"));
+            }
+        }
+        cx.notify();
+    }
+
+    pub(crate) fn open_item_link(&mut self, url: &str, cx: &mut Context<Self>) {
+        if !is_web_link(url) {
+            self.status = SharedString::from(t(self.locale, "details.linkInvalid"));
+            cx.notify();
+            return;
+        }
+        if let Err(error) = platform::open_url(url) {
+            self.status = SharedString::from(error);
+        }
+        cx.notify();
     }
 
     fn update_browse(&mut self, f: impl FnOnce(&mut BrowsePreferences), cx: &mut Context<Self>) {
@@ -963,12 +1373,33 @@ impl Render for RootApp {
                 if let Some(lib) = this.library.as_mut() {
                     lib.selection.select_all(&lib.cells);
                     lib.persist_session(&this.session);
-                    cx.notify();
+                    this.refresh_details(cx);
                 }
             }))
-            .on_action(cx.listener(|this, _: &PreviewStub, _, cx| {
-                this.status = SharedString::from("Preview arrives in Phase 2.");
-                cx.notify();
+            .on_action(cx.listener(|this, _: &Preview, _, cx| {
+                this.open_preview(cx);
+            }))
+            .on_action(cx.listener(|this, _: &ClosePreview, _, cx| {
+                if this.preview.is_some() {
+                    this.close_preview(cx);
+                }
+            }))
+            .on_action(cx.listener(|this, _: &PreviewRotate, _, cx| {
+                if this.preview.is_some() {
+                    this.preview_rotate(cx);
+                }
+            }))
+            .on_action(cx.listener(|this, _: &SpacePreviewDown, _, cx| {
+                this.space_preview_down(cx);
+            }))
+            .on_action(cx.listener(|this, _: &OpenOriginal, _, cx| {
+                this.open_original(cx);
+            }))
+            .on_action(cx.listener(|this, _: &RevealOriginals, _, cx| {
+                this.reveal_selection(cx);
+            }))
+            .on_action(cx.listener(|this, _: &CopyOriginals, _, cx| {
+                this.copy_selection(cx);
             }))
             .on_action(cx.listener(|this, _: &FindStub, _, cx| {
                 this.status = SharedString::from("Search arrives with filters in Phase 3.");
@@ -1057,6 +1488,9 @@ impl Render for RootApp {
                 self.render_library(&theme, locale, cx).into_any_element()
             } else {
                 self.render_welcome(&theme, locale, cx).into_any_element()
+            })
+            .when_some(self.preview.as_ref(), |el, preview| {
+                el.child(preview::render_preview(preview, locale, cx.entity()))
             })
     }
 }
@@ -1518,7 +1952,13 @@ impl RootApp {
                                     .size_full()
                                     .border_l_1()
                                     .border_color(theme.border)
-                                    .child(library_ui::render_details_stub(locale)),
+                                    .child(details::render_details(
+                                        lib,
+                                        &self.details,
+                                        locale,
+                                        theme,
+                                        entity.clone(),
+                                    )),
                             ),
                     )
                     .on_resize({

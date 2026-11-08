@@ -3478,14 +3478,19 @@ name = "gpui-desktop"
 version = "0.2.77"
 dependencies = [
  "app-store",
+ "arboard",
  "desktop-session",
  "device_query",
  "gpui-kit",
+ "image",
  "library-core",
  "library-native",
+ "media",
+ "serde_json",
  "tempfile",
  "tracing",
  "tracing-subscriber",
+ "winreg",
 ]
 
 [[package]]

@@ -2767,3 +2767,24 @@ Numbering: **D-125** reserved by open PR #85; **D-126** spike; **D-127** session
   shipping). Rubber-band hit-testing uses content coordinates best-effort.
 - **Run.** `cargo run -p gpui-desktop` (optional path / `--no-reopen`). Tests:
   `cargo test -p gpui-desktop`. Tauri/`ui/` unchanged.
+
+## D-130 GPUI preview + details read path (Phase 2) (2026-11-08)
+
+Full-size preview and read-only details on `gpui-desktop`, still experimental beside Tauri/`ui/`.
+
+Numbering: **D-125** reserved by open PR #85; **D-126** spike; **D-127** session extract;
+**D-128** Android preview swipe; **D-129** Phase 1 browse. This phase is **D-130**.
+
+- **Ships.** Right-bar details via `Session::item_detail` (one / many / none / trash placeholder):
+  thumb, palette, name, rating, tags, folders, note, link, info, EXIF (comments RO when present);
+  multi-select stack + size + tags; Open / Reveal / Copy / Open link through platform helpers over
+  `original_paths`. Full-size preview overlay: fit / zoom / pan / rotate `R` (session-only, D-058),
+  ←/→ in the view, Esc / letterbox click close, Space hold-vs-toggle peek (D-073) via
+  `device_query` key-up poll; double-click opens preview. Image path: originals for
+  JPEG/PNG/WebP/GIF/BMP/SVG; HEIC via `media::render_bytes` (webp); TIFF/PSD → 512 thumb.
+  Best-effort appear fade; skipped when `EGL_REDUCED_MOTION` / Windows `MinAnimate=0`.
+- **Deps.** `arboard`, `image`, `media`, `serde_json`, Windows `winreg` (reduced-motion) on
+  `gpui-desktop` only (D-002 / D-003).
+- **Not yet.** In-place edits / trash actions (Phase 3); morph-from-cell View Transitions
+  (plan §7 best-effort); search / filters / Eagle.
+- **Run.** `cargo run -p gpui-desktop`. Tests: `cargo test -p gpui-desktop`. Tauri/`ui/` unchanged.

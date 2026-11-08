@@ -90,6 +90,145 @@ pub fn open_in_file_manager(path: &Path) -> Result<(), String> {
     }
 }
 
+/// Opens a file with the app Windows (or the OS) associates with its type.
+pub fn open_path(path: &Path) -> Result<(), String> {
+    #[cfg(windows)]
+    {
+        std::process::Command::new("cmd")
+            .args(["/C", "start", "", &path.to_string_lossy()])
+            .spawn()
+            .map(|_| ())
+            .map_err(|e| e.to_string())
+    }
+    #[cfg(target_os = "macos")]
+    {
+        std::process::Command::new("open")
+            .arg(path.as_os_str())
+            .spawn()
+            .map(|_| ())
+            .map_err(|e| e.to_string())
+    }
+    #[cfg(all(unix, not(target_os = "macos")))]
+    {
+        std::process::Command::new("xdg-open")
+            .arg(path.as_os_str())
+            .spawn()
+            .map(|_| ())
+            .map_err(|e| e.to_string())
+    }
+}
+
+/// Shows originals in Explorer / Finder / file manager.
+pub fn reveal_paths(paths: &[PathBuf]) -> Result<(), String> {
+    if paths.is_empty() {
+        return Ok(());
+    }
+    #[cfg(windows)]
+    {
+        use std::os::windows::process::CommandExt;
+        // Select the first file; additional files share its folder.
+        let first = &paths[0];
+        let arg = format!("/select,{}", first.display());
+        std::process::Command::new("explorer")
+            .raw_arg(arg)
+            .spawn()
+            .map(|_| ())
+            .map_err(|e| e.to_string())
+    }
+    #[cfg(target_os = "macos")]
+    {
+        let mut cmd = std::process::Command::new("open");
+        cmd.arg("-R");
+        for path in paths {
+            cmd.arg(path);
+        }
+        cmd.spawn().map(|_| ()).map_err(|e| e.to_string())
+    }
+    #[cfg(all(unix, not(target_os = "macos")))]
+    {
+        open_in_file_manager(&paths[0])
+    }
+}
+
+/// Puts file paths on the system clipboard (Explorer paste).
+pub fn copy_files(paths: &[PathBuf]) -> Result<u32, String> {
+    use std::sync::{Mutex, OnceLock, PoisonError};
+    static CLIPBOARD: OnceLock<Mutex<Option<arboard::Clipboard>>> = OnceLock::new();
+    let slot = CLIPBOARD.get_or_init(|| Mutex::new(None));
+    let mut guard = slot.lock().unwrap_or_else(PoisonError::into_inner);
+    let clipboard = match guard.as_mut() {
+        Some(clipboard) => clipboard,
+        None => guard.insert(arboard::Clipboard::new().map_err(|e| e.to_string())?),
+    };
+    clipboard
+        .set()
+        .file_list(paths)
+        .map_err(|e| e.to_string())?;
+    Ok(u32::try_from(paths.len()).unwrap_or(u32::MAX))
+}
+
+/// Opens an http(s) URL in the system browser.
+pub fn open_url(url: &str) -> Result<(), String> {
+    let url = url.trim();
+    #[cfg(windows)]
+    {
+        std::process::Command::new("cmd")
+            .args(["/C", "start", "", url])
+            .spawn()
+            .map(|_| ())
+            .map_err(|e| e.to_string())
+    }
+    #[cfg(target_os = "macos")]
+    {
+        std::process::Command::new("open")
+            .arg(url)
+            .spawn()
+            .map(|_| ())
+            .map_err(|e| e.to_string())
+    }
+    #[cfg(all(unix, not(target_os = "macos")))]
+    {
+        std::process::Command::new("xdg-open")
+            .arg(url)
+            .spawn()
+            .map(|_| ())
+            .map_err(|e| e.to_string())
+    }
+}
+
+/// Whether the Space key is currently held (for peek release / D-073).
+pub fn space_key_down() -> bool {
+    #[cfg(any(windows, target_os = "macos", target_os = "linux"))]
+    {
+        use device_query::{DeviceQuery, DeviceState, Keycode};
+        DeviceState::new().get_keys().contains(&Keycode::Space)
+    }
+    #[cfg(not(any(windows, target_os = "macos", target_os = "linux")))]
+    {
+        false
+    }
+}
+
+/// Best-effort reduced-motion: env override, or Windows desktop MinAnimate = 0.
+pub fn reduced_motion() -> bool {
+    if std::env::var_os("EGL_REDUCED_MOTION").is_some()
+        || std::env::var_os("EGL_NO_MOTION").is_some()
+    {
+        return true;
+    }
+    #[cfg(windows)]
+    {
+        if let Ok(hkcu) = winreg::RegKey::predef(winreg::enums::HKEY_CURRENT_USER)
+            .open_subkey(r"Control Panel\Desktop\WindowMetrics")
+        {
+            if let Ok(value) = hkcu.get_value::<String, _>("MinAnimate") {
+                return value.trim() == "0";
+            }
+        }
+    }
+    false
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;
@@ -102,5 +241,10 @@ mod tests {
     #[test]
     fn shift_query_does_not_panic() {
         let _ = shift_held_at_start();
+    }
+
+    #[test]
+    fn reduced_motion_is_callable() {
+        let _ = reduced_motion();
     }
 }

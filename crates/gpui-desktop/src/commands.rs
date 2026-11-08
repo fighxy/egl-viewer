@@ -1,4 +1,4 @@
-//! GPUI actions + keymap for Phase 1 browse shell (logical ids mirror `ui/src/commands/registry.ts`).
+//! GPUI actions + keymap for Phase 1–2 (logical ids mirror `ui/src/commands/registry.ts`).
 //! Commands of later phases are absent, not disabled.
 
 use gpui_kit::{App, KeyBinding, actions};
@@ -27,7 +27,18 @@ actions!(
         ToggleShowNames,
         ToggleIncludeSubfolders,
         SelectAll,
-        PreviewStub,
+        Preview,
+        ClosePreview,
+        PreviewPrev,
+        PreviewNext,
+        PreviewZoomIn,
+        PreviewZoomOut,
+        PreviewZoomReset,
+        PreviewRotate,
+        SpacePreviewDown,
+        OpenOriginal,
+        RevealOriginals,
+        CopyOriginals,
         FindStub,
         SortByAdded,
         SortByCreated,
@@ -130,6 +141,26 @@ pub const SHORTCUTS: &[ShortcutEntry] = &[
         keys: "Ctrl+Shift+S",
     },
     ShortcutEntry {
+        id: "view.preview",
+        label_key: "commands.view.preview",
+        keys: "Space",
+    },
+    ShortcutEntry {
+        id: "item.openOriginal",
+        label_key: "details.openDefault",
+        keys: "Ctrl+Enter",
+    },
+    ShortcutEntry {
+        id: "item.reveal",
+        label_key: "details.showExplorer",
+        keys: "Ctrl+Shift+R",
+    },
+    ShortcutEntry {
+        id: "item.copy",
+        label_key: "details.copyFile",
+        keys: "Ctrl+C",
+    },
+    ShortcutEntry {
         id: "help.shortcuts",
         label_key: "commands.help.shortcuts",
         keys: "F1",
@@ -153,6 +184,12 @@ pub fn bind_keymap(cx: &mut App) {
         KeyBinding::new("ctrl-shift-s", OpenSortMenu, None),
         KeyBinding::new("f1", Shortcuts, None),
         KeyBinding::new("enter", FocusDetails, None),
+        KeyBinding::new("space", SpacePreviewDown, None),
+        KeyBinding::new("escape", ClosePreview, None),
+        KeyBinding::new("r", PreviewRotate, None),
+        KeyBinding::new("ctrl-enter", OpenOriginal, None),
+        KeyBinding::new("ctrl-shift-r", RevealOriginals, None),
+        KeyBinding::new("ctrl-c", CopyOriginals, None),
         KeyBinding::new("left", MoveFocusLeft, None),
         KeyBinding::new("right", MoveFocusRight, None),
         KeyBinding::new("up", MoveFocusUp, None),

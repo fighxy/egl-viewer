@@ -431,4 +431,31 @@ mod tests {
         assert!(sel.ids.contains("id3"));
         assert!(sel.ids.contains("id4"));
     }
+
+    #[test]
+    fn fixture_item_detail_and_preview_payload() {
+        use crate::browse::preview_image;
+
+        let source = fixture_library_path();
+        let dir = tempdir().unwrap();
+        let root = dir.path().join("Fixture.eglib");
+        copy_dir(&source, &root).unwrap();
+        let session = session();
+        let info = session.open_library(&root.to_string_lossy()).unwrap();
+        let state = OpenLibraryState::load(&session, info).unwrap();
+        assert!(!state.cells.is_empty());
+        let cell = &state.cells[0];
+        let detail = session.item_detail(&cell.id.0).unwrap().unwrap();
+        assert_eq!(detail.id, cell.id);
+        let payload = preview_image::preview_payload(&session, cell);
+        // Fixture items should yield either an original or a thumb payload.
+        assert!(
+            payload.is_some() || !cell.has_thumbnail,
+            "expected preview bytes for fixture cell {}",
+            cell.id.0
+        );
+        let paths = session.original_paths(&[cell.id.clone()]).unwrap();
+        assert_eq!(paths.len(), 1);
+        session.close_library().unwrap();
+    }
 }

@@ -1,7 +1,7 @@
-//! Shared library chrome snippets (status / banners / details stub).
+//! Shared library chrome snippets (status / banners).
 
 use app_store::Locale;
-use gpui_kit::component::{h_flex, label::Label, v_flex};
+use gpui_kit::component::{h_flex, label::Label};
 use gpui_kit::prelude::FluentBuilder as _;
 use gpui_kit::{InteractiveElement, IntoElement, ParentElement, Styled, div};
 
@@ -43,11 +43,3 @@ pub fn render_read_only_banner(locale: Locale) -> impl IntoElement {
         .child(Label::new(t(locale, "shell.readOnlyBanner")).text_sm())
 }
 
-pub fn render_details_stub(locale: Locale) -> impl IntoElement {
-    v_flex()
-        .id("details-stub")
-        .size_full()
-        .p_3()
-        .gap_2()
-        .child(Label::new(t(locale, "shell.detailsStub")).text_sm())
-}

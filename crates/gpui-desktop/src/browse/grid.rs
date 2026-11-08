@@ -205,8 +205,12 @@ fn render_virtual_list(
                         .cursor_pointer()
                         .on_click(move |event, _window: &mut Window, cx: &mut App| {
                             let mods = event.modifiers();
+                            let double = event.click_count() >= 2;
                             entity.update(cx, |this, cx| {
                                 this.select_item(index, mods.control, mods.shift, cx);
+                                if double && !mods.control && !mods.shift {
+                                    this.open_preview_at(index, cx);
+                                }
                             });
                         })
                         .child(preview)
@@ -292,8 +296,12 @@ fn render_justified_virtual(
                                 .cursor_pointer()
                                 .on_click(move |event, _, cx| {
                                     let mods = event.modifiers();
+                                    let double = event.click_count() >= 2;
                                     entity.update(cx, |this, cx| {
                                         this.select_item(index, mods.control, mods.shift, cx);
+                                        if double && !mods.control && !mods.shift {
+                                            this.open_preview_at(index, cx);
+                                        }
                                     });
                                 })
                                 .child(
@@ -364,8 +372,12 @@ fn render_wrap_grid(
                 .cursor_pointer()
                 .on_click(move |event, _, cx| {
                     let mods = event.modifiers();
+                    let double = event.click_count() >= 2;
                     entity.update(cx, |this, cx| {
                         this.select_item(index, mods.control, mods.shift, cx);
+                        if double && !mods.control && !mods.shift {
+                            this.open_preview_at(index, cx);
+                        }
                     });
                 })
                 .child(preview)
