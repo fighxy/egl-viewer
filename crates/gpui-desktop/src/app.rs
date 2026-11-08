@@ -1,4 +1,4 @@
-//! Root GPUI entity: Welcome ↔ Library shell, commands, dialogs (Phase 1–4 / D-129–D-132).
+//! Root GPUI entity: Welcome ↔ Library shell, commands, dialogs (Phase 1–5 / D-129–D-133).
 
 use std::path::PathBuf;
 use std::sync::{Arc, Mutex};
@@ -38,6 +38,7 @@ use crate::phase4::LoginGate;
 use crate::platform;
 use crate::screens::library as library_ui;
 use crate::theme;
+use crate::updater::{self, CheckOutcome};
 
 /// Rubber-band selection rectangle in grid content coordinates.
 #[derive(Debug, Clone, Copy)]
@@ -48,6 +49,9 @@ pub struct RubberBand {
 
 /// Background Empty Trash completion (thread → UI poll).
 pub(crate) type EmptyTrashResult = Arc<Mutex<Option<Result<u32, String>>>>;
+
+/// Background update-check completion (thread → UI poll).
+type UpdateCheckResult = Arc<Mutex<Option<Result<CheckOutcome, String>>>>;
 
 pub struct RootApp {
     pub(crate) session: Arc<Session>,
@@ -109,6 +113,10 @@ pub struct RootApp {
     pub(crate) import_eagle_ui: Option<ImportEagleUi>,
     pub(crate) import_name: Entity<InputState>,
     pub(crate) eagle_badge: Option<String>,
+    /// Background update check (Help → Check for Updates / silent after gate).
+    update_check_result: Option<UpdateCheckResult>,
+    update_check_started: bool,
+    pending_update_url: Option<String>,
 }
 
 impl RootApp {
@@ -197,6 +205,9 @@ impl RootApp {
             import_eagle_ui: None,
             import_name,
             eagle_badge: None,
+            update_check_result: None,
+            update_check_started: false,
+            pending_update_url: None,
         };
         app.create_location = SharedString::from(app.session.default_library_location());
         app._search_sub = Some(cx.subscribe(
@@ -227,6 +238,7 @@ impl RootApp {
                     let _ = app.open_path(arg, window, cx);
                 }
             }
+            app.schedule_silent_update_check(cx);
         } else {
             app.pending_startup_library = startup.library;
             app.pending_startup_notice = startup.notice;
@@ -249,6 +261,7 @@ impl RootApp {
                         this.poll_preview_tick(cx);
                         this.poll_empty_trash(cx);
                         this.poll_decrypt(cx);
+                        this.poll_update_check(cx);
                     })
                     .is_err()
                 {
@@ -260,6 +273,84 @@ impl RootApp {
 
         window.set_window_title(&window_title(None));
         app
+    }
+
+    const LICENSES: &'static str = include_str!("../assets/THIRD_PARTY_LICENSES.txt");
+
+    pub(crate) fn schedule_silent_update_check(&mut self, cx: &mut Context<Self>) {
+        if self.update_check_started {
+            return;
+        }
+        // Skip network in automated tests / offline packaging smoke.
+        if std::env::var_os("EGL_SKIP_UPDATE_CHECK").is_some() {
+            self.update_check_started = true;
+            return;
+        }
+        self.update_check_started = true;
+        let slot: UpdateCheckResult = Arc::new(Mutex::new(None));
+        self.update_check_result = Some(slot.clone());
+        let current = library::APP_VERSION.to_string();
+        std::thread::spawn(move || {
+            let outcome = updater::check_latest(&current, updater::DEFAULT_ENDPOINT)
+                .map_err(|e| e.to_string());
+            if let Ok(mut guard) = slot.lock() {
+                *guard = Some(outcome);
+            }
+        });
+        cx.notify();
+    }
+
+    fn start_update_check(&mut self, interactive: bool, cx: &mut Context<Self>) {
+        if interactive {
+            self.status = SharedString::from(t(self.locale, "updates.checking"));
+        }
+        let slot: UpdateCheckResult = Arc::new(Mutex::new(None));
+        self.update_check_result = Some(slot.clone());
+        self.update_check_started = true;
+        let current = library::APP_VERSION.to_string();
+        std::thread::spawn(move || {
+            let outcome = updater::check_latest(&current, updater::DEFAULT_ENDPOINT)
+                .map_err(|e| e.to_string());
+            if let Ok(mut guard) = slot.lock() {
+                *guard = Some(outcome);
+            }
+        });
+        cx.notify();
+    }
+
+    fn poll_update_check(&mut self, cx: &mut Context<Self>) {
+        let Some(slot) = self.update_check_result.clone() else {
+            return;
+        };
+        let finished = slot.lock().ok().and_then(|mut g| g.take());
+        let Some(finished) = finished else {
+            return;
+        };
+        self.update_check_result = None;
+        match finished {
+            Ok(CheckOutcome::UpToDate { .. }) => {
+                // Silent checks stay quiet when current; interactive sets status.
+                if self.status.as_ref() == t(self.locale, "updates.checking") {
+                    self.status = SharedString::from(t(self.locale, "updates.upToDate"));
+                }
+            }
+            Ok(CheckOutcome::Update(update)) => {
+                self.pending_update_url = Some(update.url.clone());
+                self.status = SharedString::from(
+                    t(self.locale, "updates.silentAvailable")
+                        .replace("{version}", &update.version),
+                );
+            }
+            Err(error) => {
+                if self.status.as_ref() == t(self.locale, "updates.checking") {
+                    self.status = SharedString::from(format!(
+                        "{}: {error}",
+                        t(self.locale, "updates.error")
+                    ));
+                }
+            }
+        }
+        cx.notify();
     }
 
     fn poll_empty_trash(&mut self, cx: &mut Context<Self>) {
@@ -817,6 +908,7 @@ impl RootApp {
         let version = library::APP_VERSION;
         let commit = library::APP_COMMIT.unwrap_or("unknown");
         let os = std::env::consts::OS;
+        let entity = cx.entity();
         window.open_dialog(cx, move |dialog, _, _| {
             dialog.title(t(locale, "about.title")).child(
                 v_flex()
@@ -834,9 +926,80 @@ impl RootApp {
                         "{}: gpui-kit 0.9.0",
                         t(locale, "about.toolkit")
                     )))
-                    .child(Label::new(format!("{}: {os}", t(locale, "about.os")))),
+                    .child(Label::new(format!("{}: {os}", t(locale, "about.os"))))
+                    .child(
+                        Button::new("about-licenses")
+                            .label(t(locale, "about.licenses"))
+                            .on_click({
+                                let entity = entity.clone();
+                                move |_, window, cx| {
+                                    entity.update(cx, |this, cx| {
+                                        this.open_licenses(window, cx);
+                                    });
+                                }
+                            }),
+                    ),
             )
         });
+    }
+
+    fn open_licenses(&mut self, window: &mut Window, cx: &mut Context<Self>) {
+        let locale = self.locale;
+        let text = SharedString::from(Self::LICENSES);
+        window.open_dialog(cx, move |dialog, _, _| {
+            dialog.title(t(locale, "about.licensesTitle")).child(
+                v_flex()
+                    .gap_2()
+                    .p_2()
+                    .w(px(520.))
+                    .max_h(px(360.))
+                    .child(Label::new(text.clone()).text_xs()),
+            )
+        });
+    }
+
+    fn open_check_for_updates(&mut self, window: &mut Window, cx: &mut Context<Self>) {
+        let locale = self.locale;
+        let entity = cx.entity();
+        let url = self.pending_update_url.clone();
+        let has_url = url.is_some();
+        window.open_dialog(cx, move |dialog, _, _| {
+            let mut body = v_flex().gap_2().p_2().child(Label::new(if has_url {
+                t(locale, "updates.available")
+            } else {
+                t(locale, "updates.checking")
+            }));
+            if let Some(url) = url.clone() {
+                body = body.child(
+                    Button::new("upd-download")
+                        .primary()
+                        .label(t(locale, "updates.download"))
+                        .on_click(move |_, _, _| {
+                            let _ = platform::open_url(&url);
+                        }),
+                );
+            } else {
+                body = body.child(
+                    Button::new("upd-check-now")
+                        .primary()
+                        .label(t(locale, "commands.help.checkForUpdates"))
+                        .on_click({
+                            let entity = entity.clone();
+                            move |_, _, cx| {
+                                entity.update(cx, |this, cx| {
+                                    this.start_update_check(true, cx);
+                                });
+                            }
+                        }),
+                );
+            }
+            dialog
+                .title(t(locale, "commands.help.checkForUpdates"))
+                .child(body)
+        });
+        if !has_url {
+            self.start_update_check(true, cx);
+        }
     }
 
     fn open_sort_menu(&mut self, window: &mut Window, cx: &mut Context<Self>) {
@@ -1648,6 +1811,9 @@ impl Render for RootApp {
             .on_action(cx.listener(|this, _: &About, window, cx| {
                 this.open_about(window, cx);
             }))
+            .on_action(cx.listener(|this, _: &CheckForUpdates, window, cx| {
+                this.open_check_for_updates(window, cx);
+            }))
             .on_action(cx.listener(|this, _: &OpenLogFolder, window, cx| {
                 this.open_log_folder(window, cx);
             }))
@@ -2018,6 +2184,14 @@ impl RootApp {
                     .label(t(locale, "commands.help.shortcuts"))
                     .on_click(cx.listener(|this, _, window, cx| {
                         this.open_shortcuts(window, cx);
+                    })),
+            )
+            .child(
+                Button::new("mb-updates")
+                    .ghost()
+                    .label(t(locale, "commands.help.checkForUpdates"))
+                    .on_click(cx.listener(|this, _, window, cx| {
+                        this.open_check_for_updates(window, cx);
                     })),
             )
             .child(

@@ -1,0 +1,30 @@
+Third-party notices for egl-viewer GPUI desktop (D-133)
+=======================================================
+
+This file lists the main third-party components shipped with or linked by the
+GPUI Windows host. A fuller machine-generated inventory can replace this summary
+in a later release build. The Tauri/WebView desktop path keeps its own About
+story until that host is retired.
+
+gpui-kit (Longbridge) and its GPUI / gpui-component / gpui-base stack
+--------------------------------------------------------------------
+License: see the gpui-kit / Longbridge GPUI Kit project licenses on crates.io
+and https://gpui-kit.com. Pinned at =0.9.0 (D-126).
+
+libheif / libde265 (HEIC/HEIF decode)
+------------------------------------
+LGPL. Runtime DLLs `heif.dll` and `libde265.dll` are staged beside the exe
+(D-070). Full copyright texts from vcpkg are copied next to the portable layout
+as NOTICE-libheif.txt and NOTICE-libde265.txt when packaging.
+
+Rust crates in this workspace
+-----------------------------
+The GPUI host links the same shared crates as the rest of egl-viewer
+(library-core, library-native, media, app-service, desktop-session, app-store,
+eagle-api, eagle-folder, and their transitive crates). Each crate carries its
+own SPDX / license metadata in Cargo.toml and on crates.io.
+
+Windows system components
+-------------------------
+The host uses OS facilities (Win32 windowing via GPUI, Credential Manager,
+WebAuthn, Explorer) that are part of Windows and are not redistributed here.

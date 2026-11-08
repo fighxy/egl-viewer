@@ -94,8 +94,8 @@ if ($dumpbin) {
 # LGPL notices from the vcpkg port copyright files (D-063 / D-070).
 $share = Join-Path $VcpkgRoot "installed\$Triplet\share"
 foreach ($pair in @(
-        @{ Port = "libheif"; Out = "NOTICE-libheif.txt"; Fallback = "libheif — LGPL-3.0-only. See https://github.com/strukturag/libheif" },
-        @{ Port = "libde265"; Out = "NOTICE-libde265.txt"; Fallback = "libde265 — LGPL. See https://github.com/strukturag/libde265" }
+        @{ Port = "libheif"; Out = "NOTICE-libheif.txt"; Fallback = "libheif - LGPL-3.0-only. See https://github.com/strukturag/libheif" },
+        @{ Port = "libde265"; Out = "NOTICE-libde265.txt"; Fallback = "libde265 - LGPL. See https://github.com/strukturag/libde265" }
     )) {
     $copyright = Join-Path $share "$($pair.Port)\copyright"
     $outPath = Join-Path $Dest $pair.Out

@@ -2832,3 +2832,36 @@ Numbering: free id after D-131; **D-132**.
 - **Deps.** No new crates.
 - **Run.** `cargo run -p gpui-desktop`. Tests: `cargo test -p gpui-desktop` (30). Tauri/`ui/`
   unchanged.
+
+## D-133 GPUI desktop cutover path (Phase 5 dual path) (2026-11-08)
+
+Packaging, updater channel, CI, and docs for the GPUI host **beside** the shipping Tauri
+desktop. Numbering: free id after D-132; **D-133**. **Do not delete** `src-tauri` / `ui/` until
+Ivan confirms retirement.
+
+- **Product stance.** Intended Windows desktop UI toolkit = **GPUI Kit** (`crates/gpui-desktop`).
+  Tauri 2 + React `ui/` remain the **shipping** Windows release and `pnpm dev` / `pnpm build`
+  path until cutover is confirmed. Dual docs and CI first; quarantine is documentation +
+  release-path clarity, not deletion.
+- **Packaging (ships).** `scripts/package-gpui-desktop.ps1` builds release `gpui-desktop.exe`,
+  stages `heif.dll` / `libde265.dll` (+ LGPL notices) beside the exe (same D-070 rule as Tauri),
+  copies About licenses + icon, and writes `dist/egl-viewer-gpui_<version>_x64.zip`.
+- **Packaging (deferred).** Dedicated NSIS installer, `.eglib` file association, Authenticode /
+  SmartScreen signing for the GPUI artifact. Clean-machine install done check stays open.
+- **Updater (ships, partial).** Help → Check for Updates… and a silent post-gate check fetch
+  `https://github.com/fighxy/egl-viewer/releases/latest/download/latest-gpui.json` (not
+  `tauri-plugin-updater`). SemVer compare + “Open download” in the browser. Manifest writer:
+  `scripts/write-latest-gpui-json.mjs`. Skip with `EGL_SKIP_UPDATE_CHECK`.
+- **Updater (deferred).** Minisign verification, download-install-relaunch of a signed installer,
+  publishing `latest-gpui.json` from the `v*` release job (Tauri `latest.json` unchanged).
+- **Licenses.** About → Third-party licenses shows
+  `crates/gpui-desktop/assets/THIRD_PARTY_LICENSES.txt` (summary; fuller cargo inventory later).
+- **CI.** `.github/workflows/ci.yml` job `gpui-desktop`: `cargo test -p gpui-desktop`, package
+  script, upload `gpui-desktop-portable` artifact. Mobile path-filters (D-084) untouched. Tauri
+  `check` / `nsis` / `dmg` / `appimage` / `release` jobs unchanged.
+- **Chrome.** Native GPUI window frame is enough for the GPUI host; custom title-bar merge
+  (D-025) is not required on this path (still open on Tauri Phase 12).
+- **Deps.** `reqwest` with `blocking` on `gpui-desktop` only (workspace pin 0.12.28, D-002 /
+  D-003). No new crate versions beyond existing workspace pins.
+- **Verify.** `cargo test -p gpui-desktop`; `pwsh scripts/package-gpui-desktop.ps1` on Windows
+  with vcpkg libheif. Tauri/`ui/` behaviour unchanged.

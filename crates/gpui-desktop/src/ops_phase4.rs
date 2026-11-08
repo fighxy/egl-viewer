@@ -172,6 +172,7 @@ impl RootApp {
         if let Some(info) = self.pending_startup_library.take() {
             self.adopt_library(info, window, cx);
         }
+        self.schedule_silent_update_check(cx);
         cx.notify();
     }
 

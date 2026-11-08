@@ -121,6 +121,80 @@ jobs:
       - name: Build the app
         run: pnpm tauri build --no-bundle
 
+  # GPUI desktop portable layout (D-133). Dual path beside Tauri NSIS; does not
+  # retire src-tauri/ui. Runs on PR/push like check, and on tags / dispatch.
+  gpui-desktop:
+    if: >
+      github.event_name == 'pull_request' ||
+      github.event_name == 'workflow_dispatch' ||
+      (github.event_name == 'push' && startsWith(github.ref, 'refs/heads/')) ||
+      (github.event_name == 'push' && startsWith(github.ref, 'refs/tags/v'))
+    runs-on: windows-latest
+    steps:
+      - uses: actions/checkout@v7
+
+      - name: Rust toolchain (from rust-toolchain.toml)
+        run: rustup toolchain install
+
+      - name: libheif (HEIC/HEIF previews, D-063)
+        shell: pwsh
+        run: |
+          $ErrorActionPreference = "Continue"
+          vcpkg remove "libheif:x64-windows" --recurse 2>$null
+          vcpkg remove "x265:x64-windows" --recurse 2>$null
+          $ErrorActionPreference = "Stop"
+          vcpkg install "libheif[core,libde265]:x64-windows"
+          $root = if ($env:VCPKG_ROOT) { $env:VCPKG_ROOT } elseif ($env:VCPKG_INSTALLATION_ROOT) { $env:VCPKG_INSTALLATION_ROOT } else { "C:\vcpkg" }
+          $bin = Join-Path $root "installed\x64-windows\bin"
+          if (-not (Test-Path -LiteralPath (Join-Path $bin "heif.dll"))) { throw "heif.dll missing under $bin" }
+          if (-not (Test-Path -LiteralPath (Join-Path $bin "libde265.dll"))) { throw "libde265.dll missing under $bin" }
+
+      - name: vcpkg env for libheif-sys
+        shell: bash
+        run: |
+          echo "VCPKG_ROOT=${VCPKG_INSTALLATION_ROOT:-C:/vcpkg}" >> "$GITHUB_ENV"
+          echo "VCPKGRS_DYNAMIC=1" >> "$GITHUB_ENV"
+
+      - name: libheif on PATH for tests
+        shell: bash
+        run: echo "$VCPKG_ROOT/installed/x64-windows/bin" >> "$GITHUB_PATH"
+
+      - uses: Swatinem/rust-cache@v2
+        with:
+          prefix-key: heif-core-libde265-v1-gpui
+
+      - name: Test gpui-desktop
+        env:
+          EGL_SKIP_UPDATE_CHECK: "1"
+        run: cargo test -p gpui-desktop
+
+      - name: Package portable GPUI desktop
+        shell: pwsh
+        env:
+          EGL_SKIP_UPDATE_CHECK: "1"
+        run: |
+          ./scripts/package-gpui-desktop.ps1
+          if (-not (Test-Path -LiteralPath dist/gpui-desktop/gpui-desktop.exe)) {
+            throw "gpui-desktop.exe missing from portable stage"
+          }
+          if (-not (Test-Path -LiteralPath dist/gpui-desktop/heif.dll)) {
+            throw "heif.dll missing from portable stage"
+          }
+          if (-not (Test-Path -LiteralPath dist/gpui-desktop/libde265.dll)) {
+            throw "libde265.dll missing from portable stage"
+          }
+          Get-ChildItem dist/gpui-desktop
+          Get-ChildItem dist -Filter "egl-viewer-gpui_*.zip"
+
+      - name: Upload GPUI portable zip
+        uses: actions/upload-artifact@v4
+        with:
+          name: gpui-desktop-portable
+          path: |
+            dist/egl-viewer-gpui_*.zip
+            dist/gpui-desktop/**
+          if-no-files-found: error
+
   # Windows NSIS installer. The check job above only compiles (--no-bundle).
   # A version tag (v*) builds the installer; workflow_dispatch does the same.
   nsis:

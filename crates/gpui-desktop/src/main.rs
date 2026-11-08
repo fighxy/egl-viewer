@@ -22,6 +22,7 @@ mod phase4;
 mod platform;
 mod screens;
 mod theme;
+mod updater;
 
 use gpui_kit::assets::Assets;
 use gpui_kit::{AppContext as _, WindowBounds, WindowOptions, px, size};

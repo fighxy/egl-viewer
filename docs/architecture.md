@@ -20,8 +20,8 @@ Live verification (2026-10-27): two test JPEGs were added to the open library th
 |---|---|
 | Product | **A standalone asset manager** with its own library; Eagle compatibility is secondary (D-013) |
 | Targets | **Windows 10/11 now** (desktop default). iOS app (D-093–D-100) and Android app (D-101–D-108) over native `.eglib` only. Nothing in the core may depend on Windows |
-| Shell | **Tauri 2.12** (stable) on desktop. Not Tauri 3, which is in alpha (§2). Mobile: SwiftUI / Compose + C ABI (`library-ffi`) through `EglCore` / `eglcore` (D-092, D-101), not Tauri Mobile |
-| Core | Rust workspace: `library-core` (no IO), `library-native` (the native library), `media` (thumbnails, palettes, hashes), `app-service` (the open native library as an app uses it: views, undo, edits, background tasks; D-091), `desktop-session` (toolkit-free desktop Session over app-service: Eagle live, prefs, YubiKey/WebAuthn; D-127), `app-store` (settings, recent libraries, secrets), `library-ffi` (C ABI for iOS/Android, D-082 / D-092 / D-101), and for Eagle `eagle-folder` and `eagle-api`; the Tauri app crate is a thin layer of commands; `gpui-desktop` is an experimental second desktop host (D-126) |
+| Shell | **Dual desktop path (D-133):** shipping Windows release and `pnpm dev` stay **Tauri 2.12** + React until Ivan confirms cutover; the intended native host is **GPUI Kit** in `crates/gpui-desktop` (D-126…D-133). Not Tauri 3. Mobile: SwiftUI / Compose + C ABI (`library-ffi`) through `EglCore` / `eglcore` (D-092, D-101), not Tauri Mobile |
+| Core | Rust workspace: `library-core` (no IO), `library-native` (the native library), `media` (thumbnails, palettes, hashes), `app-service` (the open native library as an app uses it: views, undo, edits, background tasks; D-091), `desktop-session` (toolkit-free desktop Session over app-service: Eagle live, prefs, YubiKey/WebAuthn; D-127), `app-store` (settings, recent libraries, secrets), `library-ffi` (C ABI for iOS/Android, D-082 / D-092 / D-101), and for Eagle `eagle-folder` and `eagle-api`; the Tauri app crate is a thin layer of commands; `gpui-desktop` is the GPUI Kit host over the same Session (cutover path, D-133) |
 | Library sources | One `LibrarySource` trait in `library-core`. Implementations: the native library, an Eagle library folder on disk (read only), a running Eagle (API) (§15.2) |
 | Library format | A folder `Name.eglib` (D-016): SQLite (`library.db`) as the single source of truth, the original files copied in (D-014), regenerable thumbnails; documented in `library-format.md` and versioned (§15.3) |
 | Media | v1 previews for JPEG, PNG, GIF, WebP, SVG, TIFF, BMP, PSD composites and HEIC/HEIF; AVIF and other files are stored with a placeholder (D-015, D-035, D-063, §15.4) |
@@ -186,8 +186,9 @@ egl-viewer/
   desktop-session/           toolkit-free desktop Session over app-service (D-127): native library + live
                              Eagle, preferences / recent / login, clipboard trait, YubiKey PIV and
                              Windows WebAuthn; no gpui, no tauri. Shared by src-tauri and gpui-desktop
-  gpui-desktop/              experimental GPUI Kit host over desktop-session (D-126); not the shipping UI
-  src-tauri/                 the shipping Tauri app crate: thin adapter over desktop-session
+  gpui-desktop/              GPUI Kit host over desktop-session (D-126…D-133); portable zip + CI dual path;
+                             not yet the sole Windows release (Tauri stays until cutover is confirmed)
+  src-tauri/                 shipping Tauri app crate until cutover: thin adapter over desktop-session
     commands.rs              IPC over Session; libraries, imports, views, items, Eagle, locks, …
     window.rs                window size and position, showing the window after the first paint
     capabilities/            Tauri permissions: only our commands and the plugins in use

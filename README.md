@@ -3,8 +3,9 @@
 A standalone desktop app for collections of images and design references: its own library
 (`Name.eglib`) with folders, tags, ratings, notes, search, filters and smart folders.
 Compatible with [Eagle](https://eagle.cool): import Eagle libraries, connect to a running Eagle
-on the same PC or in the network, export into Eagle. Built with Tauri 2, a Rust core and a
-React UI. Windows first; no AI features.
+on the same PC or in the network, export into Eagle. **Shipping Windows desktop today:** Tauri 2
++ React. **Cutover path (D-133):** native GPUI Kit host (`gpui-desktop`) with dual CI/packaging;
+Tauri/`ui/` stay until retirement is confirmed. Windows first; no AI features.
 
 - What the app does: [`docs/spec.md`](docs/spec.md)
 - How it is built: [`docs/architecture.md`](docs/architecture.md)
@@ -32,7 +33,7 @@ React UI. Windows first; no AI features.
 | iOS app (not a numbered phase) | Done (2026-11-05): the foundation on `EglCore` and the shared core (D-091–D-100): Welcome, create in On My iPhone, open from Files (iCloud read-only), recent libraries; browsing (D-094): places, folders and smart folders, a lazy grid and a list by view id, sort, thumbnail size, search, filters, selection with Select All, the saved view; the preview with zoom, item details and edits, actions on a selection with undo, sharing originals (D-095); adding from Photos, Files, the clipboard and drops with the duplicate question, HEIC through ImageIO (D-096); folders, tags, tag groups and the smart folder editor (D-097); locked folders, locking on leaving and the app login with Face ID (D-098); Settings with backups, check and repair, rebuilt thumbnails and export to Files (D-099); Eagle library import into a new library (D-116); light and dark, en / ru / zh-Hans; icon, privacy manifest, accessibility audit, 10,000 items, unsigned IPA releases by tag `ios-vX.Y.Z` (D-100); see [`ios/README.md`](ios/README.md) |
 | Android app (not a numbered phase) | Done (2026-11-05): A1–A8 (D-101…D-108, ≈ iOS D-093…D-100): Kotlin `eglcore` over JNI / `library-ffi`, real `.so` (no mock), Welcome, places, lazy grid by view id, thumbs, filters, selection; full-screen preview pager + zoom, details sheet, selection actions with undo snackbar, share originals (≤100 temp copies); adding from Gallery / Files / folder / paste / drops with duplicate question and HEIC through ImageDecoder; folders / tags / tag groups / smart folder editor; locked folders + App Lock (PIN / biometrics, relock on background); Settings with backups, check and repair, rebuilt thumbnails, export and Decrypt Archive (no Eagle); libraries anywhere on the phone with All files access (D-111); Eagle library import into a new library (D-116); icon, Privacy screen, TalkBack labels, 10,000-item perf test, APK/AAB releases by tag `android-vX.Y.Z` (D-108); en / ru / zh; see [`android/README.md`](android/README.md). Not Tauri Android |
 | Mobile CI (not a numbered phase) | [`.github/workflows/mobile.yml`](.github/workflows/mobile.yml): Linux `library-ffi` and the shells' layout and strings; Android cargo-ndk `.so`, JVM unit tests, `assembleDebug`, tagged APK/AAB (`android-release`); macOS `EglCore` tests (`ios-core`), app unit and UI tests on a simulator (`ios-app`), the unsigned device IPA (`ios-ipa`, rolling `ios-latest`) (D-084, D-092, D-093, D-100, D-101, D-108) |
-| GPUI desktop (experiment) | Phase 4 slice (D-132): Backup/Export archives + Decrypt, Eagle import/connect/live + export-into-Eagle, app login gate + Settings WebAuthn; Phase 3 native editing intact (D-131). Open: free multi-folder/tag export picker, Eagle resume polish, connection-lost Emit. Tauri/`ui/` stay the product desktop |
+| GPUI desktop (cutover path) | Phase 5 dual path (D-133): portable zip packaging (`scripts/package-gpui-desktop.ps1` + heif DLLs), Help → Check for Updates… / silent check against `latest-gpui.json` (open-download; signed install deferred), About licenses, CI job `gpui-desktop`. Phases 1–4 feature slices remain (D-129…D-132). **Tauri/`ui/` still ship** `pnpm dev` / NSIS until Ivan confirms retirement. Deferred: GPUI NSIS, Authenticode, minisign install/relaunch, clean-machine done check |
 
 The full plan is in [`docs/spec.md` §9](docs/spec.md). The Project-store plan for auto-update is mirrored by **D-062** in [`docs/decisions.md`](docs/decisions.md); set GitHub secrets `TAURI_SIGNING_PRIVATE_KEY` (and optional `TAURI_SIGNING_PRIVATE_KEY_PASSWORD`) before tagging a release. A tag `vX.Y.Z` (the version of `tauri.conf.json`, notes in `docs/releases/X.Y.Z.md`) builds the installers and publishes the GitHub Release with them, their signatures and `latest.json` (D-100); a tag `ios-vX.Y.Z` publishes the iPhone IPA; a tag `android-vX.Y.Z` publishes the Android APK and AAB (D-108). Already-installed builds without the updater need **one last manual install** of the first updater-enabled release.
 
@@ -55,15 +56,19 @@ pnpm install
 pnpm dev
 ```
 
-`pnpm dev` starts Vite and the Tauri window with hot reload. The UI alone also runs in a browser
-(`pnpm --filter egl-viewer-ui dev`, then http://localhost:5173), without the Rust side.
+`pnpm dev` starts Vite and the **shipping Tauri** window with hot reload. The UI alone also runs
+in a browser (`pnpm --filter egl-viewer-ui dev`, then http://localhost:5173), without the Rust
+side. The GPUI host (cutover path): `cargo run -p gpui-desktop` (same `VCPKG_ROOT` /
+`VCPKGRS_DYNAMIC` / heif PATH as below).
 
 ## Commands
 
 | Command | What it does |
 |---|---|
-| `pnpm dev` | Run the app in development mode |
-| `pnpm build` | Build the release app and the NSIS installer |
+| `pnpm dev` | Run the **Tauri** shipping app in development mode |
+| `pnpm build` | Build the Tauri release app and the NSIS installer |
+| `cargo run -p gpui-desktop` | Run the GPUI Kit desktop host (D-133 cutover path) |
+| `pwsh scripts/package-gpui-desktop.ps1` | Stage/zip GPUI portable layout + heif DLLs |
 | `pnpm check` | Everything CI runs: rustfmt, clippy, Rust tests, Biome, TypeScript, UI tests |
 | `cargo test --workspace` | Rust tests; also regenerates the TypeScript types in `ui/src/ipc/generated/` |
 | `pnpm test` | UI tests (Vitest) |
@@ -85,7 +90,7 @@ crates/eagle-folder/   read-only Eagle `.library` folder parsing (phase 8, D-071
 crates/media/          decoding, thumbnails, palettes and EXIF for the native library
 src-tauri/             the Tauri app: thin commands over desktop-session, configuration, capabilities, icons
 ui/                    React + TypeScript + Tailwind + shadcn/ui; i18n catalogs in ui/src/i18n/ (en, ru, zh-CN; D-069)
-crates/gpui-desktop/   experimental GPUI Kit shell (D-126–D-132); `cargo run -p gpui-desktop`
+crates/gpui-desktop/   GPUI Kit desktop host (D-126–D-133); `cargo run -p gpui-desktop`; portable zip via `scripts/package-gpui-desktop.ps1`
 ios/                   experimental SwiftUI iPhone draft (D-082); see ios/README.md
 android/               Jetpack Compose app (A1–A8, D-101–D-108); see android/README.md
 docs/                  spec, architecture, decisions
