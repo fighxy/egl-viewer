@@ -177,6 +177,19 @@ pub fn render_bytes(bytes: &[u8], ext: &str) -> Result<Rendered, MediaError> {
     })
 }
 
+/// The whole image at its own resolution and display-oriented (EXIF, HEIF transforms): the
+/// full-size preview of files a UI toolkit cannot decode by itself, such as HEIC, PSD and
+/// TIFF (D-143). SVG has no pixel size of its own and is refused.
+pub fn decode_full(bytes: &[u8], ext: &str) -> Result<RgbaImage, MediaError> {
+    let decoded = match kind(ext) {
+        Kind::Raster => decode::raster_bytes(bytes)?,
+        Kind::Psd => decode::psd_bytes(bytes)?,
+        Kind::Heic => decode::heic_bytes(bytes)?,
+        Kind::Svg | Kind::Other => return Err(MediaError::Unsupported),
+    };
+    Ok(decoded.pixels)
+}
+
 /// HEIC/HEIF from bytes: the decode and the EXIF item both parse the container.
 fn render_heic(bytes: &[u8]) -> Result<Rendered, MediaError> {
     let decoded = decode::heic_bytes(bytes)?;

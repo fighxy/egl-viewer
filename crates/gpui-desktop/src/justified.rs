@@ -1,4 +1,4 @@
-//! Justified grid packing — Rust port of `ui/src/features/browse/justified.ts` (D-067).
+//! Justified grid packing — Rust port of `ui/src/features/browse/justified.ts` (D-067 / Phase 1).
 
 pub const GAP: f32 = 8.0;
 pub const PADDING: f32 = 12.0;
@@ -287,9 +287,41 @@ pub fn band_rect(a: (f32, f32), b: (f32, f32)) -> Rect {
     }
 }
 
+/// The row shown at `scroll_y` pixels down the grid: the first row whose bottom is below it.
+pub fn row_at_offset(layout: &JustifiedLayout, scroll_y: f32) -> usize {
+    layout
+        .rows
+        .iter()
+        .position(|row| row.top + row.stride > scroll_y)
+        .unwrap_or(layout.rows.len().saturating_sub(1))
+}
+
+/// The first item of that row: the anchor kept in view when the grid repacks (D-145).
+pub fn first_index_at_offset(layout: &JustifiedLayout, scroll_y: f32) -> Option<usize> {
+    let row = layout.rows.get(row_at_offset(layout, scroll_y))?;
+    row.cells.first().map(|cell| cell.index)
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    #[test]
+    fn offsets_map_to_rows_and_their_first_item() {
+        // 300 px wide, 100 px squares: two per row (gap 8, padding 12).
+        let layout = pack_justified(6, 300.0, 100.0, false, |_| CellDimensions {
+            width: 100,
+            height: 100,
+        });
+        assert_eq!(layout.rows.len(), 3);
+        let stride = layout.rows[0].stride;
+        assert_eq!(row_at_offset(&layout, 0.0), 0);
+        assert_eq!(row_at_offset(&layout, stride - 1.0), 0);
+        assert_eq!(row_at_offset(&layout, stride + 1.0), 1);
+        assert_eq!(row_at_offset(&layout, 1.0e6), 2);
+        assert_eq!(first_index_at_offset(&layout, stride + 1.0), Some(2));
+        assert_eq!(layout.row_of[5], 2);
+    }
 
     #[test]
     fn packs_square_items_into_rows() {

@@ -7,6 +7,7 @@ use app_store::{Locale, RecentLibrary, Theme, ViewMode, same_library_path};
 use gpui_kit::component::button::{Button, ButtonVariants as _};
 use gpui_kit::component::label::Label;
 use gpui_kit::component::menu::{DropdownMenu as _, PopupMenu, PopupMenuItem};
+use gpui_kit::component::scroll::ScrollableElement as _;
 use gpui_kit::component::{ActiveTheme as _, StyledExt as _, h_flex, v_flex};
 use gpui_kit::prelude::FluentBuilder as _;
 use gpui_kit::{
@@ -172,7 +173,7 @@ impl RootApp {
                             .w_full()
                             .gap_1()
                             .max_h(px(320.))
-                            .overflow_y_scroll()
+                            .overflow_y_scrollbar()
                             .children(recent.into_iter().map(|library| {
                                 switch_row(
                                     library,
@@ -228,7 +229,7 @@ impl RootApp {
         };
         let kind = lib.info.kind;
         let read_only = lib.info.read_only;
-        self.drop_preview();
+        self.drop_preview(cx);
         if kind == LibraryKind::Native && !read_only {
             match self.session.rebuild_thumbnails() {
                 Ok(waiting) => {

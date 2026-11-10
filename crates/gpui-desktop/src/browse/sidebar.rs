@@ -1,10 +1,11 @@
 //! Left bar: places, then one scrolling column with folders, locked folders, smart folders
-//! and tags (D-129 + D-131, restyled in D-141).
+//! and tags (Phase 1 + 3, restyled in D-141).
 
 use app_store::Locale;
 use gpui_kit::assets::IconName;
 use gpui_kit::component::button::{Button, ButtonVariants as _};
 use gpui_kit::component::menu::ContextMenuExt as _;
+use gpui_kit::component::scroll::ScrollableElement as _;
 use gpui_kit::component::{Icon, Sizable as _, v_flex};
 use gpui_kit::prelude::FluentBuilder as _;
 use gpui_kit::{
@@ -180,7 +181,9 @@ pub fn render_sidebar(
                 .flex_1()
                 .min_h(px(0.))
                 .w_full()
-                .overflow_y_scroll()
+                // Room for the overlay scrollbar, so it never covers the counts (D-145).
+                .pr(px(style::SCROLLBAR_GUTTER))
+                .overflow_y_scrollbar()
                 .child(folders_header)
                 .child(folder_tree)
                 .when(!locked.is_empty(), |el| {
@@ -486,6 +489,8 @@ where
     let entity_move = entity.clone();
     let id_can = folder_id.clone();
     let entity_can = entity.clone();
+    // Items dropped here join the folder; a folder dragged here shows the zone lines instead.
+    let el = drop_highlight(el, false);
     el.on_drag_move(move |event: &DragMoveEvent<DragPayload>, _, cx| {
         let height = event.bounds.size.height.as_f32().max(1.0);
         let y = event.event.position.y.as_f32() - event.bounds.origin.y.as_f32();
@@ -547,12 +552,27 @@ where
     })
 }
 
+/// The row under a drag of items is tinted, so it is clear where they will go (D-152).
+fn drop_highlight<E: InteractiveElement>(el: E, folders_too: bool) -> E {
+    el.drag_over::<DragPayload>(move |style, payload, _, cx| {
+        let accepts = folders_too || matches!(payload, DragPayload::Items { .. });
+        if !accepts {
+            return style;
+        }
+        let tint =
+            crate::browse::style::selection_color(gpui_kit::component::ActiveTheme::theme(cx));
+        style.bg(tint.opacity(0.22))
+    })
+}
+
 fn attach_drop<E>(el: E, entity: Entity<RootApp>, intent: DropIntent) -> E
 where
     E: InteractiveElement,
 {
     let intent_can = intent.clone();
     let entity_can = entity.clone();
+    let folders_too = matches!(intent, DropIntent::Root);
+    let el = drop_highlight(el, folders_too);
     el.can_drop(move |dragged, _, cx| {
         let Some(payload) = dragged.downcast_ref::<DragPayload>() else {
             return false;

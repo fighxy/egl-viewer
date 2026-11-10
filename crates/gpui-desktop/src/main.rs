@@ -1,4 +1,4 @@
-//! Native desktop shell: GPUI Kit + desktop-session (D-126 / D-129 browse).
+//! Native desktop shell: GPUI Kit + desktop-session (D-126 / D-129 Phase 1 browse).
 //!
 //! ```text
 //! cargo run -p gpui-desktop
@@ -16,11 +16,14 @@ mod i18n;
 mod justified;
 mod library;
 mod menus;
+mod ops_details;
 mod ops_dnd;
 mod ops_export;
 mod ops_items;
 mod ops_mutations;
 mod ops_organize;
+mod ops_preview;
+mod ops_scroll;
 mod platform;
 #[cfg(windows)]
 mod reveal_win;

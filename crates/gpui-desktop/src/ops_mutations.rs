@@ -1,4 +1,4 @@
-//! Session-backed library mutations: edits, trash, folders, import, locks, maintenance (D-131).
+//! Phase 3 Session-backed mutations: edits, trash, folders, import, locks, maintenance.
 
 use std::path::PathBuf;
 use std::sync::{Arc, Mutex};

@@ -1,7 +1,10 @@
 pub mod details;
+pub mod filter_menus;
 pub mod format;
 pub mod grid;
+pub mod picker;
 pub mod preview;
+pub mod preview_cache;
 pub mod preview_image;
 pub mod sidebar;
 pub mod space_preview;

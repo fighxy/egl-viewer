@@ -1,4 +1,4 @@
-//! Session-backed export flows: backup/export/decrypt, Eagle import/connect, app login (D-132).
+//! Phase 4 Session-backed flows: export/backup/decrypt, Eagle import/connect, app login.
 
 use std::path::PathBuf;
 use std::sync::{Arc, Mutex};

@@ -7,6 +7,7 @@ use app_store::{BrowsePreferences, Locale, LoginMethod, Preferences, Theme};
 use gpui_kit::component::button::{Button, ButtonVariants as _};
 use gpui_kit::component::input::Input;
 use gpui_kit::component::label::Label;
+use gpui_kit::component::scroll::ScrollableElement as _;
 use gpui_kit::component::{StyledExt as _, h_flex, v_flex};
 use gpui_kit::prelude::FluentBuilder as _;
 use gpui_kit::{
@@ -272,7 +273,7 @@ impl RootApp {
             .flex_1()
             .h_full()
             .min_w(px(0.))
-            .overflow_y_scroll()
+            .overflow_y_scrollbar()
             .p_4()
             .gap_3()
             .child(Label::new(t(locale, section_title(section))).font_bold())

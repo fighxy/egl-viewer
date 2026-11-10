@@ -1,0 +1,8 @@
+// Resources of the gpui-desktop exe (D-144). GPUI loads icon 1 for its windows and the
+// taskbar; Explorer shows it for the file.
+1 ICON "assets/icon.ico"
+
+// Hand cursors of the preview (D-148). The patched GPUI Windows backend
+// (vendor/gpui-pre-windows) loads 101 for ClosedHand and 102 for OpenHand.
+101 CURSOR "assets/cursors/grabbing.cur"
+102 CURSOR "assets/cursors/grab.cur"

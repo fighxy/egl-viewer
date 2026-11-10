@@ -1,9 +1,9 @@
-//! Organize surfaces: folder props, filters, tags, locks manage, import review (D-131).
+//! Phase 3.B–3.E organize surfaces: folder props, filters, tags, locks manage, import review.
 
 use gpui_kit::component::button::{Button, ButtonVariants as _};
 use gpui_kit::component::input::{Input, InputState};
 use gpui_kit::component::label::Label;
-use gpui_kit::component::{StyledExt as _, WindowExt as _, h_flex, v_flex};
+use gpui_kit::component::{WindowExt as _, h_flex, v_flex};
 use gpui_kit::prelude::FluentBuilder as _;
 use gpui_kit::{
     AppContext as _, Context, IntoElement, ParentElement, PathPromptOptions, SharedString, Styled,
@@ -17,6 +17,15 @@ use std::path::PathBuf;
 use crate::app::RootApp;
 use crate::i18n::{t, t_n};
 use crate::library::Place;
+
+/// The Rating filter button's label: "Rating" when off, "Not rated" for 0, stars for 1–5.
+pub(crate) fn rating_filter_label(rating: Option<u8>, locale: app_store::Locale) -> String {
+    match rating {
+        None => t(locale, "filters.rating"),
+        Some(0) => t(locale, "filters.unratedHint"),
+        Some(stars) => "★".repeat(usize::from(stars.min(5))),
+    }
+}
 
 impl RootApp {
     pub(crate) fn set_ext_filter(&mut self, ext: Option<String>, cx: &mut Context<Self>) {
@@ -61,192 +70,6 @@ impl RootApp {
             lib.selection.clear();
         }
         self.refresh_view(cx);
-    }
-
-    pub(crate) fn open_filter_type_menu(&mut self, window: &mut Window, cx: &mut Context<Self>) {
-        let locale = self.locale;
-        let entity = cx.entity();
-        let extensions = self.extensions.clone();
-        window.open_dialog(cx, move |dialog, _, _| {
-            dialog.title(t(locale, "filters.type")).child(
-                v_flex()
-                    .gap_2()
-                    .p_2()
-                    .w(px(320.))
-                    .max_h(px(420.))
-                    .child({
-                        let entity = entity.clone();
-                        Button::new("type-any")
-                            .ghost()
-                            .label(t(locale, "filters.anyType"))
-                            .on_click(move |_, window, cx| {
-                                window.close_dialog(cx);
-                                entity.update(cx, |this, cx| this.set_ext_filter(None, cx));
-                            })
-                    })
-                    .child({
-                        let entity = entity.clone();
-                        Button::new("type-image")
-                            .ghost()
-                            .label(t(locale, "filters.images"))
-                            .on_click(move |_, window, cx| {
-                                window.close_dialog(cx);
-                                entity.update(cx, |this, cx| {
-                                    this.set_ext_filter(Some("image".into()), cx);
-                                });
-                            })
-                    })
-                    .children(extensions.clone().into_iter().map(|ext| {
-                        let entity = entity.clone();
-                        let name = ext.ext.clone();
-                        Button::new(SharedString::from(format!("type-{name}")))
-                            .ghost()
-                            .label(format!("{} ({})", name.to_uppercase(), ext.count))
-                            .on_click(move |_, window, cx| {
-                                window.close_dialog(cx);
-                                entity.update(cx, |this, cx| {
-                                    this.set_ext_filter(Some(name.clone()), cx);
-                                });
-                            })
-                    })),
-            )
-        });
-    }
-
-    pub(crate) fn open_filter_shape_menu(&mut self, window: &mut Window, cx: &mut Context<Self>) {
-        let locale = self.locale;
-        let entity = cx.entity();
-        const SHAPES: &[(&str, &str)] = &[
-            ("square", "filters.square"),
-            ("landscape", "filters.landscape"),
-            ("portrait", "filters.portrait"),
-            ("panoramic-landscape", "filters.panoramicLandscape"),
-            ("panoramic-portrait", "filters.panoramicPortrait"),
-        ];
-        window.open_dialog(cx, move |dialog, _, _| {
-            dialog.title(t(locale, "filters.shape")).child(
-                v_flex()
-                    .gap_2()
-                    .p_2()
-                    .w(px(320.))
-                    .child({
-                        let entity = entity.clone();
-                        Button::new("shape-any")
-                            .ghost()
-                            .label(t(locale, "filters.anyShape"))
-                            .on_click(move |_, window, cx| {
-                                window.close_dialog(cx);
-                                entity.update(cx, |this, cx| this.set_shape_filter(None, cx));
-                            })
-                    })
-                    .children(SHAPES.iter().map(|(value, key)| {
-                        let entity = entity.clone();
-                        let value = (*value).to_owned();
-                        Button::new(SharedString::from(format!("shape-{value}")))
-                            .ghost()
-                            .label(t(locale, key))
-                            .on_click(move |_, window, cx| {
-                                window.close_dialog(cx);
-                                entity.update(cx, |this, cx| {
-                                    this.set_shape_filter(Some(value.clone()), cx);
-                                });
-                            })
-                    })),
-            )
-        });
-    }
-
-    pub(crate) fn open_tag_mode_menu(&mut self, window: &mut Window, cx: &mut Context<Self>) {
-        let locale = self.locale;
-        let entity = cx.entity();
-        let modes = [
-            (TagMode::Any, "filters.modeAny"),
-            (TagMode::All, "filters.modeAll"),
-            (TagMode::Exact, "filters.modeExact"),
-            (TagMode::None, "filters.modeNone"),
-        ];
-        window.open_dialog(cx, move |dialog, _, _| {
-            dialog.title(t(locale, "filters.tagMode")).child(
-                v_flex()
-                    .gap_2()
-                    .p_2()
-                    .w(px(280.))
-                    .children(modes.into_iter().map(|(mode, key)| {
-                        let entity = entity.clone();
-                        Button::new(SharedString::from(key))
-                            .ghost()
-                            .label(t(locale, key))
-                            .on_click(move |_, window, cx| {
-                                window.close_dialog(cx);
-                                entity.update(cx, |this, cx| this.set_tag_mode(mode, cx));
-                            })
-                    })),
-            )
-        });
-    }
-
-    pub(crate) fn open_folder_filter_menu(&mut self, window: &mut Window, cx: &mut Context<Self>) {
-        let locale = self.locale;
-        let entity = cx.entity();
-        let folders = self
-            .library
-            .as_ref()
-            .map(|lib| flatten_folders(&lib.folders))
-            .unwrap_or_default();
-        let selected: HashSet<String> = self
-            .library
-            .as_ref()
-            .map(|lib| lib.filters.folders.iter().cloned().collect())
-            .unwrap_or_default();
-        window.open_dialog(cx, move |dialog, _, _| {
-            dialog.title(t(locale, "filters.folders")).child(
-                v_flex()
-                    .gap_2()
-                    .p_2()
-                    .w(px(360.))
-                    .max_h(px(420.))
-                    .child({
-                        let entity = entity.clone();
-                        Button::new("folder-mode-any")
-                            .ghost()
-                            .label(t(locale, "filters.modeAny"))
-                            .on_click(move |_, _, cx| {
-                                entity.update(cx, |this, cx| {
-                                    this.set_folder_mode(TagMode::Any, cx);
-                                });
-                            })
-                    })
-                    .child({
-                        let entity = entity.clone();
-                        Button::new("folder-mode-all")
-                            .ghost()
-                            .label(t(locale, "filters.modeAll"))
-                            .on_click(move |_, _, cx| {
-                                entity.update(cx, |this, cx| {
-                                    this.set_folder_mode(TagMode::All, cx);
-                                });
-                            })
-                    })
-                    .children(folders.clone().into_iter().map(|(id, name, depth)| {
-                        let entity = entity.clone();
-                        let on = selected.contains(&id);
-                        let label = format!(
-                            "{}{}{}",
-                            "  ".repeat(depth as usize),
-                            if on { "✓ " } else { "" },
-                            name
-                        );
-                        Button::new(SharedString::from(format!("ff-{id}")))
-                            .ghost()
-                            .label(label)
-                            .on_click(move |_, _, cx| {
-                                entity.update(cx, |this, cx| {
-                                    this.toggle_folder_filter(id.clone(), cx);
-                                });
-                            })
-                    })),
-            )
-        });
     }
 
     pub(crate) fn open_tag_groups_dialog(&mut self, window: &mut Window, cx: &mut Context<Self>) {
@@ -1476,18 +1299,6 @@ where
         )
 }
 
-fn flatten_folders(folders: &[Folder]) -> Vec<(String, String, u32)> {
-    let mut out = Vec::new();
-    fn walk(folders: &[Folder], depth: u32, out: &mut Vec<(String, String, u32)>) {
-        for folder in folders {
-            out.push((folder.id.clone(), folder.name.clone(), depth));
-            walk(&folder.children, depth + 1, out);
-        }
-    }
-    walk(folders, 0, &mut out);
-    out
-}
-
 fn find_folder_ref<'a>(folders: &'a [Folder], id: &str) -> Option<&'a Folder> {
     for folder in folders {
         if folder.id == id {
@@ -1513,5 +1324,19 @@ fn format_bytes(bytes: u64) -> String {
         format!("{:.1} KB", b / KB)
     } else {
         format!("{bytes} B")
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::rating_filter_label;
+    use app_store::Locale;
+
+    #[test]
+    fn rating_filter_label_names_the_choice() {
+        assert_eq!(rating_filter_label(None, Locale::En), "Rating");
+        assert_eq!(rating_filter_label(Some(0), Locale::En), "Not rated");
+        assert_eq!(rating_filter_label(Some(3), Locale::En), "★★★");
+        assert_eq!(rating_filter_label(None, Locale::Ru), "Оценка");
     }
 }

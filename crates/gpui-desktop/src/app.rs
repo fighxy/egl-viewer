@@ -1,4 +1,4 @@
-//! Root GPUI entity: Welcome ↔ Library shell, commands, dialogs (D-129–D-133).
+//! Root GPUI entity: Welcome ↔ Library shell, commands, dialogs (Phase 1–5 / D-129–D-133).
 
 use std::path::PathBuf;
 use std::sync::{Arc, Mutex};
@@ -10,24 +10,28 @@ use gpui_kit::assets::IconName;
 use gpui_kit::component::button::{Button, ButtonVariants as _};
 use gpui_kit::component::input::{Input, InputEvent, InputState};
 use gpui_kit::component::label::Label;
+use gpui_kit::component::scroll::ScrollableElement as _;
 use gpui_kit::component::slider::{Slider, SliderEvent, SliderState};
 use gpui_kit::component::{
-    ActiveTheme, Icon, Selectable as _, Sizable as _, StyledExt as _, WindowExt as _, h_flex,
+    ActiveTheme, Selectable as _, Sizable as _, StyledExt as _, WindowExt as _, h_flex,
     h_resizable, resizable_panel, v_flex,
 };
 use gpui_kit::prelude::FluentBuilder as _;
 use gpui_kit::{
     AppContext as _, Context, Entity, ExternalPaths, FocusHandle, InteractiveElement, IntoElement,
-    ParentElement, PathPromptOptions, Pixels, Render, SharedString, StatefulInteractiveElement,
-    Styled, Subscription, Window, div, px,
+    ParentElement, PathPromptOptions, Pixels, Render, SharedString, Styled, Subscription, Window,
+    div, px,
 };
 use library_core::{DuplicateNotice, ImportState, ItemId, LibraryInfo, SortKey, is_web_link};
 use library_native::DuplicateChoice;
 
 use crate::browse::details::{self, DetailsModel};
+use crate::browse::filter_menus;
 use crate::browse::grid::{self, ListedItem};
+use crate::browse::picker::{Picker, PickerKind};
 use crate::browse::preview::{self, PreviewState, SpaceGesture};
-use crate::browse::preview_image::{self, PreviewPayload};
+use crate::browse::preview_cache::PreviewCache;
+use crate::browse::preview_image::{self, Shown};
 use crate::browse::sidebar;
 use crate::browse::style;
 use crate::commands::{self, *};
@@ -37,10 +41,14 @@ use crate::justified::{self, JustifiedLayout};
 use crate::library::{self, EventMailbox, OpenLibraryState, Place, window_title};
 use crate::ops_export::{DecryptUi, ExportUi, ImportEagleUi};
 use crate::ops_items::PickerMode;
+use crate::ops_scroll::ViewKey;
 use crate::platform;
 use crate::screens::library as library_ui;
 use crate::theme;
 use crate::updater::{self, CheckOutcome};
+use gpui_kit::component::VirtualListScrollHandle;
+use gpui_kit::component::menu::DropdownMenu as _;
+use gpui_kit::component::popover::Popover;
 
 /// Rubber-band selection rectangle in grid content coordinates.
 #[derive(Debug, Clone, Copy)]
@@ -63,8 +71,8 @@ pub struct RootApp {
     pub(crate) theme_pref: Theme,
     pub(crate) status: SharedString,
     pub(crate) library: Option<OpenLibraryState>,
-    items: Vec<ListedItem>,
-    justified: Option<JustifiedLayout>,
+    pub(crate) items: Vec<ListedItem>,
+    pub(crate) justified: Option<JustifiedLayout>,
     grid_width: f32,
     grid_origin: (f32, f32),
     pub(crate) rubber: Option<RubberBand>,
@@ -87,8 +95,15 @@ pub struct RootApp {
     create_location: SharedString,
     show_create: bool,
     pub(crate) details: DetailsModel,
-    preview: Option<PreviewState>,
-    preview_payload: Option<PreviewPayload>,
+    pub(crate) preview: Option<PreviewState>,
+    /// Decoded previews of the open item and its neighbours (D-143).
+    pub(crate) preview_cache: PreviewCache,
+    /// The open item drawn at a rotation, owned apart from the cache (D-058).
+    pub(crate) preview_rotated: Option<Shown>,
+    /// Scroll position of the items view (grid rows or list rows) (D-145).
+    pub(crate) grid_scroll: VirtualListScrollHandle,
+    /// The view the scroll position belongs to; another view starts at the top.
+    pub(crate) scrolled_view: Option<ViewKey>,
     space_gesture: Option<SpaceGesture>,
     pub(crate) search_input: Entity<InputState>,
     pub(crate) imports_open: bool,
@@ -100,7 +115,7 @@ pub struct RootApp {
     pub(crate) tag_groups: Vec<library_core::TagGroup>,
     pub(crate) extensions: Vec<library_core::ExtensionCount>,
     _search_sub: Option<Subscription>,
-    // Login gate + export / decrypt / Eagle connect (D-132).
+    // Phase 4
     pub(crate) login_gate: LoginGate,
     pub(crate) startup_done: bool,
     pub(crate) pending_startup_library: Option<LibraryInfo>,
@@ -131,6 +146,21 @@ pub struct RootApp {
     /// Go to Folder / Add to Folder(s) panel (D-140).
     pub(crate) folder_picker: Option<crate::ops_items::FolderPickerUi>,
     pub(crate) picker_input: Entity<InputState>,
+    /// Right-bar pickers (D-149): tags and folders, popovers under their "+".
+    pub(crate) tag_pick: Entity<Picker>,
+    pub(crate) folder_pick: Entity<Picker>,
+    pub(crate) tag_pick_open: bool,
+    pub(crate) folder_pick_open: bool,
+    /// Picked in this session, newest first; the pickers list them under Recent.
+    pub(crate) recent_tags: Vec<String>,
+    pub(crate) recent_folders: Vec<String>,
+    /// Name, note and link of the right bar, edited in place (D-151).
+    pub(crate) detail_editors: crate::ops_details::DetailEditors,
+    pub(crate) detail_bound: Option<crate::ops_details::BoundItem>,
+    _detail_subs: Vec<Subscription>,
+    /// Folded Info / EXIF sections of the right bar, for this session.
+    pub(crate) info_collapsed: bool,
+    pub(crate) exif_collapsed: bool,
     _picker_sub: Option<Subscription>,
     /// Tags taken by Copy Tags, for Paste Tags. Kept inside the app, as Eagle does.
     pub(crate) tag_clipboard: Vec<String>,
@@ -185,6 +215,20 @@ impl RootApp {
         let picker_input = cx.new(|cx| {
             InputState::new(window, cx).placeholder(crate::i18n::t(prefs.locale, "picker.search"))
         });
+        let root = cx.entity().downgrade();
+        let search_hint = crate::i18n::t(prefs.locale, "pick.search");
+        let tag_pick = cx.new(|cx| {
+            Picker::new(
+                PickerKind::Tags,
+                root.clone(),
+                search_hint.clone(),
+                window,
+                cx,
+            )
+        });
+        let folder_pick =
+            cx.new(|cx| Picker::new(PickerKind::Folders, root, search_hint, window, cx));
+        let detail_editors = crate::ops_details::DetailEditors::new(prefs.locale, window, cx);
 
         let mut app = Self {
             session,
@@ -223,7 +267,10 @@ impl RootApp {
                 stack_thumbs: Vec::new(),
             },
             preview: None,
-            preview_payload: None,
+            preview_cache: PreviewCache::default(),
+            preview_rotated: None,
+            grid_scroll: VirtualListScrollHandle::new(),
+            scrolled_view: None,
             space_gesture: None,
             search_input: search_input.clone(),
             imports_open: false,
@@ -262,6 +309,17 @@ impl RootApp {
             pending_update_url: None,
             folder_picker: None,
             picker_input: picker_input.clone(),
+            tag_pick,
+            folder_pick,
+            tag_pick_open: false,
+            folder_pick_open: false,
+            recent_tags: Vec::new(),
+            recent_folders: Vec::new(),
+            detail_editors,
+            detail_bound: None,
+            _detail_subs: Vec::new(),
+            info_collapsed: false,
+            exif_collapsed: false,
             _picker_sub: None,
             tag_clipboard: Vec::new(),
             thumb_slider: thumb_slider.clone(),
@@ -278,6 +336,7 @@ impl RootApp {
                 }
             },
         ));
+        app._detail_subs = app.subscribe_detail_editors(window, cx);
         app._picker_sub = Some(cx.subscribe_in(
             &picker_input,
             window,
@@ -595,8 +654,7 @@ impl RootApp {
                 self.items = grid::load_listed(&self.session, &state.cells);
                 self.status = SharedString::from("");
                 self.library = Some(state);
-                self.preview = None;
-                self.preview_payload = None;
+                self.release_preview(cx);
                 self.space_gesture = None;
                 self.pending_duplicate = None;
                 self.tag_vocabulary = self.session.tag_vocabulary().unwrap_or_default();
@@ -607,6 +665,12 @@ impl RootApp {
                 });
                 self.sync_thumb_slider(window, cx);
                 self.recompute_justified();
+                // The restored selection is in view, and this view keeps its scroll.
+                self.scrolled_view = self.view_key();
+                self.scroll_items_to_top();
+                if let Some(focus) = self.library.as_ref().and_then(|lib| lib.selection.focus) {
+                    self.reveal_index(focus, gpui_kit::ScrollStrategy::Center);
+                }
                 self.refresh_details(cx);
             }
             Err(error) => {
@@ -617,9 +681,8 @@ impl RootApp {
         }
     }
 
-    pub(crate) fn drop_preview(&mut self) {
-        self.preview = None;
-        self.preview_payload = None;
+    pub(crate) fn drop_preview(&mut self, cx: &mut gpui_kit::App) {
+        self.release_preview(cx);
         self.space_gesture = None;
     }
 
@@ -652,8 +715,7 @@ impl RootApp {
         self.items.clear();
         self.justified = None;
         self.rubber = None;
-        self.preview = None;
-        self.preview_payload = None;
+        self.release_preview(cx);
         self.space_gesture = None;
         self.eagle_badge = None;
         self.export_ui = None;
@@ -677,6 +739,7 @@ impl RootApp {
                 lib.persist_session(&self.session);
                 lib.persist_browse_prefs(&self.session);
                 self.recompute_justified();
+                self.sync_scroll_to_view();
             }
             // The right bar follows the view: a new place clears the selection, and the
             // bar must not keep showing the item that was selected before.
@@ -684,14 +747,14 @@ impl RootApp {
         }
     }
 
-    fn set_sort(&mut self, sort: SortKey, cx: &mut Context<Self>) {
+    pub(crate) fn set_sort(&mut self, sort: SortKey, cx: &mut Context<Self>) {
         if let Some(lib) = self.library.as_mut() {
             lib.sort = sort;
         }
         self.refresh_view(cx);
     }
 
-    fn set_ascending(&mut self, ascending: bool, cx: &mut Context<Self>) {
+    pub(crate) fn set_ascending(&mut self, ascending: bool, cx: &mut Context<Self>) {
         if let Some(lib) = self.library.as_mut() {
             lib.ascending = ascending;
         }
@@ -706,7 +769,7 @@ impl RootApp {
         self.refresh_view(cx);
     }
 
-    fn pick_open_library(&mut self, window: &mut Window, cx: &mut Context<Self>) {
+    pub(crate) fn pick_open_library(&mut self, window: &mut Window, cx: &mut Context<Self>) {
         let rx = cx.prompt_for_paths(PathPromptOptions {
             files: false,
             directories: true,
@@ -727,7 +790,7 @@ impl RootApp {
         .detach();
     }
 
-    fn begin_create_library(&mut self, cx: &mut Context<Self>) {
+    pub(crate) fn begin_create_library(&mut self, cx: &mut Context<Self>) {
         self.create_location = SharedString::from(self.session.default_library_location());
         self.show_create = true;
         cx.notify();
@@ -878,6 +941,7 @@ impl RootApp {
         }
     }
 
+    /// Sort by, from the keyboard.
     fn open_sort_menu(&mut self, window: &mut Window, cx: &mut Context<Self>) {
         let Some(lib) = self.library.as_ref() else {
             return;
@@ -888,34 +952,9 @@ impl RootApp {
         let folder_open = matches!(lib.place, Place::Folder { .. });
         let entity = cx.entity();
         window.open_dialog(cx, move |dialog, _, _| {
-            let keys: &[(&str, SortKey)] = if folder_open {
-                &[
-                    ("sort.added", SortKey::DateAdded),
-                    ("sort.btime", SortKey::DateCreated),
-                    ("sort.mtime", SortKey::DateModified),
-                    ("sort.name", SortKey::Title),
-                    ("sort.ext", SortKey::Extension),
-                    ("sort.size", SortKey::FileSize),
-                    ("sort.resolution", SortKey::Resolution),
-                    ("sort.star", SortKey::Rating),
-                    ("sort.tag", SortKey::FirstTag),
-                    ("sort.random", SortKey::Random),
-                    ("sort.manual", SortKey::Manual),
-                ]
-            } else {
-                &[
-                    ("sort.added", SortKey::DateAdded),
-                    ("sort.btime", SortKey::DateCreated),
-                    ("sort.mtime", SortKey::DateModified),
-                    ("sort.name", SortKey::Title),
-                    ("sort.ext", SortKey::Extension),
-                    ("sort.size", SortKey::FileSize),
-                    ("sort.resolution", SortKey::Resolution),
-                    ("sort.star", SortKey::Rating),
-                    ("sort.tag", SortKey::FirstTag),
-                    ("sort.random", SortKey::Random),
-                ]
-            };
+            // The toolbar button opens the same keys under itself; this dialog serves the
+            // Ctrl+Shift+S shortcut, which has no button to open under (D-146).
+            let keys = filter_menus::sort_keys(folder_open);
             dialog.title(t(locale, "sort.title")).child(
                 v_flex()
                     .gap_1()
@@ -1004,20 +1043,44 @@ impl RootApp {
         self.quit_pending = true;
         let locale = self.locale;
         let entity = cx.entity();
+        // Quit and Cancel are real buttons, like the Move to Trash confirmation: `on_ok` alone
+        // drew a dialog with no buttons at all (D-147). Closing it (× or Esc) cancels.
         window.open_dialog(cx, move |dialog, _, _| {
             dialog
                 .title(t(locale, "quit.title"))
-                .child(Label::new(t(locale, "quit.message")))
-                .on_ok({
-                    let entity = entity.clone();
-                    move |_, window, cx| {
-                        entity.update(cx, |this, _cx| {
-                            this.shutdown();
-                        });
-                        window.remove_window();
-                        true
-                    }
-                })
+                .w(px(380.))
+                .child(
+                    v_flex()
+                        .gap_3()
+                        .child(Label::new(t(locale, "quit.message")))
+                        .child(
+                            h_flex()
+                                .gap_2()
+                                .justify_end()
+                                .child({
+                                    let entity = entity.clone();
+                                    Button::new("quit-cancel")
+                                        .label(t(locale, "common.cancel"))
+                                        .on_click(move |_, window, cx| {
+                                            window.close_dialog(cx);
+                                            entity.update(cx, |this, cx| {
+                                                this.quit_pending = false;
+                                                cx.notify();
+                                            });
+                                        })
+                                })
+                                .child({
+                                    let entity = entity.clone();
+                                    Button::new("quit-ok")
+                                        .primary()
+                                        .label(t(locale, "quit.confirm"))
+                                        .on_click(move |_, window, cx| {
+                                            entity.update(cx, |this, _cx| this.shutdown());
+                                            window.remove_window();
+                                        })
+                                }),
+                        ),
+                )
                 .on_cancel({
                     let entity = entity.clone();
                     move |_, _, cx| {
@@ -1069,8 +1132,12 @@ impl RootApp {
         if self.drag_active {
             return;
         }
+        // Content coordinates: the band stays on its items while the view scrolls (D-145).
         let origin = self.grid_origin;
-        let content = (window_pos.0 - origin.0, window_pos.1 - origin.1);
+        let content = (
+            window_pos.0 - origin.0,
+            window_pos.1 - origin.1 + self.grid_scroll_y(),
+        );
         self.rubber = Some(RubberBand {
             start: content,
             current: content,
@@ -1079,11 +1146,12 @@ impl RootApp {
     }
 
     pub(crate) fn update_rubber(&mut self, window_pos: (f32, f32), cx: &mut Context<Self>) {
+        let origin = self.grid_origin;
+        let scroll_y = self.grid_scroll_y();
         let Some(band) = self.rubber.as_mut() else {
             return;
         };
-        let origin = self.grid_origin;
-        band.current = (window_pos.0 - origin.0, window_pos.1 - origin.1);
+        band.current = (window_pos.0 - origin.0, window_pos.1 - origin.1 + scroll_y);
         cx.notify();
     }
 
@@ -1124,8 +1192,10 @@ impl RootApp {
     fn move_focus(&mut self, key: &str, cx: &mut Context<Self>) {
         if self.preview.is_some() {
             match key {
-                "left" => self.preview_step(-1, cx),
-                "right" => self.preview_step(1, cx),
+                "left" | "pageup" => self.preview_step(-1, cx),
+                "right" | "pagedown" => self.preview_step(1, cx),
+                "home" => self.preview_jump(false, cx),
+                "end" => self.preview_jump(true, cx),
                 _ => {}
             }
             return;
@@ -1155,6 +1225,8 @@ impl RootApp {
         if let Some(cell) = lib.cells.get(index).cloned() {
             lib.selection.select_only(&cell.id.0, index);
             lib.persist_session(&self.session);
+            // Arrows, Home / End and Page Up / Down keep the focused item in view (D-145).
+            self.reveal_focus();
             self.refresh_details(cx);
         }
     }
@@ -1273,139 +1345,6 @@ impl RootApp {
         })
     }
 
-    pub(crate) fn open_preview(&mut self, cx: &mut Context<Self>) {
-        let Some(lib) = self.library.as_ref() else {
-            return;
-        };
-        let index = lib.selection.focus.or_else(|| {
-            lib.selection
-                .ids
-                .iter()
-                .next()
-                .and_then(|id| lib.cells.iter().position(|c| c.id.0 == *id))
-        });
-        let Some(index) = index else {
-            return;
-        };
-        self.open_preview_at(index, cx);
-    }
-
-    pub(crate) fn open_preview_at(&mut self, index: usize, cx: &mut Context<Self>) {
-        let Some(lib) = self.library.as_ref() else {
-            return;
-        };
-        let Some(cell) = lib.cells.get(index).cloned() else {
-            return;
-        };
-        let total = lib.total.max(lib.cells.len() as u32);
-        let payload = preview_image::preview_payload(&self.session, &cell);
-        let image = payload.as_ref().map(|p| p.to_image());
-        self.preview_payload = payload;
-        self.preview = Some(PreviewState::new(
-            index,
-            total,
-            format!("{}.{}", cell.name, cell.ext),
-            image,
-        ));
-        if let Some(lib) = self.library.as_mut() {
-            lib.selection.select_only(&cell.id.0, index);
-            lib.persist_session(&self.session);
-        }
-        self.refresh_details(cx);
-    }
-
-    pub(crate) fn preview_is_open(&self) -> bool {
-        self.preview.is_some()
-    }
-
-    pub(crate) fn close_preview(&mut self, cx: &mut Context<Self>) {
-        self.preview = None;
-        self.preview_payload = None;
-        cx.notify();
-    }
-
-    pub(crate) fn preview_step(&mut self, step: i32, cx: &mut Context<Self>) {
-        let Some(preview) = self.preview.as_ref() else {
-            return;
-        };
-        let next = preview.index as i32 + step;
-        if next < 0 {
-            return;
-        }
-        let next = next as usize;
-        let total = self
-            .library
-            .as_ref()
-            .map(|lib| lib.cells.len())
-            .unwrap_or(0);
-        if next >= total {
-            return;
-        }
-        let mut state = PreviewState::new(next, preview.total, "", None);
-        state.appear = 1.0;
-        self.preview = Some(state);
-        self.open_preview_at(next, cx);
-    }
-
-    pub(crate) fn preview_zoom(&mut self, factor: f32, cx: &mut Context<Self>) {
-        if let Some(preview) = self.preview.as_mut() {
-            let next = preview.zoom * factor;
-            preview.zoom_to(next);
-            cx.notify();
-        }
-    }
-
-    pub(crate) fn preview_zoom_reset(&mut self, cx: &mut Context<Self>) {
-        if let Some(preview) = self.preview.as_mut() {
-            preview.zoom_to(1.0);
-            cx.notify();
-        }
-    }
-
-    pub(crate) fn preview_rotate(&mut self, cx: &mut Context<Self>) {
-        let Some(preview) = self.preview.as_mut() else {
-            return;
-        };
-        preview.rotate_cw();
-        let degrees = preview.rotation;
-        if let Some(payload) = self.preview_payload.as_ref() {
-            preview.image = payload.rotated(degrees);
-        }
-        cx.notify();
-    }
-
-    pub(crate) fn preview_pan_start(
-        &mut self,
-        origin_x: f32,
-        origin_y: f32,
-        cx: &mut Context<Self>,
-    ) {
-        if let Some(preview) = self.preview.as_mut() {
-            if preview.zoom > 1.0 {
-                preview.drag_origin = Some((origin_x, origin_y));
-                cx.notify();
-            }
-        }
-    }
-
-    pub(crate) fn preview_pan_move(&mut self, x: f32, y: f32, cx: &mut Context<Self>) {
-        let Some(preview) = self.preview.as_mut() else {
-            return;
-        };
-        let Some((ox, oy)) = preview.drag_origin else {
-            return;
-        };
-        preview.offset = (x - ox, y - oy);
-        cx.notify();
-    }
-
-    pub(crate) fn preview_pan_end(&mut self, cx: &mut Context<Self>) {
-        if let Some(preview) = self.preview.as_mut() {
-            preview.drag_origin = None;
-            cx.notify();
-        }
-    }
-
     fn space_preview_down(&mut self, cx: &mut Context<Self>) {
         if self.library.is_none() {
             return;
@@ -1512,7 +1451,7 @@ impl RootApp {
             f(&mut lib.browse);
             lib.browse = lib.browse.clamped();
             lib.persist_browse_prefs(&self.session);
-            self.recompute_justified();
+            self.relayout_keeping_anchor();
             cx.notify();
         }
     }
@@ -1563,7 +1502,8 @@ impl RootApp {
 }
 
 impl Render for RootApp {
-    fn render(&mut self, _window: &mut Window, cx: &mut Context<Self>) -> impl IntoElement {
+    fn render(&mut self, window: &mut Window, cx: &mut Context<Self>) -> impl IntoElement {
+        self.sync_detail_editors(window, cx);
         let theme = cx.theme().clone();
         let locale = self.locale;
         let focus = self.focus.clone();
@@ -1646,10 +1586,18 @@ impl Render for RootApp {
                 this.update_browse(|b| b.view_mode = ViewMode::List, cx);
             }))
             .on_action(cx.listener(|this, _: &LargerThumbs, window, cx| {
-                this.step_thumbnail_size(20, window, cx);
+                if this.preview_is_open() {
+                    this.preview_zoom(1.25, cx);
+                } else {
+                    this.step_thumbnail_size(20, window, cx);
+                }
             }))
             .on_action(cx.listener(|this, _: &SmallerThumbs, window, cx| {
-                this.step_thumbnail_size(-20, window, cx);
+                if this.preview_is_open() {
+                    this.preview_zoom(1.0 / 1.25, cx);
+                } else {
+                    this.step_thumbnail_size(-20, window, cx);
+                }
             }))
             .on_action(cx.listener(|this, _: &ToggleShowNames, _, cx| {
                 this.update_browse(|b| b.show_names = !b.show_names, cx);
@@ -1691,7 +1639,14 @@ impl Render for RootApp {
             }))
             .on_action(cx.listener(|this, _: &AddTags, window, cx| {
                 if this.selection_target().is_some() {
-                    this.open_add_tag_dialog(window, cx);
+                    // Ctrl+T opens the tag picker under the right bar's "+" (D-149); with the
+                    // bar hidden there is nothing to open under, so the plain dialog.
+                    let in_bar = this.library.as_ref().is_some_and(|lib| lib.right_open);
+                    if in_bar {
+                        this.set_picker_open(PickerKind::Tags, true, window, cx);
+                    } else {
+                        this.open_add_tag_dialog(window, cx);
+                    }
                 }
             }))
             .on_action(cx.listener(|this, _: &CopyTags, _, cx| {
@@ -1917,7 +1872,9 @@ impl Render for RootApp {
                 self.render_welcome(&theme, locale, cx).into_any_element()
             })
             .when_some(self.preview.as_ref(), |el, preview| {
-                el.child(preview::render_preview(preview, locale, cx.entity()))
+                let size = window.viewport_size();
+                let size = (size.width.as_f32(), size.height.as_f32());
+                el.child(preview::render_preview(preview, locale, size, cx.entity()))
             })
             .when(self.export_ui.is_some(), |el| {
                 el.child(self.render_export_overlay(&theme, locale, cx))
@@ -2008,155 +1965,6 @@ impl RootApp {
             )
     }
 
-    fn render_welcome(
-        &self,
-        theme: &gpui_kit::component::theme::Theme,
-        locale: Locale,
-        cx: &mut Context<Self>,
-    ) -> impl IntoElement {
-        // Forget rows whose library.db is gone so Welcome stays clean after temp fixtures.
-        let _ = self.session.prune_missing_recent();
-        let recent = self.session.recent_libraries();
-        let status = self.status.clone();
-        v_flex()
-            .id("welcome")
-            .size_full()
-            .items_center()
-            .justify_center()
-            .p_8()
-            .child(
-                v_flex()
-                    .w(px(480.))
-                    .gap_4()
-                    .p_6()
-                    .rounded(theme.radius)
-                    .border_1()
-                    .border_color(theme.border)
-                    .bg(theme.secondary)
-                    .child(Label::new(t(locale, "welcome.title")).text_xl().font_bold())
-                    .child(
-                        Label::new(t(locale, "welcome.description"))
-                            .text_sm()
-                            .text_color(theme.muted_foreground),
-                    )
-                    .child(
-                        h_flex()
-                            .w_full()
-                            .gap_2()
-                            .child(
-                                Button::new("welcome-create")
-                                    .primary()
-                                    .label(t(locale, "welcome.create"))
-                                    .on_click(cx.listener(|this, _, _, cx| {
-                                        this.begin_create_library(cx);
-                                    })),
-                            )
-                            .child(
-                                Button::new("welcome-open")
-                                    .label(t(locale, "welcome.open"))
-                                    .on_click(cx.listener(|this, _, window, cx| {
-                                        this.pick_open_library(window, cx);
-                                    })),
-                            ),
-                    )
-                    .child(
-                        Label::new(t(locale, "welcome.recent"))
-                            .text_sm()
-                            .font_bold(),
-                    )
-                    .child(if recent.is_empty() {
-                        Label::new(t(locale, "welcome.noRecent"))
-                            .text_sm()
-                            .text_color(theme.muted_foreground)
-                            .into_any_element()
-                    } else {
-                        v_flex()
-                            .w_full()
-                            .gap_1()
-                            .children(recent.into_iter().map(|library| {
-                                let path_open = library.path.clone();
-                                let path_forget = library.path.clone();
-                                h_flex()
-                                    .id(SharedString::from(format!("recent-{}", library.path)))
-                                    .w_full()
-                                    .items_center()
-                                    .gap_1()
-                                    .child(
-                                        Button::new(SharedString::from(format!(
-                                            "recent-open-{}",
-                                            library.path
-                                        )))
-                                        .ghost()
-                                        .label(format!(
-                                            "{}{}",
-                                            library.name,
-                                            if library.missing { " (missing)" } else { "" }
-                                        ))
-                                        .on_click(
-                                            cx.listener(move |this, _, window, cx| {
-                                                this.open_path(
-                                                    PathBuf::from(&path_open),
-                                                    window,
-                                                    cx,
-                                                );
-                                            }),
-                                        ),
-                                    )
-                                    .child(
-                                        Button::new(SharedString::from(format!(
-                                            "forget-{}",
-                                            library.path
-                                        )))
-                                        .ghost()
-                                        .label("×")
-                                        .on_click(
-                                            cx.listener(move |this, _, _, cx| {
-                                                let _ = this
-                                                    .session
-                                                    .forget_recent_library(&path_forget);
-                                                cx.notify();
-                                            }),
-                                        ),
-                                    )
-                                    .into_any_element()
-                            }))
-                            .into_any_element()
-                    })
-                    .child(
-                        v_flex()
-                            .w_full()
-                            .gap_1()
-                            .pt_4()
-                            .border_t_1()
-                            .border_color(theme.border)
-                            .child(Label::new(t(locale, "welcome.eagle")).text_sm().font_bold())
-                            .child(
-                                Button::new("welcome-import-eagle")
-                                    .ghost()
-                                    .label(t(locale, "welcome.importEagle"))
-                                    .on_click(cx.listener(|this, _, window, cx| {
-                                        this.begin_import_eagle(window, cx);
-                                    })),
-                            )
-                            .child(
-                                Button::new("welcome-connect-eagle")
-                                    .ghost()
-                                    .label(t(locale, "welcome.connectEagle"))
-                                    .on_click(cx.listener(|this, _, window, cx| {
-                                        this.begin_connect_eagle(window, cx);
-                                    })),
-                            ),
-                    )
-                    .when(!status.is_empty(), |el| {
-                        el.child(
-                            Label::new(status)
-                                .text_sm()
-                                .text_color(theme.muted_foreground),
-                        )
-                    }),
-            )
-    }
-
     fn render_library(
         &self,
         theme: &gpui_kit::component::theme::Theme,
@@ -2172,7 +1980,7 @@ impl RootApp {
         let right_open = lib.right_open;
         // Split + type-erase: one nested `impl IntoElement` for the whole shell overflows
         // the main thread stack on Windows debug builds when opening a library.
-        let toolbar = self.render_library_toolbar(lib, theme, locale, mode, entity.clone(), cx);
+        let toolbar = self.render_library_toolbar(lib, theme, locale, mode, cx);
         let body = self.render_library_body(
             lib,
             theme,
@@ -2251,22 +2059,21 @@ impl RootApp {
         theme: &gpui_kit::component::theme::Theme,
         locale: Locale,
         mode: ViewMode,
-        entity: Entity<Self>,
         cx: &mut Context<Self>,
     ) -> gpui_kit::AnyElement {
         let title = style::place_title(&lib.place, &lib.folders, &lib.smart_folders, locale);
 
-        // Row 1: where you are, the thumbnail size, the view switches, search.
-        let top = h_flex()
-            .id("toolbar")
-            .w_full()
-            .h(px(44.))
-            .flex_none()
+        // Row 1: where you are, the thumbnail size, the view switches, search. The two sides
+        // share the free width equally, so the size slider sits in the middle of the row.
+        let left = h_flex()
+            .id("toolbar-place")
+            .flex_1()
+            .min_w_0()
             .items_center()
             .gap_2()
-            .px_3()
             .child(
                 div()
+                    .min_w_0()
                     .max_w(px(320.))
                     .font_bold()
                     .whitespace_nowrap()
@@ -2278,41 +2085,44 @@ impl RootApp {
                 Label::new(i18n::t_n(locale, "shell.statusItems", lib.total))
                     .text_xs()
                     .text_color(theme.muted_foreground),
-            )
-            .child(div().flex_1())
+            );
+        let slider = h_flex()
+            .id("thumb-size")
+            .flex_none()
+            .items_center()
+            .gap_1()
             .child(
-                h_flex()
-                    .id("thumb-size")
-                    .items_center()
-                    .gap_1()
-                    .child(
-                        Button::new("tb-smaller")
-                            .ghost()
-                            .xsmall()
-                            .icon(IconName::Minus)
-                            .tooltip(t(locale, "commands.view.smaller"))
-                            .on_click(cx.listener(|this, _, window, cx| {
-                                this.step_thumbnail_size(-20, window, cx);
-                            })),
-                    )
-                    .child(
-                        div().w(px(120.)).child(
-                            Slider::new(&self.thumb_slider)
-                                .accessibility_label(t(locale, "settings.thumbnailSize")),
-                        ),
-                    )
-                    .child(
-                        Button::new("tb-larger")
-                            .ghost()
-                            .xsmall()
-                            .icon(IconName::Plus)
-                            .tooltip(t(locale, "commands.view.larger"))
-                            .on_click(cx.listener(|this, _, window, cx| {
-                                this.step_thumbnail_size(20, window, cx);
-                            })),
-                    ),
+                Button::new("tb-smaller")
+                    .ghost()
+                    .xsmall()
+                    .icon(IconName::Minus)
+                    .tooltip(t(locale, "commands.view.smaller"))
+                    .on_click(cx.listener(|this, _, window, cx| {
+                        this.step_thumbnail_size(-20, window, cx);
+                    })),
             )
-            .child(div().flex_1())
+            .child(
+                div().w(px(120.)).child(
+                    Slider::new(&self.thumb_slider)
+                        .accessibility_label(t(locale, "settings.thumbnailSize")),
+                ),
+            )
+            .child(
+                Button::new("tb-larger")
+                    .ghost()
+                    .xsmall()
+                    .icon(IconName::Plus)
+                    .tooltip(t(locale, "commands.view.larger"))
+                    .on_click(cx.listener(|this, _, window, cx| {
+                        this.step_thumbnail_size(20, window, cx);
+                    })),
+            );
+        let right = h_flex()
+            .id("toolbar-actions")
+            .flex_1()
+            .justify_end()
+            .items_center()
+            .gap_2()
             .child(
                 Button::new("tb-add")
                     .ghost()
@@ -2341,9 +2151,11 @@ impl RootApp {
                     .small()
                     .icon(IconName::ArrowUpDown)
                     .tooltip(t(locale, "commands.view.sortBy"))
-                    .on_click(cx.listener(|this, _, window, cx| {
-                        this.open_sort_menu(window, cx);
-                    })),
+                    // Opens under the button, its right edge on the button's (D-146).
+                    .dropdown_menu_with_anchor(
+                        gpui_kit::Anchor::TopRight,
+                        filter_menus::sort_menu(cx.entity()),
+                    ),
             )
             .child(
                 Button::new("tb-sub")
@@ -2403,6 +2215,17 @@ impl RootApp {
                     .w(px(220.))
                     .child(Input::new(&self.search_input).small()),
             );
+        let top = h_flex()
+            .id("toolbar")
+            .w_full()
+            .h(px(44.))
+            .flex_none()
+            .items_center()
+            .gap_4()
+            .px_3()
+            .child(left)
+            .child(slider)
+            .child(right);
 
         // Row 2: the filter bar.
         let filter_button = |id: &'static str, icon: IconName, label: String, active: bool| {
@@ -2444,21 +2267,21 @@ impl RootApp {
                     tags_label,
                     !lib.filters.tags.is_empty(),
                 )
-                .on_click(cx.listener(|this, _, window, cx| {
-                    this.open_tag_mode_menu(window, cx);
-                })),
+                .dropdown_menu(filter_menus::tag_mode_menu(cx.entity())),
             )
-            .child(
-                filter_button(
-                    "tb-filter-folders",
-                    IconName::Folder,
-                    folders_label,
-                    !lib.filters.folders.is_empty(),
-                )
-                .on_click(cx.listener(|this, _, window, cx| {
-                    this.open_folder_filter_menu(window, cx);
-                })),
-            )
+            .child({
+                // Several folders can be checked: a popover that stays open (D-146).
+                let entity = cx.entity();
+                Popover::new("tb-filter-folders-popover")
+                    .anchor(gpui_kit::Anchor::TopLeft)
+                    .trigger(filter_button(
+                        "tb-filter-folders",
+                        IconName::Folder,
+                        folders_label,
+                        !lib.filters.folders.is_empty(),
+                    ))
+                    .content(move |_, _, cx| filter_menus::folder_filter_content(&entity, cx))
+            })
             .child(
                 filter_button(
                     "tb-filter-type",
@@ -2470,9 +2293,7 @@ impl RootApp {
                         .unwrap_or_else(|| t(locale, "filters.type")),
                     lib.filters.ext.is_some(),
                 )
-                .on_click(cx.listener(|this, _, window, cx| {
-                    this.open_filter_type_menu(window, cx);
-                })),
+                .dropdown_menu(filter_menus::type_menu(cx.entity())),
             )
             .child(
                 filter_button(
@@ -2484,48 +2305,16 @@ impl RootApp {
                         .unwrap_or_else(|| t(locale, "filters.shape")),
                     lib.filters.shape.is_some(),
                 )
-                .on_click(cx.listener(|this, _, window, cx| {
-                    this.open_filter_shape_menu(window, cx);
-                })),
+                .dropdown_menu(filter_menus::shape_menu(cx.entity())),
             )
             .child(
-                h_flex()
-                    .id("rating-filter")
-                    .items_center()
-                    .ml_2()
-                    .child(
-                        Icon::new(IconName::Star)
-                            .small()
-                            .text_color(theme.muted_foreground),
-                    )
-                    .children((0..=5).map(|star| {
-                        let selected = lib.filters.rating == Some(star);
-                        let entity = entity.clone();
-                        Button::new(SharedString::from(format!("rate-filter-{star}")))
-                            .ghost()
-                            .xsmall()
-                            .selected(selected)
-                            .label(star.to_string())
-                            .tooltip(if star == 0 {
-                                t(locale, "filters.unratedHint")
-                            } else {
-                                "★".repeat(usize::from(star))
-                            })
-                            .on_click(move |_, _, cx| {
-                                entity.update(cx, |this, cx| {
-                                    let next = if this
-                                        .library
-                                        .as_ref()
-                                        .is_some_and(|lib| lib.filters.rating == Some(star))
-                                    {
-                                        None
-                                    } else {
-                                        Some(star)
-                                    };
-                                    this.set_rating_filter(next, cx);
-                                });
-                            })
-                    })),
+                filter_button(
+                    "tb-filter-rating",
+                    IconName::Star,
+                    crate::ops_organize::rating_filter_label(lib.filters.rating, locale),
+                    lib.filters.rating.is_some(),
+                )
+                .dropdown_menu(filter_menus::rating_menu(cx.entity())),
             )
             .when(!lib.filters.is_empty(), |el| {
                 el.child(
@@ -2596,7 +2385,7 @@ impl RootApp {
             lib.persist_browse_prefs(&self.session);
         }
         if changed {
-            self.recompute_justified();
+            self.relayout_keeping_anchor();
             cx.notify();
         }
     }
@@ -2671,7 +2460,7 @@ impl RootApp {
                                         this.grid_origin = origin;
                                         if needs_relayout {
                                             this.grid_width = width;
-                                            this.recompute_justified();
+                                            this.relayout_keeping_anchor();
                                         }
                                     });
                                     if needs_relayout {
@@ -2698,6 +2487,7 @@ impl RootApp {
                             self.justified.as_ref(),
                             self.rubber.as_ref(),
                             self.grid_width,
+                            &self.grid_scroll,
                         )),
                 ),
             )
@@ -2718,6 +2508,7 @@ impl RootApp {
                                 locale,
                                 theme,
                                 entity.clone(),
+                                &self.picker_handles(),
                             )),
                     ),
             )
@@ -2764,7 +2555,7 @@ impl RootApp {
             .border_color(theme.border)
             .p_2()
             .gap_1()
-            .overflow_y_scroll()
+            .overflow_y_scrollbar()
             .child(
                 h_flex()
                     .justify_between()

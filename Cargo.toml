@@ -1,6 +1,8 @@
 [workspace]
 resolver = "3"
 members = ["crates/*"]
+# Patched third-party crates (D-148): built as dependencies, not linted or tested as ours.
+exclude = ["vendor"]
 
 [workspace.package]
 version = "0.2.77"
@@ -62,6 +64,8 @@ ulid = "3.0.0"
 url = "2.5.4"
 webp = { version = "0.3.1", default-features = false }
 winreg = "0.56.0"
+# Windows resources (the exe icon) for gpui-desktop (D-144).
+embed-resource = "3.0.12"
 wiremock = "0.6.3"
 yubikey = { version = "0.8.0", features = ["untested"] }
 zip = { version = "9.2.0", default-features = false, features = ["aes-crypto", "deflate-flate2"] }
@@ -92,3 +96,23 @@ chacha20poly1305.opt-level = 3
 curve25519-dalek.opt-level = 3
 poly1305.opt-level = 3
 x25519-dalek.opt-level = 3
+
+# Image decoders: an unoptimised debug build takes seconds to decode one large photo, which
+# made the full-size preview feel slow in `cargo run` (D-143).
+fdeflate.opt-level = 3
+gif.opt-level = 3
+image.opt-level = 3
+image-webp.opt-level = 3
+miniz_oxide.opt-level = 3
+png.opt-level = 3
+simd-adler32.opt-level = 3
+tiff.opt-level = 3
+weezl.opt-level = 3
+zune-core.opt-level = 3
+zune-inflate.opt-level = 3
+zune-jpeg.opt-level = 3
+
+# GPUI's Windows backend with the open / closed hand cursors loaded from the exe's resources
+# (D-148). Same version as the lock; re-apply the patch when gpui-kit moves to a newer one.
+[patch.crates-io]
+gpui-pre-windows = { path = "vendor/gpui-pre-windows" }

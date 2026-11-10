@@ -19,6 +19,9 @@ pub type Kit = gpui_kit::component::theme::Theme;
 /// Corner radius of thumbnails.
 pub const THUMB_RADIUS: f32 = 4.0;
 
+/// Right padding of a scrolled pane's content, the width of the overlay scrollbar and a gap.
+pub const SCROLLBAR_GUTTER: f32 = 10.0;
+
 /// The colour of a selected thumbnail's ring and caption. The kit's `accent` is a quiet grey
 /// meant for hover, so a selection drawn with it cannot be seen on a dark grid.
 pub fn selection_color(theme: &Kit) -> Hsla {

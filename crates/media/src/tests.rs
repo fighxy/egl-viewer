@@ -5,7 +5,9 @@ use std::fs;
 use image::ImageFormat;
 
 use crate::fixtures::{self, every_format};
-use crate::{Kind, MediaError, THUMBNAIL_SIZE, has_preview, kind, render, render_bytes};
+use crate::{
+    Kind, MediaError, THUMBNAIL_SIZE, decode_full, has_preview, kind, render, render_bytes,
+};
 
 fn write(dir: &std::path::Path, name: &str, bytes: &[u8]) -> std::path::PathBuf {
     let path = dir.join(name);
@@ -218,4 +220,39 @@ fn extensions_are_matched_without_case() {
     assert_eq!(kind("Tiff"), Kind::Raster);
     assert_eq!(kind("SVG"), Kind::Svg);
     assert_eq!(kind("PSD"), Kind::Psd);
+}
+
+#[test]
+fn decode_full_keeps_the_original_resolution() {
+    // Larger than a thumbnail, so a 512 px result would show here.
+    let jpeg = fixtures::jpeg(1200, 800, 1);
+    let pixels = decode_full(&jpeg, "jpg").unwrap();
+    assert_eq!(pixels.dimensions(), (1200, 800));
+    let tiff = fixtures::raster(ImageFormat::Tiff, 1100, 700, 2);
+    assert_eq!(
+        decode_full(&tiff, "tiff").unwrap().dimensions(),
+        (1100, 700)
+    );
+    let psd = fixtures::psd(96, 64, 3);
+    assert_eq!(decode_full(&psd, "psd").unwrap().dimensions(), (96, 64));
+}
+
+#[test]
+fn decode_full_reads_heic_and_applies_exif_orientation() {
+    assert_eq!(
+        decode_full(&fixtures::heic(), "heic").unwrap().dimensions(),
+        (96, 64)
+    );
+    // Orientation 6: stored landscape, shown portrait.
+    let rotated = fixtures::jpeg_with_exif(80, 40, 6);
+    assert_eq!(decode_full(&rotated, "jpg").unwrap().dimensions(), (40, 80));
+}
+
+#[test]
+fn decode_full_refuses_svg_and_junk() {
+    assert!(matches!(
+        decode_full(b"<svg/>", "svg"),
+        Err(MediaError::Unsupported)
+    ));
+    assert!(decode_full(b"not a heic", "heic").is_err());
 }

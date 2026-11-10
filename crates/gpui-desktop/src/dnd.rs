@@ -1,10 +1,14 @@
 //! In-window DnD payloads (D-042 / D-057 / D-073) via GPUI `on_drag` / `on_drop`.
 
+use std::sync::Arc;
+
 use desktop_session::ItemsTarget;
 use gpui_kit::component::label::Label;
+use gpui_kit::component::{ActiveTheme as _, v_flex};
+
 use gpui_kit::{
-    App, AppContext as _, Context, Entity, IntoElement, ParentElement, Pixels, Point, Render,
-    SharedString, Styled, Window, div, px,
+    App, AppContext as _, Context, Entity, Image, IntoElement, ParentElement, Pixels, Point,
+    Render, SharedString, Styled, StyledImage as _, Window, div, img, px,
 };
 use library_core::ItemId;
 
@@ -15,6 +19,8 @@ pub enum DragPayload {
         view_id: u64,
         ids: Vec<ItemId>,
         label: SharedString,
+        /// The thumbnail of the item under the pointer, for the drag image (D-152).
+        thumb: Option<Arc<Image>>,
     },
     Folder {
         id: String,
@@ -28,6 +34,23 @@ impl DragPayload {
             view_id,
             ids,
             label: label.into(),
+            thumb: None,
+        }
+    }
+
+    /// The drag image shows this thumbnail.
+    pub fn with_thumb(mut self, image: Option<Arc<Image>>) -> Self {
+        if let Self::Items { thumb, .. } = &mut self {
+            *thumb = image;
+        }
+        self
+    }
+
+    /// How many items are dragged; 0 for a folder.
+    pub fn count(&self) -> usize {
+        match self {
+            Self::Items { ids, .. } => ids.len(),
+            Self::Folder { .. } => 0,
         }
     }
 
@@ -56,26 +79,75 @@ impl DragPayload {
     }
 }
 
-/// Floating label shown while a drag is active.
+/// The drag image (D-152): the thumbnail of the item under the pointer, faded, with the number
+/// of items when there are several; a folder, or an item without a thumbnail, shows its name.
 pub struct DragGhost {
     label: SharedString,
+    thumb: Option<Arc<Image>>,
+    count: usize,
 }
 
+/// Longest side of the drag image's thumbnail.
+const GHOST_SIZE: f32 = 96.0;
+
 impl DragGhost {
-    pub fn new(label: SharedString) -> Self {
-        Self { label }
+    pub fn new(payload: &DragPayload) -> Self {
+        let thumb = match payload {
+            DragPayload::Items { thumb, .. } => thumb.clone(),
+            DragPayload::Folder { .. } => None,
+        };
+        Self {
+            label: payload.label(),
+            thumb,
+            count: payload.count(),
+        }
     }
 }
 
 impl Render for DragGhost {
-    fn render(&mut self, _: &mut Window, _: &mut Context<Self>) -> impl IntoElement {
-        div()
-            .px_2()
-            .py_1()
-            .rounded_md()
-            .bg(gpui_kit::rgb(0x2563_eb))
-            .text_color(gpui_kit::rgb(0xffffff))
-            .child(Label::new(self.label.clone()).text_xs())
+    fn render(&mut self, _: &mut Window, cx: &mut Context<Self>) -> impl IntoElement {
+        let theme = cx.theme();
+        let badge = (self.count > 1).then(|| {
+            div()
+                .absolute()
+                .top(px(-6.))
+                .right(px(-6.))
+                .min_w(px(20.))
+                .h(px(20.))
+                .px_1()
+                .rounded(px(10.))
+                .bg(theme.blue)
+                .text_color(gpui_kit::white())
+                .flex()
+                .items_center()
+                .justify_center()
+                .child(Label::new(self.count.to_string()).text_xs())
+        });
+        match self.thumb.clone() {
+            Some(image) => v_flex()
+                .relative()
+                .opacity(0.85)
+                .child(
+                    img(image)
+                        .max_w(px(GHOST_SIZE))
+                        .max_h(px(GHOST_SIZE))
+                        .object_fit(gpui_kit::ObjectFit::Contain)
+                        .rounded(px(4.))
+                        .shadow_lg(),
+                )
+                .children(badge)
+                .into_any_element(),
+            None => div()
+                .relative()
+                .px_2()
+                .py_1()
+                .rounded_md()
+                .bg(theme.blue)
+                .text_color(gpui_kit::white())
+                .child(Label::new(self.label.clone()).text_xs())
+                .children(badge)
+                .into_any_element(),
+        }
     }
 }
 
@@ -85,7 +157,7 @@ pub fn ghost(
     _: &mut Window,
     cx: &mut App,
 ) -> Entity<DragGhost> {
-    cx.new(|_| DragGhost::new(payload.label()))
+    cx.new(|_| DragGhost::new(payload))
 }
 
 /// Where a folder drop lands relative to a row.

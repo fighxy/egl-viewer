@@ -1,7 +1,7 @@
 use std::process::Command;
 
 fn main() {
-    // Short commit for About; absent outside a git checkout (same as src-tauri).
+    // Short commit for About; absent outside a git checkout.
     let commit = Command::new("git")
         .args(["rev-parse", "--short", "HEAD"])
         .output()
@@ -18,6 +18,18 @@ fn main() {
     // 1 MiB: opening a library overflowed it (0xC00000FD). 8 MiB, the Linux default (D-141).
     if std::env::var("CARGO_CFG_TARGET_ENV").as_deref() == Ok("msvc") {
         println!("cargo:rustc-link-arg-bins=/STACK:8388608");
+    }
+    // The exe icon (D-144): GPUI's Windows backend loads icon resource 1 for every window,
+    // so without it the title bar and the taskbar show the generic application icon.
+    #[cfg(windows)]
+    if std::env::var("CARGO_CFG_TARGET_OS").as_deref() == Ok("windows") {
+        println!("cargo:rerun-if-changed=app.rc");
+        println!("cargo:rerun-if-changed=assets/icon.ico");
+        println!("cargo:rerun-if-changed=assets/cursors/grab.cur");
+        println!("cargo:rerun-if-changed=assets/cursors/grabbing.cur");
+        embed_resource::compile("app.rc", embed_resource::NONE)
+            .manifest_optional()
+            .expect("compile the exe resources (app.rc)");
     }
     for path in ["../../.git/HEAD", "../../.git/refs/heads"] {
         if std::path::Path::new(path).exists() {

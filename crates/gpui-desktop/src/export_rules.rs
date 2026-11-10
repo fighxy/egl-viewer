@@ -1,5 +1,4 @@
-//! Pure helpers for export/backup/decrypt: selection, formats, passphrase rules,
-//! Eagle connect validation and the app login gate.
+//! Phase 4 pure helpers: export selection, passphrase rules, connect validation, login gate.
 
 use app_store::{ConnectionSettings, LoginMethod};
 use library_core::{

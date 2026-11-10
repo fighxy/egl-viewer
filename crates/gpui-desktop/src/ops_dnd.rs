@@ -1,4 +1,4 @@
-//! Drop intents for item drags + folder tree helpers.
+//! Drop intents for Phase 3.F + folder tree helpers.
 
 use desktop_session::ItemsTarget;
 use gpui_kit::{Context, SharedString};
@@ -225,7 +225,16 @@ impl RootApp {
         } else {
             format!("{} items", ids.len())
         };
-        Some(DragPayload::items(lib.view_id, ids, label))
+        // The drag image shows the focused item, or the first selected one (D-152).
+        let shown = lib
+            .selection
+            .focus
+            .filter(|i| lib.cells.get(*i).is_some_and(|c| ids.contains(&c.id)))
+            .or_else(|| lib.cells.iter().position(|c| c.id == ids[0]));
+        let thumb = shown
+            .and_then(|i| self.items.get(i))
+            .and_then(|item| item.thumb.clone());
+        Some(DragPayload::items(lib.view_id, ids, label).with_thumb(thumb))
     }
 
     pub(crate) fn drag_payload_for_index(&self, index: usize) -> Option<DragPayload> {
@@ -243,11 +252,15 @@ impl RootApp {
             return self.drag_payload_for_selection();
         }
         let cell = lib.cells.get(index)?;
-        Some(DragPayload::items(
-            lib.view_id,
-            vec![cell.id.clone()],
-            format!("{}.{}", cell.name, cell.ext),
-        ))
+        let thumb = self.items.get(index).and_then(|item| item.thumb.clone());
+        Some(
+            DragPayload::items(
+                lib.view_id,
+                vec![cell.id.clone()],
+                format!("{}.{}", cell.name, cell.ext),
+            )
+            .with_thumb(thumb),
+        )
     }
 }
 

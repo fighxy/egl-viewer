@@ -6,7 +6,8 @@ use std::sync::Arc;
 use app_store::{Locale, ViewMode};
 use desktop_session::Session;
 use gpui_kit::component::menu::ContextMenuExt as _;
-use gpui_kit::component::{h_flex, label::Label, v_flex, v_virtual_list};
+use gpui_kit::component::scroll::ScrollableElement as _;
+use gpui_kit::component::{VirtualListScrollHandle, h_flex, label::Label, v_flex, v_virtual_list};
 use gpui_kit::prelude::FluentBuilder as _;
 use gpui_kit::{
     App, Entity, Hsla, Image, ImageFormat, InteractiveElement, IntoElement, MouseButton,
@@ -71,6 +72,7 @@ pub fn build_justified(state: &OpenLibraryState, container_width: f32) -> Justif
     )
 }
 
+#[allow(clippy::too_many_arguments)]
 pub fn render_items(
     state: &OpenLibraryState,
     items: &[ListedItem],
@@ -80,6 +82,7 @@ pub fn render_items(
     layout: Option<&JustifiedLayout>,
     rubber: Option<&RubberBand>,
     container_width: f32,
+    scroll: &VirtualListScrollHandle,
 ) -> gpui_kit::AnyElement {
     if items.is_empty() {
         return div()
@@ -106,6 +109,7 @@ pub fn render_items(
             reorderable,
             folder_id,
             Rc::new(state.dimensions.clone()),
+            scroll,
         ),
         ViewMode::Grid => {
             if let Some(layout) = layout {
@@ -121,6 +125,7 @@ pub fn render_items(
                     reorderable,
                     folder_id,
                     Rc::new(state.dimensions.clone()),
+                    scroll,
                 )
             } else {
                 render_wrap_grid(
@@ -140,6 +145,7 @@ pub fn render_items(
 fn rubber_overlay(
     rubber: Option<&RubberBand>,
     theme: &gpui_kit::component::theme::Theme,
+    scroll_y: f32,
 ) -> Option<gpui_kit::AnyElement> {
     let band = rubber?;
     let rect = justified::band_rect(band.start, band.current);
@@ -148,7 +154,8 @@ fn rubber_overlay(
             .id("rubber-band")
             .absolute()
             .left(px(rect.left))
-            .top(px(rect.top))
+            // The band is kept in content coordinates; draw it where the content is now.
+            .top(px(rect.top - scroll_y))
             .w(px((rect.right - rect.left).max(1.0)))
             .h(px((rect.bottom - rect.top).max(1.0)))
             .border_1()
@@ -203,10 +210,11 @@ fn render_virtual_list(
     reorderable: bool,
     folder_id: Option<String>,
     dimensions: Rc<Vec<[u32; 2]>>,
+    scroll: &VirtualListScrollHandle,
 ) -> gpui_kit::AnyElement {
     let row_h = px(48.);
     let sizes = Rc::new(vec![size(px(100.), row_h); items.len()]);
-    let overlay = rubber_overlay(rubber, theme);
+    let overlay = rubber_overlay(rubber, theme, (-scroll.offset().y.as_f32()).max(0.0));
     let list_entity = entity.clone();
     let list = v_virtual_list(entity.clone(), "item-list-virtual", sizes, {
         let items = items.to_vec();
@@ -300,7 +308,8 @@ fn render_virtual_list(
             .id("item-list")
             .relative()
             .size_full()
-            .child(list)
+            .child(list.track_scroll(scroll))
+            .vertical_scrollbar(scroll)
             .when_some(overlay, |el, overlay| el.child(overlay)),
         entity.clone(),
     )
@@ -311,6 +320,7 @@ fn render_virtual_list(
     .into_any_element()
 }
 
+#[allow(clippy::too_many_arguments)]
 fn render_justified_virtual(
     items: &[ListedItem],
     selection: &Selection,
@@ -323,6 +333,7 @@ fn render_justified_virtual(
     reorderable: bool,
     folder_id: Option<String>,
     dimensions: Rc<Vec<[u32; 2]>>,
+    scroll: &VirtualListScrollHandle,
 ) -> gpui_kit::AnyElement {
     let sizes: Rc<Vec<gpui_kit::Size<Pixels>>> = Rc::new(
         layout
@@ -331,7 +342,7 @@ fn render_justified_virtual(
             .map(|row| size(px(container_width.max(1.0)), px(row.stride)))
             .collect(),
     );
-    let overlay = rubber_overlay(rubber, theme);
+    let overlay = rubber_overlay(rubber, theme, (-scroll.offset().y.as_f32()).max(0.0));
     let rows = layout.rows.clone();
     let list_entity = entity.clone();
     let list = v_virtual_list(entity.clone(), "justified-rows", sizes, {
@@ -462,7 +473,8 @@ fn render_justified_virtual(
             .relative()
             .size_full()
             .pt(px(PADDING))
-            .child(list)
+            .child(list.track_scroll(scroll))
+            .vertical_scrollbar(scroll)
             .when_some(overlay, |el, overlay| el.child(overlay)),
         entity.clone(),
     )
@@ -504,7 +516,8 @@ fn render_wrap_grid(
             } else {
                 vec![item.cell.id.clone()]
             };
-            let payload = DragPayload::items(view_id, ids, title.clone());
+            let payload =
+                DragPayload::items(view_id, ids, title.clone()).with_thumb(item.thumb.clone());
             let mut cell = v_flex()
                 .id(SharedString::from(format!("grid-{index}")))
                 .w(px(size + 8.0))

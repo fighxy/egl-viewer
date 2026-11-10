@@ -1,6 +1,6 @@
 [package]
 name = "gpui-desktop"
-description = "GPUI Kit desktop host over desktop-session (D-126–D-141)"
+description = "GPUI Kit desktop host over desktop-session (D-126–D-133); dual path beside Tauri until cutover"
 version.workspace = true
 edition.workspace = true
 rust-version.workspace = true
@@ -38,6 +38,10 @@ windows = { version = "0.62.2", features = [
     "Win32_UI_Shell_Common",
     "Win32_UI_WindowsAndMessaging",
 ] }
+
+[target.'cfg(windows)'.build-dependencies]
+# The exe icon: GPUI loads icon resource 1 for its windows and the taskbar (D-144).
+embed-resource.workspace = true
 
 [dev-dependencies]
 tempfile.workspace = true

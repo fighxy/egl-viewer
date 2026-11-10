@@ -6,7 +6,7 @@ use std::io::{BufRead, Cursor, Seek};
 use std::path::Path;
 use std::sync::{Arc, OnceLock};
 
-use image::{DynamicImage, ImageDecoder, ImageReader, Limits, Rgba, RgbaImage};
+use image::{DynamicImage, ImageDecoder, ImageReader, Limits, RgbaImage};
 #[cfg(not(any(target_os = "ios", target_os = "android")))]
 use libheif_rs::{ColorSpace, HeifContext, LibHeif, RgbChroma};
 use resvg::{tiny_skia, usvg};
@@ -155,14 +155,18 @@ pub(crate) fn heic_bytes(bytes: &[u8]) -> Result<Decoded, MediaError> {
         .interleaved
         .ok_or_else(|| MediaError::Decode("the HEIC has no RGB plane".into()))?;
     let (width, height) = (plane.width, plane.height);
-    let mut pixels = RgbaImage::new(width, height);
+    // Row by row into one buffer: a 12 MP photo is 12 million pixels, so no per-pixel calls.
+    let row_bytes = width as usize * 3;
+    let mut rgba = Vec::with_capacity(width as usize * height as usize * 4);
     for y in 0..height as usize {
-        let row = &plane.data[y * plane.stride..y * plane.stride + width as usize * 3];
-        for x in 0..width as usize {
-            let rgb = &row[x * 3..x * 3 + 3];
-            pixels.put_pixel(x as u32, y as u32, Rgba([rgb[0], rgb[1], rgb[2], 255]));
+        let row = &plane.data[y * plane.stride..y * plane.stride + row_bytes];
+        let (rgb, _) = row.as_chunks::<3>();
+        for &[r, g, b] in rgb {
+            rgba.extend_from_slice(&[r, g, b, 255]);
         }
     }
+    let pixels = RgbaImage::from_raw(width, height, rgba)
+        .ok_or_else(|| MediaError::Decode("the HEIC plane has a wrong size".into()))?;
     Ok(Decoded {
         width,
         height,

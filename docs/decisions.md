@@ -3072,3 +3072,261 @@ white "on" states, and the left bar ran off the bottom of the window.
 - **Verified** on a 300-item demo library by capturing the app's own window: grid, captions,
   selection, the left bar, the toolbar, the item's right-click menu.
   `cargo test -p gpui-desktop style`; `cargo test -p gpui-desktop`.
+
+## D-142 GPUI rating filter behind a button; size slider in the middle (2026-11-10)
+
+- **Rating filter.** The six inline buttons `☆ 0 1 2 3 4 5` of the filter bar (D-141) are now
+  one Rating button with a star icon, like Tags, Folders, Type and Shape. It opens a menu:
+  Any rating, Not rated, ★ … ★★★★★; the current choice is selected. The button reads
+  "Rating" when off, "Not rated" for 0 and the stars otherwise, and is selected while the
+  filter is on. The filter's meaning is unchanged (exactly that rating; 0 is unrated).
+- **Toolbar row 1.** The place and the actions sit in two halves that share the free width
+  equally (`flex_1` each), so the thumbnail size slider is in the middle of the row instead
+  of wherever the place name ended. A long place name truncates; if the actions need more
+  than half the row, the slider moves aside rather than overlapping them.
+- **Verified.** `cargo test -p gpui-desktop` (label test in `ops_organize`); not yet checked
+  by running the app.
+
+## D-143 GPUI full-size preview loads off the UI thread, at full resolution (2026-11-10)
+
+Opening the preview felt slow. Causes, in order of weight:
+
+1. A debug build (`cargo run`, `scripts/run-gpui-desktop.ps1` without `-Release`) compiled the
+   image decoders without optimisation: decoding one large JPEG took seconds.
+2. The original was read on the UI thread, HEIC was even decoded there; then GPUI decoded the
+   bytes again while painting, with nothing on screen until it finished. Every rotation
+   decoded and re-encoded a PNG on the UI thread, and GPUI's asset cache kept every decoded
+   preview for the life of the window.
+3. HEIC showed its 512 px thumbnail, TIFF and PSD too (the WebView limit of spec §7.3); GPUI has
+   no WebView.
+
+What changed:
+
+- **Dev profile.** `image`, `zune-jpeg`, `png`, `image-webp`, `gif`, `tiff` and their inflate
+  crates build with `opt-level = 3` in dev, like the crypto crates. Release is unchanged.
+- **Thumbnail first.** The preview opens at once with the right bar's thumbnail, sized to
+  where the full image will land (the library's pixel size), and swaps in the full image when
+  the background decode lands. "Loading…" shows in the top bar meanwhile. A failed decode
+  keeps the thumbnail.
+- **Background decode** (`browse/preview_image.rs`): read the original, decode with the EXIF
+  orientation applied (GPUI's own decoder ignored it), scale down only past 8192 px on the long
+  edge (GPU texture limits), convert to BGRA, and hand GPUI a `RenderImage`, so painting
+  never decodes. GIF without rotation and SVG stay encoded: GPUI animates GIFs and renders
+  SVG itself.
+- **Full resolution for HEIC, PSD, TIFF.** `media::decode_full` returns the whole image,
+  display-oriented, for every previewable kind but SVG. The HEIC plane is copied row by row
+  instead of pixel by pixel.
+- **Neighbours** (`browse/preview_cache.rs`): the open item and the one before and after
+  decode together; stepping usually finds the next image ready. The cache keys on item id and
+  thumbnail version and frees evicted textures with `App::drop_image`; closing the preview,
+  opening or closing a library and Clear Cache free all of them.
+- **Rotation** decodes the original again at the new angle in the background; the current
+  frame stays up until the turned one is ready. Back at 0° the cached image returns at once.
+- **Fit and controls.** The image box is computed from the window and the image's size
+  (fit, never enlarged past 100 %, times the zoom) instead of a fixed 920×720 box, so the
+  preview uses the whole window and a click beside the image really lands on the letterbox
+  (a click on the image no longer closes it). Zooming keeps the point in the middle of the
+  stage still (the pan offset scales with the zoom). Panning is tracked on the whole stage,
+  so it continues when the pointer leaves the image. Stepping does not fade in again. New
+  keys in the preview: `Home` / `End` (first / last), `Page Up` / `Page Down` (previous /
+  next), `Ctrl+=` / `Ctrl+-` (zoom). Previous / next buttons sit at mid-height. The wheel
+  zoomed the wrong way (GPUI reports a forward notch as positive `y`): forward now zooms in,
+  back zooms out. Zoom goes from 10 % to 800 % of the fit (steps within 1 % of the fit snap to
+  it); `0` or a click on the percentage fits and centres again. The image can be grabbed and
+  dragged around the stage at any zoom, not only above 100 %. Over the image the cursor is a
+  hand, also while dragging past its edge; on Windows the system hand (`PointingHand`), because
+  GPUI maps `OpenHand` / `ClosedHand` to the arrow there.
+- **Verified.** `cargo test -p gpui-desktop -p media` (decode, orientation, cap, rotation,
+  cache eviction, fit box, zoom). Not yet measured in the running app.
+
+## D-144 The gpui-desktop exe carries its icon (2026-11-10)
+
+- **Problem.** The GPUI window and the taskbar showed the generic application icon. GPUI's
+  Windows backend loads icon resource 1 from the exe for every window
+  (`LoadImageW(module, 1, IMAGE_ICON)`); nothing put a resource into `gpui-desktop.exe`
+  (the portable zip only copied `icon.ico` beside it).
+- **Fix.** `crates/gpui-desktop/app.rc` declares `1 ICON` from `src-tauri/icons/icon.ico`
+  (the same icon as the Tauri app); `build.rs` compiles it with `embed-resource` on Windows.
+- **Dependency.** `embed-resource = "3.0.12"` as a Windows build-dependency: the version
+  already in `Cargo.lock` through Tauri's `tauri-winres`, so no new code is downloaded; the
+  newest-version rule (D-003) is met by keeping the lock's vetted version.
+- **Verified.** The built exe's associated icon is the egl icon (extracted with
+  `System.Drawing.Icon.ExtractAssociatedIcon`).
+
+## D-145 GPUI scrolling: one handle for the items view, scrollbars on every pane (2026-11-10)
+
+Nothing held a scroll handle, so the app could not move the view itself. Found and fixed:
+
+- **Keyboard focus off screen.** Arrows, `Home` / `End`, `Page Up` / `Page Down` moved the
+  selection below the window and the grid stayed put. The grid rows and the list now share
+  one `VirtualListScrollHandle` (`RootApp::grid_scroll`); moving the focus scrolls just
+  enough to show it (`ScrollStrategy::Nearest`).
+- **After the preview.** Stepping through the preview selects each item; closing it now
+  scrolls the grid to the item the preview ended on.
+- **Opening a library** scrolls to the restored selection (centred).
+- **Another view, same offset.** A new place, filter, sort or search kept the old pixel offset.
+  The view's identity (`ViewKey`: place, filters, sort, direction) is compared after each
+  reload; a different view starts at the top, a live update or an edit keeps the position.
+- **Repacking.** The thumbnail slider, names on / off, grid / list and window width repack
+  the rows; a pixel offset then pointed into other rows. The first item at the top of the
+  view is kept at the top (`justified::first_index_at_offset`).
+- **Rubber band while scrolled.** The band was measured in window coordinates, so a band drawn
+  after scrolling selected items from the start of the view. It is now kept in content
+  coordinates (scroll offset added) and drawn where the content is.
+- **Scrollbars.** The grid / list, the left bar, the right bar, Settings, the Imports panel,
+  Switch Library and the folder picker scroll with a visible scrollbar
+  (`overflow_y_scrollbar`, `vertical_scrollbar`) instead of a bare `overflow_y_scroll`. The
+  Type filter dialog had a height limit but no scrolling: a library with many extensions
+  cut the list off; it scrolls now.
+- **Preview.** The wheel over the preview zoomed the image and also scrolled the grid behind
+  it. The preview overlay now occludes the mouse (`occlude`) and stops the wheel event.
+- **Not done.** No autoscroll while a rubber band or a drag reaches the edge; the 12 px top
+  padding of the grid stays fixed while the rows scroll under it.
+- **Verified.** `cargo test -p gpui-desktop` (`offsets_map_to_rows_and_their_first_item`);
+  not yet tried in the running app on a large library.
+
+## D-146 GPUI filter and Sort menus open under their button (2026-11-10)
+
+- **Problem.** Tags, Folders, Type, Shape, Rating and the toolbar's Sort opened a modal dialog
+  in the middle of the window, away from the button that was clicked (Eagle opens them right
+  under the button).
+- **Single choices** (Sort, the tag match mode, Type, Shape, Rating) are now dropdown menus of
+  gpui-component (`dropdown_menu`) anchored under their button; Sort, at the right of the
+  toolbar, aligns its right edge with the button. The current choice is checked; a pick
+  applies and closes the menu. The Type menu is capped at 60 % of the window height and
+  scrolls. Builders live in `browse/filter_menus.rs` and read the library when the menu opens.
+- **Folders** take several picks, so they are a `Popover` under the button that stays open:
+  Any / All, then every folder with a check box; it re-reads the filter on every render.
+  Rows are left-aligned check boxes indented 16 px per level (a `Button` centred its label, and
+  indenting with spaces barely showed).
+- **Ctrl+Shift+S** keeps the Sort dialog: a shortcut has no button to open under. Both use
+  `filter_menus::sort_keys`, so the lists cannot drift apart. The old centred filter dialogs
+  are gone.
+- **Not yet like Eagle.** Eagle's Type and Tags menus have a search field, check boxes for
+  several values and right-click to exclude; here Type is one value and the Tags button sets
+  the match mode only (tags are picked in the left bar).
+- **Verified.** `cargo test -p gpui-desktop` (`sort_keys`, `flatten_folders`); not yet tried
+  in the running app.
+
+## D-147 GPUI quit confirmation has its buttons (2026-11-10)
+
+- **Problem.** Closing the window showed "Quit egl-viewer?" with no buttons: the dialog set
+  `on_ok` / `on_cancel` but drew no footer, so the only way out was ×, which cancels. The
+  message also still said "imports or exports (when added)".
+- **Fix.** Cancel and a primary Quit button, as in the Move to Trash confirmation; × and Esc
+  still cancel. The text is "Close the app? Imports still running will stop." (ru, zh too).
+- **Closed hand while dragging the preview.** Windows has no closed-hand cursor and GPUI's
+  Windows backend only sets system cursors; done with a patched backend in D-148.
+
+## D-148 Open and closed hand cursors on Windows through a patched GPUI backend (2026-11-10)
+
+- **Problem.** Over the preview's image the cursor should be an open hand that closes while
+  dragging. Windows has no such cursors (only the pointing hand `IDC_HAND`), and
+  `gpui-pre-windows` maps `CursorStyle::OpenHand` / `ClosedHand` to the arrow. It sets the
+  cursor again on every mouse move, so the app cannot set its own from outside.
+- **Patch.** `vendor/gpui-pre-windows` is the published 0.3.11 with one change in
+  `src/util.rs` (`EGL-VIEWER-PATCH.md` there): `OpenHand` loads cursor resource 102 of the exe,
+  `ClosedHand` resource 101, and without them the system hand. It is wired with
+  `[patch.crates-io]`; the workspace excludes `vendor/`, so the copy is built as a dependency
+  and not linted or tested as ours. Apache-2.0 allows the change; the note states it. When
+  gpui-kit moves to a newer `gpui-pre-windows`, copy the new version and re-apply the change.
+- **Cursors.** Drawn for this app, no third-party artwork:
+  `crates/gpui-desktop/assets/cursors/make-cursors.ps1` writes `grab.cur` and `grabbing.cur`
+  (32×32 canvas, a hand of about 20 px drawn anti-aliased with System.Drawing: white fill,
+  black outline and lines between the fingers, alpha; hotspot in the palm); `app.rc`
+  embeds them as cursors 101 and 102 next to the icon (D-144).
+- **Preview.** `drag_cursor` is back to `OpenHand` over the image and `ClosedHand` while
+  dragging, on every platform (macOS and Linux have both natively). The hand closes when the
+  button goes down on the image (not on the first move) and opens on release; released
+  outside the window, it opens on the next move (`pressed_button` is no longer Left).
+- **Verified.** `cargo test -p gpui-desktop` (`the_hand_closes_while_dragging`,
+  `the_hand_cursors_are_embedded_cursor_files`); the cursor pixels are found in the built exe.
+  Not yet seen on screen.
+
+## D-149 GPUI right bar: tag and folder chips with Eagle-style pickers (2026-11-10)
+
+- **Problem.** Tags were ghost buttons (a click removed the tag) above a full-width "Add tag"
+  that opened a modal dialog with a bare text field; folders were a line of names with no way
+  to change them from the right bar.
+- **Chips.** Tags and folders of the selection are chips with a ×. A tag on some of the
+  selected items only is dimmed. Without tags the section shows "+ Add tag"; with tags a small
+  "+" follows the chips; folders always end with "+".
+- **Pickers** (`browse/picker.rs`), a popover under the "+" opening to the left, kept as one
+  view per kind for the app's life:
+  - search field with the caret in it on opening;
+  - tags in two columns, by section: Recent (picked in this session), each tag group, Other;
+    the count of items per tag; a search lists the matches, the ones starting with it first,
+    and offers "Create tag “…”" when no tag has exactly that name (tags stay case-sensitive);
+  - folders as the tree with check boxes and folder icons, Recent on top; a search lists
+    matches by path; locked folders are not offered (D-059);
+  - a click or Enter checks or unchecks the value on the selection and the popover stays
+    open; arrows move (left / right move the caret while there is text); Esc closes; the
+    footer shows the keys.
+- **Ctrl+T** opens the tag picker when the right bar is shown; with the bar hidden it keeps the
+  Add tag dialog, which has nothing to open under.
+- **Not like Eagle yet.** Eagle's "Recommendations" (tags suggested for the item), the layout
+  and filter toggles in the search row and Tab between lists are not here.
+- **Verified.** `cargo test -p gpui-desktop` (sections, search, create, two-column arrows,
+  folder tree and paths, recent list); not yet tried in the running app.
+
+## D-150 GPUI start screen redesigned (2026-11-10)
+
+- **Problem.** The start screen was a grey box of loose controls: two buttons, recent
+  libraries as bare names with a red ×, and Eagle's two actions as centred text links. Missing
+  libraries (an unplugged drive) were pruned on every render, which also wrote to the app
+  store each frame.
+- **Layout** (`screens/welcome.rs`), one card of two panes, in the theme's colours:
+  - left: the app's mark, name and version, one line on what it is, then actions as rows with
+    an icon, a title and what they do — Create library (primary), Open library, and under an
+    "Eagle" label Import an Eagle library and Connect to a running Eagle; the status line at
+    the bottom;
+  - right: Recent libraries with their number, newest first; each row has the name, the
+    folder it sits in, when it was last opened and a × (Remove from the list). A library whose
+    folder is gone stays listed with "Not found" and does not open on a click. The list
+    scrolls; without libraries a quiet empty state.
+- Missing rows are pruned once at start-up, as before, no longer on every render.
+- **Second pass** (the first looked rough): the card has its own background (in the light
+  theme the shadow showed through the right pane as a grey block); the left pane takes the
+  sidebar colour; only Create library is filled, the other actions are quiet rows that
+  highlight on hover, every icon in a 32 px tile; hints stay on one line (ellipsis, shorter
+  Russian texts); recent rows have the same tile and show their × on hover only; the count
+  is a small pill.
+- **Sidebar scrollbar.** The left bar's scrolled content has a 10 px right gutter
+  (`style::SCROLLBAR_GUTTER`): the overlay scrollbar covered the counts (D-145).
+- **Verified.** `cargo test -p gpui-desktop` (`recent_libraries_newest_first`,
+  `the_line_under_a_name_is_its_folder`).
+
+## D-151 GPUI right bar: name, note and link edited in place; actions only in the menu (2026-11-10)
+
+- **In place.** Name, Note and Link were a value with an "Edit" button that opened a dialog.
+  They are now fields in the right bar (`ops_details.rs`): Name and Link single-line, Note a
+  text area that grows from 2 to 8 lines, with placeholders ("Add a note…", "https://").
+  A change is saved when the field loses focus, and on Enter for Name and Link (Enter in a
+  note is a new line). An empty name or unchanged text saves nothing and shows the item's
+  value again; names and links are trimmed, notes kept as typed.
+- **Saved to the right item.** A field remembers which item it was filled from and saves to
+  that item, not to the selection: a click on another cell blurs the field after the
+  selection has already moved. A field being typed in is not refilled when the right bar
+  reloads.
+- Read-only libraries and items in the trash show the values as text.
+- **Info and EXIF** have larger titles (a chevron and the name, `text_sm`, semibold) that fold
+  and unfold their section; folded sections stay folded while moving between items, for the
+  session.
+- **Actions.** Show in Explorer, Open with default app, Copy file and Move to Trash (and the
+  trash's Restore / Delete permanently) are no longer buttons in the right bar; they stay in
+  the item's right-click menu and their shortcuts.
+- **Verified.** `cargo test -p gpui-desktop` (`ops_details`: unchanged, empty name, trimming);
+  not yet tried in the running app.
+
+## D-152 GPUI drag and drop to the left bar looks like Eagle's (2026-11-10)
+
+- **Already there.** Items dropped on a folder join it, on a tag get it, on the Trash go to
+  the trash (`handle_drop`); folders dropped on folders nest or reorder (D-140).
+- **Drag image.** It was a blue label with the name. It is now the thumbnail of the item under
+  the pointer (the focused or first selected one when several are dragged), at most 96 px,
+  faded, with a blue badge counting the items when there are several. Folders and items
+  without a thumbnail keep the label, also with the badge.
+- **Drop target.** The left-bar row under a drag of items is tinted with the selection colour:
+  folders, tags, the Trash, and the Folders header (which also takes folders, to the root).
+  A folder dragged onto a folder keeps the zone lines (before / inside / after) instead.
+- **Verified.** `cargo test -p gpui-desktop`; not yet tried in the running app.

@@ -442,7 +442,7 @@ Link     https://…  ↗
 
 ### 7.4 Other screens and dialogs
 
-1. **Full-size preview.** A layer over the whole window, not a new window. The original at window size, zoom and pan, rotate clockwise (toolbar button or `R`), previous and next in the current view; `Esc`, a short `Space`, or a left/right click on the empty letterbox beside the image closes it; holding `Space` peeks while the key is down (D-073). Rotation is display-only for this preview session (D-058). It opens with a short zoom out of its cell (D-040). Originals the host cannot decode for display (TIFF, PSD) show their 512 px thumbnail.
+1. **Full-size preview.** A layer over the whole window, not a new window. The original at window size, zoom and pan, rotate clockwise (toolbar button or `R`), previous and next in the current view; `Esc`, a short `Space`, or a left/right click on the empty letterbox beside the image closes it; holding `Space` peeks while the key is down (D-073). Rotation is display-only for this preview session (D-058). It opens with a short zoom out of its cell (D-040). Originals the host cannot decode for display (TIFF, PSD) show their 512 px thumbnail; the host decodes them, and HEIC, at full resolution in the background (D-143).
 2. **Tags filter** (the tag sheet): the dropdown panel of the Tags filter. Search box over the vocabulary, mode segment Any / All / Exact / None, counts, recent tags, groups as sections; rename, merge and delete from a context menu.
 3. **Smart folder editor.** Name, AND/OR, the rules of the v1 subset.
 4. **Folder dialogs.** Create, rename, move, delete (with the item count and the trash option), lock and unlock. Lock and unlock, password change, and recovery are for the chosen folder. The lock dialog edits that folder's name and tag.

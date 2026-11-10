@@ -1,12 +1,16 @@
-//! Details panel with in-place / dialog edits (D-130 read, D-131 write).
+//! Details panel with in-place / dialog edits (Phase 2 read + Phase 3 write).
 
 use std::sync::Arc;
 
 use app_store::Locale;
+use gpui_kit::assets::IconName;
 use gpui_kit::component::button::{Button, ButtonVariants as _};
+use gpui_kit::component::input::{Input, Textarea};
 use gpui_kit::component::label::Label;
+use gpui_kit::component::popover::Popover;
+use gpui_kit::component::scroll::ScrollableElement as _;
 use gpui_kit::component::{
-    Disableable as _, Selectable as _, Sizable as _, StyledExt as _, h_flex, v_flex,
+    Disableable as _, Icon, Selectable as _, Sizable as _, StyledExt as _, h_flex, v_flex,
 };
 use gpui_kit::prelude::FluentBuilder as _;
 use gpui_kit::{
@@ -17,10 +21,10 @@ use library_core::{Folder, Item, ItemCell, SelectionTags, SortKey};
 
 use crate::app::RootApp;
 use crate::browse::format::{format_bytes, format_date, format_dimensions};
+use crate::browse::picker::{Picker, PickerHandles, PickerKind};
 use crate::browse::style;
 use crate::i18n::{t, t_n};
 use crate::library::OpenLibraryState;
-use crate::ops_mutations::EditField;
 
 #[derive(Clone)]
 pub struct DetailsModel {
@@ -37,6 +41,7 @@ pub fn render_details(
     locale: Locale,
     theme: &gpui_kit::component::theme::Theme,
     entity: Entity<RootApp>,
+    pickers: &PickerHandles,
 ) -> gpui_kit::AnyElement {
     let in_trash = matches!(state.place, crate::library::Place::Trash);
     let read_only = state.info.read_only;
@@ -50,7 +55,7 @@ pub fn render_details(
         .size_full()
         .p_3()
         .gap_3()
-        .overflow_y_scroll()
+        .overflow_y_scrollbar()
         .child(match model.count {
             0 => {
                 if let Some(folder) = open_folder {
@@ -78,6 +83,7 @@ pub fn render_details(
                         entity,
                         in_trash,
                         read_only,
+                        pickers,
                     )
                     .into_any_element()
                 } else {
@@ -86,8 +92,10 @@ pub fn render_details(
                         .into_any_element()
                 }
             }
-            n => multi_select(n, model, locale, theme, entity, in_trash, read_only)
-                .into_any_element(),
+            n => multi_select(
+                n, model, locale, theme, entity, in_trash, read_only, pickers,
+            )
+            .into_any_element(),
         })
         .into_any_element()
 }
@@ -104,6 +112,7 @@ fn empty_placeholder(
         .child(Label::new(t(locale, "details.selectItem")).text_color(theme.muted_foreground))
 }
 
+#[allow(clippy::too_many_arguments)]
 fn multi_select(
     count: usize,
     model: &DetailsModel,
@@ -112,6 +121,7 @@ fn multi_select(
     entity: Entity<RootApp>,
     in_trash: bool,
     read_only: bool,
+    pickers: &PickerHandles,
 ) -> impl IntoElement {
     let size = model.selection.as_ref().map(|s| s.size);
     v_flex()
@@ -143,11 +153,12 @@ fn multi_select(
                 sel.items,
                 entity.clone(),
                 read_only || in_trash,
+                pickers,
             ))
         })
-        .child(action_buttons(locale, entity, true, in_trash, read_only))
 }
 
+#[allow(clippy::too_many_arguments)]
 fn single_item(
     item: &Item,
     thumb: Option<Arc<Image>>,
@@ -157,11 +168,13 @@ fn single_item(
     entity: Entity<RootApp>,
     in_trash: bool,
     read_only: bool,
+    pickers: &PickerHandles,
 ) -> impl IntoElement {
     let preview_entity = entity.clone();
     let open_link_url = item.url.clone();
     let has_link = library_core::is_web_link(&item.url);
     let can_edit = !read_only && !in_trash && !item.is_deleted;
+    let exif = exif_rows(item, locale, theme);
 
     v_flex()
         .id("details-single")
@@ -228,14 +241,15 @@ fn single_item(
                 .text_color(theme.muted_foreground),
             )
         })
-        .child(editable_field(
+        .child(inline_field(
             locale,
             theme,
             "details.name",
-            item.name.clone(),
-            can_edit,
-            EditField::Name,
-            entity.clone(),
+            if can_edit {
+                Input::new(&pickers.editors.name).small().into_any_element()
+            } else {
+                Label::new(item.name.clone()).text_sm().into_any_element()
+            },
         ))
         .child(if can_edit {
             rating_editor(
@@ -272,38 +286,38 @@ fn single_item(
             1,
             entity.clone(),
             !can_edit,
+            pickers,
         ))
-        .child(field(
+        .child(folders_editor(
             locale,
             theme,
-            "details.folders",
-            folder_names(folders, &item.folders, locale),
+            folders,
+            &item.folders,
+            entity.clone(),
+            !can_edit,
+            pickers,
         ))
-        .child(editable_field(
+        .child(inline_field(
             locale,
             theme,
             "details.note",
-            if item.annotation.is_empty() {
-                t(locale, "details.none")
+            if can_edit {
+                Textarea::new(&pickers.editors.note)
+                    .small()
+                    .into_any_element()
             } else {
-                item.annotation.clone()
+                read_only_value(locale, theme, &item.annotation)
             },
-            can_edit,
-            EditField::Note,
-            entity.clone(),
         ))
-        .child(editable_field(
+        .child(inline_field(
             locale,
             theme,
             "details.link",
-            if item.url.is_empty() {
-                t(locale, "details.none")
+            if can_edit {
+                Input::new(&pickers.editors.link).small().into_any_element()
             } else {
-                item.url.clone()
+                read_only_value(locale, theme, &item.url)
             },
-            can_edit,
-            EditField::Link,
-            entity.clone(),
         ))
         .when(has_link, |el| {
             let entity = entity.clone();
@@ -317,86 +331,134 @@ fn single_item(
                     }),
             )
         })
-        .child(action_buttons(
-            locale,
-            entity,
-            false,
-            in_trash || item.is_deleted,
-            read_only,
+        .child(section_header(
+            "details-info-header",
+            t(locale, "details.info"),
+            pickers.info_collapsed,
+            theme,
+            {
+                let entity = entity.clone();
+                move |cx| entity.update(cx, |this, cx| this.toggle_details_section(false, cx))
+            },
         ))
-        .child(
-            v_flex()
-                .gap_1()
-                .child(
-                    Label::new(t(locale, "details.info"))
-                        .text_xs()
-                        .text_color(theme.muted_foreground),
-                )
-                .child(
-                    Label::new(
-                        [
-                            item.ext.to_ascii_uppercase(),
-                            format_bytes(item.size),
-                            format_dimensions(item.width, item.height),
-                        ]
-                        .join(" · "),
+        .when(!pickers.info_collapsed, |el| {
+            el.child(
+                v_flex()
+                    .gap_1()
+                    .child(
+                        Label::new(
+                            [
+                                item.ext.to_ascii_uppercase(),
+                                format_bytes(item.size),
+                                format_dimensions(item.width, item.height),
+                            ]
+                            .join(" · "),
+                        )
+                        .text_sm(),
                     )
-                    .text_sm(),
-                )
-                .child(field(
-                    locale,
-                    theme,
-                    "details.added",
-                    format_date(item.added_at),
-                ))
-                .child(field(
-                    locale,
-                    theme,
-                    "details.created",
-                    format_date(item.file_created_at),
-                ))
-                .child(field(
-                    locale,
-                    theme,
-                    "details.modified",
-                    format_date(item.file_modified_at),
-                )),
-        )
-        .children(exif_rows(item, locale, theme))
+                    .child(field(
+                        locale,
+                        theme,
+                        "details.added",
+                        format_date(item.added_at),
+                    ))
+                    .child(field(
+                        locale,
+                        theme,
+                        "details.created",
+                        format_date(item.file_created_at),
+                    ))
+                    .child(field(
+                        locale,
+                        theme,
+                        "details.modified",
+                        format_date(item.file_modified_at),
+                    )),
+            )
+        })
+        .when(!exif.is_empty(), |el| {
+            el.child(section_header(
+                "details-exif-header",
+                "EXIF".to_owned(),
+                pickers.exif_collapsed,
+                theme,
+                {
+                    let entity = entity.clone();
+                    move |cx| entity.update(cx, |this, cx| this.toggle_details_section(true, cx))
+                },
+            ))
+            .when(!pickers.exif_collapsed, |el| {
+                el.child(v_flex().gap_1().children(exif))
+            })
+        })
 }
 
-fn editable_field(
+/// A section title of the right bar that folds its section (D-151): a chevron and the name,
+/// a click anywhere on the row.
+fn section_header(
+    id: &'static str,
+    title: String,
+    collapsed: bool,
+    theme: &gpui_kit::component::theme::Theme,
+    on_toggle: impl Fn(&mut gpui_kit::App) + 'static,
+) -> impl IntoElement {
+    let hover = theme.list_hover;
+    h_flex()
+        .id(id)
+        .w_full()
+        .gap_1()
+        .py(px(3.))
+        .rounded(theme.radius)
+        .cursor_pointer()
+        .hover(move |el| el.bg(hover))
+        .child(
+            Icon::new(if collapsed {
+                IconName::ChevronRight
+            } else {
+                IconName::ChevronDown
+            })
+            .small()
+            .text_color(theme.muted_foreground),
+        )
+        .child(Label::new(title).text_sm().font_semibold())
+        .on_click(move |_, _, cx| on_toggle(cx))
+}
+
+/// A labelled field whose value is edited in place (D-151).
+fn inline_field(
     locale: Locale,
     theme: &gpui_kit::component::theme::Theme,
     label_key: &'static str,
-    value: impl Into<SharedString>,
-    can_edit: bool,
-    field_kind: EditField,
-    entity: Entity<RootApp>,
+    content: gpui_kit::AnyElement,
 ) -> impl IntoElement {
     h_flex()
-        .id(SharedString::from(format!("efield-{label_key}")))
+        .id(SharedString::from(format!("ifield-{label_key}")))
         .gap_2()
         .items_start()
         .child(
             Label::new(t(locale, label_key))
                 .text_sm()
                 .text_color(theme.muted_foreground)
-                .w(px(72.)),
+                .w(px(72.))
+                .pt(px(4.)),
         )
-        .child(Label::new(value).text_sm().flex_1())
-        .when(can_edit, |el| {
-            el.child(
-                Button::new(SharedString::from(format!("edit-{label_key}")))
-                    .ghost()
-                    .label(t(locale, "common.edit"))
-                    .on_click(move |_, window, cx| {
-                        entity.update(cx, |this, cx| {
-                            this.open_edit_field_dialog(window, cx, field_kind);
-                        });
-                    }),
-            )
-        })
+        .child(div().flex_1().min_w_0().child(content))
+}
+
+/// A value that cannot be edited (read-only library, the trash): the text, or "None".
+fn read_only_value(
+    locale: Locale,
+    theme: &gpui_kit::component::theme::Theme,
+    value: &str,
+) -> gpui_kit::AnyElement {
+    if value.is_empty() {
+        Label::new(t(locale, "details.none"))
+            .text_sm()
+            .text_color(theme.muted_foreground)
+            .into_any_element()
+    } else {
+        Label::new(value.to_owned()).text_sm().into_any_element()
+    }
 }
 
 fn rating_editor(
@@ -433,6 +495,64 @@ fn rating_editor(
         }))
 }
 
+/// Removes a chip's value from the selection.
+type RemoveFn = Box<dyn Fn(&mut gpui_kit::App) + 'static>;
+
+/// A value of the selection as a chip; × removes it (D-149).
+fn chip(
+    id: SharedString,
+    label: String,
+    dimmed: bool,
+    theme: &gpui_kit::component::theme::Theme,
+    on_remove: Option<RemoveFn>,
+) -> impl IntoElement {
+    h_flex()
+        .id(id.clone())
+        .gap_1()
+        .pl_2()
+        .pr(px(if on_remove.is_some() { 3. } else { 8. }))
+        .py(px(2.))
+        .rounded(theme.radius)
+        .border_1()
+        .border_color(theme.border)
+        .bg(theme.secondary)
+        .child(
+            Label::new(label)
+                .text_sm()
+                .when(dimmed, |el| el.text_color(theme.muted_foreground)),
+        )
+        .when_some(on_remove, |el, remove| {
+            el.child(
+                Button::new(SharedString::from(format!("{id}-x")))
+                    .ghost()
+                    .xsmall()
+                    .icon(IconName::X)
+                    .on_click(move |_, _, cx| remove(cx)),
+            )
+        })
+}
+
+/// The "+" of a section: a popover with the picker under it, opening to the left.
+fn picker_popover(
+    id: &'static str,
+    kind: PickerKind,
+    trigger: Button,
+    picker: Entity<Picker>,
+    open: bool,
+    entity: Entity<RootApp>,
+) -> impl IntoElement {
+    Popover::new(id)
+        .anchor(gpui_kit::Anchor::TopRight)
+        .open(open)
+        .on_open_change(move |open, window, cx| {
+            let open = *open;
+            entity.update(cx, |this, cx| this.set_picker_open(kind, open, window, cx));
+        })
+        .trigger(trigger)
+        .content(move |_, _, _| picker.clone())
+}
+
+#[allow(clippy::too_many_arguments)]
 fn tags_editor(
     locale: Locale,
     theme: &gpui_kit::component::theme::Theme,
@@ -440,12 +560,98 @@ fn tags_editor(
     selected_items: u32,
     entity: Entity<RootApp>,
     read_only: bool,
+    pickers: &PickerHandles,
 ) -> impl IntoElement {
+    let add = picker_popover(
+        "tag-picker-popover",
+        PickerKind::Tags,
+        Button::new("add-tag")
+            .ghost()
+            .small()
+            .icon(IconName::Plus)
+            .tooltip(t(locale, "details.addTag")),
+        pickers.tags.clone(),
+        pickers.tags_open,
+        entity.clone(),
+    );
     v_flex()
         .id("tags-editor")
-        .gap_1()
+        .gap_1p5()
         .child(
             Label::new(t(locale, "details.tags"))
+                .text_xs()
+                .text_color(theme.muted_foreground),
+        )
+        .when(tags.is_empty() && read_only, |el| {
+            el.child(
+                Label::new(t(locale, "details.none"))
+                    .text_sm()
+                    .text_color(theme.muted_foreground),
+            )
+        })
+        .when(!tags.is_empty(), |el| {
+            el.child(
+                h_flex()
+                    .gap_1()
+                    .flex_wrap()
+                    .items_center()
+                    .children(tags.iter().map(|tag| {
+                        let name = tag.name.clone();
+                        // On some of the selected items only.
+                        let dimmed = tag.image_count.is_some_and(|n| n > 0 && n < selected_items);
+                        let remove: Option<RemoveFn> = (!read_only).then(|| {
+                            let entity = entity.clone();
+                            let name = name.clone();
+                            Box::new(move |cx: &mut gpui_kit::App| {
+                                entity.update(cx, |this, cx| {
+                                    this.remove_tag_from_selection(name.clone(), cx)
+                                });
+                            }) as RemoveFn
+                        });
+                        chip(
+                            SharedString::from(format!("tag-{name}")),
+                            name,
+                            dimmed,
+                            theme,
+                            remove,
+                        )
+                    }))
+                    .when(!read_only, |el| el.child(add)),
+            )
+        })
+        .when(tags.is_empty() && !read_only, |el| {
+            el.child(
+                div().w_full().child(picker_popover(
+                    "tag-picker-popover",
+                    PickerKind::Tags,
+                    Button::new("add-tag")
+                        .ghost()
+                        .w_full()
+                        .icon(IconName::Plus)
+                        .label(t(locale, "details.addTag")),
+                    pickers.tags.clone(),
+                    pickers.tags_open,
+                    entity.clone(),
+                )),
+            )
+        })
+}
+
+/// The item's folders as chips; "+" opens the folder picker (D-149).
+fn folders_editor(
+    locale: Locale,
+    theme: &gpui_kit::component::theme::Theme,
+    folders: &[Folder],
+    ids: &[String],
+    entity: Entity<RootApp>,
+    read_only: bool,
+    pickers: &PickerHandles,
+) -> impl IntoElement {
+    v_flex()
+        .id("folders-editor")
+        .gap_1p5()
+        .child(
+            Label::new(t(locale, "details.folders"))
                 .text_xs()
                 .text_color(theme.muted_foreground),
         )
@@ -453,136 +659,52 @@ fn tags_editor(
             h_flex()
                 .gap_1()
                 .flex_wrap()
-                .when(tags.is_empty(), |el| {
+                .items_center()
+                .when(ids.is_empty() && read_only, |el| {
                     el.child(
                         Label::new(t(locale, "details.none"))
                             .text_sm()
                             .text_color(theme.muted_foreground),
                     )
                 })
-                .children(tags.iter().map(|tag| {
-                    let name = tag.name.clone();
-                    let entity = entity.clone();
-                    let dimmed = tag.image_count.is_some_and(|n| n > 0 && n < selected_items);
-                    Button::new(SharedString::from(format!("tag-{name}")))
-                        .ghost()
-                        .label(if dimmed {
-                            format!("({name})")
-                        } else {
-                            name.clone()
-                        })
-                        .when(!read_only, |b| {
-                            b.on_click(move |_, _, cx| {
-                                entity.update(cx, |this, cx| {
-                                    this.remove_tag_from_selection(name.clone(), cx);
-                                });
-                            })
-                        })
-                })),
+                .children(ids.iter().map(|id| {
+                    let name = find_folder_name(folders, id)
+                        .unwrap_or_else(|| t(locale, "details.unknownFolder"));
+                    let remove: Option<RemoveFn> = (!read_only).then(|| {
+                        let entity = entity.clone();
+                        let id = id.clone();
+                        Box::new(move |cx: &mut gpui_kit::App| {
+                            entity.update(cx, |this, cx| {
+                                this.apply_edit_to_selection(
+                                    library_core::ItemEdit::RemoveFromFolders(vec![id.clone()]),
+                                    cx,
+                                )
+                            });
+                        }) as RemoveFn
+                    });
+                    chip(
+                        SharedString::from(format!("folder-{id}")),
+                        name,
+                        false,
+                        theme,
+                        remove,
+                    )
+                }))
+                .when(!read_only, |el| {
+                    el.child(picker_popover(
+                        "folder-picker-popover",
+                        PickerKind::Folders,
+                        Button::new("add-folder")
+                            .ghost()
+                            .small()
+                            .icon(IconName::Plus)
+                            .tooltip(t(locale, "details.addToFolder")),
+                        pickers.folders.clone(),
+                        pickers.folders_open,
+                        entity.clone(),
+                    ))
+                }),
         )
-        .when(!read_only, |el| {
-            let entity = entity.clone();
-            el.child(
-                Button::new("add-tag")
-                    .outline()
-                    .label(t(locale, "details.addTag"))
-                    .on_click(move |_, window, cx| {
-                        entity.update(cx, |this, cx| {
-                            this.open_add_tag_dialog(window, cx);
-                        });
-                    }),
-            )
-        })
-}
-
-fn action_buttons(
-    locale: Locale,
-    entity: Entity<RootApp>,
-    several: bool,
-    in_trash: bool,
-    read_only: bool,
-) -> impl IntoElement {
-    h_flex()
-        .id("details-actions")
-        .gap_1()
-        .flex_wrap()
-        .when(!in_trash, |el| {
-            let reveal = entity.clone();
-            let open = entity.clone();
-            let copy = entity.clone();
-            let trash = entity.clone();
-            el.child(
-                Button::new("details-reveal")
-                    .outline()
-                    .label(t(locale, "details.showExplorer"))
-                    .on_click(move |_, _, cx| {
-                        reveal.update(cx, |this, cx| this.reveal_selection(cx));
-                    }),
-            )
-            .when(!several, |el| {
-                el.child(
-                    Button::new("details-open")
-                        .outline()
-                        .label(t(locale, "details.openDefault"))
-                        .on_click(move |_, _, cx| {
-                            open.update(cx, |this, cx| this.open_original(cx));
-                        }),
-                )
-            })
-            .child(
-                Button::new("details-copy")
-                    .outline()
-                    .label(if several {
-                        t(locale, "details.copyFiles")
-                    } else {
-                        t(locale, "details.copyFile")
-                    })
-                    .on_click(move |_, _, cx| {
-                        copy.update(cx, |this, cx| this.copy_selection(cx));
-                    }),
-            )
-            .when(!read_only, |el| {
-                el.child(
-                    Button::new("details-trash")
-                        .outline()
-                        .label(t(locale, "trash.move"))
-                        .on_click(move |_, window, cx| {
-                            trash.update(cx, |this, cx| this.trash_selection(window, cx));
-                        }),
-                )
-            })
-        })
-        .when(in_trash && !read_only, |el| {
-            let restore = entity.clone();
-            let delete = entity.clone();
-            let empty = entity.clone();
-            el.child(
-                Button::new("details-restore")
-                    .primary()
-                    .label(t(locale, "trash.restore"))
-                    .on_click(move |_, _, cx| {
-                        restore.update(cx, |this, cx| this.restore_selection(cx));
-                    }),
-            )
-            .child(
-                Button::new("details-delete")
-                    .outline()
-                    .label(t(locale, "trash.delete"))
-                    .on_click(move |_, window, cx| {
-                        delete.update(cx, |this, cx| {
-                            this.delete_permanently_selection(window, cx);
-                        });
-                    }),
-            )
-            .child(
-                Button::new("details-empty")
-                    .ghost()
-                    .label(t(locale, "trash.empty"))
-                    .on_click(move |_, window, cx| {
-                        empty.update(cx, |this, cx| this.empty_trash(window, cx));
-                    }),
-            )
-        })
 }
 
 fn field(
@@ -602,18 +724,6 @@ fn field(
                 .w(px(72.)),
         )
         .child(Label::new(value).text_sm().flex_1())
-}
-
-fn folder_names(folders: &[Folder], ids: &[String], locale: Locale) -> String {
-    if ids.is_empty() {
-        return t(locale, "details.none");
-    }
-    ids.iter()
-        .map(|id| {
-            find_folder_name(folders, id).unwrap_or_else(|| t(locale, "details.unknownFolder"))
-        })
-        .collect::<Vec<_>>()
-        .join(", ")
 }
 
 fn find_folder_name(folders: &[Folder], id: &str) -> Option<String> {
@@ -837,15 +947,6 @@ fn exif_rows(
         };
         let shown = format.map(|f| f(&text)).unwrap_or(text);
         rows.push(field(locale, theme, label, shown).into_any_element());
-    }
-    if !rows.is_empty() {
-        rows.insert(
-            0,
-            Label::new("EXIF")
-                .text_xs()
-                .text_color(theme.muted_foreground)
-                .into_any_element(),
-        );
     }
     rows
 }

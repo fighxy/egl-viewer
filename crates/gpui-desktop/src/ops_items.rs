@@ -9,6 +9,7 @@ use gpui_kit::component::button::{Button, ButtonVariants as _};
 use gpui_kit::component::input::Input;
 use gpui_kit::component::label::Label;
 use gpui_kit::component::menu::PopupMenu;
+use gpui_kit::component::scroll::ScrollableElement as _;
 use gpui_kit::component::{StyledExt as _, h_flex, v_flex};
 use gpui_kit::prelude::FluentBuilder as _;
 use gpui_kit::{
@@ -736,7 +737,7 @@ impl RootApp {
                             .id("folder-picker-list")
                             .w_full()
                             .max_h(px(340.))
-                            .overflow_y_scroll()
+                            .overflow_y_scrollbar()
                             .children(rows.into_iter().map(|row| {
                                 let id = row.id.clone();
                                 let ticked = picker.checked.contains(&row.id);

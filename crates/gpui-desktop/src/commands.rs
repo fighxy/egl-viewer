@@ -1,5 +1,5 @@
-//! GPUI actions + keymap (logical ids mirror `ui/src/commands/registry.ts`).
-//! Commands of later features are absent, not disabled.
+//! GPUI actions + keymap for Phase 1–5 (logical ids mirror `ui/src/commands/registry.ts`).
+//! Commands of later phases are absent, not disabled.
 
 use gpui_kit::{App, KeyBinding, actions};
 
