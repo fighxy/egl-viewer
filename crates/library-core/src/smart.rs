@@ -4,7 +4,6 @@
 
 use serde::{Deserialize, Serialize};
 use serde_json::{Value, json};
-use ts_rs::TS;
 
 use crate::edit::MAX_TEXT_UTF16;
 use crate::error::SourceError;
@@ -638,13 +637,12 @@ pub fn rules_from_query(
 }
 
 /// A smart folder edit. `conditions` is Eagle's array, stored unchanged.
-#[derive(Debug, Clone, PartialEq, Serialize, Deserialize, TS)]
+#[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
 #[serde(
     tag = "type",
     rename_all = "camelCase",
     rename_all_fields = "camelCase"
 )]
-#[ts(export)]
 pub enum SmartFolderChange {
     /// A new smart folder after the last child of `parent` (`None`: the top level).
     Create {

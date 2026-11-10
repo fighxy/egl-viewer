@@ -1,7 +1,6 @@
 #!/usr/bin/env node
 /**
  * Builds the static GPUI updater manifest (`latest-gpui.json`) for GitHub Releases (D-133).
- * Same idea as write-latest-json.mjs / D-062, but for the GPUI portable zip (not Tauri NSIS).
  *
  * Usage:
  *   node scripts/write-latest-gpui-json.mjs \
@@ -10,7 +9,7 @@
  *     --out latest-gpui.json \
  *     --windows-x86_64 url=https://…/egl-viewer-gpui_0.2.77_x64.zip[,sig=path/to.zip.sig]
  *
- * Signature is optional until GPUI artifacts are minisign-signed like Tauri (deferred).
+ * Signature is optional until GPUI artifacts are minisign-signed (deferred).
  */
 import { readFileSync, writeFileSync } from "node:fs";
 

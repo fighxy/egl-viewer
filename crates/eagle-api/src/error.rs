@@ -4,11 +4,9 @@
 use library_core::{NetworkError, SourceError};
 use serde::Serialize;
 use thiserror::Error;
-use ts_rs::TS;
 
-#[derive(Debug, Clone, PartialEq, Eq, Error, Serialize, TS)]
+#[derive(Debug, Clone, PartialEq, Eq, Error, Serialize)]
 #[serde(tag = "kind", content = "detail", rename_all = "camelCase")]
-#[ts(export)]
 pub enum EagleError {
     #[error("not connected")]
     NotConnected,

@@ -7,14 +7,12 @@ use std::path::Path;
 use library_core::{ImportKind, ImportTicket, SourceError};
 use library_native::{EagleImportOptions, import_eagle};
 use serde::{Deserialize, Serialize};
-use ts_rs::TS;
 
 use crate::service::LibraryService;
 
 /// What the import wizard shows for a picked Eagle library (docs/spec.md §8.2 step 1).
-#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize, TS)]
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
 #[serde(rename_all = "camelCase")]
-#[ts(export)]
 pub struct EagleLibrarySummary {
     pub path: String,
     pub name: String,

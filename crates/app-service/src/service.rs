@@ -21,7 +21,6 @@ use library_native::{
     export_preview, import_files, make_pending_previews, utc_file_stamp,
 };
 use serde::Serialize;
-use ts_rs::TS;
 
 use crate::events::{Emit, ItemsTarget, ViewOpened, count, invalidated};
 use crate::source::{Blocking, ImageRequest, Refresher, ready};
@@ -30,9 +29,8 @@ use crate::{lock, now_ms};
 
 /// "Save as smart folder": the rules that keep what a screen shows, and the smart folder the new
 /// one goes under (the open smart folder, so its rules apply too).
-#[derive(Debug, Clone, PartialEq, Serialize, TS)]
+#[derive(Debug, Clone, PartialEq, Serialize)]
 #[serde(rename_all = "camelCase")]
-#[ts(export)]
 pub struct SmartDraft {
     pub parent: Option<String>,
     /// Eagle's `conditions` array.

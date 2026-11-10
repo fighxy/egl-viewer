@@ -5,7 +5,6 @@ use std::collections::{HashMap, HashSet};
 use std::sync::Arc;
 
 use serde::{Deserialize, Serialize};
-use ts_rs::TS;
 
 use crate::error::SourceError;
 use crate::model::{ItemId, ItemLite, Tag};
@@ -26,9 +25,8 @@ const VIEWS_KEPT: usize = 4;
 const SNAPSHOTS_KEPT: usize = 6;
 
 /// What one grid cell or list row needs.
-#[derive(Debug, Clone, PartialEq, Eq, Default, Serialize, Deserialize, TS)]
+#[derive(Debug, Clone, PartialEq, Eq, Default, Serialize, Deserialize)]
 #[serde(rename_all = "camelCase")]
-#[ts(export)]
 pub struct ItemCell {
     pub id: ItemId,
     pub name: String,

@@ -1,8 +1,8 @@
-# egl-viewer: stack and architecture (Tauri 2, Rust, React)
+# egl-viewer: stack and architecture (GPUI Kit, Rust)
 
 Companion to [`spec.md`](spec.md). The spec describes behaviour. This document describes **how the app is built**, and records the corrections to the original spec that came out of reverse engineering Eagle.
 
-The app is a Tauri 2 application with a Rust core and a React UI. **It is a standalone asset manager with its own library format** (§15.3); compatibility with Eagle (import, a live connection to a running Eagle, export) is a secondary feature (D-013). **The current priority is the Windows desktop app, without AI features.** **Mobile:** the iPhone app (`ios/`, D-093–D-100) and the Android app (`android/`, D-101–D-108) are thin Compose / SwiftUI shells over the same native `.eglib` core via `crates/library-ffi` and platform wrappers (`ios/EglCore`, `android/eglcore`) — no Eagle, no Canvas. They do not change the desktop default. CI for those shells is a separate path-filtered workflow (D-084). Other targets stay possible later: the core stays portable, and platform shells stay thin.
+The app is a GPUI Kit desktop application with a Rust core; the whole UI lives in the `gpui-desktop` host crate. **It is a standalone asset manager with its own library format** (§15.3); compatibility with Eagle (import, a live connection to a running Eagle, export) is a secondary feature (D-013). **The current priority is the Windows desktop app, without AI features.** **Mobile:** the iPhone app (`ios/`, D-093–D-100) and the Android app (`android/`, D-101–D-108) are thin Compose / SwiftUI shells over the same native `.eglib` core via `crates/library-ffi` and platform wrappers (`ios/EglCore`, `android/eglcore`) — no Eagle, no Canvas. They do not change the desktop default. CI for those shells is a separate path-filtered workflow (D-084). Other targets stay possible later: the core stays portable, and platform shells stay thin.
 
 The core talks to every kind of library through one `LibrarySource` trait (§15.2): the native library, an Eagle library folder (read only, for the import) and a running Eagle. Sections 4, 5, 7.2 and 12 describe the Eagle parts; everything else applies to every source, and the native library is the one built first.
 
@@ -20,23 +20,22 @@ Live verification (2026-10-27): two test JPEGs were added to the open library th
 |---|---|
 | Product | **A standalone asset manager** with its own library; Eagle compatibility is secondary (D-013) |
 | Targets | **Windows 10/11 now** (desktop default). iOS app (D-093–D-100) and Android app (D-101–D-108) over native `.eglib` only. Nothing in the core may depend on Windows |
-| Shell | **Dual desktop path (D-133):** shipping Windows release and `pnpm dev` stay **Tauri 2.12** + React until Ivan confirms cutover; the intended native host is **GPUI Kit** in `crates/gpui-desktop` (D-126…D-133). Not Tauri 3. Mobile: SwiftUI / Compose + C ABI (`library-ffi`) through `EglCore` / `eglcore` (D-092, D-101), not Tauri Mobile |
-| Core | Rust workspace: `library-core` (no IO), `library-native` (the native library), `media` (thumbnails, palettes, hashes), `app-service` (the open native library as an app uses it: views, undo, edits, background tasks; D-091), `desktop-session` (toolkit-free desktop Session over app-service: Eagle live, prefs, YubiKey/WebAuthn; D-127), `app-store` (settings, recent libraries, secrets), `library-ffi` (C ABI for iOS/Android, D-082 / D-092 / D-101), and for Eagle `eagle-folder` and `eagle-api`; the Tauri app crate is a thin layer of commands; `gpui-desktop` is the GPUI Kit host over the same Session (cutover path, D-133) |
+| Shell | **GPUI Kit** in `crates/gpui-desktop` (D-126…D-133) is the desktop host over the same `desktop-session` Session. Mobile: SwiftUI / Compose + C ABI (`library-ffi`) through `EglCore` / `eglcore` (D-092, D-101) |
+| Core | Rust workspace: `library-core` (no IO), `library-native` (the native library), `media` (thumbnails, palettes, hashes), `app-service` (the open native library as an app uses it: views, undo, edits, background tasks; D-091), `desktop-session` (toolkit-free desktop Session over app-service: Eagle live, prefs, YubiKey/WebAuthn; D-127), `app-store` (settings, recent libraries, secrets), `library-ffi` (C ABI for iOS/Android, D-082 / D-092 / D-101), and for Eagle `eagle-folder` and `eagle-api`; `gpui-desktop` is the GPUI Kit host: a thin layer of views over the same Session (D-126…D-141) |
 | Library sources | One `LibrarySource` trait in `library-core`. Implementations: the native library, an Eagle library folder on disk (read only), a running Eagle (API) (§15.2) |
 | Library format | A folder `Name.eglib` (D-016): SQLite (`library.db`) as the single source of truth, the original files copied in (D-014), regenerable thumbnails; documented in `library-format.md` and versioned (§15.3) |
 | Media | v1 previews for JPEG, PNG, GIF, WebP, SVG, TIFF, BMP, PSD composites and HEIC/HEIF; AVIF and other files are stored with a placeholder (D-015, D-035, D-063, §15.4) |
-| UI | React + TypeScript (strict) + Vite, Tailwind + shadcn/ui; TanStack Virtual for the grid, TanStack Query for data from Rust, TanStack Router for screens. The first screen is Welcome (D-017). The native window frame with the app's own menu bar, built from one command registry (§8) |
-| Types across IPC | `ts-rs` generates TypeScript from the Rust structs that cross IPC |
+| UI | GPUI Kit (Rust) in `crates/gpui-desktop`. The first screen is Welcome (D-017). The native window frame with the app's own menu bar, built from one command registry (§8) |
+| Thumbnails in the UI | The host crate reads generated WebP thumbnails (and same-PC Eagle files or a helper plugin in Eagle) straight from disk (§11) |
 | Where filtering happens | The source loads the **scope** (a folder, Uncategorized, a smart folder): one SQL query in the native library, API pages for a running Eagle. Tags, type, rating, shape, sort and search are combined **in Rust** (§6) |
-| Grid data | Rust keeps the sorted result as a **view**; the UI virtualizes and asks for windows of cells (§6.5). Whole lists never cross IPC |
+| Grid data | Rust keeps the sorted result as a **view**; the UI virtualizes and asks for windows of cells (§6.5). Whole lists never go to the UI |
 | Writes | A change is an intent (add a tag, remove from a folder), applied to the current state of the item: in one SQLite transaction for the native library; for Eagle, Rust re-reads the item right before sending and builds the full array from fresh data (§7) |
 | Adding files | Native library: copied into the library through the media pipeline. Running Eagle: `item/add` with the file **path** on the same PC, a data URL from another PC (§7.4) |
-| Thumbnails | A custom `thumb` URI scheme served by Rust. Native library: generated WebP files in the library. Running Eagle: same-PC files or a helper plugin in Eagle (§11) |
 | Who talks to Eagle | **Only Rust.** The UI never calls the Eagle API and never sees the token |
 | HTTP | Only for Eagle: `reqwest` with rustls on `tokio`, our own `EagleHttp` with all protocol rules (§4) |
 | Secrets | Only the Eagle token, in Windows Credential Manager (`keyring`); later the macOS/iOS Keychain and Android Keystore |
-| Settings | `app-store`: JSON files in the app's local data folder for recent libraries, the last query per library, preferences (including UI locale, D-069), the Eagle endpoint; not `tauri-plugin-store` (D-022) |
-| UI i18n | `i18next` + `react-i18next` catalogs (`en`, `ru`, `zh-CN`); English default (D-069) |
+| Settings | `app-store`: JSON files in the app's local data folder for recent libraries, the last query per library, preferences (including UI locale, D-069), the Eagle endpoint (D-022) |
+| UI i18n | Message catalogs (`en`, `ru`, `zh-CN`) in the host crate; English default (D-069) |
 | Background | Imports and thumbnail generation run as tasks of the open app. No background service; a running Eagle is refreshed when the window regains focus and on demand |
 | Sync | Native: one writer per library (an OS file lock), local disks only (no cloud folders, no network shares), backups; sync between devices later (§15.8). Eagle: only Eagle writes its library; every change goes through the API (§12) |
 | Eagle compatibility | Import of `.library` folders without Eagle running; live work through the API; export into Eagle through its API. The app never writes Eagle's files (§15.5) |
@@ -46,20 +45,20 @@ Live verification (2026-10-27): two test JPEGs were added to the open library th
 
 ## 1. What reverse engineering Eagle revealed (corrections to the spec)
 
-The "Spec said" column quotes the wording of the **first** version of the spec (Android-only, a client for a running Eagle). All of these points are already reflected in the current spec, mostly in its section 8 (Eagle compatibility), which uses the numbers as references ("correction 7"). Section and phase numbers inside the table refer to that first spec.
+The "Spec said" column quotes the wording of the **first** version of the spec (Android-only, a client for a running Eagle). All of these points are already reflected in the current spec, mostly in its section 8 (Eagle compatibility), which uses the numbers as references ("correction 7"). Section numbers inside the table refer to that first spec.
 
 ### 1.1 Critical: something breaks without these fixes
 
 | # | Spec said | What actually happens | What the client does |
 |---|---|---|---|
 | 1 | §10: "try raw base64 first" | `base64` is handed to the downloader **as a URL** (`plugin/index.js:1546` → `uploadUrls`). A string without `data:` gets an `http://` prefix (`downloader/downloader.js:403`) and the download fails silently. **The API still answers `success` and returns an `id`**. **[live]** The data URL works. Raw base64 was not sent live, to avoid an import error on the desktop | Always send `data:<mime>;base64,<no line breaks>`. The decoder looks for `;base64,` and the MIME type (`global.js:906`) |
-| 2 | §13 phase 7: "after add, call item/get?id=" | `item/add` is asynchronous: the id comes back at once and the file is queued for download and processing. **[live]** Right after the response, `item/get {id}` returned `total: 0`. A 16 KB JPEG appeared after ~0.3 s | Poll `item/get {id}` with a growing delay (0.25 → 0.5 → 1 → 2 → 4 s, about 20 s in total). While waiting, the grid shows an "Importing…" cell |
+| 2 | §13: "after add, call item/get?id=" | `item/add` is asynchronous: the id comes back at once and the file is queued for download and processing. **[live]** Right after the response, `item/get {id}` returned `total: 0`. A 16 KB JPEG appeared after ~0.3 s | Poll `item/get {id}` with a growing delay (0.25 → 0.5 → 1 → 2 → 4 s, about 20 s in total). While waiting, the grid shows an "Importing…" cell |
 | 3 | §5 "Tree edits": `parent` and `iconColor` are optional | `folder.save` compares the sent value with the current one (`plugin/index.js:2495`, `:2499`). **If `parent` is not sent, a nested folder moves to the root. If `iconColor` is not sent, the colour is cleared.** A cycle or a non-existent parent is silently ignored, and the folder is returned unchanged. **[live]** `folder/update {id, name}` on a child folder moved it to the root and cleared its `red` colour (`folder-update.without-parent-and-color.json`). The same request with the full set of fields put the folder back under its parent with its colour, and a rename with the full set of fields left it in place. Moving the parent under its own descendant returned HTTP 200 `success`, and the tree did not change (`folder-update.cycle.json`) | Always send the **desired** `parent` and `iconColor`. "At the root" and "no colour" mean the field is omitted (`skip_serializing_if = "Option::is_none"`). Check cycles in the client (§7.3) |
 | 4 | §3 JSend: "a handler failure is usually HTTP 200 + fail" | v2 handlers throw a plain `Error`, which produces **HTTP 500 + `status: "error"`** with the text in `message` (`jsend_response.js:83`). v1 handlers reject the promise with a string: then the text is in `data` and `message` is empty (for example `folder/unlock`). "Not found" is a **success**: `item/update` → `data: false`, `folder/update` → no `data`. **[live]** `item/update` with a name longer than 10 000 characters → HTTP 500, `status: "error"`, `message: "name too long (max 10000)"`. Unknown id → HTTP 200, `status: "success"`, `data: false` | Error model in §4.4. The message is `message`, or `data` if it is a string |
 | 5 | §3 Auth: "the token is the protection" | The Host check can be bypassed: a LAN request **without a token** but with the header `Host: localhost:41595` is accepted. Verified live on this machine (`sever_proc.js:89`). The token protects nothing: anyone on the network can call the API, including `/api/script/inject` | The client never uses the bypass and always sends the token. The Connect screen advises limiting the firewall rule for 41595 to the Private profile and to the subnet or the client's IP (§10) |
 | 6 | §3: "POST: token in the body, query allowed" | For every POST, Eagle writes `request.url` into its log file (`sever_proc.js:107`). A token in the query ends up in a log on disk | POST: token **only in the body**. GET: in the query, there is no other way (only `console.log` there) |
 | 7 | Not mentioned | The request body is concatenated as `content += chunk` (`sever_proc.js:189`). If a multibyte UTF-8 character (Cyrillic in tags and names) lands on a chunk boundary, it turns into `U+FFFD`. The risk is real for large bodies (`item/add` with a file and Cyrillic tags). **[live]** An `item/update` body with a Cyrillic note was sent as two TCP writes split inside the letter «ж»: two `�` characters were stored. The same body with `\uXXXX` arrived intact (`item-update.utf8-split.json`) | Escape every non-ASCII character in the JSON as `\uXXXX` before sending (§4.2). The body becomes pure ASCII and cannot break. **[live]** A Cyrillic tag sent this way was stored correctly |
-| 8 | §5, Phase 2: tree from `library/info` | `library/info` reads **`metadata.json` from disk** (`plugin/index.js:2932`). It has no counts, no "unlocked" flag, and changes made through the API may not be written yet. **Folder passwords are stored there in base64** (`api-server.js:76` compares `btoa(password)`). The tag group key is `tagsGroups`, not `tagGroups` (verified live). If no library is open, the response is `{}`. **[live]** Right after `folder/create` the new folders were missing from `library/info`; they appeared after 2 s. `library/info` nodes contain `password` and `passwordTips` keys (empty strings when there is no password) and no counts. `folder/get` showed the new folders immediately, with counts and `extendTags`; its `images` and `imagesMappings` are empty, about 0.6 KB per folder. **`folder/get` nodes have no `parent` field** | Use `library/info` only for name, path and `modificationTime`. Take the tree from `folder/get` without arguments. Derive the parent from `children` nesting. Drop `password` at parse time (§5) |
+| 8 | §5: tree from `library/info` | `library/info` reads **`metadata.json` from disk** (`plugin/index.js:2932`). It has no counts, no "unlocked" flag, and changes made through the API may not be written yet. **Folder passwords are stored there in base64** (`api-server.js:76` compares `btoa(password)`). The tag group key is `tagsGroups`, not `tagGroups` (verified live). If no library is open, the response is `{}`. **[live]** Right after `folder/create` the new folders were missing from `library/info`; they appeared after 2 s. `library/info` nodes contain `password` and `passwordTips` keys (empty strings when there is no password) and no counts. `folder/get` showed the new folders immediately, with counts and `extendTags`; its `images` and `imagesMappings` are empty, about 0.6 KB per folder. **`folder/get` nodes have no `parent` field** | Use `library/info` only for name, path and `modificationTime`. Take the tree from `folder/get` without arguments. Derive the parent from `children` nesting. Drop `password` at parse time (§5) |
 | 9 | §5: "locked: show an icon" | `item/get` **ignores** locked folders (it reads `$bodyScope.raw`). The desktop hides items from locked folders and their descendants in All and every other view (`app.bundle.js:28847`) | The client computes `locked_ids` itself (folders with a password and without `isUnLock`, plus all descendants) and excludes their items in every scope (§6.4) |
 | 10 | Not mentioned | Every API call runs in Eagle's renderer (`$bodyScope`, Angular), i.e. on the desktop UI thread. Every `item/get` page re-filters and re-sorts the whole library | At most 2 concurrent requests to the host. Load pages sequentially. The snapshot cache removes repeated requests (§6.3) |
 
@@ -150,7 +149,7 @@ egl-viewer/
       library.rs, lock.rs    open, close, read-only modes; library.lock (OS file lock)
       recover.rs, backup.rs  pending_file recovery, files/.tmp; backups
       scope.rs, source.rs    load_scope in SQL, the full item, tags, thumbnail and original bytes; NativeSource
-                             (FTS5 search in phase 6)
+                             (FTS5 search)
       write.rs               item edits, folders, tags, trash, change_log
       add.rs                 adding one file: temp copy, hash, duplicates, the pending_file journal, rows
       import.rs, preview.rs  batches (folders walked, one duplicate question, cancel, progress); thumbnails, counts
@@ -188,7 +187,9 @@ egl-viewer/
                              Windows WebAuthn; no gpui, no tauri. Shared by src-tauri and gpui-desktop
   gpui-desktop/              GPUI Kit host over desktop-session (D-126…D-133); portable zip + CI dual path;
                              Library menu and Settings window (D-137); minimum frame 960×600 (D-138);
-                             Show in Explorer off the UI thread (D-139);
+                             Show in Explorer off the UI thread (D-139); right-click menus,
+                             Eagle item shortcuts and the folder panel (D-140, `ops_items.rs`);
+                             shared chrome styles in `browse/style.rs`, 8 MiB main stack (D-141);
                              not yet the sole Windows release (Tauri stays until cutover is confirmed)
   src-tauri/                 shipping Tauri app crate until cutover: thin adapter over desktop-session
     commands.rs              IPC over Session; libraries, imports, views, items, Eagle, locks, …
@@ -209,7 +210,7 @@ Rules:
 - `library-core` has no IO and no `tokio`: only data and pure functions. Every rule that is easy to get wrong (union and intersection, tag modes, cycles, full arrays) lives here, together with the `LibrarySource` trait (§15.2).
 - `library-native` and `media` know the native format and nothing about Tauri, so their tests run on temporary folders.
 - `eagle-api` knows the Eagle protocol and nothing about Tauri, so its tests run against `wiremock` and, optionally, a live Eagle. The query plan (`plan()`, `ServerFilter`) is Eagle-specific and lives here.
-- Crates appear with their phases (spec §9): `library-native` and `media` first, `eagle-folder` with the import, `eagle-api` grows from its phase-0 stub with the live connection.
+- Crates appear with the features: `library-native` and `media` first, `eagle-folder` with the import, `eagle-api` grows from its initial stub with the live connection.
 - Commands and the UI only know `LibrarySource`. Which library is open (a native library, or a running Eagle) is a runtime choice (§15).
 - The app crate only wires things together: commands parse input, call the core and the API, and return results. No business logic in commands.
 - The UI only calls the typed wrappers in `src/ipc/`. It never builds Eagle URLs, never sees the token, and never holds a full item list.
@@ -754,7 +755,7 @@ paths ─► Rust: one import task per file (sequential, through the write semap
 ```
 
 - `name` is the file name without extension. Folder ids are checked against the tree first (correction 13).
-- The MIME type comes from the extension. The data URL path is verified live for JPEG only; check PNG, GIF, WebP and video files in phase 10 before relying on them. The same-PC `path` import avoids the question, because Eagle reads the file itself; it is verified live (correction 35).
+- The MIME type comes from the extension. The data URL path is verified live for JPEG only; check PNG, GIF, WebP and video files live before relying on them. The same-PC `path` import avoids the question, because Eagle reads the file itself; it is verified live (correction 35).
 - Files above the size limit are refused with a message, not sent: Eagle reads the whole JSON body into memory.
 - Imports run as tokio tasks owned by `AppState`, so navigating away does not cancel them.
 
@@ -764,11 +765,11 @@ Later, for phones: the WebView prepares the image (`createImageBitmap`, long edg
 
 ## 8. UI, IPC and navigation
 
-**Commands** (all return `Result<T, SourceError>`; added with their phases, spec §9):
+**Commands** (all return `Result<T, SourceError>`; added with their features):
 
 | Command | Input | Output |
 |---|---|---|
-| `app_info`, `connection_defaults` | — | version; Eagle connection defaults (phase 0) |
+| `app_info`, `connection_defaults` | — | version; Eagle connection defaults |
 | `default_library_location` | — | the parent folder the Create dialog starts in: the user's preference, else `%USERPROFILE%\egl-library` (D-021) |
 | `create_library` | parent folder, name | `LibraryInfo`; the library is open |
 | `open_library` | path | `LibraryInfo` with `readOnly` and `readOnlyReason`; on the library that is open read-only it retries the lock ("Open for editing") |
@@ -780,7 +781,7 @@ Later, for phones: the WebView prepares the image (`createImageBitmap`, long edg
 | `close_view` | viewId | — |
 | `view_ids` | viewId, start, len | `ItemId[]` (selections) |
 | `item_detail` | id | `Item` or none (the details panel; also items in the trash) |
-| `apply_item_edit`, `apply_batch_edit` | id or `ItemsTarget` (ids, or a view's Select All minus ids), `ItemEdit` | `Item` / count; phase 4 has the folder intents, phase 5 the tag intents; hidden items are left alone |
+| `apply_item_edit`, `apply_batch_edit` | id or `ItemsTarget` (ids, or a view's Select All minus ids), `ItemEdit` | `Item` / count; folder and tag intents included; hidden items are left alone |
 | `reorder_items` | folder, ids, the id they go before (none: the end) | — (manual order) |
 | `undo`, `undo_status` | — | `UndoStatus` (the kind of edit and how many items) or none; the Edit menu names it |
 | `save_folder`, `delete_folder` | `FolderChange` (create, update with every property, move to a parent and index); id and "trash the items only in it" | `Folder` tree |
@@ -800,7 +801,7 @@ Later, for phones: the WebView prepares the image (`createImageBitmap`, long edg
 | `extensions` | — | `ExtensionCount[]` for the Type filter |
 | `save_smart_folder`, `delete_smart_folder` | `SmartFolderChange` (create under a parent, update name and rules), id | smart folder tree; open views of it are recomputed |
 | `delete_permanently`, `empty_trash`, `cancel_empty_trash` | `ItemsTarget` / `Channel<{done,total}>` / — | counts; only items of the trash, files removed after the rows; Empty Trash streams progress and can stop between items (D-074; restoring is the `restore` intent of `apply_batch_edit`) |
-| `add_files` | paths, the open folder or none | `ImportTicket`; dropped folders are mirrored (phase 4); tags and rating for the batch come with phases 5 and 7 |
+| `add_files` | paths, the open folder or none | `ImportTicket`; dropped folders are mirrored; tags and rating for the batch ride along |
 | `paste_files` | the open folder or none | `ImportTicket` or none: copied files, or a pasted image as a PNG |
 | `answer_import` | import id, `skip` / `addAnyway` / `addToFolder` / `cancel` | — (the batch's duplicate question) |
 | `cancel_import` | import id | — |
@@ -833,9 +834,9 @@ Every command that works on a library goes through the open `LibrarySource`; a s
 
 **In-window drops** (D-042, D-057, D-073). Mouse events, not HTML5 drag and drop. A `data-drop` attribute marks the target under the pointer: `folder` (before, inside or after), `root` (the folder heading), `cell` (manual order), `tag` (a tag row in Tag groups or Recent tags) and `trash` (the Trash scope row). The items payload is an `ItemsTarget`, the same one a folder drop uses. A tag drop sends `addTags` with that one name. A trash drop sends the `trash` intent, with the same confirmation as Delete (D-060). A target `canDrop` refuses is not highlighted. A tag row or the Trash row that would take the items uses the same highlight as a folder's inside zone.
 
-**Window and menu** (D-025). The window keeps the native frame in phase 1 (`decorations` on), so Snap Layouts, the system shadow and a dark title bar (`set_theme` on the window) come from Windows. The menu bar is a React component (shadcn `Menubar`), not the native Tauri menu, whose classic Win32 look does not match the app. A custom title bar can merge the title and menu rows in phase 12: `decorations: false`, `data-tauri-drag-region`, the window permissions in the capabilities, and `Alt` to reach the menu from the keyboard. HTML caption buttons lose the Snap Layouts of Windows 11 unless a plugin such as `tauri-plugin-decorum` restores them; that would be a new dependency.
+**Window and menu** (D-025). The window keeps the native frame (`decorations` on), so Snap Layouts, the system shadow and a dark title bar (`set_theme` on the window) come from Windows. The menu bar is a React component (shadcn `Menubar`), not the native Tauri menu, whose classic Win32 look does not match the app. A custom title bar can merge the title and menu rows later: `decorations: false`, `data-tauri-drag-region`, the window permissions in the capabilities, and `Alt` to reach the menu from the keyboard. HTML caption buttons lose the Snap Layouts of Windows 11 unless a plugin such as `tauri-plugin-decorum` restores them; that would be a new dependency.
 
-**Commands** (D-025). One registry in `ui/src/commands/`. Each command has an id, an English label, a shortcut, an `enabled(state)` check (open library, `capabilities`, selection) that also returns the reason when it is disabled, and a handler. The menu bar, context menus, keyboard shortcuts, the Keyboard Shortcuts dialog and a later command palette (`Ctrl+K`) are all built from it, so each shortcut is defined once. Commands of later phases are absent, not disabled. Space for the full-size preview is special-cased in `useSpacePreview` (hold to peek, tap to toggle; D-073) so it still runs while the preview is open; the View → Preview command stays open-only.
+**Commands** (D-025). One registry in `ui/src/commands/`. Each command has an id, an English label, a shortcut, an `enabled(state)` check (open library, `capabilities`, selection) that also returns the reason when it is disabled, and a handler. The menu bar, context menus, keyboard shortcuts, the Keyboard Shortcuts dialog and a later command palette (`Ctrl+K`) are all built from it, so each shortcut is defined once. Commands of later features are absent, not disabled. Space for the full-size preview is special-cased in `useSpacePreview` (hold to peek, tap to toggle; D-073) so it still runs while the preview is open; the View → Preview command stays open-only.
 
 **Motion** (D-028). Only `opacity` and `transform`, 120–200 ms: `tw-animate-css` (already used by shadcn) for menus, popovers, dialogs and toasts; CSS transitions for panels; a fade-in when a thumbnail loads; the full-size preview grows out of its cell through the View Transitions API (`document.startViewTransition`, available in WebView2's Chromium). No animation on scroll, sort, filter, selection or hover, and no layout animation of grid cells. Everything is off under `prefers-reduced-motion`, which WebView2 takes from the Windows animation setting. No animation library (Motion) while CSS and View Transitions are enough.
 
@@ -843,13 +844,13 @@ Every command that works on a library goes through the open `LibrarySource`; a s
 
 - The default WebView2 context menu is off everywhere, including text fields (D-068); right-click opens the app's own context menus (shadcn `ContextMenu`), built from the command registry, via a bubbling `preventDefault` so Radix still sees the event (D-042).
 - `F5`, `Ctrl+R`, `Ctrl+P`, the browser's `Ctrl+F`, back navigation and page zoom do nothing browser-like. `Ctrl` + mouse wheel and `Ctrl+=` / `Ctrl+-` change the thumbnail size instead.
-- Text in the chrome is not selectable (`user-select: none`); fields and notes are. Images are not draggable as web images; dragging files out of the window is native (phase 7).
+- Text in the chrome is not selectable (`user-select: none`); fields and notes are. Images are not draggable as web images; dragging files out of the window is native.
 - Buttons show the arrow cursor, as desktop apps do. Focus rings appear only for keyboard focus (`:focus-visible`).
 - The window starts hidden and is shown after the first paint, so a dark theme never flashes white.
 - Scrollbars follow the app theme. `color-scheme` is light or dark with the theme class, and the thumb uses the `ring` token, so a dark grid does not keep the light system bar (D-054).
 - Window size, position and the maximized state are saved by `app-store` (D-022).
 
-Some of these are Tauri or WebView2 settings and some are handled in the UI; which is which is settled when phase 1 is built.
+Some of these are Tauri or WebView2 settings and some are handled in the UI; which is which was settled when the shell was built.
 
 **Components** are added when a screen needs them (D-006): `menubar`, `resizable`, `dialog`, `dropdown-menu`, `context-menu`, `tooltip`, `sonner`, `tabs`, `slider`, `scroll-area`, `sheet`, `toggle-group`, later `command`.
 
@@ -875,7 +876,7 @@ Some of these are Tauri or WebView2 settings and some are handled in the UI; whi
 - Network loss: a single banner; Rust retries with a growing delay and emits `connection-state`.
 - Reconnect: the endpoint and the last query come from the store, the token from Credential Manager; the data is loaded again.
 - Eagle has no events (WebSocket or push), so no background polling is needed.
-- If the PC is unreachable, a later phase shows data from an offline cache (§12.3).
+- If the PC is unreachable, a later version shows data from an offline cache (§12.3).
 
 ---
 
@@ -922,7 +923,7 @@ tauri::Builder::default()
 
 ## 12. Sync and offline (Eagle libraries)
 
-This section is about working with Eagle libraries. Native libraries have one writer, automatic backups and no file sync while open (§15.3); sync between devices is a later feature (§15.8). §12.3 and §12.4 are later phases (spec §8.5).
+This section is about working with Eagle libraries. Native libraries have one writer, automatic backups and no file sync while open (§15.3); sync between devices is a later feature (§15.8). §12.3 and §12.4 come later (spec §8.5).
 
 ### 12.1 The main rule: only Eagle writes to the library
 
@@ -969,7 +970,7 @@ Name.library/
 
 Conclusion: reading the library files is acceptable; writing them is not.
 
-### 12.3 The app's offline cache (read only, later phase)
+### 12.3 The app's offline cache (read only, later)
 
 Useful for a laptop that is sometimes away from the Eagle PC.
 
@@ -1079,29 +1080,8 @@ The same direct path to the API, but over Tailscale or WireGuard to the Eagle PC
 - locked folders (`password`, `isUnLock`, v1 `folder/unlock`): the API cannot set a password;
 - non-empty `tagGroup/get` and `smartFolder/get` objects;
 - that raw base64 without `data:` really fails silently (correction 1 is confirmed in code);
-- `item/add` data URLs for formats other than JPEG (phase 10);
-- v1 `GET /api/item/thumbnail` paths for the same-PC thumbnails (phase 10).
-
----
-
-## 14. Implementation order
-
-The full plan with done checks is in §9 of the spec. Key technical points per phase:
-
-- **Phase 0 (done).** Workspace with `library-core` (including the `LibrarySource` trait, §15.2), an `eagle-api` stub, `app-store` and the app crate; React app, `ts-rs` export, minimal capabilities and CSP, CI on Windows. The other crates of §3 appear with their phases.
-- **Phase 1.** `library-native`: schema v1 from `docs/library-format.md` and migrations, the OS file lock on `library.lock`, recovery after an unclean close, backups, `add_file` for one file; `app-store`: settings, recent libraries, the location check; library commands; the Welcome screen; the frame of the library screen (menu bar from the command registry, both bars, status bar), the Settings, About and Keyboard Shortcuts dialogs, the desktop behaviour of §8.
-- **Phase 2.** `media` (hash, probe, thumbnails, palettes, §15.4); `add_files` with the temp-copy protocol (§7.4); import tasks and progress events.
-- **Phase 3.** `load_scope` in SQL; the pipeline, sorter and views (§6.4, §6.5); the `thumb` scheme (§11); the virtualized grid.
-- **Phase 4.** Folders: `save_folder`, `delete_folder`, locks (age at rest, one Argon2id identity per folder, plaintext name and tag, the Locked folders sidebar), cycle guard (§7.3), `sort_key` reordering, manual order.
-- **Phase 5.** Tags: vocabulary with counts, rename, merge, delete, tag groups; batch edits. Built 2026-10-28 (D-046). Dropping items on a tag row adds that tag (D-057).
-- **Phase 6.** FTS5 search with the Eagle syntax; filter chips; the smart folder evaluator for the v1 subset (§16). Built 2026-10-29 (D-047, D-048).
-- **Phase 7.** The remaining item edits, undo, trash, file actions, library maintenance. Built 2026-10-29 (D-049 to D-052).
-- **Phase 8.** `eagle-folder` reader with retries (correction 37) and the import into `library-native` (§15.6).
-- **Phase 9.** `EagleHttp`, `escape_non_ascii`, `EagleError`, `page_all` with `wiremock` tests; `SecretStore` on Credential Manager; `connect_eagle` and the Connect screen (404 → "update Eagle to 4.0", `{}` → "open a library on the PC"); `FolderDto` with the password dropped; `plan` + snapshot cache (§6.2, §6.3); search via `item/query`; smart folders via `smartFolder/getItems`.
-- **Phase 10.** `ItemMutator` with a re-read before writing; `FolderUpdateBody` with the full set of fields; adding files with `path` on the same PC and data URLs from another PC; Eagle thumbnails (same PC, then the helper plugin).
-- **Phase 11.** Export into Eagle through its API (§15.7).
-- **Phase 12.** Hardening and the Windows release: NSIS per-user installer, WebView2 bootstrapper, optional OS code signing. In-app auto-update through `tauri-plugin-updater` and GitHub Releases `latest.json` is in (D-062); Windows NSIS ships libheif DLLs beside the exe (D-070); Authenticode / notarization remain open.
-- **Later, outside the current scope.** More formats (§15.4); the Eagle offline cache (§12.3) and Syncthing mirror (§12.4); sync between devices, remote access to a native library, linked folders, `.eaglepack` (§15.8); macOS, Android and iOS (§4.6). AI features are not planned.
+- `item/add` data URLs for formats other than JPEG;
+- v1 `GET /api/item/thumbnail` paths for the same-PC thumbnails.
 
 ---
 
@@ -1114,7 +1094,7 @@ The full plan with done checks is in §9 of the spec. Key technical points per p
 - The UI, the query engine (§6) and the edit rules (§7) do not care which kind of library is open.
 - The app never writes Eagle's files (§12.2). Eagle stays the only writer of an Eagle library.
 
-Order (spec §9): the native library first (phases 1–7), then the import from Eagle (phase 8), the live connection (phases 9–10) and the export (phase 11). The source abstraction (§15.2) has been part of `library-core` since phase 0, so the Eagle phases add sources, not screens.
+Order: the native library first, then the import from Eagle, the live connection and the export. The source abstraction (§15.2) has been in `library-core` from the start, so Eagle adds sources, not screens.
 
 ### 15.2 Library sources
 
@@ -1162,7 +1142,7 @@ pub struct Capabilities {
 
 (The sketch uses `async fn` in a trait; the code uses the `async-trait` crate so that `dyn LibrarySource` works (D-008). Write methods default to `ReadOnly`.)
 
-The trait grows with the phases: folder delete and locks (phase 4), tag delete and tag group writes (phase 5), smart folder writes (phase 6), restore, permanent delete and emptying the trash (phase 7). Every new write method gets a default that returns `ReadOnly` or `NotSupported`, so existing sources keep compiling, and a matching `Capabilities` flag tells the UI.
+The trait grows with the features: folder delete and locks, tag delete and tag group writes, smart folder writes, restore, permanent delete and emptying the trash. Every new write method gets a default that returns `ReadOnly` or `NotSupported`, so existing sources keep compiling, and a matching `Capabilities` flag tells the UI.
 
 | Source | Crate | Used for | Writes |
 |---|---|---|---|
@@ -1172,7 +1152,7 @@ The trait grows with the phases: folder delete and locks (phase 4), tag delete a
 
 - `ScopeHints` carries the chips of the query. The Eagle source uses them for safe server prefilters on large libraries (§6.2). The native source ignores them: one SQL query per scope is fast enough.
 - `ItemId` is an opaque string: Eagle ids for the Eagle sources, ULIDs for the native library.
-- `SourceError` (in `library-core`) is one flat set of kinds for every source: the Eagle kinds of §4.4 plus `ReadOnly`, `NotSupported` and `Storage`. Phase 1 adds `NotALibrary`, `NewerFormat`, `UnsupportedLocation` and `AlreadyExists` for creating and opening native libraries. `EagleError` maps onto it one to one. It reaches the UI as `{ kind, detail }` (decisions.md, D-004).
+- `SourceError` (in `library-core`) is one flat set of kinds for every source: the Eagle kinds of §4.4 plus `ReadOnly`, `NotSupported` and `Storage`. The native-library slice adds `NotALibrary`, `NewerFormat`, `UnsupportedLocation` and `AlreadyExists` for creating and opening native libraries. `EagleError` maps onto it one to one. It reaches the UI as `{ kind, detail }` (decisions.md, D-004).
 - The UI reads `capabilities` and hides what the open library cannot do (for example "Delete folder" exists only for the native library).
 - One window has one open library (D-024). `LibraryInfo` carries `id`, `readOnly` and `readOnlyReason` (`otherInstance`, `syncFolder`, `readOnlyMedium`) so the UI can explain a read-only library. The Welcome screen (spec §7, D-017) creates or opens a native library, imports an Eagle library or connects to a running Eagle.
 
@@ -1199,7 +1179,7 @@ Decisions:
 - **Folder order** among siblings is a `sort_key` string (fractional indexing): moving a folder changes one row.
 - **Trash** is `deleted_at`. Emptying the trash deletes the rows and the files, the files after the rows under the `pending_file` journal. Unlike Eagle's API, the native library can delete items, folders and tags.
 - **Renaming an item renames its original** under the journal: the new name is hard-linked (or copied) beside the old one before the row changes, and the old one goes after (D-050). The stored name follows the item name, made safe for Windows.
-- **Locked folders** encrypt their content at rest (D-018, `docs/age-locked-folders.md`). Each locked folder has its own password, Argon2id salt, age X25519 identity, and recovery secret. Nothing is shared, and unlocking one folder loads only that identity into memory (`secrecy`) for the session. Argon2id wraps the identity; the password is not stored. A second wrap uses the recovery secret, which is shown once at creation (128-bit key, the same bits as a word phrase, or an optional file outside the library) and is not stored in the library. Originals under `files/`, thumbnails under `thumbs/`, and the item columns name, annotation, url, exif, and palette are age ciphertext. The age header, including nonces, stays inside the ciphertext. Each locked folder has its own user-editable name (`folder.name`) and tag — a label and a colour (`label`, `label_color`) — stored in plaintext on the folder row. They are not encrypted fields, and the tag is not an item tag. The left sidebar has an expandable Locked folders section that lists each locked folder with that name and tag; locked folders do not also appear in the Folders tree (D-059). Choosing a row prompts for that folder only and does not unlock any other folder. Also plaintext on the row: id, lock metadata, salt, KDF parameters, and the wrapped identities. An item in two locked folders has its own item key, wrapped separately by each folder identity (`item_key_wrap`). A folder imported locked from Eagle has the locked flag and no identity until the user sets a password; its files stay plaintext until then (§15.5). An optional YubiKey 5C adds a third wrap of the same identity (`age-plugin-yubikey`, D-056): the card holds an ECDSA P-256 key in a retired PIV slot (82–95), and the age X25519 identity stays wrapped in `folder_piv_wrap`, one row per card. The user either touches the key or enters its PIN, not both. Several cards can wrap one folder. Absent the key, the password and the recovery secret still unwrap it. App login (spec §13) is a separate gate: exactly one of password, PIN, or WebAuthn. WebAuthn is a YubiKey 5C touch that asserts a stored credential. It does not unwrap folder identities. This is not encryption of the whole database, of settings, or of the Eagle token. The columns and tables of locked folders (`item.encrypted`, `item.sealed`, the lock columns of `folder`, `item_key_wrap`, `folder_piv_wrap`) exist from format version 1 and stay empty until phase 4. While an item is encrypted, its five sensitive fields are one age message in `item.sealed`, and the plaintext columns are empty (D-019).
+- **Locked folders** encrypt their content at rest (D-018, `docs/age-locked-folders.md`). Each locked folder has its own password, Argon2id salt, age X25519 identity, and recovery secret. Nothing is shared, and unlocking one folder loads only that identity into memory (`secrecy`) for the session. Argon2id wraps the identity; the password is not stored. A second wrap uses the recovery secret, which is shown once at creation (128-bit key, the same bits as a word phrase, or an optional file outside the library) and is not stored in the library. Originals under `files/`, thumbnails under `thumbs/`, and the item columns name, annotation, url, exif, and palette are age ciphertext. The age header, including nonces, stays inside the ciphertext. Each locked folder has its own user-editable name (`folder.name`) and tag — a label and a colour (`label`, `label_color`) — stored in plaintext on the folder row. They are not encrypted fields, and the tag is not an item tag. The left sidebar has an expandable Locked folders section that lists each locked folder with that name and tag; locked folders do not also appear in the Folders tree (D-059). Choosing a row prompts for that folder only and does not unlock any other folder. Also plaintext on the row: id, lock metadata, salt, KDF parameters, and the wrapped identities. An item in two locked folders has its own item key, wrapped separately by each folder identity (`item_key_wrap`). A folder imported locked from Eagle has the locked flag and no identity until the user sets a password; its files stay plaintext until then (§15.5). An optional YubiKey 5C adds a third wrap of the same identity (`age-plugin-yubikey`, D-056): the card holds an ECDSA P-256 key in a retired PIV slot (82–95), and the age X25519 identity stays wrapped in `folder_piv_wrap`, one row per card. The user either touches the key or enters its PIN, not both. Several cards can wrap one folder. Absent the key, the password and the recovery secret still unwrap it. App login (spec §12) is a separate gate: exactly one of password, PIN, or WebAuthn. WebAuthn is a YubiKey 5C touch that asserts a stored credential. It does not unwrap folder identities. This is not encryption of the whole database, of settings, or of the Eagle token. The columns and tables of locked folders (`item.encrypted`, `item.sealed`, the lock columns of `folder`, `item_key_wrap`, `folder_piv_wrap`) exist from format version 1 and stay empty until locked folders land. While an item is encrypted, its five sensitive fields are one age message in `item.sealed`, and the plaintext columns are empty (D-019).
 - **Smart folders** keep Eagle's rule language (`conditions` with `property`, `method`, `value`) as JSON, so they survive import and export unchanged. The evaluator in `library-core` grows from the v1 subset (§5 of the spec).
 - **Search** finds any part of a word without case, as Eagle does. An FTS5 table with the `trigram` tokenizer covers the item's own texts (name, annotation, url) for terms of three or more characters; a shorter term reads the rows, an encrypted item of an unlocked folder is matched on its opened fields, and tags and folder names are matched on their own tables, so renaming a tag or a folder rewrites no index. `library-core` parses the Eagle syntax (`OR`, parentheses, a leading `-`) and combines the terms (format version 3, D-047).
 - **Changes**: every write appends a row to `change_log`. It drives `changes_since`, view updates and, later, the sync between devices.
@@ -1232,11 +1212,11 @@ libvips is the alternative with the widest format coverage and the best speed, a
 
 ### 15.5 Compatibility with Eagle
 
-| Level | What | How | Phase (spec §9) |
+| Level | What | How | When |
 |---|---|---|---|
-| 1. Import | Convert an Eagle library into the native format | `eagle-folder` → `library-native` (§15.6) | 8 |
-| 2. Live | Browse and edit a running Eagle | `eagle-api` source (§4–§11) | 9–10 |
-| 3. Export | Put native items, folders, tags and smart folders into Eagle | The Eagle API (§15.7) | 11 |
+| 1. Import | Convert an Eagle library into the native format | `eagle-folder` → `library-native` (§15.6) | With the Eagle import (D-071) |
+| 2. Live | Browse and edit a running Eagle | `eagle-api` source (§4–§11) | With the live connection (D-075, D-076) |
+| 3. Export | Put native items, folders, tags and smart folders into Eagle | The Eagle API (§15.7) | With the export (D-077) |
 | Later | Open an Eagle `.library` folder read-only without importing; "follow Eagle" re-import; `.eaglepack` | `eagle-folder` source | Later |
 | — | Edit Eagle's files directly | — | **Never** (§12.2) |
 

@@ -5,11 +5,9 @@
 
 use serde::Serialize;
 use thiserror::Error;
-use ts_rs::TS;
 
-#[derive(Debug, Clone, PartialEq, Eq, Error, Serialize, TS)]
+#[derive(Debug, Clone, PartialEq, Eq, Error, Serialize)]
 #[serde(tag = "kind", content = "detail", rename_all = "camelCase")]
-#[ts(export)]
 pub enum SourceError {
     #[error("not connected")]
     NotConnected,
@@ -62,9 +60,8 @@ pub enum SourceError {
 }
 
 /// Why a folder cannot hold a library (docs/spec.md §3, D-021).
-#[derive(Debug, Clone, Copy, PartialEq, Eq, Error, Serialize, TS)]
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Error, Serialize)]
 #[serde(rename_all = "camelCase")]
-#[ts(export)]
 pub enum LocationProblem {
     /// Inside a folder that a cloud sync tool copies (OneDrive, Dropbox, Syncthing, …).
     #[error("the folder is synced by a cloud service")]
@@ -80,9 +77,8 @@ pub enum LocationProblem {
     InsideEagleLibrary,
 }
 
-#[derive(Debug, Clone, PartialEq, Eq, Error, Serialize, TS)]
+#[derive(Debug, Clone, PartialEq, Eq, Error, Serialize)]
 #[serde(rename_all = "camelCase")]
-#[ts(export)]
 pub enum NetworkError {
     /// Almost always the firewall on the Eagle PC.
     #[error("connect timeout")]

@@ -3,7 +3,7 @@
 Jetpack Compose phone client over the native `.eglib` core. **No Canvas.** Of Eagle it has
 only the import: a `Name.library` becomes a new library on the phone (D-116); no live
 connection to a running Eagle, no export into Eagle.
-Desktop Tauri remains the default product. Shares the same C ABI as iOS
+The desktop app (GPUI Kit, `crates/gpui-desktop`) remains the default product. Shares the same C ABI as iOS
 (`crates/library-ffi`, D-082 / D-092), wrapped for Kotlin by the `eglcore` module
 (D-101 foundation through D-108 release).
 
@@ -107,7 +107,7 @@ Signing with this key as the upload key.
 - Writer lock / sync-folder read-only (`syncFolder` on open, D-021).
 - Tags stay case-sensitive.
 - Permanent deletes have no undo; share uses temp copies, never mutates library files.
-- File bytes never pass through the WebView; Rust reads files by path (temp copies / SAF paths).
+- File bytes never leave the Rust side; Rust reads files by path (temp copies / SAF paths).
 - UI stays thin; logic lives in Rust.
 - Locked-folder passwords and the app login never leave the device; recovery keys are shown once.
 - Export passphrases are never stored; Eagle is not an export destination.

@@ -1,7 +1,6 @@
 //! What one library screen shows (docs/spec.md §5, docs/architecture.md §6).
 
 use serde::{Deserialize, Serialize};
-use ts_rs::TS;
 
 pub mod filter;
 pub mod search;
@@ -12,13 +11,12 @@ pub mod view;
 mod tests;
 
 /// The part of a query that decides what to load. Everything else is computed locally.
-#[derive(Debug, Clone, PartialEq, Eq, Hash, Default, Serialize, Deserialize, TS)]
+#[derive(Debug, Clone, PartialEq, Eq, Hash, Default, Serialize, Deserialize)]
 #[serde(
     tag = "kind",
     rename_all = "camelCase",
     rename_all_fields = "camelCase"
 )]
-#[ts(export)]
 pub enum Scope {
     #[default]
     All,
@@ -36,9 +34,8 @@ pub enum Scope {
 }
 
 /// Match modes for tag and folder chips (docs/spec.md §5).
-#[derive(Debug, Clone, Copy, PartialEq, Eq, Hash, Default, Serialize, Deserialize, TS)]
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Hash, Default, Serialize, Deserialize)]
 #[serde(rename_all = "camelCase")]
-#[ts(export)]
 pub enum TagMode {
     /// At least one selected value (the default, as in Eagle).
     #[default]
@@ -52,8 +49,7 @@ pub enum TagMode {
 }
 
 /// Sort keys; the wire names follow docs/spec.md §5.
-#[derive(Debug, Clone, Copy, PartialEq, Eq, Hash, Default, Serialize, Deserialize, TS)]
-#[ts(export)]
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Hash, Default, Serialize, Deserialize)]
 pub enum SortKey {
     #[default]
     #[serde(rename = "added")]
@@ -84,9 +80,8 @@ pub enum SortKey {
 }
 
 /// One library screen: scope, chips, search and sort.
-#[derive(Debug, Clone, PartialEq, Eq, Hash, Serialize, Deserialize, TS)]
+#[derive(Debug, Clone, PartialEq, Eq, Hash, Serialize, Deserialize)]
 #[serde(rename_all = "camelCase", default)]
-#[ts(export)]
 pub struct LibraryQuery {
     pub scope: Scope,
     pub tag_mode: TagMode,

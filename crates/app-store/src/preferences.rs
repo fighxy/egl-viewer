@@ -2,7 +2,6 @@
 
 use library_core::{SortKey, SourceError};
 use serde::{Deserialize, Serialize};
-use ts_rs::TS;
 
 use crate::AppStore;
 use crate::json_file::JsonFile;
@@ -10,9 +9,8 @@ use crate::json_file::JsonFile;
 const PREFERENCES: &str = "preferences.json";
 const WINDOW: &str = "window.json";
 
-#[derive(Debug, Clone, Copy, PartialEq, Eq, Default, Serialize, Deserialize, TS)]
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Default, Serialize, Deserialize)]
 #[serde(rename_all = "camelCase")]
-#[ts(export)]
 pub enum Theme {
     /// Follow Windows.
     #[default]
@@ -22,8 +20,7 @@ pub enum Theme {
 }
 
 /// UI language (D-069). Stored as BCP 47 tags; English is the source locale.
-#[derive(Debug, Clone, Copy, PartialEq, Eq, Default, Serialize, Deserialize, TS)]
-#[ts(export)]
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Default, Serialize, Deserialize)]
 pub enum Locale {
     #[default]
     #[serde(rename = "en")]
@@ -36,9 +33,8 @@ pub enum Locale {
 }
 
 /// Widths and open state of the left and right bars (docs/spec.md §7.3).
-#[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize, TS)]
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize)]
 #[serde(rename_all = "camelCase", default)]
-#[ts(export)]
 pub struct UiLayout {
     pub left_width: u32,
     pub right_width: u32,
@@ -68,9 +64,8 @@ impl UiLayout {
     }
 }
 
-#[derive(Debug, Clone, Copy, PartialEq, Eq, Default, Serialize, Deserialize, TS)]
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Default, Serialize, Deserialize)]
 #[serde(rename_all = "camelCase")]
-#[ts(export)]
 pub enum ViewMode {
     #[default]
     Grid,
@@ -78,15 +73,14 @@ pub enum ViewMode {
 }
 
 /// How the library screen shows items, the same in every library (docs/spec.md §5, §7.3).
-#[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize, TS)]
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize)]
 #[serde(rename_all = "camelCase", default)]
-#[ts(export)]
 pub struct BrowsePreferences {
     pub view_mode: ViewMode,
     /// The width of a grid cell in CSS pixels.
     pub thumbnail_size: u32,
     pub show_names: bool,
-    /// The sort of every screen without its own (a folder's sort override comes in phase 4).
+    /// The sort of every screen without its own (a folder's sort override comes with folders).
     pub sort: SortKey,
     pub ascending: bool,
     /// A folder also shows the items of its subfolders, and its count includes them.
@@ -121,9 +115,8 @@ impl Default for BrowsePreferences {
     }
 }
 
-#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize, TS)]
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
 #[serde(rename_all = "camelCase", default)]
-#[ts(export)]
 pub struct Preferences {
     pub theme: Theme,
     /// UI language; English is the default (D-069).

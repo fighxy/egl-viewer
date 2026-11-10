@@ -3,13 +3,11 @@
 //! `library-native`.
 
 use serde::{Deserialize, Serialize};
-use ts_rs::TS;
 
 /// What an export covers: the whole library, some folders, some tags, or any mix.
 /// An item is exported once even when several selections cover it.
-#[derive(Debug, Clone, PartialEq, Eq, Default, Serialize, Deserialize, TS)]
+#[derive(Debug, Clone, PartialEq, Eq, Default, Serialize, Deserialize)]
 #[serde(rename_all = "camelCase", default)]
-#[ts(export)]
 pub struct ExportSelection {
     pub whole: bool,
     pub folders: Vec<String>,
@@ -25,9 +23,8 @@ impl ExportSelection {
 
 /// How hard an archive squeezes its entries: deflate levels 0/1/6/9 in a ZIP, LZMA2 levels
 /// 1/5/9 in a 7z (stored entries for `None`).
-#[derive(Debug, Clone, Copy, PartialEq, Eq, Default, Serialize, Deserialize, TS)]
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Default, Serialize, Deserialize)]
 #[serde(rename_all = "camelCase")]
-#[ts(export)]
 pub enum Compression {
     /// Stored, no compression: fastest, for already-compressed media.
     None,
@@ -53,9 +50,8 @@ impl Compression {
 }
 
 /// How a ZIP export with a passphrase is protected (D-112).
-#[derive(Debug, Clone, Copy, PartialEq, Eq, Default, Serialize, Deserialize, TS)]
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Default, Serialize, Deserialize)]
 #[serde(rename_all = "camelCase")]
-#[ts(export)]
 pub enum ZipEncryption {
     /// The whole ZIP inside an age file, `name.zip.age` (D-066, D-110): names and contents
     /// hidden, scrypt against guessing; opened with Decrypt Archive or `age -d`.
@@ -69,13 +65,12 @@ pub enum ZipEncryption {
 }
 
 /// The output format: a plain folder tree, or a ZIP or 7z archive with a compression level.
-#[derive(Debug, Clone, Copy, PartialEq, Eq, Default, Serialize, Deserialize, TS)]
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Default, Serialize, Deserialize)]
 #[serde(
     tag = "kind",
     rename_all = "camelCase",
     rename_all_fields = "camelCase"
 )]
-#[ts(export)]
 pub enum ExportFormat {
     /// The originals copied into a folder tree that mirrors the library's folders.
     #[default]
@@ -108,9 +103,8 @@ impl ExportFormat {
 }
 
 /// One export: what, in which format, where, and with what protection.
-#[derive(Debug, Clone, PartialEq, Serialize, Deserialize, TS)]
+#[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
 #[serde(rename_all = "camelCase")]
-#[ts(export)]
 pub struct ExportRequest {
     pub selection: ExportSelection,
     /// A folder selection includes the items of its subfolders.
@@ -130,9 +124,8 @@ pub struct ExportRequest {
 
 /// A running Eagle as the export destination (docs/spec.md §8.4): the app connects, keeps
 /// Eagle the writer of its library, and stores every new Eagle id for the next export.
-#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize, TS)]
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
 #[serde(rename_all = "camelCase")]
-#[ts(export)]
 pub struct EagleExportTarget {
     pub host: String,
     pub port: u16,
@@ -146,9 +139,8 @@ pub struct EagleExportTarget {
 pub const MIN_PASSPHRASE_CHARS: usize = 8;
 
 /// An age archive opened with its passphrase (D-110): the plaintext file it was written to.
-#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize, TS)]
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
 #[serde(rename_all = "camelCase")]
-#[ts(export)]
 pub struct DecryptedArchive {
     /// The decrypted file, as an absolute path: `name.zip` for `name.zip.age`.
     pub path: String,
@@ -158,18 +150,16 @@ pub struct DecryptedArchive {
 
 /// How far a byte-sized task is: Decrypt Archive reports the bytes of the archive read
 /// (D-110).
-#[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize, TS)]
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize)]
 #[serde(rename_all = "camelCase")]
-#[ts(export)]
 pub struct ByteProgress {
     pub done: u64,
     pub total: u64,
 }
 
 /// What an export would write, computed from the database without touching the files.
-#[derive(Debug, Clone, Copy, PartialEq, Eq, Default, Serialize, Deserialize, TS)]
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Default, Serialize, Deserialize)]
 #[serde(rename_all = "camelCase")]
-#[ts(export)]
 pub struct ExportPreview {
     /// Visible items the selection covers, each counted once.
     pub items: u64,
@@ -180,9 +170,8 @@ pub struct ExportPreview {
 }
 
 /// What one export task is doing right now (`export-progress` events).
-#[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize, TS)]
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize)]
 #[serde(rename_all = "camelCase")]
-#[ts(export)]
 pub enum ExportState {
     /// Listing the items and planning the layout.
     Preparing,
@@ -201,9 +190,8 @@ pub enum ExportState {
 }
 
 /// The result of a finished export.
-#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize, TS)]
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
 #[serde(rename_all = "camelCase")]
-#[ts(export)]
 pub struct ExportSummary {
     /// Visible items the export covered.
     pub items: u64,
@@ -218,9 +206,8 @@ pub struct ExportSummary {
 }
 
 /// The state of one export task, sent to the UI as it changes (`export-progress` events).
-#[derive(Debug, Clone, PartialEq, Serialize, Deserialize, TS)]
+#[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
 #[serde(rename_all = "camelCase")]
-#[ts(export)]
 pub struct ExportProgress {
     pub id: u64,
     pub state: ExportState,

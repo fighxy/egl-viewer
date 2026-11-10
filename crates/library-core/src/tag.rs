@@ -1,7 +1,6 @@
 //! Tag groups and the tags of a selection (docs/spec.md §3 Tags, §7.3).
 
 use serde::{Deserialize, Serialize};
-use ts_rs::TS;
 
 use crate::edit::MAX_TEXT_UTF16;
 use crate::error::SourceError;
@@ -11,13 +10,12 @@ use crate::query::view::ItemCell;
 
 /// A tag group edit: a named, coloured set of tag names. Editing a group never changes the
 /// tags of items.
-#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize, TS)]
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
 #[serde(
     tag = "type",
     rename_all = "camelCase",
     rename_all_fields = "camelCase"
 )]
-#[ts(export)]
 pub enum TagGroupChange {
     /// A new group after the last one.
     Create {
@@ -72,9 +70,8 @@ pub fn validate_tag_names(tags: &[String]) -> Result<(), SourceError> {
 
 /// The tags of a selection: how many items it has, and per tag on how many of them it is
 /// (the right bar dims a tag that only some items carry).
-#[derive(Debug, Clone, PartialEq, Eq, Default, Serialize, Deserialize, TS)]
+#[derive(Debug, Clone, PartialEq, Eq, Default, Serialize, Deserialize)]
 #[serde(rename_all = "camelCase")]
-#[ts(export)]
 pub struct SelectionTags {
     pub items: u32,
     /// By name; `image_count` is the number of selected items with the tag.

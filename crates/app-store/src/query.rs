@@ -1,11 +1,10 @@
-//! The last place, filters, search and selection per library (docs/spec.md §9 phase 12, D-078).
+//! The last place, filters, search and selection per library (D-078).
 //!
 //! Browse preferences (sort, thumbnail size, grid/list) stay in `preferences.json` (D-041).
 //! This file remembers where the user was inside one library so a restart reopens there.
 
 use library_core::{SortKey, SourceError, TagMode};
 use serde::{Deserialize, Serialize};
-use ts_rs::TS;
 
 use crate::AppStore;
 use crate::json_file::JsonFile;
@@ -16,13 +15,12 @@ const MAX_SELECTED_IDS: usize = 500;
 const MAX_ENTRIES: usize = 40;
 
 /// Where the library screen was: a fixed scope row, a folder or a smart folder.
-#[derive(Debug, Clone, PartialEq, Eq, Default, Serialize, Deserialize, TS)]
+#[derive(Debug, Clone, PartialEq, Eq, Default, Serialize, Deserialize)]
 #[serde(
     tag = "kind",
     rename_all = "camelCase",
     rename_all_fields = "camelCase"
 )]
-#[ts(export)]
 pub enum SavedPlace {
     #[default]
     All,
@@ -38,9 +36,8 @@ pub enum SavedPlace {
 }
 
 /// Filters on top of the place (docs/spec.md §5).
-#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize, TS)]
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
 #[serde(rename_all = "camelCase", default)]
-#[ts(export)]
 pub struct SavedFilters {
     pub tags: Vec<String>,
     pub tag_mode: TagMode,
@@ -66,9 +63,8 @@ impl Default for SavedFilters {
 }
 
 /// The selection of the open view: ids, or "everything except these" (D-039).
-#[derive(Debug, Clone, PartialEq, Eq, Default, Serialize, Deserialize, TS)]
+#[derive(Debug, Clone, PartialEq, Eq, Default, Serialize, Deserialize)]
 #[serde(rename_all = "camelCase", default)]
-#[ts(export)]
 pub struct SavedSelection {
     /// `true`: every item of the view except `ids`.
     pub all: bool,
@@ -76,9 +72,8 @@ pub struct SavedSelection {
 }
 
 /// One library's last screen: place, filters, search, selection, optional per-screen sort.
-#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize, TS)]
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
 #[serde(rename_all = "camelCase", default)]
-#[ts(export)]
 pub struct LibrarySession {
     pub place: SavedPlace,
     pub filters: SavedFilters,

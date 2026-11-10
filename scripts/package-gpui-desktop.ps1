@@ -1,4 +1,4 @@
-﻿# Stages a portable Windows layout for the GPUI desktop host (D-133).
+# Stages a portable Windows layout for the GPUI desktop host (D-133).
 # Ships gpui-desktop.exe + heif.dll / libde265.dll (+ LGPL notices) in one folder,
 # then optionally zips it. Full NSIS installer, Authenticode, and .eglib file
 # association stay deferred until Ivan confirms cutover.
@@ -149,7 +149,7 @@ if ($bundled) {
     Set-Content -LiteralPath (Join-Path $stage "NOTICE-libde265.txt") -Value "libde265 - LGPL. See https://github.com/strukturag/libde265" -Encoding utf8
 }
 
-$icon = Join-Path $repo "src-tauri\icons\icon.ico"
+$icon = Join-Path $repo "crates\gpui-desktop\assets\icon.ico"
 if (Test-Path -LiteralPath $icon) {
     Copy-Item -LiteralPath $icon -Destination (Join-Path $stage "icon.ico") -Force
 }
@@ -166,8 +166,8 @@ Run gpui-desktop.exe. Keep heif runtime DLLs beside the exe (D-070 / D-133 / D-1
 For cargo run / debug, put VCPKG installed\x64-windows\bin on PATH (includes libx265.dll
 when the local heif was not built decode-only).
 
-This layout is the dual-path packaging slice while Tauri/NSIS remains the shipping
-Windows installer. A dedicated GPUI NSIS installer and Authenticode signing are deferred.
+This layout is the GPUI portable distribution for Windows. A dedicated GPUI
+NSIS installer and Authenticode signing are deferred.
 "@
 Set-Content -LiteralPath (Join-Path $stage "README.txt") -Value $readme.Trim() -Encoding utf8
 

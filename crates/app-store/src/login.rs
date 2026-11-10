@@ -1,4 +1,4 @@
-//! App login (docs/spec.md §13). Exactly one of password, PIN or WebAuthn, or none.
+//! App login (docs/spec.md §12). Exactly one of password, PIN or WebAuthn, or none.
 //!
 //! This is the gate in front of Welcome. It does not wrap age identities and it does not
 //! decrypt files. A folder password never satisfies it. WebAuthn stores the credential id
@@ -18,7 +18,6 @@ use rand::rngs::OsRng;
 use secrecy::{ExposeSecret, SecretString};
 use serde::{Deserialize, Serialize};
 use sha2::{Digest, Sha256};
-use ts_rs::TS;
 
 use crate::AppStore;
 use crate::json_file::JsonFile;
@@ -29,9 +28,8 @@ const ORIGIN: &str = "https://egl-viewer.local";
 const RP_ID: &str = "egl-viewer.local";
 
 /// Which login is turned on. The file holds exactly one.
-#[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize, TS)]
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize)]
 #[serde(rename_all = "camelCase")]
-#[ts(export)]
 pub enum LoginMethod {
     None,
     Password,
@@ -39,17 +37,15 @@ pub enum LoginMethod {
     WebAuthn,
 }
 
-#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize, TS)]
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
 #[serde(rename_all = "camelCase")]
-#[ts(export)]
 pub struct LoginStatus {
     pub method: LoginMethod,
 }
 
 /// What the user presents at the gate. One variant: the methods are not combined.
-#[derive(Clone, Deserialize, TS)]
+#[derive(Clone, Deserialize)]
 #[serde(tag = "kind", rename_all = "camelCase")]
-#[ts(export)]
 pub enum LoginProof {
     Password { secret: String },
     Pin { secret: String },

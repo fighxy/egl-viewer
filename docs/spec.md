@@ -1,14 +1,14 @@
-# egl-viewer (Windows first) — Technical Specification and Implementation Plan
+# egl-viewer (Windows first) — Technical Specification
 
 Handoff document for an implementation agent. egl-viewer is a **standalone digital-asset manager**: it keeps images in its own library, with folders, tags, ratings, notes, search, filters and smart folders. It does not need Eagle. **Compatibility with Eagle** (eagle.cool) is a secondary feature: the app imports Eagle libraries, can connect to a running Eagle on the same PC or in the network, and exports into Eagle (section 8).
 
-One codebase: a **Rust core** and a **React + TypeScript UI** in **Tauri 2**. **The current priority is the Windows desktop app, without AI features.** macOS, Android and iOS are later targets: the design keeps them possible, but they are not in the current scope. It is not a port of Eagle, not a cloud service, and it never loads Eagle's own UI.
+One codebase: a **Rust core** and a **GPUI Kit desktop host** (Rust). **The current priority is the Windows desktop app, without AI features.** Android and iOS are later targets: the design keeps them possible, but they are not in the current scope. It is not a port of Eagle, not a cloud service, and it never loads Eagle's own UI.
 
 Source of truth for the Eagle parts: Eagle **4.0.0** (build 20260401), Electron 22.3.7, Windows install. Local API modules inside `resources/app.asar`: `app/js/api-server.js` (v1), `app/js/api-server-v2.js` (v2), `app/js/api-v2-playground-config.js` (parameter catalog), `resources/my_modules/json-rest-light`. Public docs that match this build: https://developer.eagle.cool/web-api
 
 > **Companion documents. Read them together with this spec.**
 >
-> - [`architecture.md`](architecture.md): stack, crates, the native library format, the media pipeline, the query engine, IPC between Rust and the UI, write rules, the Eagle transport, sync and offline, smart folder rule semantics, the `.eaglepack` format, plus 41 numbered corrections found by reverse engineering Eagle 4.0.0 with REA and by live API calls. Facts marked **[live]** there were verified against a running Eagle.
+> - [`architecture.md`](architecture.md): stack, crates, the native library format, the media pipeline, the query engine, write rules, the Eagle transport, sync and offline, smart folder rule semantics, the `.eaglepack` format, plus 41 numbered corrections found by reverse engineering Eagle 4.0.0 with REA and by live API calls. Facts marked **[live]** there were verified against a running Eagle.
 > - [`decisions.md`](decisions.md): decisions taken during development, with dates and reasons.
 > - [`library-format.md`](library-format.md): the on-disk format of a native library: the schema, the lock, opening and closing, adding a file.
 > - [`fixtures/eagle-api/`](../fixtures/eagle-api/): 49 real request and response captures from Eagle 4.0.0, for HTTP mock tests (`wiremock`).
@@ -48,24 +48,23 @@ v1 file formats (D-015): JPEG, PNG, GIF, WebP, SVG, TIFF, BMP, the composite ima
 
 | Concern | Choice |
 |---|---|
-| Shell | **Tauri 2.12** (stable). Not Tauri 3: it is in alpha (3.0.0-alpha.5 on 2026-10-14) with breaking changes between alphas. Migrate when 3.0 is stable (arch §2). |
-| Targets | **Windows 10/11 now** (WebView2). macOS (WKWebView), Android (minSdk 26, target 37) and iOS are later targets: nothing in the core or the UI may depend on Windows. Linux (WebKitGTK) is possible but not planned. |
-| Core | Rust workspace (arch §3): `library-core` (no IO: models, query engine, edits, the `LibrarySource` trait), `library-native` (the native library: SQLite, files, thumbnails), `media` (hashing, probing, thumbnails, palettes), `app-store` (settings, recent libraries, secrets); for Eagle: `eagle-folder` (an Eagle `.library` folder, read only) and `eagle-api` (a running Eagle). The Tauri app crate is a thin layer of commands. |
+| Shell | **GPUI Kit** in `crates/gpui-desktop` (D-126…D-133): a native Rust desktop host over `desktop-session`. |
+| Targets | **Windows 10/11 now**. Android (minSdk 26, target 37) and iOS are later targets: nothing in the core or the UI may depend on Windows. macOS and Linux stay possible later. |
+| Core | Rust workspace (arch §3): `library-core` (no IO: models, query engine, edits, the `LibrarySource` trait), `library-native` (the native library: SQLite, files, thumbnails), `media` (hashing, probing, thumbnails, palettes), `app-store` (settings, recent libraries, secrets); for Eagle: `eagle-folder` (an Eagle `.library` folder, read only) and `eagle-api` (a running Eagle). The desktop host is a thin layer of views over `desktop-session`. |
 | Storage | SQLite through `rusqlite` with the bundled SQLite (WAL, FTS5), on a blocking thread pool (arch §15.3). |
 | Media | `image` (its JPEG decoder is `zune-jpeg`), `fast_image_resize`, `resvg`, `psd`, `kamadak-exif`, `webp` (libwebp, for lossy thumbnails), `blake3` (arch §15.4, D-033). |
 | HTTP | Only for Eagle: `reqwest` with rustls, `tokio`. **Only Rust talks to Eagle.** The UI never calls the Eagle API and never sees the token. |
 | JSON | `serde` / `serde_json`. |
-| UI | React + TypeScript (strict) + Vite, Tailwind CSS and shadcn/ui on Radix (D-006). TanStack Virtual for the grid, TanStack Query for data from Rust, TanStack Router for screens. |
-| Types across IPC | `ts-rs` generates TypeScript types from the Rust structs that cross IPC. |
-| Images in the UI | A custom URI scheme handled in Rust (`thumb`, arch §11). |
+| UI | GPUI Kit (Rust). The window frame, the menu bar, the grid and the dialogs are all built in the host crate (D-126…D-141). |
+| Images in the UI | Thumbnails and originals are read from the library folder by the host crate; nothing is served through a web view. |
 | Settings | Small JSON files written by `app-store` in the app's local data folder: recent libraries, the last query per library, preferences and the Eagle endpoint (D-022). |
-| Secrets | Only the Eagle token, in Windows Credential Manager (`keyring` crate). Never in the WebView, never in the store file. |
-| Files | `tauri-plugin-dialog` for file and folder pickers; Tauri drag-and-drop events give file paths to Rust. |
+| Secrets | Only the Eagle token, in Windows Credential Manager (`keyring` crate). Never in the UI, never in the store file. |
+| Files | The system file dialog for pickers; drag-and-drop and clipboard events give file paths to Rust. |
 | Background | Imports and thumbnail generation run as tasks owned by the app state. No background service when the window is closed. |
 | Native code | None for Windows. Later, for phones: Kotlin and Swift for the Keystore, the local network permission and share targets. |
-| Tooling | `rustup` (toolchain pinned in `rust-toolchain.toml`), pnpm, pinned versions for every crate and npm package, rustfmt and clippy for Rust, Biome for lint and format of TypeScript, CSS and JSON, GitHub Actions on Windows. |
+| Tooling | `rustup` (toolchain pinned in `rust-toolchain.toml`), pinned versions for every crate, rustfmt and clippy for Rust, GitHub Actions on Windows. |
 
-Do not use React Native, Flutter or a WASM frontend for this plan.
+Do not use a web-view shell, React Native, Flutter or a WASM frontend for this plan.
 
 Workspace layout (details in arch §3):
 
@@ -77,9 +76,8 @@ crates/
   app-store/       settings, recent libraries, SecretStore trait
   eagle-folder/    an Eagle .library folder, read only: import
   eagle-api/       a running Eagle: transport (EagleHttp, escape_non_ascii, EagleError, page_all), dto/ (folder passwords dropped here), plan, api_v2
-src-tauri/         app crate: commands, AppState, views, thumb scheme, imports, events
-ui/                React app: ipc/ (generated types + typed invoke), routes/, features/, components/ui/, lib/
-(later)            gen/android, gen/apple and a small native plugin for phones
+  gpui-desktop/    the desktop host: window, menu bar, views, imports, settings (D-126…D-141)
+(later)            Android and iOS shells over library-ffi, plus a small native plugin for phones
 ```
 
 ---
@@ -165,8 +163,8 @@ Smart folders live in their own tree (nested, with their own order).
 - From a toolbar button (the system file dialog, multi-select, default filter "Images" plus "All files"), by dropping files or folders on the window, and by pasting an image or files copied in Explorer from the clipboard (Edit → Paste, `Ctrl+V`).
 - **Import Folder…** (File menu): the user picks one folder. Rust walks it and returns a preview (counts, bytes, a folder tree). Images of the v1 formats are preselected; other files are listed and unselected. A folder can be unchecked, which excludes its children. Nothing is copied until Import. Cancel before confirm leaves the library unchanged. The same add-file pipeline runs after confirm (tmp → hash → rename → row); source files stay where they were. A read-only library refuses the command. A locked target folder encrypts each copied file as it is added. Duplicates follow the same skip / add / attach choice as a normal import (D-061).
 - Dropped folders are walked recursively; hidden and system files (`Thumbs.db`, `desktop.ini`) are skipped. A dropped folder becomes a library folder of the same name inside the target (an existing folder of that name there is reused), with its subfolders below it; each file goes into the folder it came from (D-043). Dropped folders are not reviewed: every non-junk file is taken.
-- Target: the open folder when a folder is open, otherwise Uncategorized. Optional tags and rating for every file of the batch come with phases 5 and 7.
-- Rust receives the paths and reads the files; file bytes never pass through the WebView.
+- Target: the open folder when a folder is open, otherwise Uncategorized. Optional tags and rating for every file of the batch come with the tags and editing slices.
+- Rust receives the paths and reads the files; file bytes never leave the Rust side.
 
 ### What happens to one file (arch §7.4, §15.4)
 
@@ -310,26 +308,28 @@ Changing chips or sort on the same scope does not reload the scope.
 
 ## 7. Screens
 
-One window with client-side routing and one library per window (D-024). The layout is desktop-first and responsive, so a phone layout can be added later without restructuring. **UI language** defaults to English; Russian and Chinese (Simplified) are selectable in Settings (D-069). Strings go through the message catalogs under `ui/src/i18n/`. The UI is built with shadcn/ui (D-006); how the menu, the commands, motion and desktop behaviour are built is in arch §8.
+One window and one library per window (D-024). The layout is desktop-first and responsive, so a phone layout can be added later without restructuring. **UI language** defaults to English; Russian and Chinese (Simplified) are selectable in Settings (D-069). Strings go through the message catalogs in the host crate. How the menu, the commands and desktop behaviour are built is in arch §8.
 
 ### 7.1 Window and menu
 
-- **Frame.** The native Windows title bar: the window title (`My Library — egl-viewer`), minimize, maximize with Snap Layouts, close, light or dark with the app theme. Under it the app's own **menu bar**, not the classic Win32 menu. A custom title bar that merges both rows is an option for phase 12 (D-025).
-- **Menu.** Every item and shortcut comes from one command registry (arch §8). Items of later phases do not exist before their phase, and a menu without items is hidden. In a read-only library, write commands are disabled, with a tooltip that says why.
+- **Frame.** The native Windows title bar: the window title (`My Library — egl-viewer`), minimize, maximize with Snap Layouts, close, light or dark with the app theme. Under it the app's own **menu bar**, not the classic Win32 menu. A custom title bar that merges both rows is an option later (D-025).
+- **Menu.** Every item and shortcut comes from one command registry (arch §8). Items of later features do not exist before their slice, and a menu without items is hidden. In a read-only library, write commands are disabled, with a tooltip that says why.
 
-| Menu | Items (phase) |
+| Menu | Items |
 |---|---|
-| **File** | New Library… (1), Open Library… `Ctrl+O` (1), Open Recent ▸ (1), Close Library `Ctrl+W` (1) · Add Files… (2), Import Folder… (2) · Import Eagle Library… (8), Connect to Eagle… (9), Export to Eagle… (11) · Settings… `Ctrl+,` (1) · Exit `Alt+F4` (1) |
-| **Edit** | Paste `Ctrl+V` (2) · Undo `Ctrl+Z` (7), Select All `Ctrl+A` (3), Copy File `Ctrl+C` (7), Move to Trash `Delete` (7), Find `Ctrl+F` (6) |
-| **View** | Theme ▸ System / Light / Dark (1), Full Screen `F11` (1) · Sidebar `Ctrl+B` (1), Details Panel `Ctrl+I` (1), Filter Bar (6) · Grid / List (3), Larger / Smaller Thumbnails `Ctrl+=` / `Ctrl+-` (3), Show Names (3), Sort By ▸ (3) · Preview `Space` (3) · Include Subfolders (4) |
-| **Library** | New Folder `Ctrl+Shift+N` (4) · Lock All Folders `Ctrl+L` (4) · Library Settings… (7), Backup… (D-064), Back Up Now (7), Check Library (7), Rebuild Thumbnails (7), Show in Explorer (7) |
-| **Help** | Keyboard Shortcuts `F1` (1), Check for Updates… (12 / D-062), About egl-viewer (1), Open Log Folder (12) |
+| **File** | New Library… , Open Library… `Ctrl+O` , Open Recent ▸ , Close Library `Ctrl+W` · Add Files… , Import Folder… · Import Eagle Library… , Connect to Eagle… , Export to Eagle… · Settings… `Ctrl+,` · Exit `Alt+F4` |
+| **Edit** | Paste `Ctrl+V` · Undo `Ctrl+Z` , Select All `Ctrl+A` , Copy File `Ctrl+C` , Move to Trash `Delete` , Find `Ctrl+F` |
+| **View** | Theme ▸ System / Light / Dark , Full Screen `F11` · Sidebar `Ctrl+B` , Details Panel `Ctrl+I` , Filter Bar · Grid / List , Larger / Smaller Thumbnails `Ctrl+=` / `Ctrl+-` , Show Names , Sort By ▸ · Preview `Space` · Include Subfolders |
+| **Library** | New Folder `Ctrl+Shift+N` · Lock All Folders `Ctrl+L` · Library Settings… , Backup… (D-064), Back Up Now , Check Library , Rebuild Thumbnails , Show in Explorer |
+| **Help** | Keyboard Shortcuts `F1` , Check for Updates… (D-062), About egl-viewer , Open Log Folder |
+
+- **GPUI host (D-140).** The grid, the list and the folder tree have right-click menus. Shortcuts beyond the table: `F2` Rename (the selected item, else the open folder), `1`–`5` rate and `0` removes the rating, `Ctrl+Shift+J` Add to Folder(s)…, `Ctrl+J` Go to Folder, `Shift+Delete` Remove from Current Folder, `Ctrl+T` Add Tags…, `Ctrl+Shift+C` / `Ctrl+Shift+V` Copy / Paste Tags, `Ctrl+Alt+C` Copy File Path. On this host Switch Library is `Ctrl+L` and Lock All Folders is `Ctrl+Shift+L` (D-137).
 
 - **Closing the window quits the app**: there is one window and no tray icon (arch §9). The window close (X) and File → Exit both ask for confirmation first; Cancel keeps the app open. Running imports or exports use the stop-and-quit wording (D-072). **Close Library** returns to Welcome and does not quit.
 
 ### 7.2 Welcome
 
-No library open; the first screen after login (D-017). The login gate is section 13.
+No library open; the first screen after login (D-017). The login gate is section 12.
 
 - Primary: **Create library** (name and location; makes `Name.eglib`; the location starts at the default folder, `%USERPROFILE%\egl-library` unless changed, and sync folders and network paths are refused), **Open library** (folder picker; an Eagle library folder gets its own message), **Recent libraries** (name, path, last opened; a missing library is marked and can be removed from the list).
 - Secondary, under "Eagle": **Import an Eagle library** (section 8.2) and **Connect to a running Eagle** (section 8.3).
@@ -422,36 +422,36 @@ Link     https://…  ↗
 ```
 
 - **One item:** as above. A field saves on `Enter` or when focus leaves it, and `Esc` reverts it; there is no Save button. The UI shows the change at once and rolls back on an error (section 6). Tags get vocabulary suggestions and accept new names; the folder picker is the tree with multi-select; the link opens in the system browser. Fields are disabled in a read-only library.
-- **Several items:** "N items selected" with a stack of thumbnails (phase 7; phase 4 has the count and Add to folder…). Tags on every selected item look normal, tags on only some of them are dimmed. Batch rating, add or remove tags, add to or remove from folders, move to the trash; the total size.
+- **Several items:** "N items selected" with a stack of thumbnails (the editing slice; folders have the count and Add to folder…). Tags on every selected item look normal, tags on only some of them are dimmed. Batch rating, add or remove tags, add to or remove from folders, move to the trash; the total size.
 - **Nothing selected:** the open folder's properties (name, description, colour, folder tags, sort override); outside a folder, "Select an item".
 - **In the Trash:** Restore and Delete permanently instead of the file buttons, and "In the trash since …".
 
 **Status bar:** the item count, the selection count, import progress (a click opens the Imports panel), the read-only badge.
 
-**What each phase adds to this screen:**
+**What is on this screen, by slice:**
 
-| Phase | Adds |
+| Slice | Adds |
 |---|---|
-| 1 | The whole frame: menu bar, both bars with resizable widths, toolbar, status bar. The left bar with All, Uncategorized, Untagged and Trash; the grid area with the new-library empty state; the right bar with "Select an item" |
-| 2 | Add Files, Import Folder… (review before copy), Edit → Paste, files dropped on the window, counts in the left bar and the toolbar, import progress in the status bar, the duplicate question, the Imports panel |
-| 3 | The grid and the list, selection, sort, thumbnail size, the read-only right bar, the full-size preview |
-| 4 | The folder tree, Locked folders, Include subfolders, folder properties in the right bar |
-| 5 | The Filter button and the filter bar with the Tags filter, tag groups and recent tags, editing tags (one item and a selection) |
-| 6 | Search, the other filters of the filter bar, Save as smart folder, Smart folders |
-| 7 | Editing the other fields, batch edits, the trash, file actions |
+| Frame | The whole frame: menu bar, both bars with resizable widths, toolbar, status bar. The left bar with All, Uncategorized, Untagged and Trash; the grid area with the new-library empty state; the right bar with "Select an item" |
+| Adding files | Add Files, Import Folder… (review before copy), Edit → Paste, files dropped on the window, counts in the left bar and the toolbar, import progress in the status bar, the duplicate question, the Imports panel |
+| Grid | The grid and the list, selection, sort, thumbnail size, the read-only right bar, the full-size preview |
+| Folders | The folder tree, Locked folders, Include subfolders, folder properties in the right bar |
+| Tags and filters | The Filter button and the filter bar with the Tags filter, tag groups and recent tags, editing tags (one item and a selection) |
+| Search and smart folders | Search, the other filters of the filter bar, Save as smart folder, Smart folders |
+| Editing and trash | Editing the other fields, batch edits, the trash, file actions |
 
 ### 7.4 Other screens and dialogs
 
-1. **Full-size preview.** A layer over the whole window, not a new window. The original at window size, zoom and pan, rotate clockwise (toolbar button or `R`), previous and next in the current view; `Esc`, a short `Space`, or a left/right click on the empty letterbox beside the image closes it; holding `Space` peeks while the key is down (D-073). Rotation is display-only for this preview session (D-058). It opens with a short zoom out of its cell (arch §8; in WebView2, D-040). Originals the WebView cannot show (TIFF, PSD) show their 512 px thumbnail.
+1. **Full-size preview.** A layer over the whole window, not a new window. The original at window size, zoom and pan, rotate clockwise (toolbar button or `R`), previous and next in the current view; `Esc`, a short `Space`, or a left/right click on the empty letterbox beside the image closes it; holding `Space` peeks while the key is down (D-073). Rotation is display-only for this preview session (D-058). It opens with a short zoom out of its cell (D-040). Originals the host cannot decode for display (TIFF, PSD) show their 512 px thumbnail.
 2. **Tags filter** (the tag sheet): the dropdown panel of the Tags filter. Search box over the vocabulary, mode segment Any / All / Exact / None, counts, recent tags, groups as sections; rename, merge and delete from a context menu.
 3. **Smart folder editor.** Name, AND/OR, the rules of the v1 subset.
 4. **Folder dialogs.** Create, rename, move, delete (with the item count and the trash option), lock and unlock. Lock and unlock, password change, and recovery are for the chosen folder. The lock dialog edits that folder's name and tag.
 5. **Imports panel.** Opened from the status bar: running and finished imports, progress, failures, duplicates.
 6. **Library settings** (dialog, Library menu). Name, location (reveal in Explorer), size on disk, backups (make one now, restore), rebuild thumbnails, check library.
-7. **Settings** (`Ctrl+,`; a dialog with its sections on the left). Phase 1 has **General**: theme (System, Light, Dark), **language** (English, Russian, Chinese Simplified; D-069), reopen the last library on start, whether `Delete` asks before moving items to the trash (the trash confirmation's "Don't ask again" turns this off; the switch turns it back on), and the default folder for new libraries (`%USERPROFILE%\egl-library`, checked like any library location, D-021). Later sections arrive with their features, for example the Eagle connection.
-8. **About egl-viewer** (dialog). Icon, name, version, build date and commit, WebView2 version, links, and **Third-party licenses**: a file generated by the release build (phase 12), because the MIT and Apache licences of the dependencies require showing their texts.
+7. **Settings** (`Ctrl+,`; a dialog with its sections on the left). **General**: theme (System, Light, Dark), **language** (English, Russian, Chinese Simplified; D-069), reopen the last library on start, whether `Delete` asks before moving items to the trash (the trash confirmation's "Don't ask again" turns this off; the switch turns it back on), and the default folder for new libraries (`%USERPROFILE%\egl-library`, checked like any library location, D-021). Further sections arrive with their features, for example the Eagle connection.
+8. **About egl-viewer** (dialog). Icon, name, version, build date and commit, links, and **Third-party licenses**: a file generated by the release build, because the MIT and Apache licences of the dependencies require showing their texts.
 9. **Keyboard Shortcuts** (`F1`): every command with its shortcut, read from the command registry.
-10. **Check for Updates…** (Help menu, D-062). Asks GitHub Releases for a newer signed build; if one exists, confirms before download, install and restart. A silent check after launch uses the same confirm. Builds without the updater plugin need one last manual install.
+10. **Check for Updates…** (Help menu, D-062). Asks GitHub Releases for a newer build via `latest-gpui.json`; if one exists, confirms before download, then opens the downloaded portable zip (an installer with signing and relaunch is deferred). A silent check after launch uses the same flow.
 11. **Eagle screens:** the import wizard (section 8.2), Connect (section 8.3), export (section 8.4).
 12. **Backup** (Library menu, D-064) and **Export** (context menus of folders and tags): one dialog. It picks what to export (the whole library, chosen folders with or without subfolders, chosen tags), shows the item count and bytes from the database, the format (a folder tree, a ZIP or a 7z archive with a compression level), an optional passphrase for the archive (at least 8 characters): for a ZIP either an age file `name.zip.age`, encrypted while it is written so no plaintext copy touches the disk (D-110), or a standard ZIP with AES-256 entries that 7-Zip, WinRAR and Keka open, its names visible (D-112); a 7z is AES-256 encrypted with its names hidden (D-113), and the destination folder (the last one is remembered). While it runs, a progress bar; afterwards, the result: what was written where, skipped missing files, **Show in Explorer**. The export runs in the background and can be cancelled; the partial output is removed, after a failure too. A destination inside an Eagle or egl-viewer library is refused (D-088). It reads only, so a read-only library exports too; items of locked folders stay home and are counted as hidden. `egl-export.json` at the export root carries the exported items' metadata. Distinct from Back Up Now, which copies the database (§7.4 item 6). **File → Decrypt Archive…** opens such a `name.zip.age` with its passphrase into `name.zip`, next to it by default (D-110); the iPhone app has it in Settings.
 
@@ -542,7 +542,7 @@ Send the token like this:
 - GET and DELETE: query `?token=`.
 - POST and PUT: JSON field `token` **only**. The server would also read `?token=` on a POST, but Eagle writes the URL of every POST into its log file, so a query token ends up on disk (correction 6).
 
-Store the token in the OS secret store, and only after a connection with it succeeded. Do not log it. Do not pass it to the WebView. An export into Eagle uses the token typed in its dialog or else the saved one for that host and port (D-089). The session holds one source at a time: opening a native library ends a live Eagle connection, and connecting closes the open library.
+Store the token in the OS secret store, and only after a connection with it succeeded. Do not log it. Do not pass it to the UI. An export into Eagle uses the token typed in its dialog or else the saved one for that host and port (D-089). The session holds one source at a time: opening a native library ends a live Eagle connection, and connecting closes the open library.
 
 The token is not a real security boundary. A LAN request without a token but with the header `Host: localhost:41595` is accepted (verified live, correction 5). The client never uses this trick. The Connect screen tells the user to limit the Windows Firewall rule for 41595 to the Private profile and, ideally, to the client's IP. For access outside the LAN use Tailscale or WireGuard; never forward the port.
 
@@ -808,7 +808,7 @@ Refresh the tree and the open view when the window regains focus and on demand; 
     "website": "optional source link" }
   ```
 
-  The `data:` prefix is mandatory (correction 1). The data URL is verified live for JPEG only; check other formats when this phase is built. Captures: `fixtures/eagle-api/item-add.single.json`, `item-add.batch.json`.
+  The `data:` prefix is mandatory (correction 1). The data URL is verified live for JPEG only; check other formats live. Captures: `fixtures/eagle-api/item-add.single.json`, `item-add.batch.json`.
 - Then Rust polls `item/get {id}` (0.25 → 0.5 → 1 → 2 → 4 s, about 20 s in total) until the item appears; a 16 KB JPEG appeared in about 0.3 s live, path imports within milliseconds. For data URLs only: if the user chose a rating, Rust sends `item/update {star}` after the item appears.
 - One file per request for data URLs, files one after another. Put `folders: [openFolderId]` when a folder is open, after checking the id against the tree.
 - An "Importing…" cell stays in the grid until the item appears.
@@ -856,176 +856,7 @@ Later, without a running Eagle: write a `.eaglepack` (arch §17). Eagle imports 
 
 ---
 
-## 9. Implementation plan
-
-Work in order. Each phase has a done check. Do not start a phase by rewriting the previous one. Everything is built and checked on Windows. The `LibrarySource` trait (phase 0) is the seam: every screen talks to it, so the Eagle phases add sources, not screens.
-
-### Phase 0 — Project skeleton (done 2026-10-28)
-
-- Cargo workspace with `library-core`, `eagle-api`, `app-store` and the Tauri 2.12 app crate. React + TypeScript (strict) + Vite in `ui/`, pnpm, Tailwind and shadcn/ui, Biome. Pinned versions everywhere.
-- `library-core` defines the models, the query types, `ItemEdit` and the `LibrarySource` trait.
-- `ts-rs` export of IPC types into `ui/src/ipc/generated/`, checked in CI.
-- Tauri capabilities allow only the app's own commands. A strict CSP (arch §10).
-- GitHub Actions on Windows: format, lint, tests, types, build.
-
-Done: the desktop app starts on Windows and shows its first screen.
-
-### Phase 1 — Native library: create and open
-
-- The format on paper first: [`library-format.md`](library-format.md), format version 1 (written 2026-10-28; D-019 to D-024).
-- `library-native`: create a library (`Name.eglib`, built in a temporary folder and renamed; `library.db` with format version 1, `meta`, `library.lock`), open one (location and header checks, the OS file lock, the check after an unclean close, migrations with a backup first, `pending_file` recovery, emptying `files/.tmp/`), close it. A second instance opens read-only and writes nothing.
-- `library-native`: `add_file` for one file (temp copy with BLAKE3, flush, duplicate check, the `pending_file` journal, rename, insert), with tests; no command and no UI yet.
-- `app-store`: the location check (OneDrive variables, sync roots registered with Windows, Dropbox and Syncthing markers, network paths) and the default location; settings and recent libraries as JSON files in the app's local data folder.
-- Commands `create_library`, `open_library`, `close_library`, `recent_libraries`, `forget_recent_library`, `default_library_location`.
-- UI: the Welcome screen (section 7.2) with working Create, Open and Recent; the frame of the Library screen (section 7.3): the menu bar from the command registry with this phase's items, the left bar with the library name and the four fixed rows, the empty grid area, the right bar, the status bar and the read-only banner; the Settings (General), About and Keyboard Shortcuts dialogs; the desktop behaviour of arch §8 (no WebView2 context menu, reload, printing or page zoom; the window starts hidden; its size and position are remembered).
-- Reopen the last library on start.
-- One window, one library. App login (section 13) and locked folders (phase 4) are not part of this phase.
-
-Done when: a library created in a chosen folder reopens from Recent after a restart; a second instance opens it read-only and says so; a folder that is not a library, an Eagle library folder, and a library from a newer format version are refused with clear messages; a library cannot be created in a OneDrive folder or on a network path, and one found in a sync folder opens read-only; killing the app releases the lock, and the next start reports the unclean close and checks the database; `add_file` tests show that a crash at any step leaves neither a row without a file nor a file without a row, and that the same file added again is reported as a duplicate; the menu and its shortcuts (`Ctrl+O`, `Ctrl+W`, `Ctrl+,`, `F11`, `F1`) work; the theme follows Windows and can be overridden; `F5`, `Ctrl+R`, `Ctrl+P` and `Ctrl` + mouse wheel do nothing browser-like.
-
-### Phase 2 — Adding files and the media pipeline
-
-- `media`: BLAKE3 while copying, probing (dimensions, EXIF), thumbnails (512 px WebP) for the v1 formats including PSD composites, palettes.
-- `add_files`: file dialog, drop of files and folders, paste from the clipboard; batches on top of the phase 1 `add_file` (temp copy, journal, one transaction per item); duplicates handled per batch; background thumbnails; `import-progress` events; cancel.
-- `preview_import` and Import Folder…: review one picked folder (images preselected, exclude / include) before the same `add_files` path runs (D-061).
-- The Imports panel; counts in the left bar and the toolbar; asking before quitting or closing the library while files are being added. Quitting always confirms first (D-072).
-
-Done when: 1 000 mixed files (all v1 formats plus a few others) are added with thumbnails and palettes; killing the app during an import leaves a consistent library and adding the same files again reports them as duplicates; an undecodable file is added with a placeholder and a report line; Import Folder… previews then adds only the confirmed selection.
-
-### Phase 3 — Grid and detail
-
-- `load_scope` in SQL for All, Uncategorized, Untagged, Trash; the local pipeline, the sorter and views from `library-core` (arch §6.4, §6.5).
-- The native `LibrarySource` (D-032): scopes, the full item, tags, thumbnails and originals.
-- Commands `open_view` (with a progress `Channel`), `view_range`, `view_ids` (the ids of a range, for selections), `close_view`, `item_detail`.
-- The `thumb` URI scheme serving `thumbs/` with the palette placeholder while missing (arch §11).
-- UI: the virtualized grid (TanStack Virtual, windows of 100–200 cells), multi-select, sort menu, layout and size, the read-only right bar, the full-size preview (section 7.3).
-
-Done when: a 10 000-item library scrolls smoothly at every thumbnail size; every sort key gives the expected order and stays stable while scrolling; random order stays the same until the query changes.
-
-### Phase 4 — Folders
-
-Built in two parts (D-043): **4a**, everything below except locks, and **4b**, locked folders (D-045); both implemented 2026-10-28. The optional YubiKey wrap is implemented (D-056): a software P-256 key stands in for the card in tests. App login (section 13) is the same change.
-
-
-- The folder tree with counts, create, rename, description, colour, move (cycle guard), reorder siblings, delete (section 3), lock and unlock. Locking encrypts the folder at rest (D-018): its own age identity, wrapped by Argon2id(password) and by a recovery secret shown once. Several locked folders stay independent. Each has its own user-editable name and tag (a label and a colour), stored in plaintext on the folder row. The sidebar has an expandable **Locked folders** section that lists them with that name and tag; they do not also appear in Folders (D-059). Choosing a row prompts for that folder only.
-- Item membership: folder picker in the right bar, drag items onto a folder, add files into the open folder (with folder tags added to new items).
-- The "Include subfolders" switch.
-- Per-folder sort override; manual order with drag to reorder.
-
-Done when: folder A does not show items that exist only in a child of A, and does with subfolders on; an item added to a second folder stays in the first; a move under its own descendant is refused before writing; deleting a folder leaves its items in the library and Uncategorized shows those without folders; a locked folder's items are hidden in All, search and tags until that folder is unlocked, and its files on disk are age ciphertext that the password of another locked folder does not decrypt; the Locked folders section lists each locked folder with its name and tag (and not again in Folders), and choosing a row prompts for that folder only.
-
-### Phase 5 — Tags
-
-Implemented 2026-10-28 (D-046).
-
-- Tag editor in the right bar (vocabulary suggestions, new names), batch tagging of a selection.
-- Dragging items from the grid onto a tag row in Tag groups or Recent tags adds that tag. The edit is the same add-tags intent as the editor, so other tags stay. If every dropped item already has the tag, nothing is written. A read-only library refuses the drop (D-057).
-- The Tags filter (the tag sheet): vocabulary with counts, modes Any / All / Exact / None, recent tags, groups; tag groups and recent tags in the left bar.
-- Rename, merge, delete everywhere (with confirmations); tag groups.
-
-Done when: two tags in Any mode show the union, All shows only items that have both, Exact hides items with an extra tag, None hides items with either; `"Poster"` does not match `"poster"`; a rename changes the chip on every item; removing one tag does not touch the others.
-
-### Phase 6 — Search, filters and smart folders
-
-Implemented 2026-10-29 (D-047, D-048).
-
-- FTS5 search with the Eagle-style syntax, within the scope.
-- The filter bar (section 7.3): type, rating, shape.
-- Smart folders: the local evaluator for the v1 subset (section 5), the editor, "Save as smart folder", the smart folder tree.
-
-Done when: search inside a folder never shows items from other folders; `a OR b`, `-a` and parentheses behave like Eagle's search on the same data; a smart folder made from chips shows exactly the items the chips showed.
-
-### Phase 7 — Editing and trash
-
-Implemented 2026-10-29 (D-049 to D-052). Dropping items on the Trash row added 2026-11-01 (D-073). Empty Trash progress added 2026-11-01 (D-074).
-
-- The remaining item fields: name (renames the stored file), note, link, rating; batch edits on a selection; undo of the last edit.
-- Trash: move, restore, delete permanently, empty (files removed, with progress and cancel — D-074). Dragging items from the grid onto the Trash row moves them to the trash with the same confirmation as Delete (D-073).
-- Open with the default app, show in Explorer, copy file, drag out of the window.
-- Library settings: backups, rebuild thumbnails, check library.
-
-Done when: a renamed item keeps its file readable; restore brings back folders and tags; emptying the trash removes the files from disk; a backup restores a library to its earlier state.
-
-### Phase 8 — Import from an Eagle library folder
-
-Implemented 2026-11-01 (D-071, D-072). The done check on Windows (a copy of a real Eagle
-library, counts compared with the desktop app) still runs by hand.
-
-- `eagle-folder`: read `metadata.json`, `mtime.json` and the item folders, with retries (correction 37) and passwords dropped while parsing.
-- The import wizard from Welcome and from the File menu (section 8.2); a resumable import in transactions of 500 items; Eagle thumbnails reused; the report.
-- Test fixture: a small synthetic Eagle library under `fixtures/eagle-library/` (made by hand, no personal data) with nested folders, tags, a smart folder, a tag group, a trashed item, a locked folder and an item without a thumbnail.
-
-Done when: a copy of a real Eagle library imports completely; the counts per folder match the desktop app; interrupting the import and starting it again finishes without duplicates; locked folders stay hidden until the user sets a password.
-
-### Phase 9 — Connect to a running Eagle: browse
-
-Implemented 2026-11-01 (D-075). The done checks against a real Eagle (same PC and
-another computer) still run by hand; thumbnails arrive in phase 10, so the grid
-shows the placeholder cells until then.
-
-- `eagle-api`: `EagleHttp` with `get` (token in the query) and `post` (token in the JSON body only), the semaphore, ASCII-escaped bodies, `pool_idle_timeout(4 s)`, `EagleError`, `Page<T>`, `page_all`; `wiremock` tests with the captures from `fixtures/eagle-api/`.
-- `app-store`: `SecretStore` with the `keyring` implementation on Windows Credential Manager.
-- The Connect screen (from Welcome), commands `connect_eagle`, `eagle_session`, `disconnect_eagle`.
-- DTOs (`FolderDto` turns `password` into `is_locked`), the tree from `folder/get`, the query plan, the snapshot cache, the lock filter (section 8.3); search through `item/query`; tags from `tag/get`; smart folders through `smartFolder/getItems`.
-
-Done when: a real Eagle on the same PC and one on another computer both browse with the same screens as a native library; 401, timeout, refused, 404 (Eagle older than 4.0) and `{}` (no library open) show different messages; folder counts match the desktop with subfolders off and on; Uncategorized does not show items that have a folder; a desktop smart folder shows the same ids as the desktop for the first 1000 items.
-
-### Phase 10 — Running Eagle: edits, adding files, thumbnails
-
-Implemented 2026-11-01. The done checks against a real Eagle (edits visible in the desktop
-app, adds from both PCs, images in the grid) still run by hand; undo of item edits stays
-native-only, and thumbnails from another computer wait for the helper plugin on the Eagle
-PC (docs/spec.md §8.3 "Thumbnails").
-
-- `ItemMutator` (re-read, then full arrays), folder edits with `FolderUpdateBody`, tag rename and merge, trash, the unlock dialog.
-- Adding files: batch `path` on the same PC, data URLs from another computer, polling, "Importing…" cells. Check live which formats the data URL path accepts besides JPEG; record the captures in `fixtures/eagle-api/`.
-- Thumbnails: the same-PC source, then the helper plugin on the Eagle PC.
-
-Done when: edits from egl-viewer show up in the desktop app (an item added to a second folder remains in the first; renaming a nested folder keeps its parent and colour; a cycle move never sends the request); a file added on the Eagle PC and one added from another computer appear in the chosen folder; the grid shows images in both cases, including small images with `noThumbnail: true`.
-
-### Phase 11 — Export into Eagle
-
-Implemented 2026-11-01. The done check against a real Eagle (same folders, tags and
-ratings; a second export updates instead of duplicating) still runs by hand.
-
-- The export screen and the steps of section 8.4; Eagle ids stored for repeated exports.
-
-Done when: a native library exported into an empty Eagle library shows the same folders, tags and ratings in Eagle, and a second export after changes updates instead of duplicating.
-
-### Phase 12 — Hardening and the Windows release
-
-- Restore the last library, view and selection after a restart.
-  **Code:** last library via D-022; place / filters / search / selection via
-  `queries.json` (D-078). Browse layout (grid/list, thumbnail size, global sort)
-  stays in preferences (D-041).
-- Large libraries: 100 000 items open, scroll, search and filter without blocking the UI.
-  **Code:** windowed views + virtualized grid already ship; the 100 000 Windows
-  done check stays manual.
-- Accessibility labels on folder rows, tag chips and the grid; full keyboard navigation.
-  **Code:** roles/labels on the tree, tag chips and grid; folder Home/End and
-  filter `aria-*` (D-081). Custom title bar / Alt menu still postponed (D-025 /
-  D-081).
-- The Eagle token never reaches logs, the WebView or crash reports.
-  **Code:** SecretStore + clear Connect/Export fields after send (D-080); file
-  logs without the token (D-079). No crash-report pipeline yet.
-- Help → Open Log Folder opens `{app_local_data_dir}/logs` (D-079).
-- The rest of the tests from section 10 (many earlier-phase Windows / live Eagle
-  done checks remain manual).
-- Release build: NSIS per-user installer (no admin rights), WebView2 bootstrapper for machines without it. Optional: Authenticode code signing (otherwise SmartScreen warns on first launch).
-- **libheif runtime on Windows** (D-070): the NSIS package ships `heif.dll` and `libde265.dll`
-  (LGPL, with notices) beside `egl-viewer.exe`, staged from vcpkg by CI. Without them the
-  process fails to start after HEIC support (D-063).
-- **Auto-update** (D-062): `tauri-plugin-updater` checks
-  `https://github.com/fighxy/egl-viewer/releases/latest/download/latest.json`, verifies a
-  minisign signature, and installs through Help → Check for Updates… or a confirm prompt after
-  launch. Windows NSIS, macOS updater archive, and Linux AppImage are covered; OS code
-  signing / notarization stay optional.
-
-Done when the installer from CI installs and runs on a clean Windows 10 and Windows 11 machine
-(including HEIC-capable starts with the bundled libheif DLLs), and a signed newer release is
-offered and installed through Check for Updates….
-
-### Later, outside the current scope
+## 9. Out of scope
 
 - More formats: video (frames through a bundled LGPL `ffmpeg` process), audio, PDF (`pdfium`), fonts, RAW.
 - A full-disk reviewed scan (pick a drive, skip Windows / Program Files / caches) stays out of v1; Import Folder… covers the reviewed case for one chosen folder (D-061, EGL-31).
@@ -1035,8 +866,6 @@ offered and installed through Check for Updates….
 - The Eagle extras of section 8.5.
 - **Localisation (further languages):** English, Russian and Chinese Simplified ship now (D-069). Further locales reuse the same catalogs.
 - **macOS:** the same app; Keychain for the token, signing and notarization.
-- **Android:** `tauri android init`; a small Kotlin plugin for `ACCESS_LOCAL_NETWORK` (target SDK 37+) and the Keystore; camera and gallery through the file input.
-- **iOS:** a Mac with Xcode; `NSLocalNetworkUsageDescription`, `NSCameraUsageDescription`, Keychain.
 
 AI features are not planned.
 
@@ -1152,7 +981,7 @@ Running Eagle (`eagle-api`), unit tests and HTTP tests with `wiremock` and `fixt
 | Same-PC thumbnail path outside the library folder | Refused, nothing is read |
 | `tagGroup/create`, `smartFolder/create`, `item/addComment` | Return the new id (or succeed); bodies match the captures |
 
-UI tests: Vitest and Testing Library with `mockIPC` from `@tauri-apps/api/mocks`: the Welcome screen, the read-only banner, the menu and shortcuts built from the command registry (no items of later phases, write commands disabled in a read-only library), the Settings and About dialogs, Connect error copy, the grid window loading, selection (click, Ctrl, Shift, rubber band, arrow keys, Ctrl+A), sort, the list, the preview, `views-invalidated`, dialogs and empty states.
+Desktop UI tests (in `crates/gpui-desktop`): the Welcome screen, the read-only banner, the menu and shortcuts built from the command registry (no items of later features, write commands disabled in a read-only library), the Settings and About dialogs, Connect error copy, the grid window loading, selection (click, Ctrl, Shift, arrow keys, Ctrl+A), sort, the list, the preview, `views-invalidated`, dialogs and empty states.
 
 Manual checks on Windows:
 
@@ -1172,16 +1001,15 @@ General:
 - Tags are case-sensitive. Never lowercase them for matching or storage.
 - Folder membership is direct. Subfolders are a union, computed in the core; a parent does not contain its children's items.
 - Folder tags are not item tags; they reach an item only when a file is added into the folder.
-- Never send a whole item list over Tauri IPC. Serve windows of a view.
-- Never animate a re-sort or a filter change of the grid, and never let WebView2 reload, print or zoom the page (arch §8).
+- Never send a whole item list to the UI. Serve windows of a view.
+- Never animate a re-sort or a filter change of the grid, and never let the window chrome reload, print or zoom the page.
 - Menu items and shortcuts come only from the command registry; never bind a key inside a component.
 - Never copy or sync a library folder while it is open; use the backups.
 - Never create or write a library on a network path or in a cloud-synced folder: WAL needs a local disk, and sync tools copy a live database mid-write.
 - `item_fts` is keyed by `item.seq`, an explicit `INTEGER PRIMARY KEY`. Implicit rowids change on `VACUUM` and in backups.
 - A read-only instance never cleans `files/.tmp/` and never recovers `pending_file`: the writer may be using them.
 - The lock on `library.lock` is mandatory on Windows, so nobody else can read the file; the holder is in `meta.open_by`. Never delete `library.lock`.
-- File bytes never pass through the WebView; Rust reads files by path.
-- `thumb` URLs differ by platform: `http://thumb.localhost/…` on Windows (and later Android), `thumb://localhost/…` on macOS, iOS and Linux (arch §11).
+- File bytes never leave the Rust side; Rust reads files by path.
 
 Eagle:
 
@@ -1215,15 +1043,11 @@ Eagle:
 
 ---
 
-## 12. Suggested first milestone
-
-Phases 1 to 3: create and open a library, add files with thumbnails, browse them in a fast grid. That is already a usable image viewer and the base everything else builds on. Folders, tags, search and editing (phases 4–7) make it a full asset manager. Then Eagle compatibility, in the order users need it: import first (phase 8), then the live connection (phases 9–10), then export (phase 11). The release build closes the plan. macOS, Android and iOS are outside the current scope; AI features are not planned.
-
-## 13. Security
+## 12. Security
 
 Two different locks. Logging into the app does not unlock a locked folder. Unlocking a folder does not log the user into the app.
 
-### 13.1 What protects what
+### 12.1 What protects what
 
 - **App login** (this section) is the gate before Welcome. It does not wrap age identities and does not decrypt files.
 - **Locked folders** encrypt originals, thumbnails, and the sensitive item columns with age (D-018, [`age-locked-folders.md`](age-locked-folders.md)). Each folder has its own identity.
@@ -1232,12 +1056,12 @@ Two different locks. Logging into the app does not unlock a locked folder. Unloc
 - **YubiKey PIV** is a third wrap of that same identity (`age-plugin-yubikey`, a retired PIV slot 82–95 with an ECDSA P-256 key). In that flow the user either touches the key or enters the PIN. The PIN replaces the touch. It is not an extra step, and it is not app login. Unlocking one folder does not unlock the others. Without the key, the password and the recovery secret still work.
 - **Eagle token** stays in Windows Credential Manager. The database as a whole, settings, and unlocked folders stay plaintext.
 
-### 13.2 App login
+### 12.2 App login
 
 The user picks exactly one login method. The app never combines them and never requires two.
 
 1. **Password.** A login password, separate from every folder password. The app stores an Argon2id hash of it, not the password. It is not a key for age.
 2. **PIN.** A numeric login PIN. The app stores an Argon2id hash of it. For the PIV folder unlock, this same choice replaces the touch: the user enters the PIN instead of touching the key, not after it.
-3. **WebAuthn.** The app uses the system WebAuthn API (`tauri-plugin-webauthn` or the equivalent Tauri bridge). Login is a YubiKey 5C touch: the credential is created at enrollment and asserted at login. The app stores only the credential id and public key. WebAuthn is only for app login. It does not use the PIV slot and does not unwrap folder identities. Choosing WebAuthn means login does not ask for a PIN.
+3. **WebAuthn.** The app uses the system WebAuthn API from Rust (Windows WebAuthn via `webauthn.dll`, through a small crate that contains unsafe). Login is a YubiKey 5C touch: the credential is created at enrollment and asserted at login. The app stores only the credential id and public key. WebAuthn is only for app login. It does not use the PIV slot and does not unwrap folder identities. Choosing WebAuthn means login does not ask for a PIN.
 
 With no method enabled, the app opens straight to Welcome. Switching methods replaces the previous login and does not re-encrypt libraries. The app does not keep a recovery secret for login. A folder password and a folder recovery secret never satisfy the login gate.

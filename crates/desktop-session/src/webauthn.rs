@@ -1,4 +1,4 @@
-//! The app-login WebAuthn bridge (docs/spec.md §13.2).
+//! The app-login WebAuthn bridge (docs/spec.md §12.2).
 //!
 //! A YubiKey 5C touch creates or asserts a credential through the Windows WebAuthn
 //! API (`webauthn.dll`). The app stores the credential id and the P-256 public key and

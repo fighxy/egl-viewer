@@ -26,7 +26,6 @@ use library_core::{
 use library_native::{DuplicateChoice, ImportFilter, check_enrollment};
 use secrecy::{ExposeSecret, SecretString};
 use serde::{Deserialize, Serialize};
-use ts_rs::TS;
 
 pub use app_service::{SmartDraft, lock, now_ms};
 
@@ -41,9 +40,8 @@ const FOLDER_ICON: library_native::FolderIcon<'static> = library_native::FolderI
 };
 
 /// What the app does on start: the reopened library, or why it shows Welcome instead.
-#[derive(Debug, Clone, PartialEq, Serialize, TS)]
+#[derive(Debug, Clone, PartialEq, Serialize)]
 #[serde(rename_all = "camelCase")]
-#[ts(export)]
 pub struct StartupResult {
     pub library: Option<LibraryInfo>,
     /// Shown on Welcome when the last library was not reopened for a reason worth saying.
@@ -53,9 +51,8 @@ pub struct StartupResult {
 pub use app_service::EagleLibrarySummary;
 
 /// Where the import of an Eagle library goes (docs/spec.md §8.2 step 2).
-#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize, TS)]
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
 #[serde(rename_all = "camelCase")]
-#[ts(export)]
 pub struct EagleImportRequest {
     pub eagle_path: String,
     /// A new native library to create and import into; `None` imports into the open library
@@ -66,18 +63,16 @@ pub struct EagleImportRequest {
 }
 
 /// A new native library made for the import: where, and under which name.
-#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize, TS)]
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
 #[serde(rename_all = "camelCase")]
-#[ts(export)]
 pub struct EagleLibraryTarget {
     pub parent: String,
     pub name: String,
 }
 
 /// A live connection to a running Eagle (docs/spec.md §8.3 "Connect screen").
-#[derive(Debug, Clone, PartialEq, Serialize, TS)]
+#[derive(Debug, Clone, PartialEq, Serialize)]
 #[serde(rename_all = "camelCase")]
-#[ts(export)]
 pub struct EagleSessionInfo {
     pub library: LibraryInfo,
     pub eagle_version: String,
@@ -420,7 +415,7 @@ impl Session {
         self.store.prune_missing_recent()
     }
 
-    /// The last place, filters and selection for a library path (phase 12 / D-078).
+    /// The last place, filters and selection for a library path (D-078).
     pub fn library_session(&self, path: &str) -> Option<LibrarySession> {
         self.store.library_session(path)
     }

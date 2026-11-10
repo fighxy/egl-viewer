@@ -1,18 +1,17 @@
-# Stages the Windows libheif runtime DLLs for the NSIS package (D-070).
-# Tauri maps files under src-tauri/heif-runtime/ to the install root (beside
-# egl-viewer.exe) via tauri.windows.conf.json. LoadLibrary only searches the
-# exe directory.
+# Stages the Windows libheif runtime DLLs beside the executable (D-070).
+# The portable GPUI package and the CI packaging job copy them next to
+# gpui-desktop.exe; LoadLibrary only searches the exe directory.
 #
 # Ships heif.dll + libde265.dll only (decode-only vcpkg features). Refuses GPL
 # x265. dumpbin verifies those two pull no other DLLs from the vcpkg bin dir.
 #
 # Usage (repo root, after `vcpkg install libheif[core,libde265]:x64-windows`):
 #   pwsh scripts/bundle-heif-dlls.ps1
-#   pwsh scripts/bundle-heif-dlls.ps1 -Dest src-tauri/heif-runtime -VcpkgRoot C:\vcpkg
+#   pwsh scripts/bundle-heif-dlls.ps1 -Dest dist/heif-runtime -VcpkgRoot C:\vcpkg
 
 param(
     [string]$VcpkgRoot = $(if ($env:VCPKG_ROOT) { $env:VCPKG_ROOT } elseif ($env:VCPKG_INSTALLATION_ROOT) { $env:VCPKG_INSTALLATION_ROOT } else { "C:\vcpkg" }),
-    [string]$Dest = "src-tauri/heif-runtime",
+    [string]$Dest = "dist/heif-runtime",
     [string]$Triplet = "x64-windows"
 )
 
@@ -69,7 +68,7 @@ foreach ($name in $required) {
 }
 
 # If dumpbin is available, every import that exists in the vcpkg bin must already
-# be in $required — otherwise tauri.windows.conf.json would miss a sibling DLL.
+# be in $required — otherwise the staged bundle would miss a sibling DLL.
 $dumpbin = Get-Dumpbin
 if ($dumpbin) {
     $allowed = New-Object 'System.Collections.Generic.HashSet[string]' ([StringComparer]::OrdinalIgnoreCase)
@@ -85,7 +84,7 @@ if ($dumpbin) {
     }
     if ($extra.Count -gt 0) {
         $unique = $extra | Sort-Object -Unique
-        throw "heif runtime imports extra vcpkg DLL(s) not in the bundle list: $($unique -join ', '). Update scripts/bundle-heif-dlls.ps1 and tauri.windows.conf.json."
+        throw "heif runtime imports extra vcpkg DLL(s) not in the bundle list: $($unique -join ', '). Update scripts/bundle-heif-dlls.ps1."
     }
 } else {
     Write-Warning "dumpbin not found; skipped PE dependency check for vcpkg siblings."

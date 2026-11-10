@@ -4,11 +4,9 @@ use std::net::IpAddr;
 
 use library_core::SourceError;
 use serde::{Deserialize, Serialize};
-use ts_rs::TS;
 
-#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize, TS)]
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
 #[serde(rename_all = "camelCase", default)]
-#[ts(export)]
 pub struct ConnectionSettings {
     pub host: String,
     pub port: u16,

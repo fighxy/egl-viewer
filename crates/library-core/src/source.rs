@@ -2,7 +2,6 @@
 
 use async_trait::async_trait;
 use serde::Serialize;
-use ts_rs::TS;
 
 use crate::edit::ItemEdit;
 use crate::error::SourceError;
@@ -20,9 +19,8 @@ use crate::tag::TagGroupChange;
 pub type Progress<'a> = &'a (dyn Fn(usize, usize) + Send + Sync);
 
 /// What a source can do. The UI hides what the open library cannot do.
-#[derive(Debug, Clone, Copy, PartialEq, Eq, Default, Serialize, TS)]
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Default, Serialize)]
 #[serde(rename_all = "camelCase")]
-#[ts(export)]
 pub struct Capabilities {
     pub writable: bool,
     /// `changes_since` works (native: yes; Eagle folder: through `mtime.json`; Eagle API: no).

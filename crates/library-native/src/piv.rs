@@ -1,5 +1,5 @@
 //! A YubiKey as a third wrap of one locked folder's age identity (docs/age-locked-folders.md §9,
-//! spec §13).
+//! spec §12).
 //!
 //! The on-disk ciphertext is an age file whose recipient stanza is `piv-p256`, the stanza
 //! `age-plugin-yubikey` 0.5 writes for an ECDSA P-256 key in a retired PIV slot (0x82–0x95).

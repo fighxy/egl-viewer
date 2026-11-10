@@ -22,7 +22,6 @@ serde.workspace = true
 serde_json.workspace = true
 tokio.workspace = true
 tracing.workspace = true
-ts-rs.workspace = true
 yubikey.workspace = true
 
 [target.'cfg(windows)'.dependencies]

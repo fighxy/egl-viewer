@@ -4,7 +4,6 @@
 //! always written as complete arrays (Eagle replaces them wholesale).
 
 use serde::{Deserialize, Serialize};
-use ts_rs::TS;
 
 use crate::error::SourceError;
 use crate::tag::validate_tag_names;
@@ -13,9 +12,8 @@ use crate::tag::validate_tag_names;
 /// so the limit is checked in the same unit.
 pub const MAX_TEXT_UTF16: usize = 10_000;
 
-#[derive(Debug, Clone, PartialEq, Eq, Hash, Serialize, Deserialize, TS)]
+#[derive(Debug, Clone, PartialEq, Eq, Hash, Serialize, Deserialize)]
 #[serde(tag = "type", content = "value", rename_all = "camelCase")]
-#[ts(export)]
 pub enum ItemEdit {
     AddTags(Vec<String>),
     RemoveTags(Vec<String>),

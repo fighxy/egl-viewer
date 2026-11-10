@@ -4,7 +4,6 @@
 use std::collections::HashMap;
 
 use serde::Serialize;
-use ts_rs::TS;
 
 use crate::edit::ItemEdit;
 use crate::model::ItemId;
@@ -33,9 +32,8 @@ pub struct UndoStep {
 }
 
 /// Which kind of edit an undo takes back; the menu names it.
-#[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, TS)]
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize)]
 #[serde(rename_all = "camelCase")]
-#[ts(export)]
 pub enum EditKind {
     AddTags,
     RemoveTags,
@@ -69,9 +67,8 @@ impl ItemEdit {
 }
 
 /// The edit that `Ctrl+Z` would take back.
-#[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, TS)]
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize)]
 #[serde(rename_all = "camelCase")]
-#[ts(export)]
 pub struct UndoStatus {
     pub kind: EditKind,
     /// Items the edit changed.

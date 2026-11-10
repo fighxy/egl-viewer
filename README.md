@@ -3,9 +3,8 @@
 A standalone desktop app for collections of images and design references: its own library
 (`Name.eglib`) with folders, tags, ratings, notes, search, filters and smart folders.
 Compatible with [Eagle](https://eagle.cool): import Eagle libraries, connect to a running Eagle
-on the same PC or in the network, export into Eagle. **Shipping Windows desktop today:** Tauri 2
-+ React. **Cutover path (D-133):** native GPUI Kit host (`gpui-desktop`) with dual CI/packaging;
-Tauri/`ui/` stay until retirement is confirmed. Windows first; no AI features.
+on the same PC or in the network, export into Eagle. **Shipping Windows desktop:** the native
+GPUI Kit host (`gpui-desktop`). Windows first; no AI features.
 
 - What the app does: [`docs/spec.md`](docs/spec.md)
 - How it is built: [`docs/architecture.md`](docs/architecture.md)
@@ -15,70 +14,62 @@ Tauri/`ui/` stay until retirement is confirmed. Windows first; no AI features.
 
 ## Status
 
-| Phase | State |
+| Area | State |
 |---|---|
-| 0. Project skeleton | Done (2026-10-28): workspace, core types, the `LibrarySource` trait, Welcome screen, Connect screen without networking, tests, CI |
-| 1. Native library: create and open | Implemented (2026-10-28), CI on Windows green, the manual done check on Windows still open: `library-native` (create, open, the OS lock, recovery, backups, `add_file`), library locations and recent libraries in `app-store`, the library commands, the window frame with the menu bar, Welcome, the empty library screen, Settings, About and Keyboard Shortcuts (D-032) |
-| 2. Adding files and the media pipeline | Implemented (2026-10-28), CI on Windows green, the manual done check on Windows still open: the `media` crate (thumbnails, palettes, EXIF), batches with one duplicate question, Add files, dropping and pasting, progress, the Imports panel, counts (D-037). Import Folder… reviews one picked folder before copy (D-061) |
-| 3. Grid and detail | Implemented (2026-10-28), waiting for the done check on Windows: the local pipeline, the sorter and views in `library-core`, `load_scope` in SQL and the native `LibrarySource`, the view commands, the `thumb` scheme, the virtualized justified grid and list, selection, sort, thumbnail size, the read-only details panel, the full-size preview (D-041, D-067) |
-| 4. Folders | Implemented (2026-10-28), waiting for the done check on Windows. 4a: the folder tree with counts, create, rename, colour, description, folder tags, move with the cycle guard, sibling order, delete, membership (picker, dragging items onto folders, files added into the open folder, mirrored dropped folders), Include subfolders, the folder's own sort, manual order by dragging (D-042, D-043). 4b: locked folders, encrypted at rest with age, each with its own password, Argon2id, recovery key and item keys; the Locked folders section (locked folders are listed only there, not also in Folders, D-059), unlock and Lock All Folders, change password, a new recovery key, removing a lock (D-044, D-045). A YubiKey 5C is an optional third wrap (retired PIV slots 82–95); app login is exactly one of password, PIN, or WebAuthn (D-056) |
-| 5. Tags | Implemented (2026-10-28), waiting for the done check on Windows: the tag editor in the right bar with vocabulary suggestions, tagging a selection with tags on only some items dimmed, the Tags filter (counts, Any / All / Exact / None, recent tags, groups), the filter bar, rename, merge and delete everywhere, tag groups, Tag groups and Recent tags in the left bar (D-046). Dropping items onto a tag row there adds that tag (D-057) |
-| 6. Search, filters and smart folders | Implemented (2026-10-29), waiting for the done check on Windows: search as in Eagle (any part of a word, `OR`, `-`, parentheses) through an FTS5 trigram index (format version 3), the filter bar with Tags, Folders, Type, Rating and Shape, smart folders with their own tree, Eagle's rules evaluated locally for the v1 subset, the rule editor, Save as smart folder (D-047, D-048) |
-| 7. Editing and trash | Implemented (2026-10-29), waiting for the done check on Windows: name (the stored file is renamed too), note, link and rating edited in place, batch rating, undo of the last edits (`Ctrl+Z`), the trash with restore, delete permanently and Empty Trash (files removed, with progress and cancel — D-074), dragging items onto the Trash row (same confirmation as Delete, D-073), Open with the default app, Show in Explorer, Copy File, dragging originals out from the right bar, the right-click menu, Library Settings with backups and restore, Check Library with repair, Rebuild Thumbnails (D-049 to D-052). Backup… / Export… copy originals to a folder, a ZIP or a 7z (optional passphrase of at least 8 characters: an age file encrypted while written, an AES-256 ZIP for 7-Zip / WinRAR, or a 7z with hidden names; D-112, D-113), with progress and cancel (D-064 to D-066); File → Decrypt Archive… opens an encrypted export again (D-110) |
-| 8. Eagle: import from a library folder | Implemented (2026-11-01), the done check on Windows with a real Eagle library still open: the `eagle-folder` crate (read-only, retries on half-written JSON, passwords dropped), the resumable import in transactions of 500 with the `eagle_import` state table (format version 5, D-072), Eagle thumbnails as the first thumbnails, locked folders imported locked with no identity and plaintext files, the wizard from Welcome and the File menu, the report (imported, duplicates by hash, skipped, locked folders) (D-071) |
-| 9. Eagle: live connection (browse) | Implemented (2026-11-01), done checks against a real Eagle still open: `eagle-api` transport (`EagleHttp`, errors, pagination), `SecretStore` on Credential Manager, `connect_eagle` / `eagle_session` / `disconnect_eagle`, Connect screen wired, `EagleSource` browse (D-075) |
-| 10. Eagle: live edits, adds, thumbnails | Implemented (2026-11-01), done checks against a real Eagle still open: `ItemMutator` / folder updates / tag rename-merge, same-PC `path` and remote data-URL `item/add` with “Importing…” cells, same-PC thumbnails (incl. `noThumbnail` downscale); remote thumbs wait for the helper plugin; undo of item edits stays native-only |
-| 11. Eagle: export into Eagle | Implemented (2026-11-01), done check against a real Eagle still open: Export… offers “Into a running Eagle”, folders top-down then items (same-PC `path` / remote data URL), comments, tag groups and smart folders through the API; `eagle_id` columns store the mapping so a second export updates (D-077) |
-| 12. Hardening and the Windows release | In progress: restore place/filters/selection per library (D-078); file logs + Help → Open Log Folder (D-079); clear Eagle token from Connect/Export forms after send (D-080); a11y Home/End and filter aria (D-081); updater (D-062) and bundled libheif (D-070) already in. Custom title bar (D-025), Authenticode, notarization, 100k/manual done checks and the clean-machine done check remain open |
-| iOS app (not a numbered phase) | Done (2026-11-05): the foundation on `EglCore` and the shared core (D-091–D-100): Welcome, create in On My iPhone, open from Files (iCloud read-only), recent libraries; browsing (D-094): places, folders and smart folders, a lazy grid and a list by view id, sort, thumbnail size, search, filters, selection with Select All, the saved view; the preview with zoom, item details and edits, actions on a selection with undo, sharing originals (D-095); adding from Photos, Files, the clipboard and drops with the duplicate question, HEIC through ImageIO (D-096); folders, tags, tag groups and the smart folder editor (D-097); locked folders, locking on leaving and the app login with Face ID (D-098); Settings with backups, check and repair, rebuilt thumbnails and export to Files (D-099); Eagle library import into a new library (D-116); light and dark, en / ru / zh-Hans; icon, privacy manifest, accessibility audit, 10,000 items, unsigned IPA releases by tag `ios-vX.Y.Z` (D-100); see [`ios/README.md`](ios/README.md) |
-| Android app (not a numbered phase) | Done (2026-11-05): A1–A8 (D-101…D-108, ≈ iOS D-093…D-100): Kotlin `eglcore` over JNI / `library-ffi`, real `.so` (no mock), Welcome, places, lazy grid by view id, thumbs, filters, selection; full-screen preview pager + zoom, details sheet, selection actions with undo snackbar, share originals (≤100 temp copies); adding from Gallery / Files / folder / paste / drops with duplicate question and HEIC through ImageDecoder; folders / tags / tag groups / smart folder editor; locked folders + App Lock (PIN / biometrics, relock on background); Settings with backups, check and repair, rebuilt thumbnails, export and Decrypt Archive (no Eagle); libraries anywhere on the phone with All files access (D-111); Eagle library import into a new library (D-116); icon, Privacy screen, TalkBack labels, 10,000-item perf test, APK/AAB releases by tag `android-vX.Y.Z` (D-108); en / ru / zh; see [`android/README.md`](android/README.md). Not Tauri Android |
-| Mobile CI (not a numbered phase) | [`.github/workflows/mobile.yml`](.github/workflows/mobile.yml): Linux `library-ffi` and the shells' layout and strings; Android cargo-ndk `.so`, JVM unit tests, `assembleDebug`, tagged APK/AAB (`android-release`); macOS `EglCore` tests (`ios-core`), app unit and UI tests on a simulator (`ios-app`), the unsigned device IPA (`ios-ipa`, rolling `ios-latest`) (D-084, D-092, D-093, D-100, D-101, D-108) |
-| GPUI desktop (cutover path) | Phase 5 dual path (D-133): portable zip packaging (`scripts/package-gpui-desktop.ps1` + heif DLLs), Help → Check for Updates… / silent check against `latest-gpui.json` (open-download; signed install deferred), About licenses, CI job `gpui-desktop`. Phases 1–4 feature slices remain (D-129…D-132). Library menu (Create, Open, Switch Ctrl+L, Clear History, Clear Cache and Reload) and Eagle-style Settings (D-137). Minimum window 960×600 (D-138). Show in Explorer stays up with the app (D-139). **Tauri/`ui/` still ship** `pnpm dev` / NSIS until Ivan confirms retirement. Deferred: GPUI NSIS, Authenticode, minisign install/relaunch, clean-machine done check, merging libraries, interface zoom |
+| Project skeleton | Done (2026-10-28): workspace, core types, the `LibrarySource` trait, Welcome screen, Connect screen without networking, tests, CI |
+| Native library: create and open | Implemented (2026-10-28), CI on Windows green, the manual done check on Windows still open: `library-native` (create, open, the OS lock, recovery, backups, `add_file`), library locations and recent libraries in `app-store`, the library commands, the window frame with the menu bar, Welcome, the empty library screen, Settings, About and Keyboard Shortcuts (D-032) |
+| Adding files and the media pipeline | Implemented (2026-10-28), CI on Windows green, the manual done check on Windows still open: the `media` crate (thumbnails, palettes, EXIF), batches with one duplicate question, Add files, dropping and pasting, progress, the Imports panel, counts (D-037). Import Folder… reviews one picked folder before copy (D-061) |
+| Grid and detail | Implemented (2026-10-28), waiting for the done check on Windows: the local pipeline, the sorter and views in `library-core`, `load_scope` in SQL and the native `LibrarySource`, the view commands, the `thumb` scheme, the virtualized justified grid and list, selection, sort, thumbnail size, the read-only details panel, the full-size preview (D-041, D-067) |
+| Folders | Implemented (2026-10-28), waiting for the done check on Windows. 4a: the folder tree with counts, create, rename, colour, description, folder tags, move with the cycle guard, sibling order, delete, membership (picker, dragging items onto folders, files added into the open folder, mirrored dropped folders), Include subfolders, the folder's own sort, manual order by dragging (D-042, D-043). 4b: locked folders, encrypted at rest with age, each with its own password, Argon2id, recovery key and item keys; the Locked folders section (locked folders are listed only there, not also in Folders, D-059), unlock and Lock All Folders, change password, a new recovery key, removing a lock (D-044, D-045). A YubiKey 5C is an optional third wrap (retired PIV slots 82–95); app login is exactly one of password, PIN, or WebAuthn (D-056) |
+| Tags | Implemented (2026-10-28), waiting for the done check on Windows: the tag editor in the right bar with vocabulary suggestions, tagging a selection with tags on only some items dimmed, the Tags filter (counts, Any / All / Exact / None, recent tags, groups), the filter bar, rename, merge and delete everywhere, tag groups, Tag groups and Recent tags in the left bar (D-046). Dropping items onto a tag row there adds that tag (D-057) |
+| Search, filters and smart folders | Implemented (2026-10-29), waiting for the done check on Windows: search as in Eagle (any part of a word, `OR`, `-`, parentheses) through an FTS5 trigram index (format version 3), the filter bar with Tags, Folders, Type, Rating and Shape, smart folders with their own tree, Eagle's rules evaluated locally for the v1 subset, the rule editor, Save as smart folder (D-047, D-048) |
+| Editing and trash | Implemented (2026-10-29), waiting for the done check on Windows: name (the stored file is renamed too), note, link and rating edited in place, batch rating, undo of the last edits (`Ctrl+Z`), the trash with restore, delete permanently and Empty Trash (files removed, with progress and cancel — D-074), dragging items onto the Trash row (same confirmation as Delete, D-073), Open with the default app, Show in Explorer, Copy File, dragging originals out from the right bar, the right-click menu, Library Settings with backups and restore, Check Library with repair, Rebuild Thumbnails (D-049 to D-052). Backup… / Export… copy originals to a folder, a ZIP or a 7z (optional passphrase of at least 8 characters: an age file encrypted while written, an AES-256 ZIP for 7-Zip / WinRAR, or a 7z with hidden names; D-112, D-113), with progress and cancel (D-064 to D-066); File → Decrypt Archive… opens an encrypted export again (D-110) |
+| Eagle: import from a library folder | Implemented (2026-11-01), the done check on Windows with a real Eagle library still open: the `eagle-folder` crate (read-only, retries on half-written JSON, passwords dropped), the resumable import in transactions of 500 with the `eagle_import` state table (format version 5, D-072), Eagle thumbnails as the first thumbnails, locked folders imported locked with no identity and plaintext files, the wizard from Welcome and the File menu, the report (imported, duplicates by hash, skipped, locked folders) (D-071) |
+| Eagle: live connection (browse) | Implemented (2026-11-01), done checks against a real Eagle still open: `eagle-api` transport (`EagleHttp`, errors, pagination), `SecretStore` on Credential Manager, `connect_eagle` / `eagle_session` / `disconnect_eagle`, Connect screen wired, `EagleSource` browse (D-075) |
+| Eagle: live edits, adds, thumbnails | Implemented (2026-11-01), done checks against a real Eagle still open: `ItemMutator` / folder updates / tag rename-merge, same-PC `path` and remote data-URL `item/add` with “Importing…” cells, same-PC thumbnails (incl. `noThumbnail` downscale); remote thumbs wait for the helper plugin; undo of item edits stays native-only |
+| Eagle: export into Eagle | Implemented (2026-11-01), done check against a real Eagle still open: Export… offers “Into a running Eagle”, folders top-down then items (same-PC `path` / remote data URL), comments, tag groups and smart folders through the API; `eagle_id` columns store the mapping so a second export updates (D-077) |
+| Hardening and the Windows release | In progress: restore place/filters/selection per library (D-078); file logs + Help → Open Log Folder (D-079); clear Eagle token from Connect/Export forms after send (D-080); a11y Home/End and filter aria (D-081); updater (D-062) and bundled libheif (D-070) already in. Custom title bar (D-025), Authenticode, notarization, 100k/manual done checks and the clean-machine done check remain open |
+| iOS app | Done (2026-11-05): the foundation on `EglCore` and the shared core (D-091–D-100): Welcome, create in On My iPhone, open from Files (iCloud read-only), recent libraries; browsing (D-094): places, folders and smart folders, a lazy grid and a list by view id, sort, thumbnail size, search, filters, selection with Select All, the saved view; the preview with zoom, item details and edits, actions on a selection with undo, sharing originals (D-095); adding from Photos, Files, the clipboard and drops with the duplicate question, HEIC through ImageIO (D-096); folders, tags, tag groups and the smart folder editor (D-097); locked folders, locking on leaving and the app login with Face ID (D-098); Settings with backups, check and repair, rebuilt thumbnails and export to Files (D-099); Eagle library import into a new library (D-116); light and dark, en / ru / zh-Hans; icon, privacy manifest, accessibility audit, 10,000 items, unsigned IPA releases by tag `ios-vX.Y.Z` (D-100); see [`ios/README.md`](ios/README.md) |
+| Android app | Done (2026-11-05): A1–A8 (D-101…D-108, ≈ iOS D-093…D-100): Kotlin `eglcore` over JNI / `library-ffi`, real `.so` (no mock), Welcome, places, lazy grid by view id, thumbs, filters, selection; full-screen preview pager + zoom, details sheet, selection actions with undo snackbar, share originals (≤100 temp copies); adding from Gallery / Files / folder / paste / drops with duplicate question and HEIC through ImageDecoder; folders / tags / tag groups / smart folder editor; locked folders + App Lock (PIN / biometrics, relock on background); Settings with backups, check and repair, rebuilt thumbnails, export and Decrypt Archive (no Eagle); libraries anywhere on the phone with All files access (D-111); Eagle library import into a new library (D-116); icon, Privacy screen, TalkBack labels, 10,000-item perf test, APK/AAB releases by tag `android-vX.Y.Z` (D-108); en / ru / zh; see [`android/README.md`](android/README.md) |
+| Mobile CI | [`.github/workflows/mobile.yml`](.github/workflows/mobile.yml): Linux `library-ffi` and the shells' layout and strings; Android cargo-ndk `.so`, JVM unit tests, `assembleDebug`, tagged APK/AAB (`android-release`); macOS `EglCore` tests (`ios-core`), app unit and UI tests on a simulator (`ios-app`), the unsigned device IPA (`ios-ipa`, rolling `ios-latest`) (D-084, D-092, D-093, D-100, D-101, D-108) |
+| GPUI desktop (the shipping Windows app) | Portable zip packaging (`scripts/package-gpui-desktop.ps1` + heif DLLs), Help → Check for Updates… / silent check against `latest-gpui.json` (open-download; signed install deferred), About licenses, CI job `gpui-desktop`. Feature slices remain (D-129…D-132). Library menu (Create, Open, Switch Ctrl+L, Clear History, Clear Cache and Reload) and Eagle-style Settings (D-137). Minimum window 960×600 (D-138). Show in Explorer stays up with the app (D-139). Right-click menus for items and folders, Eagle's item shortcuts (rating keys, `F2`, tag copy / paste), Add to Folder(s) `Ctrl+Shift+J` and Go to Folder `Ctrl+J` (D-140). Eagle-like chrome: thumbnails fill their cells, captions with pixel size, a two-row toolbar with a size slider and a filter bar, icons and a visible selection in the left bar (D-141). Known gap: a view shows its first 500 items only (D-129, D-141). Deferred: GPUI NSIS, Authenticode, minisign install/relaunch, clean-machine done check, merging libraries, interface zoom |
 
-The full plan is in [`docs/spec.md` §9](docs/spec.md). The Project-store plan for auto-update is mirrored by **D-062** in [`docs/decisions.md`](docs/decisions.md); set GitHub secrets `TAURI_SIGNING_PRIVATE_KEY` (and optional `TAURI_SIGNING_PRIVATE_KEY_PASSWORD`) before tagging a release. A tag `vX.Y.Z` (the version of `tauri.conf.json`, notes in `docs/releases/X.Y.Z.md`) builds the installers and publishes the GitHub Release with them, their signatures and `latest.json` (D-100); a tag `ios-vX.Y.Z` publishes the iPhone IPA; a tag `android-vX.Y.Z` publishes the Android APK and AAB (D-108). Already-installed builds without the updater need **one last manual install** of the first updater-enabled release.
+What is out of scope is in [`docs/spec.md` §9](docs/spec.md). A tag `vX.Y.Z` (the workspace
+version in `Cargo.toml`, notes in `docs/releases/X.Y.Z.md`) builds the GPUI portable zip and
+publishes the GitHub Release with it and `latest-gpui.json` (D-100); a tag `ios-vX.Y.Z` publishes
+the iPhone IPA; a tag `android-vX.Y.Z` publishes the Android APK and AAB (D-108).
 
 ## Requirements (Windows)
 
 - Rust via `rustup` (the toolchain in `rust-toolchain.toml` installs on first use)
 - Visual Studio Build Tools 2022 with "Desktop development with C++"
-- WebView2 Runtime (part of Windows 11)
-- Node.js 24 LTS and pnpm 12 (`npm install --global pnpm`)
 - [vcpkg](https://vcpkg.io) with `libheif[core,libde265]:x64-windows` for HEIC/HEIF (D-063);
   set `VCPKG_ROOT` and `VCPKGRS_DYNAMIC=1`, and put `installed/x64-windows/bin` on `PATH` for
-  tests. A release / NSIS build also runs `pwsh scripts/bundle-heif-dlls.ps1` so the installer
+  tests. A portable release build also runs `pwsh scripts/bundle-heif-dlls.ps1` so the zip
   ships `heif.dll` and `libde265.dll` beside the exe (D-070)
-- Eagle 4.0 or newer, only for the Eagle phases (9–11)
+- Eagle 4.0 or newer, only for the Eagle features (import, live connection, export)
 
 ## Getting started
 
 ```bash
-pnpm install
-pnpm dev
+pwsh scripts/run-gpui-desktop.ps1
 ```
 
-`pnpm dev` starts Vite and the **shipping Tauri** window with hot reload. The UI alone also runs
-in a browser (`pnpm --filter egl-viewer-ui dev`, then http://localhost:5173), without the Rust
-side. The GPUI host (cutover path): `pwsh scripts/run-gpui-desktop.ps1` (or
-`cargo run -p gpui-desktop` with `VCPKG_ROOT` / `VCPKGRS_DYNAMIC` / heif PATH as below).
-If workspace `target/` grows past 20 GiB on Windows,
-`pwsh scripts/clean-target-if-huge.ps1` runs `cargo clean` (D-135; never touches `.eglib` or
-vcpkg).
+(or `cargo run -p gpui-desktop` with `VCPKG_ROOT` / `VCPKGRS_DYNAMIC` / the vcpkg
+`installed/x64-windows/bin` heif PATH as above). If workspace `target/` grows past 20 GiB on
+Windows, `pwsh scripts/clean-target-if-huge.ps1` runs `cargo clean` (D-135; never touches
+`.eglib` or vcpkg).
 
 ## Commands
 
 | Command | What it does |
 |---|---|
-| `pnpm dev` | Run the **Tauri** shipping app in development mode |
-| `pnpm build` | Build the Tauri release app and the NSIS installer |
 | `pwsh scripts/run-gpui-desktop.ps1` | Run the GPUI Kit desktop host with vcpkg heif on PATH (D-133 / D-134) |
 | `pwsh scripts/package-gpui-desktop.ps1` | Stage/zip GPUI portable layout + heif DLLs |
 | `pwsh scripts/clean-target-if-huge.ps1` | If workspace `target/` is over 20 GiB, run `cargo clean` (D-135; never touches `.eglib` / vcpkg) |
 | `pwsh scripts/package-gpui-desktop.ps1 -CleanHugeTarget` | Same size check before a GPUI portable build |
-| `pnpm check` | Everything CI runs: rustfmt, clippy, Rust tests, Biome, TypeScript, UI tests |
-| `cargo test --workspace` | Rust tests; also regenerates the TypeScript types in `ui/src/ipc/generated/` |
-| `pnpm test` | UI tests (Vitest) |
-| `pnpm lint` | Biome lint and format check |
-| `pnpm typecheck` | TypeScript type check |
+| `npm run check` | Everything CI runs: rustfmt, clippy, Rust tests |
+| `cargo test --workspace` | Rust tests |
 | `EGL_DEMO_PARENT=<folder> cargo test --release -p library-native -- --ignored demo_library` | Makes `Demo.eglib` with 10 000 images in that folder, for checking the app by hand (`EGL_DEMO_COUNT` changes the number) |
 
 ## Layout
@@ -87,14 +78,12 @@ vcpkg).
 crates/library-core/   models, queries and views (filters, sorter), edits, errors, the LibrarySource trait (no IO)
 crates/library-native/ the native library: create, open, the library lock, recovery, adding files, scopes in SQL, edits, backups, export of originals, checks
 crates/app-service/    the open native library as an app uses it: views, undo, edits, tasks (desktop and mobile, D-091)
-crates/desktop-session/ toolkit-free desktop Session over app-service (D-127); shared by Tauri and gpui-desktop
+crates/desktop-session/ toolkit-free desktop Session over app-service (D-127); shared by the desktop hosts
 crates/library-ffi/    C ABI over app-service for the mobile apps (D-082, D-083, D-092); no Eagle
 crates/app-store/      settings, recent libraries, library locations, secrets
-crates/eagle-api/      a running Eagle as a LibrarySource (transport from phase 9)
-crates/eagle-folder/   read-only Eagle `.library` folder parsing (phase 8, D-071)
+crates/eagle-api/      a running Eagle as a LibrarySource (transport for the live connection)
+crates/eagle-folder/   read-only Eagle `.library` folder parsing (D-071)
 crates/media/          decoding, thumbnails, palettes and EXIF for the native library
-src-tauri/             the Tauri app: thin commands over desktop-session, configuration, capabilities, icons
-ui/                    React + TypeScript + Tailwind + shadcn/ui; i18n catalogs in ui/src/i18n/ (en, ru, zh-CN; D-069)
 crates/gpui-desktop/   GPUI Kit desktop host (D-126–D-133); `cargo run -p gpui-desktop`; portable zip via `scripts/package-gpui-desktop.ps1`
 ios/                   experimental SwiftUI iPhone draft (D-082); see ios/README.md
 android/               Jetpack Compose app (A1–A8, D-101–D-108); see android/README.md
@@ -106,5 +95,4 @@ fixtures/eagle-library/ synthetic Eagle `.library` for the folder import (D-071)
 ## Tests
 
 Every change comes with tests. Rust logic is tested with `cargo test` (unit tests next to the
-code, contract tests in `crates/*/tests`), the UI with Vitest and Testing Library, with Tauri IPC
-mocked through `@tauri-apps/api/mocks`.
+code, contract tests in `crates/*/tests`).

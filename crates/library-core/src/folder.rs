@@ -1,7 +1,6 @@
 //! Folder edits and the order of siblings (docs/spec.md §3, docs/architecture.md §7.2, §7.3).
 
 use serde::{Deserialize, Serialize};
-use ts_rs::TS;
 
 use crate::edit::MAX_TEXT_UTF16;
 use crate::error::SourceError;
@@ -14,13 +13,12 @@ pub const FOLDER_COLORS: [&str; 8] = [
 
 /// A folder edit. `Update` carries the folder's full desired properties: Eagle moves a nested
 /// folder to the root and clears its colour when fields are missing (corrections 3, 31).
-#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize, TS)]
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
 #[serde(
     tag = "type",
     rename_all = "camelCase",
     rename_all_fields = "camelCase"
 )]
-#[ts(export)]
 pub enum FolderChange {
     /// A new folder after the last child of `parent` (`None`: at the root).
     Create {

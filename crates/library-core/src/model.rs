@@ -3,7 +3,6 @@
 use std::sync::Arc;
 
 use serde::{Deserialize, Serialize};
-use ts_rs::TS;
 
 use crate::query::SortKey;
 
@@ -12,7 +11,6 @@ use crate::query::SortKey;
 #[derive(
     Debug, Clone, PartialEq, Eq, Hash, PartialOrd, Ord, Default, Serialize, Deserialize, TS,
 )]
-#[ts(export)]
 pub struct ItemId(pub String);
 
 impl From<&str> for ItemId {
@@ -22,9 +20,8 @@ impl From<&str> for ItemId {
 }
 
 /// Which kind of library a source serves.
-#[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize, TS)]
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize)]
 #[serde(rename_all = "camelCase")]
-#[ts(export)]
 pub enum LibraryKind {
     /// A running Eagle, through its HTTP API.
     EagleApi,
@@ -34,9 +31,8 @@ pub enum LibraryKind {
     Native,
 }
 
-#[derive(Debug, Clone, PartialEq, Serialize, Deserialize, TS)]
+#[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
 #[serde(rename_all = "camelCase")]
-#[ts(export)]
 pub struct LibraryInfo {
     pub kind: LibraryKind,
     /// The native library's `meta.library_id`; a copy of the folder keeps it.
@@ -54,9 +50,8 @@ pub struct LibraryInfo {
 }
 
 /// Why a native library is open read-only (docs/library-format.md §5).
-#[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize, TS)]
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize)]
 #[serde(rename_all = "camelCase")]
-#[ts(export)]
 pub enum ReadOnlyReason {
     /// Another egl-viewer holds the library's lock.
     OtherInstance,
@@ -67,9 +62,8 @@ pub enum ReadOnlyReason {
 }
 
 /// The writer named in the native library's `meta.open_by`.
-#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize, TS)]
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
 #[serde(rename_all = "camelCase")]
-#[ts(export)]
 pub struct LibraryHolder {
     pub computer: String,
     /// When that instance opened the library, ms.
@@ -78,9 +72,8 @@ pub struct LibraryHolder {
 
 /// A folder node. The parent is implied by nesting: Eagle's `folder/get` has no `parent` field
 /// (correction 8). Passwords never reach this type, only `is_locked` (§5).
-#[derive(Debug, Clone, PartialEq, Default, Serialize, Deserialize, TS)]
+#[derive(Debug, Clone, PartialEq, Default, Serialize, Deserialize)]
 #[serde(rename_all = "camelCase", default)]
-#[ts(export)]
 pub struct Folder {
     pub id: String,
     pub name: String,
@@ -112,19 +105,17 @@ pub struct Folder {
 
 /// The recovery secret of a new lock, shown once and never stored (docs/age-locked-folders.md
 /// §7): the key, and the same bits as 12 words.
-#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize, TS)]
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
 #[serde(rename_all = "camelCase")]
-#[ts(export)]
 pub struct RecoveryKey {
     pub key: String,
     pub phrase: String,
 }
 
 /// How a YubiKey opens one locked folder. Touch and PIN are alternatives: the PIN replaces
-/// the touch, it is not a second step, and it is not the app login PIN (spec §13).
-#[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize, TS)]
+/// the touch, it is not a second step, and it is not the app login PIN (spec §12).
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize)]
 #[serde(rename_all = "camelCase")]
-#[ts(export)]
 pub enum PivPolicy {
     Touch,
     Pin,
@@ -132,9 +123,8 @@ pub enum PivPolicy {
 
 /// One YubiKey bound to a locked folder. The private key stays on the card; this is only
 /// what the UI needs to ask for a touch or a PIN.
-#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize, TS)]
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
 #[serde(rename_all = "camelCase")]
-#[ts(export)]
 pub struct PivWrap {
     pub serial: String,
     /// Retired PIV slot, 130–149 (hex 82–95).
@@ -143,9 +133,8 @@ pub struct PivWrap {
 }
 
 /// What the user does to open a folder with a bound YubiKey. One variant, never both.
-#[derive(Clone, PartialEq, Eq, Serialize, Deserialize, TS)]
+#[derive(Clone, PartialEq, Eq, Serialize, Deserialize)]
 #[serde(tag = "kind", rename_all = "camelCase")]
-#[ts(export)]
 pub enum PivPrompt {
     Touch,
     Pin { pin: String },
@@ -161,8 +150,7 @@ impl std::fmt::Debug for PivPrompt {
 }
 
 /// One colour of an item's palette, as Eagle stores it: `{ color: [r, g, b], ratio }`.
-#[derive(Debug, Clone, Copy, PartialEq, Serialize, Deserialize, TS)]
-#[ts(export)]
+#[derive(Debug, Clone, Copy, PartialEq, Serialize, Deserialize)]
 pub struct Palette {
     pub color: [u8; 3],
     /// Share of the image in percent; can be fractional.
@@ -206,9 +194,8 @@ pub struct ItemLite {
 }
 
 /// The full item for the detail panel.
-#[derive(Debug, Clone, PartialEq, Default, Serialize, Deserialize, TS)]
+#[derive(Debug, Clone, PartialEq, Default, Serialize, Deserialize)]
 #[serde(rename_all = "camelCase", default)]
-#[ts(export)]
 pub struct Item {
     pub id: ItemId,
     pub name: String,
@@ -237,9 +224,8 @@ pub struct Item {
     pub deleted_at: Option<i64>,
 }
 
-#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize, TS)]
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
 #[serde(rename_all = "camelCase")]
-#[ts(export)]
 pub struct Tag {
     /// The tag's identity is the exact, case-sensitive string.
     pub name: String,
@@ -247,9 +233,8 @@ pub struct Tag {
     pub image_count: Option<u32>,
 }
 
-#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize, TS)]
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
 #[serde(rename_all = "camelCase")]
-#[ts(export)]
 pub struct TagGroup {
     pub id: String,
     pub name: String,
@@ -257,9 +242,8 @@ pub struct TagGroup {
     pub tags: Vec<String>,
 }
 
-#[derive(Debug, Clone, PartialEq, Serialize, Deserialize, TS)]
+#[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
 #[serde(rename_all = "camelCase")]
-#[ts(export)]
 pub struct SmartFolder {
     pub id: String,
     pub name: String,
@@ -276,9 +260,8 @@ pub struct SmartFolder {
 
 /// One file extension of the library and how many items outside the trash have it, for the
 /// Type filter.
-#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize, TS)]
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
 #[serde(rename_all = "camelCase")]
-#[ts(export)]
 pub struct ExtensionCount {
     /// Lowercase, without the dot.
     pub ext: String,
@@ -306,9 +289,8 @@ pub struct Changes {
 }
 
 /// A file to add, by path on the computer that runs the app.
-#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize, TS)]
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
 #[serde(rename_all = "camelCase")]
-#[ts(export)]
 pub struct NewFile {
     pub path: String,
     /// Defaults to the file name without extension.
@@ -316,9 +298,8 @@ pub struct NewFile {
 }
 
 /// Where and how added files land.
-#[derive(Debug, Clone, PartialEq, Eq, Default, Serialize, Deserialize, TS)]
+#[derive(Debug, Clone, PartialEq, Eq, Default, Serialize, Deserialize)]
 #[serde(rename_all = "camelCase", default)]
-#[ts(export)]
 pub struct AddTarget {
     pub folders: Vec<String>,
     pub tags: Vec<String>,
@@ -326,16 +307,14 @@ pub struct AddTarget {
     pub annotation: Option<String>,
 }
 
-#[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize, TS)]
-#[ts(export)]
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize)]
 pub struct ImportTicket {
     pub id: u64,
 }
 
 /// What an import task is doing (docs/spec.md §4).
-#[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize, TS)]
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize)]
 #[serde(rename_all = "camelCase")]
-#[ts(export)]
 pub enum ImportState {
     /// Walking dropped folders.
     Scanning,
@@ -351,27 +330,24 @@ pub enum ImportState {
 
 /// Files the user added, previews that the library makes after a restart, or an Eagle
 /// library import.
-#[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize, TS)]
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize)]
 #[serde(rename_all = "camelCase")]
-#[ts(export)]
 pub enum ImportKind {
     Files,
     Previews,
     Eagle,
 }
 
-#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize, TS)]
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
 #[serde(rename_all = "camelCase")]
-#[ts(export)]
 pub struct ImportFailure {
     pub path: String,
     pub reason: String,
 }
 
 /// A file whose content is already in the library.
-#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize, TS)]
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
 #[serde(rename_all = "camelCase")]
-#[ts(export)]
 pub struct DuplicateNotice {
     pub path: String,
     /// The id of the item that has the same content.
@@ -383,9 +359,8 @@ pub struct DuplicateNotice {
 
 /// The result of an Eagle library import (docs/spec.md §8.2 step 5); the final
 /// `import-progress` event carries it.
-#[derive(Debug, Clone, PartialEq, Eq, Default, Serialize, Deserialize, TS)]
+#[derive(Debug, Clone, PartialEq, Eq, Default, Serialize, Deserialize)]
 #[serde(rename_all = "camelCase", default)]
-#[ts(export)]
 pub struct EagleImportReport {
     /// Items copied into the library, trash included (when the option was on).
     pub imported: u32,
@@ -403,9 +378,8 @@ pub struct EagleImportReport {
 }
 
 /// The state of one import task, sent to the UI as it changes (`import-progress` events).
-#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize, TS)]
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
 #[serde(rename_all = "camelCase")]
-#[ts(export)]
 pub struct ImportProgress {
     pub id: u64,
     pub kind: ImportKind,
@@ -436,9 +410,8 @@ pub struct ImportProgress {
 }
 
 /// Items per fixed row of the left bar (docs/spec.md §7.3).
-#[derive(Debug, Clone, Copy, PartialEq, Eq, Default, Serialize, Deserialize, TS)]
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Default, Serialize, Deserialize)]
 #[serde(rename_all = "camelCase")]
-#[ts(export)]
 pub struct LibraryCounts {
     pub all: u32,
     pub uncategorized: u32,
@@ -447,9 +420,8 @@ pub struct LibraryCounts {
 }
 
 /// Items and bytes of the trash, for the context menu of its row (docs/spec.md §3 Trash).
-#[derive(Debug, Clone, Copy, PartialEq, Eq, Default, Serialize, Deserialize, TS)]
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Default, Serialize, Deserialize)]
 #[serde(rename_all = "camelCase")]
-#[ts(export)]
 pub struct TrashInfo {
     pub items: u32,
     pub bytes: u64,
@@ -457,9 +429,8 @@ pub struct TrashInfo {
 
 /// What a reviewed import found under the picked folder (docs/spec.md §4). Nothing is copied
 /// until the user confirms.
-#[derive(Debug, Clone, PartialEq, Eq, Default, Serialize, Deserialize, TS)]
+#[derive(Debug, Clone, PartialEq, Eq, Default, Serialize, Deserialize)]
 #[serde(rename_all = "camelCase")]
-#[ts(export)]
 pub struct ImportPreview {
     /// Every file under the picked folder.
     pub files: u32,
@@ -472,9 +443,8 @@ pub struct ImportPreview {
 }
 
 /// One node of the import preview tree.
-#[derive(Debug, Clone, PartialEq, Eq, Default, Serialize, Deserialize, TS)]
+#[derive(Debug, Clone, PartialEq, Eq, Default, Serialize, Deserialize)]
 #[serde(rename_all = "camelCase")]
-#[ts(export)]
 pub struct PreviewEntry {
     pub name: String,
     /// `true` for a folder, `false` for a file.

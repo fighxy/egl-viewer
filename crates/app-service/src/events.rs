@@ -6,38 +6,33 @@ use std::sync::Arc;
 
 use library_core::{ExportProgress, ImportProgress, ItemId};
 use serde::{Deserialize, Serialize};
-use ts_rs::TS;
 
 /// `open_view` answers with the view's id and how many items it has.
-#[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, TS)]
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize)]
 #[serde(rename_all = "camelCase")]
-#[ts(export)]
 pub struct ViewOpened {
     pub view_id: u64,
     pub total: u32,
 }
 
 /// Sent through the `Channel` of `open_view` while a scope loads.
-#[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, TS)]
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize)]
 #[serde(rename_all = "camelCase")]
-#[ts(export)]
 pub struct ScopeProgress {
     pub loaded: u32,
     pub total: u32,
 }
 
 /// The payload of `views-invalidated`: views recomputed under the same ids, with their totals.
-#[derive(Debug, Clone, PartialEq, Eq, Serialize, TS)]
+#[derive(Debug, Clone, PartialEq, Eq, Serialize)]
 #[serde(rename_all = "camelCase")]
-#[ts(export)]
 pub struct ViewsInvalidated {
     pub views: Vec<ViewOpened>,
 }
 
 /// The items an edit applies to: ids, or every item of a view except some (Select All).
-#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize, TS)]
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
 #[serde(rename_all = "camelCase")]
-#[ts(export)]
 pub struct ItemsTarget {
     /// The view the selection belongs to; needed with `all`.
     pub view_id: Option<u64>,

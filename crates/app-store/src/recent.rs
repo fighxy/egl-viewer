@@ -4,7 +4,6 @@ use std::path::Path;
 
 use library_core::SourceError;
 use serde::{Deserialize, Serialize};
-use ts_rs::TS;
 
 use crate::AppStore;
 use crate::json_file::JsonFile;
@@ -14,9 +13,8 @@ const RECENT: &str = "recent.json";
 const MAX_ENTRIES: usize = 20;
 
 /// One row of Recent libraries on the Welcome screen.
-#[derive(Debug, Clone, PartialEq, Eq, Serialize, TS)]
+#[derive(Debug, Clone, PartialEq, Eq, Serialize)]
 #[serde(rename_all = "camelCase")]
-#[ts(export)]
 pub struct RecentLibrary {
     pub path: String,
     pub name: String,
