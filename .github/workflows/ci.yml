@@ -1,19 +1,33 @@
 name: CI
 
+# GPUI desktop (the shipping Windows app) plus compile checks for the macOS and
+# Linux paths in crates/gpui-desktop. Mobile stays in mobile.yml and is unchanged:
+# library-ffi, the iOS and Android apps, and the ios-v* / android-v* releases.
 on:
   push:
-    branches: [main]
+    branches: [feat/gpui-desktop, main]
     tags: ["v*"]
   pull_request:
+    branches: [feat/gpui-desktop, main]
   workflow_dispatch:
+
+permissions:
+  contents: read
 
 concurrency:
   group: ci-${{ github.workflow }}-${{ github.event_name }}-${{ github.ref }}
   cancel-in-progress: true
 
+env:
+  CARGO_TERM_COLOR: always
+  # Tests and the package build must not call the update endpoint.
+  EGL_SKIP_UPDATE_CHECK: "1"
+
 jobs:
+  # Branch pushes, pull requests, and manual runs. A version tag only packages
+  # and publishes; it does not repeat this job.
   check:
-    if: github.event_name == 'pull_request' || (github.event_name == 'push' && startsWith(github.ref, 'refs/heads/'))
+    if: github.event_name != 'push' || !startsWith(github.ref, 'refs/tags/')
     runs-on: windows-latest
     steps:
       - uses: actions/checkout@v7
@@ -71,19 +85,13 @@ jobs:
         run: cargo fmt --all --check
 
       - name: Clippy
-        run: cargo clippy --workspace --all-targets -- -D warnings
+        run: cargo clippy --locked --workspace --all-targets -- -D warnings
 
       - name: Rust tests
-        run: cargo test --workspace
+        run: cargo test --locked --workspace
 
-  # GPUI desktop portable layout (D-133). Runs on PR/push like check, and on
-  # tags / dispatch.
+  # Portable Windows layout (D-133). Also the artifact a v* tag publishes.
   gpui-desktop:
-    if: >
-      github.event_name == 'pull_request' ||
-      github.event_name == 'workflow_dispatch' ||
-      (github.event_name == 'push' && startsWith(github.ref, 'refs/heads/')) ||
-      (github.event_name == 'push' && startsWith(github.ref, 'refs/tags/v'))
     runs-on: windows-latest
     steps:
       - uses: actions/checkout@v7
@@ -100,7 +108,16 @@ jobs:
           $ErrorActionPreference = "Stop"
           vcpkg install "libheif[core,libde265]:x64-windows"
           $root = if ($env:VCPKG_ROOT) { $env:VCPKG_ROOT } elseif ($env:VCPKG_INSTALLATION_ROOT) { $env:VCPKG_INSTALLATION_ROOT } else { "C:\vcpkg" }
+          $lib = Join-Path $root "installed\x64-windows\lib"
           $bin = Join-Path $root "installed\x64-windows\bin"
+          foreach ($name in @("libx265.lib", "x265.lib", "libx265.dll", "x265.dll")) {
+            foreach ($dir in @($lib, $bin)) {
+              $path = Join-Path $dir $name
+              if (Test-Path -LiteralPath $path) {
+                throw "Unexpected GPL x265 artefact after decode-only install: $path"
+              }
+            }
+          }
           if (-not (Test-Path -LiteralPath (Join-Path $bin "heif.dll"))) { throw "heif.dll missing under $bin" }
           if (-not (Test-Path -LiteralPath (Join-Path $bin "libde265.dll"))) { throw "libde265.dll missing under $bin" }
 
@@ -119,24 +136,24 @@ jobs:
           prefix-key: heif-core-libde265-v1-gpui
 
       - name: Test gpui-desktop
-        env:
-          EGL_SKIP_UPDATE_CHECK: "1"
-        run: cargo test -p gpui-desktop
+        run: cargo test --locked -p gpui-desktop
 
       - name: Package portable GPUI desktop
         shell: pwsh
-        env:
-          EGL_SKIP_UPDATE_CHECK: "1"
         run: |
           ./scripts/package-gpui-desktop.ps1
           if (-not (Test-Path -LiteralPath dist/gpui-desktop/gpui-desktop.exe)) {
             throw "gpui-desktop.exe missing from portable stage"
           }
-          if (-not (Test-Path -LiteralPath dist/gpui-desktop/heif.dll)) {
-            throw "heif.dll missing from portable stage"
+          foreach ($name in @("heif.dll", "libde265.dll")) {
+            if (-not (Test-Path -LiteralPath "dist/gpui-desktop/$name")) {
+              throw "$name missing from portable stage"
+            }
           }
-          if (-not (Test-Path -LiteralPath dist/gpui-desktop/libde265.dll)) {
-            throw "libde265.dll missing from portable stage"
+          foreach ($name in @("libx265.dll", "x265.dll")) {
+            if (Test-Path -LiteralPath "dist/gpui-desktop/$name") {
+              throw "GPL x265 DLL must not ship in the portable layout: $name"
+            }
           }
           Get-ChildItem dist/gpui-desktop
           Get-ChildItem dist -Filter "egl-viewer-gpui_*.zip"
@@ -150,9 +167,115 @@ jobs:
             dist/gpui-desktop/**
           if-no-files-found: error
 
-  # A version tag vX.Y.Z: once the portable zip is built, one GitHub Release with
-  # it and latest-gpui.json, marked as the latest release so the in-app updater
-  # finds it (D-062, D-100, D-133). The notes come from docs/releases/X.Y.Z.md.
+  # Same shell, Linux backend (Wayland/X11, fontconfig, freetype). Workspace tests
+  # here cover the unix cfgs; gpui-desktop's own tests stay on Windows because
+  # device_query needs a session, and the bin is only built.
+  gpui-linux:
+    if: github.event_name != 'push' || !startsWith(github.ref, 'refs/tags/')
+    runs-on: ubuntu-24.04
+    steps:
+      - uses: actions/checkout@v7
+
+      - name: System libraries
+        run: |
+          set -euo pipefail
+          sudo apt-get update
+          sudo DEBIAN_FRONTEND=noninteractive apt-get install -y --no-install-recommends \
+            build-essential \
+            cmake \
+            pkg-config \
+            libclang-dev \
+            libheif-dev \
+            libheif-plugin-libde265 \
+            libpcsclite-dev \
+            libwayland-dev \
+            libxkbcommon-dev \
+            libxkbcommon-x11-dev \
+            libx11-dev \
+            libxext-dev \
+            libxcursor-dev \
+            libxrandr-dev \
+            libxi-dev \
+            libxtst-dev \
+            libxrender-dev \
+            libxcb1-dev \
+            libxcb-render0-dev \
+            libxcb-shape0-dev \
+            libxcb-xfixes0-dev \
+            libvulkan-dev \
+            libfontconfig1-dev \
+            libfreetype6-dev \
+            libssl-dev \
+            libdbus-1-dev
+          pkg-config --exists libheif
+          pkg-config --exists fontconfig
+          pkg-config --exists freetype2
+          pkg-config --exists wayland-client
+          pkg-config --exists xkbcommon
+          pkg-config --exists libpcsclite
+
+      - name: Rust toolchain (from rust-toolchain.toml)
+        run: |
+          set -euo pipefail
+          if ! command -v rustup >/dev/null 2>&1; then
+            curl --proto '=https' --tlsv1.2 -fsSL https://sh.rustup.rs | sh -s -- -y --default-toolchain none
+            echo "$HOME/.cargo/bin" >> "$GITHUB_PATH"
+            export PATH="$HOME/.cargo/bin:$PATH"
+          fi
+          rustup toolchain install
+          rustup component add clippy rustfmt
+
+      - uses: Swatinem/rust-cache@v2
+        with:
+          prefix-key: gpui-linux-v1
+
+      - name: Workspace tests (without the GPUI bin)
+        run: cargo test --locked --workspace --exclude gpui-desktop
+
+      - name: Build gpui-desktop
+        run: |
+          set -euo pipefail
+          cargo build --locked -p gpui-desktop
+          test -x target/debug/gpui-desktop
+          file target/debug/gpui-desktop
+
+  # Same shell, macOS backend (Metal). Compile only: Windows runs the suite,
+  # Linux runs the unix tests.
+  gpui-macos:
+    if: github.event_name != 'push' || !startsWith(github.ref, 'refs/tags/')
+    runs-on: macos-latest
+    steps:
+      - uses: actions/checkout@v7
+
+      - name: libheif (HEIC/HEIF previews, D-063)
+        env:
+          HOMEBREW_NO_AUTO_UPDATE: 1
+          HOMEBREW_NO_INSTALL_UPGRADE: 1
+        run: |
+          set -euo pipefail
+          brew install pkg-config libheif
+          prefix="$(brew --prefix libheif)"
+          echo "PKG_CONFIG_PATH=$prefix/lib/pkgconfig${PKG_CONFIG_PATH:+:$PKG_CONFIG_PATH}" >> "$GITHUB_ENV"
+          PKG_CONFIG_PATH="$prefix/lib/pkgconfig${PKG_CONFIG_PATH:+:$PKG_CONFIG_PATH}" pkg-config --exists libheif
+          PKG_CONFIG_PATH="$prefix/lib/pkgconfig${PKG_CONFIG_PATH:+:$PKG_CONFIG_PATH}" pkg-config --modversion libheif
+
+      - name: Rust toolchain (from rust-toolchain.toml)
+        run: rustup toolchain install
+
+      - uses: Swatinem/rust-cache@v2
+        with:
+          prefix-key: gpui-macos-v1
+
+      - name: Build gpui-desktop
+        run: |
+          set -euo pipefail
+          cargo build --locked -p gpui-desktop
+          test -x target/debug/gpui-desktop
+          file target/debug/gpui-desktop
+
+  # A version tag vX.Y.Z publishes one GitHub Release with the portable zip and
+  # latest-gpui.json, marked latest so the in-app updater finds it (D-062, D-133).
+  # Notes come from docs/releases/X.Y.Z.md. ios-v* and android-v* are mobile.yml.
   release:
     if: github.event_name == 'push' && startsWith(github.ref, 'refs/tags/v')
     needs: [gpui-desktop]
@@ -188,6 +311,7 @@ jobs:
           mapfile -t zips < <(find dist -type f -name "egl-viewer-gpui_*_x64.zip")
           if [[ "${#zips[@]}" -ne 1 ]]; then
             echo "expected one egl-viewer-gpui zip, found ${#zips[@]}" >&2
+            find dist -type f -print >&2
             exit 1
           fi
           mkdir release

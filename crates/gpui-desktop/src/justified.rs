@@ -148,6 +148,7 @@ pub fn pack_justified(
     }
 }
 
+#[cfg(test)]
 pub fn cell_rect(layout: &JustifiedLayout, index: usize) -> Option<Rect> {
     let row_index = *layout.row_of.get(index)?;
     let row = layout.rows.get(row_index)?;

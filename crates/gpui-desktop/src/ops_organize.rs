@@ -389,14 +389,14 @@ impl RootApp {
                 if let Some(lib) = self.library.as_mut() {
                     lib.folders = tree;
                     // Apply folder sort when set.
-                    if let Place::Folder { id } = &lib.place {
-                        if let Some(folder) = find_folder_ref(&lib.folders, id) {
-                            if let Some(sort) = folder.order_by {
-                                lib.sort = sort;
-                            }
-                            if let Some(asc) = folder.sort_ascending {
-                                lib.ascending = asc;
-                            }
+                    if let Place::Folder { id } = &lib.place
+                        && let Some(folder) = find_folder_ref(&lib.folders, id)
+                    {
+                        if let Some(sort) = folder.order_by {
+                            lib.sort = sort;
+                        }
+                        if let Some(asc) = folder.sort_ascending {
+                            lib.ascending = asc;
                         }
                     }
                 }

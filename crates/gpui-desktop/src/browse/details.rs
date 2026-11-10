@@ -235,7 +235,7 @@ fn single_item(
                         format_date(item.deleted_at)
                     )
                 } else {
-                    t(locale, "details.inTrash").into()
+                    t(locale, "details.inTrash")
                 })
                 .text_xs()
                 .text_color(theme.muted_foreground),
@@ -923,7 +923,9 @@ fn exif_rows(
     let Some(exif) = item.exif.as_ref().and_then(|v| v.as_object()) else {
         return Vec::new();
     };
-    let defs: [(&str, &str, Option<fn(&str) -> String>); 6] = [
+    type ExifFormat = fn(&str) -> String;
+    type ExifDef = (&'static str, &'static str, Option<ExifFormat>);
+    let defs: [ExifDef; 6] = [
         ("camera", "details.camera", None),
         ("isoSpeed", "details.iso", None),
         ("aperture", "details.aperture", Some(|v| format!("ƒ/{v}"))),

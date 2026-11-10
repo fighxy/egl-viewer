@@ -59,6 +59,8 @@ pub struct RubberBand {
 
 /// Background Empty Trash completion (thread → UI poll).
 pub(crate) type EmptyTrashResult = Arc<Mutex<Option<Result<u32, String>>>>;
+pub(crate) type DecryptResultSlot =
+    Arc<Mutex<Option<Result<Option<library_core::DecryptedArchive>, String>>>>;
 
 /// Background update-check completion (thread → UI poll).
 type UpdateCheckResult = Arc<Mutex<Option<Result<CheckOutcome, String>>>>;
@@ -133,8 +135,7 @@ pub struct RootApp {
     pub(crate) eagle_token_input: Entity<InputState>,
     pub(crate) decrypt_ui: Option<DecryptUi>,
     pub(crate) decrypt_password: Entity<InputState>,
-    pub(crate) decrypt_result:
-        Option<Arc<Mutex<Option<Result<Option<library_core::DecryptedArchive>, String>>>>>,
+    pub(crate) decrypt_result: Option<DecryptResultSlot>,
     pub(crate) decrypt_progress: Option<Arc<Mutex<(u64, u64)>>>,
     pub(crate) import_eagle_ui: Option<ImportEagleUi>,
     pub(crate) import_name: Entity<InputState>,
@@ -385,10 +386,10 @@ impl RootApp {
             if let Some(info) = startup.library {
                 app.adopt_library(info, window, cx);
             }
-            if let Some(arg) = std::env::args().nth(1).map(PathBuf::from) {
-                if arg.is_dir() {
-                    let _ = app.open_path(arg, window, cx);
-                }
+            if let Some(arg) = std::env::args().nth(1).map(PathBuf::from)
+                && arg.is_dir()
+            {
+                app.open_path(arg, window, cx);
             }
             app.schedule_silent_update_check(cx);
         } else {
@@ -535,20 +536,20 @@ impl RootApp {
             if gesture.mark_held_if_due() {
                 notify = true;
             }
-            if !platform::space_key_down() {
-                if let Some(gesture) = self.space_gesture.take() {
-                    if gesture.end() {
-                        self.close_preview(cx);
-                        return;
-                    }
-                    notify = true;
+            if !platform::space_key_down()
+                && let Some(gesture) = self.space_gesture.take()
+            {
+                if gesture.end() {
+                    self.close_preview(cx);
+                    return;
                 }
-            }
-        }
-        if let Some(preview) = self.preview.as_mut() {
-            if preview.tick_appear() {
                 notify = true;
             }
+        }
+        if let Some(preview) = self.preview.as_mut()
+            && preview.tick_appear()
+        {
+            notify = true;
         }
         if notify {
             cx.notify();
@@ -568,12 +569,11 @@ impl RootApp {
         for event in pending {
             match event {
                 Event::ViewsInvalidated(views) => {
-                    if let Some(lib) = self.library.as_mut() {
-                        if let Some(updated) = views.views.iter().find(|v| v.view_id == lib.view_id)
-                        {
-                            lib.total = updated.total;
-                            needs_refresh = true;
-                        }
+                    if let Some(lib) = self.library.as_mut()
+                        && let Some(updated) = views.views.iter().find(|v| v.view_id == lib.view_id)
+                    {
+                        lib.total = updated.total;
+                        needs_refresh = true;
                     }
                 }
                 Event::ImportProgress(progress) => {
@@ -586,10 +586,10 @@ impl RootApp {
                         progress.duplicates,
                         progress.failed
                     ));
-                    if progress.state == ImportState::WaitingForDecision {
-                        if let Some(dup) = progress.duplicate.clone() {
-                            self.pending_duplicate = Some((progress.id, dup));
-                        }
+                    if progress.state == ImportState::WaitingForDecision
+                        && let Some(dup) = progress.duplicate.clone()
+                    {
+                        self.pending_duplicate = Some((progress.id, dup));
                     }
                     if matches!(progress.state, ImportState::Done | ImportState::Cancelled) {
                         needs_refresh = true;
@@ -817,14 +817,13 @@ impl RootApp {
             prompt: Some(SharedString::from(t(self.locale, "createLibrary.location"))),
         });
         cx.spawn_in(window, async move |this, cx| {
-            if let Ok(Ok(Some(paths))) = rx.await {
-                if let Some(path) = paths.into_iter().next() {
-                    let _ = this.update(cx, |this, cx| {
-                        this.create_location =
-                            SharedString::from(path.to_string_lossy().to_string());
-                        cx.notify();
-                    });
-                }
+            if let Ok(Ok(Some(paths))) = rx.await
+                && let Some(path) = paths.into_iter().next()
+            {
+                let _ = this.update(cx, |this, cx| {
+                    this.create_location = SharedString::from(path.to_string_lossy().to_string());
+                    cx.notify();
+                });
             }
         })
         .detach();
@@ -2411,6 +2410,7 @@ impl RootApp {
     }
 
     #[inline(never)]
+    #[allow(clippy::too_many_arguments)]
     fn render_library_body(
         &self,
         lib: &OpenLibraryState,
@@ -2466,7 +2466,7 @@ impl RootApp {
                                     if needs_relayout {
                                         let entity = entity.clone();
                                         cx.spawn(async move |cx| {
-                                            let _ = entity.update(cx, |_this, cx| {
+                                            entity.update(cx, |_this, cx| {
                                                 cx.notify();
                                             });
                                         })
@@ -2530,7 +2530,7 @@ impl RootApp {
                     };
                     let entity = entity.clone();
                     cx.spawn(async move |cx| {
-                        let _ = entity.update(cx, |this, cx| {
+                        entity.update(cx, |this, cx| {
                             this.persist_panel_widths(left, right, cx);
                         });
                     })

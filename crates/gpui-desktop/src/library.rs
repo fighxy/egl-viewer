@@ -69,6 +69,7 @@ pub fn session_with_mailbox(mailbox: EventMailbox) -> Session {
 ///
 /// Uses a disposable AppStore under the process temp dir so `open_library` never writes
 /// Spike/Fixture paths into the user's persistent recent list (`%LOCALAPPDATA%\egl-viewer-gpui`).
+#[cfg(test)]
 pub fn session() -> Session {
     let root = std::env::temp_dir().join(format!(
         "egl-gpui-test-store-{}-{}",
@@ -674,7 +675,9 @@ mod tests {
             "expected preview bytes for fixture cell {}",
             cell.id.0
         );
-        let paths = session.original_paths(&[cell.id.clone()]).unwrap();
+        let paths = session
+            .original_paths(std::slice::from_ref(&cell.id))
+            .unwrap();
         assert_eq!(paths.len(), 1);
         session.close_library().unwrap();
     }

@@ -2,7 +2,6 @@
 
 use std::sync::Arc;
 
-use desktop_session::ItemsTarget;
 use gpui_kit::component::label::Label;
 use gpui_kit::component::{ActiveTheme as _, v_flex};
 
@@ -64,17 +63,6 @@ impl DragPayload {
     pub fn label(&self) -> SharedString {
         match self {
             Self::Items { label, .. } | Self::Folder { label, .. } => label.clone(),
-        }
-    }
-
-    pub fn as_items_target(&self) -> Option<ItemsTarget> {
-        match self {
-            Self::Items { view_id, ids, .. } => Some(ItemsTarget {
-                view_id: Some(*view_id),
-                all: false,
-                ids: ids.clone(),
-            }),
-            Self::Folder { .. } => None,
         }
     }
 }
