@@ -943,11 +943,11 @@ impl RootApp {
             }
         }
         self.status = SharedString::from(t_n(self.locale, "locks.lockedCount", n));
-        if let Some(lib) = self.library.as_mut() {
-            if matches!(lib.place, Place::Folder { .. }) {
-                // May have been viewing an unlocked folder that is now locked.
-                lib.place = Place::All;
-            }
+        if let Some(lib) = self.library.as_mut()
+            && matches!(lib.place, Place::Folder { .. })
+        {
+            // May have been viewing an unlocked folder that is now locked.
+            lib.place = Place::All;
         }
         self.reload_after_write(cx);
     }

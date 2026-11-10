@@ -262,15 +262,13 @@ fn render_virtual_list(
                         });
                     row = attach_item_drag(row, payload, list_entity.clone());
                     row = attach_context_select(row, list_entity.clone(), index);
-                    if reorderable {
-                        if let Some(folder_id) = folder_id.clone() {
-                            row = attach_cell_drop(
-                                row,
-                                list_entity.clone(),
-                                folder_id,
-                                Some(item.cell.id.clone()),
-                            );
-                        }
+                    if reorderable && let Some(folder_id) = folder_id.clone() {
+                        row = attach_cell_drop(
+                            row,
+                            list_entity.clone(),
+                            folder_id,
+                            Some(item.cell.id.clone()),
+                        );
                     }
                     row.child(preview)
                         .child(
@@ -400,15 +398,13 @@ fn render_justified_virtual(
                                 });
                             cell_el = attach_item_drag(cell_el, payload, list_entity.clone());
                             cell_el = attach_context_select(cell_el, list_entity.clone(), index);
-                            if reorderable {
-                                if let Some(folder_id) = folder_id.clone() {
-                                    cell_el = attach_cell_drop(
-                                        cell_el,
-                                        list_entity.clone(),
-                                        folder_id,
-                                        Some(item.cell.id.clone()),
-                                    );
-                                }
+                            if reorderable && let Some(folder_id) = folder_id.clone() {
+                                cell_el = attach_cell_drop(
+                                    cell_el,
+                                    list_entity.clone(),
+                                    folder_id,
+                                    Some(item.cell.id.clone()),
+                                );
                             }
                             // The ring is drawn over the image, so selecting a cell never
                             // moves or resizes its thumbnail.
@@ -538,11 +534,8 @@ fn render_wrap_grid(
                 });
             cell = attach_item_drag(cell, Some(payload), entity_drag);
             cell = attach_context_select(cell, entity_drop.clone(), index);
-            if reorderable {
-                if let Some(folder_id) = folder_id.clone() {
-                    cell =
-                        attach_cell_drop(cell, entity_drop, folder_id, Some(item.cell.id.clone()));
-                }
+            if reorderable && let Some(folder_id) = folder_id.clone() {
+                cell = attach_cell_drop(cell, entity_drop, folder_id, Some(item.cell.id.clone()));
             }
             cell.child(preview)
                 .when(show_names, |el| {

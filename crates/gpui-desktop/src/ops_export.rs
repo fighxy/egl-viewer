@@ -222,11 +222,11 @@ impl RootApp {
             form.preview_hidden = preview.hidden;
         }
         // Reopened while an export runs: follow it.
-        if let Some(latest) = self.session.exports().into_iter().next() {
-            if !is_terminal_export(latest.state) {
-                form.run_id = Some(latest.id);
-                form.progress = Some(latest);
-            }
+        if let Some(latest) = self.session.exports().into_iter().next()
+            && !is_terminal_export(latest.state)
+        {
+            form.run_id = Some(latest.id);
+            form.progress = Some(latest);
         }
         self.export_password = cx.new(|cx| InputState::new(window, cx).masked(true));
         self.export_confirm = cx.new(|cx| InputState::new(window, cx).masked(true));
@@ -280,15 +280,15 @@ impl RootApp {
             prompt: Some(SharedString::from(t(self.locale, "exportUi.where"))),
         });
         cx.spawn_in(window, async move |this, cx| {
-            if let Ok(Ok(Some(paths))) = rx.await {
-                if let Some(path) = paths.into_iter().next() {
-                    let _ = this.update(cx, |this, cx| {
-                        if let Some(form) = this.export_ui.as_mut() {
-                            form.destination = path.to_string_lossy().into_owned();
-                        }
-                        cx.notify();
-                    });
-                }
+            if let Ok(Ok(Some(paths))) = rx.await
+                && let Some(path) = paths.into_iter().next()
+            {
+                let _ = this.update(cx, |this, cx| {
+                    if let Some(form) = this.export_ui.as_mut() {
+                        form.destination = path.to_string_lossy().into_owned();
+                    }
+                    cx.notify();
+                });
             }
         })
         .detach();
@@ -434,11 +434,11 @@ impl RootApp {
     }
 
     pub(crate) fn on_export_progress(&mut self, progress: ExportProgress, cx: &mut Context<Self>) {
-        if let Some(ui) = self.export_ui.as_mut() {
-            if ui.run_id == Some(progress.id) || ui.run_id.is_none() {
-                ui.run_id = Some(progress.id);
-                ui.progress = Some(progress.clone());
-            }
+        if let Some(ui) = self.export_ui.as_mut()
+            && (ui.run_id == Some(progress.id) || ui.run_id.is_none())
+        {
+            ui.run_id = Some(progress.id);
+            ui.progress = Some(progress.clone());
         }
         self.status = SharedString::from(format!(
             "{} {}/{}",
@@ -446,16 +446,15 @@ impl RootApp {
             progress.done,
             progress.total
         ));
-        if is_terminal_export(progress.state) {
-            if progress.state == ExportState::Done {
-                if let Some(summary) = &progress.summary {
-                    self.status = SharedString::from(format!(
-                        "Exported {} items · {}",
-                        summary.items,
-                        format_bytes(Some(summary.bytes))
-                    ));
-                }
-            }
+        if is_terminal_export(progress.state)
+            && progress.state == ExportState::Done
+            && let Some(summary) = &progress.summary
+        {
+            self.status = SharedString::from(format!(
+                "Exported {} items · {}",
+                summary.items,
+                format_bytes(Some(summary.bytes))
+            ));
         }
         cx.notify();
     }
@@ -485,21 +484,21 @@ impl RootApp {
             prompt: Some(SharedString::from(t(self.locale, "decryptUi.pickTitle"))),
         });
         cx.spawn_in(window, async move |this, cx| {
-            if let Ok(Ok(Some(paths))) = rx.await {
-                if let Some(path) = paths.into_iter().next() {
-                    let path_str = path.to_string_lossy().into_owned();
-                    let _ = this.update(cx, |this, cx| {
-                        if let Some(ui) = this.decrypt_ui.as_mut() {
-                            ui.source = path_str.clone();
-                            if ui.destination.is_empty() {
-                                ui.destination = decrypt_default_folder(&path_str);
-                            }
-                            ui.result_path = None;
-                            ui.error = None;
+            if let Ok(Ok(Some(paths))) = rx.await
+                && let Some(path) = paths.into_iter().next()
+            {
+                let path_str = path.to_string_lossy().into_owned();
+                let _ = this.update(cx, |this, cx| {
+                    if let Some(ui) = this.decrypt_ui.as_mut() {
+                        ui.source = path_str.clone();
+                        if ui.destination.is_empty() {
+                            ui.destination = decrypt_default_folder(&path_str);
                         }
-                        cx.notify();
-                    });
-                }
+                        ui.result_path = None;
+                        ui.error = None;
+                    }
+                    cx.notify();
+                });
             }
         })
         .detach();
@@ -513,15 +512,15 @@ impl RootApp {
             prompt: Some(SharedString::from(t(self.locale, "decryptUi.saveIn"))),
         });
         cx.spawn_in(window, async move |this, cx| {
-            if let Ok(Ok(Some(paths))) = rx.await {
-                if let Some(path) = paths.into_iter().next() {
-                    let _ = this.update(cx, |this, cx| {
-                        if let Some(ui) = this.decrypt_ui.as_mut() {
-                            ui.destination = path.to_string_lossy().into_owned();
-                        }
-                        cx.notify();
-                    });
-                }
+            if let Ok(Ok(Some(paths))) = rx.await
+                && let Some(path) = paths.into_iter().next()
+            {
+                let _ = this.update(cx, |this, cx| {
+                    if let Some(ui) = this.decrypt_ui.as_mut() {
+                        ui.destination = path.to_string_lossy().into_owned();
+                    }
+                    cx.notify();
+                });
             }
         })
         .detach();
@@ -564,9 +563,7 @@ impl RootApp {
         let session = Arc::clone(&self.session);
         let source = ui.source.clone();
         let destination = ui.destination.clone();
-        let result_slot: Arc<
-            Mutex<Option<Result<Option<library_core::DecryptedArchive>, String>>>,
-        > = Arc::new(Mutex::new(None));
+        let result_slot: crate::app::DecryptResultSlot = Arc::new(Mutex::new(None));
         let progress_slot: Arc<Mutex<(u64, u64)>> = Arc::new(Mutex::new((0, 0)));
         self.decrypt_result = Some(result_slot.clone());
         self.decrypt_progress = Some(progress_slot.clone());
@@ -591,13 +588,12 @@ impl RootApp {
     }
 
     pub(crate) fn poll_decrypt(&mut self, cx: &mut Context<Self>) {
-        if let Some(progress) = self.decrypt_progress.clone() {
-            if let Ok(slot) = progress.lock() {
-                if let Some(ui) = self.decrypt_ui.as_mut() {
-                    ui.progress_done = slot.0;
-                    ui.progress_total = slot.1;
-                }
-            }
+        if let Some(progress) = self.decrypt_progress.clone()
+            && let Ok(slot) = progress.lock()
+            && let Some(ui) = self.decrypt_ui.as_mut()
+        {
+            ui.progress_done = slot.0;
+            ui.progress_total = slot.1;
         }
         let Some(result) = self.decrypt_result.clone() else {
             return;
@@ -717,32 +713,32 @@ impl RootApp {
             prompt: Some(SharedString::from(t(self.locale, "importEagle.pick"))),
         });
         cx.spawn_in(window, async move |this, cx| {
-            if let Ok(Ok(Some(paths))) = rx.await {
-                if let Some(path) = paths.into_iter().next() {
-                    let path_str = path.to_string_lossy().into_owned();
-                    let _ = this.update_in(cx, |this, window, cx| {
-                        match this.session.eagle_library_info(&path_str) {
-                            Ok(summary) => {
-                                let name = summary.name.clone();
-                                this.import_name.update(cx, |input, cx| {
-                                    input.set_value(&name, window, cx);
-                                });
-                                if let Some(ui) = this.import_eagle_ui.as_mut() {
-                                    ui.eagle_path = path_str;
-                                    ui.summary_name = summary.name;
-                                    ui.summary_items = u64::from(summary.item_count);
-                                    ui.error = None;
-                                }
-                            }
-                            Err(error) => {
-                                if let Some(ui) = this.import_eagle_ui.as_mut() {
-                                    ui.error = Some(error.to_string());
-                                }
+            if let Ok(Ok(Some(paths))) = rx.await
+                && let Some(path) = paths.into_iter().next()
+            {
+                let path_str = path.to_string_lossy().into_owned();
+                let _ = this.update_in(cx, |this, window, cx| {
+                    match this.session.eagle_library_info(&path_str) {
+                        Ok(summary) => {
+                            let name = summary.name.clone();
+                            this.import_name.update(cx, |input, cx| {
+                                input.set_value(&name, window, cx);
+                            });
+                            if let Some(ui) = this.import_eagle_ui.as_mut() {
+                                ui.eagle_path = path_str;
+                                ui.summary_name = summary.name;
+                                ui.summary_items = u64::from(summary.item_count);
+                                ui.error = None;
                             }
                         }
-                        cx.notify();
-                    });
-                }
+                        Err(error) => {
+                            if let Some(ui) = this.import_eagle_ui.as_mut() {
+                                ui.error = Some(error.to_string());
+                            }
+                        }
+                    }
+                    cx.notify();
+                });
             }
         })
         .detach();

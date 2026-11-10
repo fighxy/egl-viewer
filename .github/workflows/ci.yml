@@ -186,6 +186,7 @@ jobs:
             pkg-config \
             libclang-dev \
             libheif-dev \
+            libheif-plugin-libde265 \
             libpcsclite-dev \
             libwayland-dev \
             libxkbcommon-dev \
