@@ -1,0 +1,343 @@
+name: GPUI Release
+
+# Multi-platform GPUI desktop packages (Windows / Linux / macOS).
+# Tag prefix `gpui-v*` is separate from:
+#   - `v*`        → CI release + latest-gpui.json (Windows updater)
+#   - `ios-v*`    → Mobile IPA
+#   - `android-v*`→ Mobile APK/AAB
+# Tag pushes publish a GitHub prerelease that is never marked Latest and never
+# writes latest.json / latest-gpui.json / ios-latest.
+# workflow_dispatch defaults to dry-run: build + artifacts only (no release).
+on:
+  push:
+    tags: ["gpui-v*"]
+  workflow_dispatch:
+    inputs:
+      publish:
+        description: "Publish a GitHub Release (false = dry-run: artifacts only)"
+        type: boolean
+        default: false
+
+permissions:
+  contents: read
+
+concurrency:
+  group: gpui-release-${{ github.workflow }}-${{ github.ref }}-${{ github.sha }}
+  cancel-in-progress: true
+
+env:
+  CARGO_TERM_COLOR: always
+  EGL_SKIP_UPDATE_CHECK: "1"
+
+jobs:
+  version:
+    runs-on: ubuntu-24.04
+    outputs:
+      version: ${{ steps.version.outputs.version }}
+      tag: ${{ steps.version.outputs.tag }}
+      publish: ${{ steps.version.outputs.publish }}
+    steps:
+      - uses: actions/checkout@v7
+
+      - name: Resolve version
+        id: version
+        run: |
+          set -euo pipefail
+          CONF="$(sed -n 's/^version = "\(.*\)"/\1/p' Cargo.toml | head -n1)"
+          test -n "$CONF"
+          if [[ "$GITHUB_REF" == refs/tags/gpui-v* ]]; then
+            VERSION="$(bash scripts/gpui-release-version.sh "$GITHUB_REF_NAME")"
+            if [[ "$VERSION" != "$CONF" ]]; then
+              echo "tag $GITHUB_REF_NAME is $VERSION, but Cargo.toml says $CONF" >&2
+              exit 1
+            fi
+            echo "tag=$GITHUB_REF_NAME" >> "$GITHUB_OUTPUT"
+            echo "publish=true" >> "$GITHUB_OUTPUT"
+          else
+            VERSION="$CONF"
+            echo "tag=" >> "$GITHUB_OUTPUT"
+            if [[ "${{ github.event_name }}" == "workflow_dispatch" && "${{ inputs.publish }}" == "true" ]]; then
+              echo "publish=true" >> "$GITHUB_OUTPUT"
+            else
+              echo "publish=false" >> "$GITHUB_OUTPUT"
+            fi
+          fi
+          echo "version=$VERSION" >> "$GITHUB_OUTPUT"
+          echo "GPUI package version $VERSION (publish=$(grep publish= "$GITHUB_OUTPUT" | cut -d= -f2))"
+
+  windows:
+    needs: [version]
+    runs-on: windows-latest
+    steps:
+      - uses: actions/checkout@v7
+
+      - name: Rust toolchain (from rust-toolchain.toml)
+        run: rustup toolchain install
+
+      - name: libheif (HEIC/HEIF previews, D-063)
+        shell: pwsh
+        run: |
+          $ErrorActionPreference = "Continue"
+          vcpkg remove "libheif:x64-windows" --recurse 2>$null
+          vcpkg remove "x265:x64-windows" --recurse 2>$null
+          $ErrorActionPreference = "Stop"
+          vcpkg install "libheif[core,libde265]:x64-windows"
+          $root = if ($env:VCPKG_ROOT) { $env:VCPKG_ROOT } elseif ($env:VCPKG_INSTALLATION_ROOT) { $env:VCPKG_INSTALLATION_ROOT } else { "C:\vcpkg" }
+          $lib = Join-Path $root "installed\x64-windows\lib"
+          $bin = Join-Path $root "installed\x64-windows\bin"
+          foreach ($name in @("libx265.lib", "x265.lib", "libx265.dll", "x265.dll")) {
+            foreach ($dir in @($lib, $bin)) {
+              $path = Join-Path $dir $name
+              if (Test-Path -LiteralPath $path) {
+                throw "Unexpected GPL x265 artefact after decode-only install: $path"
+              }
+            }
+          }
+          if (-not (Test-Path -LiteralPath (Join-Path $bin "heif.dll"))) { throw "heif.dll missing under $bin" }
+          if (-not (Test-Path -LiteralPath (Join-Path $bin "libde265.dll"))) { throw "libde265.dll missing under $bin" }
+
+      - name: vcpkg env for libheif-sys
+        shell: bash
+        run: |
+          echo "VCPKG_ROOT=${VCPKG_INSTALLATION_ROOT:-C:/vcpkg}" >> "$GITHUB_ENV"
+          echo "VCPKGRS_DYNAMIC=1" >> "$GITHUB_ENV"
+          echo "$VCPKG_ROOT/installed/x64-windows/bin" >> "$GITHUB_PATH"
+
+      - uses: Swatinem/rust-cache@v2
+        with:
+          prefix-key: gpui-release-windows-v1
+
+      - name: Package portable GPUI desktop
+        shell: pwsh
+        run: |
+          ./scripts/package-gpui-desktop.ps1
+          $version = "${{ needs.version.outputs.version }}"
+          $zip = "dist/egl-viewer-gpui_${version}_x64.zip"
+          if (-not (Test-Path -LiteralPath $zip)) { throw "missing $zip" }
+          if (-not (Test-Path -LiteralPath dist/gpui-desktop/gpui-desktop.exe)) {
+            throw "gpui-desktop.exe missing from portable stage"
+          }
+          foreach ($name in @("heif.dll", "libde265.dll")) {
+            if (-not (Test-Path -LiteralPath "dist/gpui-desktop/$name")) {
+              throw "$name missing from portable stage"
+            }
+          }
+          foreach ($name in @("libx265.dll", "x265.dll")) {
+            if (Test-Path -LiteralPath "dist/gpui-desktop/$name") {
+              throw "GPL x265 DLL must not ship: $name"
+            }
+          }
+          # Stable multi-platform name for the gpui-v* channel.
+          Copy-Item -LiteralPath $zip -Destination "dist/egl-viewer-gpui_${version}_windows-x64.zip" -Force
+          Get-ChildItem dist -Filter "egl-viewer-gpui_*"
+
+      - name: Upload Windows artifact
+        uses: actions/upload-artifact@v4
+        with:
+          name: gpui-windows-x64
+          path: dist/egl-viewer-gpui_${{ needs.version.outputs.version }}_windows-x64.zip
+          if-no-files-found: error
+
+  linux:
+    needs: [version]
+    runs-on: ubuntu-24.04
+    steps:
+      - uses: actions/checkout@v7
+
+      - name: System libraries
+        run: |
+          set -euo pipefail
+          sudo apt-get update
+          sudo DEBIAN_FRONTEND=noninteractive apt-get install -y --no-install-recommends \
+            build-essential \
+            cmake \
+            pkg-config \
+            libclang-dev \
+            libheif-dev \
+            libheif-plugin-libde265 \
+            libpcsclite-dev \
+            libwayland-dev \
+            libxkbcommon-dev \
+            libxkbcommon-x11-dev \
+            libx11-dev \
+            libxext-dev \
+            libxcursor-dev \
+            libxrandr-dev \
+            libxi-dev \
+            libxtst-dev \
+            libxrender-dev \
+            libxcb1-dev \
+            libxcb-render0-dev \
+            libxcb-shape0-dev \
+            libxcb-xfixes0-dev \
+            libvulkan-dev \
+            libfontconfig1-dev \
+            libfreetype6-dev \
+            libssl-dev \
+            libdbus-1-dev
+          pkg-config --exists libheif
+          pkg-config --exists libpcsclite
+
+      - name: Rust toolchain (from rust-toolchain.toml)
+        run: |
+          set -euo pipefail
+          if ! command -v rustup >/dev/null 2>&1; then
+            curl --proto '=https' --tlsv1.2 -fsSL https://sh.rustup.rs | sh -s -- -y --default-toolchain none
+            echo "$HOME/.cargo/bin" >> "$GITHUB_PATH"
+            export PATH="$HOME/.cargo/bin:$PATH"
+          fi
+          rustup toolchain install
+
+      - uses: Swatinem/rust-cache@v2
+        with:
+          prefix-key: gpui-release-linux-v1
+
+      - name: Package Linux tarball
+        run: |
+          set -euo pipefail
+          chmod +x scripts/package-gpui-linux.sh scripts/gpui-release-version.sh
+          bash scripts/package-gpui-linux.sh
+          VERSION="${{ needs.version.outputs.version }}"
+          test -f "dist/egl-viewer-gpui_${VERSION}_linux-x86_64.tar.gz"
+          ls -lh dist/egl-viewer-gpui_*
+
+      - name: Upload Linux artifact
+        uses: actions/upload-artifact@v4
+        with:
+          name: gpui-linux-x86_64
+          path: |
+            dist/egl-viewer-gpui_${{ needs.version.outputs.version }}_linux-x86_64.tar.gz
+          if-no-files-found: error
+
+  macos:
+    needs: [version]
+    runs-on: macos-latest
+    steps:
+      - uses: actions/checkout@v7
+
+      - name: libheif (HEIC/HEIF previews, D-063)
+        env:
+          HOMEBREW_NO_AUTO_UPDATE: 1
+          HOMEBREW_NO_INSTALL_UPGRADE: 1
+        run: |
+          set -euo pipefail
+          brew install pkg-config libheif
+          prefix="$(brew --prefix libheif)"
+          echo "PKG_CONFIG_PATH=$prefix/lib/pkgconfig${PKG_CONFIG_PATH:+:$PKG_CONFIG_PATH}" >> "$GITHUB_ENV"
+          PKG_CONFIG_PATH="$prefix/lib/pkgconfig${PKG_CONFIG_PATH:+:$PKG_CONFIG_PATH}" pkg-config --exists libheif
+          PKG_CONFIG_PATH="$prefix/lib/pkgconfig${PKG_CONFIG_PATH:+:$PKG_CONFIG_PATH}" pkg-config --modversion libheif
+
+      - name: Rust toolchain (from rust-toolchain.toml)
+        run: rustup toolchain install
+
+      - uses: Swatinem/rust-cache@v2
+        with:
+          prefix-key: gpui-release-macos-v1
+
+      - name: Package macOS .app zip
+        run: |
+          set -euo pipefail
+          chmod +x scripts/package-gpui-macos.sh scripts/gpui-release-version.sh
+          bash scripts/package-gpui-macos.sh
+          VERSION="${{ needs.version.outputs.version }}"
+          # macos-latest is Apple Silicon.
+          test -f "dist/egl-viewer-gpui_${VERSION}_macos-aarch64.zip"
+          ls -lh dist/egl-viewer-gpui_*
+
+      - name: Upload macOS artifact
+        uses: actions/upload-artifact@v4
+        with:
+          name: gpui-macos-aarch64
+          path: |
+            dist/egl-viewer-gpui_${{ needs.version.outputs.version }}_macos-aarch64.zip
+          if-no-files-found: error
+
+  # Tag pushes always publish. workflow_dispatch only when inputs.publish=true.
+  # Never marks the release as Latest; never touches latest.json / latest-gpui.json /
+  # ios-latest / android releases.
+  publish:
+    if: needs.version.outputs.publish == 'true'
+    needs: [version, windows, linux, macos]
+    runs-on: ubuntu-24.04
+    permissions:
+      contents: write
+    steps:
+      - uses: actions/checkout@v7
+        with:
+          fetch-depth: 0
+
+      - name: Download platform artifacts
+        uses: actions/download-artifact@v4
+        with:
+          path: artifacts
+
+      - name: Assemble release files
+        id: assemble
+        run: |
+          set -euo pipefail
+          VERSION="${{ needs.version.outputs.version }}"
+          TAG="${{ needs.version.outputs.tag }}"
+          if [[ -z "$TAG" ]]; then
+            echo "publish=true on workflow_dispatch without a gpui-v* tag is not supported" >&2
+            echo "Push a gpui-vX.Y.Z tag to publish." >&2
+            exit 1
+          fi
+          mkdir -p release
+          win="$(find artifacts -type f -name "egl-viewer-gpui_${VERSION}_windows-x64.zip" | head -n1)"
+          linux="$(find artifacts -type f -name "egl-viewer-gpui_${VERSION}_linux-x86_64.tar.gz" | head -n1)"
+          mac="$(find artifacts -type f -name "egl-viewer-gpui_${VERSION}_macos-aarch64.zip" | head -n1)"
+          test -n "$win" && test -n "$linux" && test -n "$mac"
+          cp "$win" "release/egl-viewer-gpui_${VERSION}_windows-x64.zip"
+          cp "$linux" "release/egl-viewer-gpui_${VERSION}_linux-x86_64.tar.gz"
+          cp "$mac" "release/egl-viewer-gpui_${VERSION}_macos-aarch64.zip"
+          (
+            cd release
+            sha256sum \
+              "egl-viewer-gpui_${VERSION}_windows-x64.zip" \
+              "egl-viewer-gpui_${VERSION}_linux-x86_64.tar.gz" \
+              "egl-viewer-gpui_${VERSION}_macos-aarch64.zip" \
+              > SHA256SUMS
+          )
+          NOTES="docs/releases/$VERSION.md"
+          {
+            echo "egl-viewer GPUI desktop $VERSION (prerelease), built from ${GITHUB_SHA::7}."
+            echo
+            echo "Platforms: Windows x64 portable zip, Linux x86_64 tarball, macOS Apple Silicon .app zip (unsigned)."
+            echo "NSIS / Authenticode / notarization are deferred."
+            echo
+            if [[ -f "$NOTES" ]]; then
+              cat "$NOTES"
+              echo
+            else
+              echo "No docs/releases/$VERSION.md; changelog generated from the previous gpui-v* tag when available."
+              echo
+            fi
+            echo "Check downloads: \`sha256sum -c SHA256SUMS\`."
+          } > release/notes.md
+          ls -lh release
+          echo "tag=$TAG" >> "$GITHUB_OUTPUT"
+
+      - name: Publish prerelease
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: |
+          set -euo pipefail
+          TAG="${{ steps.assemble.outputs.tag }}"
+          VERSION="${{ needs.version.outputs.version }}"
+          PREVIOUS="$(git tag --list 'gpui-v*' --sort=-v:refname | grep -vx "$TAG" | head -n1 || true)"
+          ARGS=(
+            --title "egl-viewer GPUI $VERSION"
+            --notes-file release/notes.md
+            --verify-tag
+            --prerelease
+            --latest=false
+          )
+          if [[ -n "$PREVIOUS" ]]; then
+            ARGS+=(--generate-notes --notes-start-tag "$PREVIOUS")
+          fi
+          # Guard: never upload updater manifests on this channel.
+          if compgen -G 'release/latest*.json' > /dev/null; then
+            echo "refusing to publish updater manifests on gpui-v* releases" >&2
+            exit 1
+          fi
+          gh release create "$TAG" release/* "${ARGS[@]}"

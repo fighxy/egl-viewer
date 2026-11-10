@@ -35,9 +35,12 @@ GPUI Kit host (`gpui-desktop`). Windows first; no AI features.
 | GPUI desktop (the shipping Windows app) | Portable zip packaging (`scripts/package-gpui-desktop.ps1` + heif DLLs), Help → Check for Updates… / silent check against `latest-gpui.json` (open-download; signed install deferred), About licenses. CI (`.github/workflows/ci.yml`, push and pull request to `feat/gpui-desktop` and `main`): rustfmt, clippy, workspace tests and the portable zip on Windows; Linux runs the workspace tests except the GPUI bin and builds `gpui-desktop`; macOS builds `gpui-desktop`. Feature slices remain (D-129…D-132). Library menu (Create, Open, Switch Ctrl+L, Clear History, Clear Cache and Reload) and Eagle-style Settings (D-137). Minimum window 960×600 (D-138). Show in Explorer stays up with the app (D-139). Right-click menus for items and folders, Eagle's item shortcuts (rating keys, `F2`, tag copy / paste), Add to Folder(s) `Ctrl+Shift+J` and Go to Folder `Ctrl+J` (D-140). Eagle-like chrome: thumbnails fill their cells, captions with pixel size, a two-row toolbar with a size slider and a filter bar, icons and a visible selection in the left bar (D-141). Rating filter behind a button, size slider centred (D-142). Full-size preview decodes in the background at full resolution (HEIC, PSD, TIFF too), shows the thumbnail first and preloads neighbours (D-143). The exe carries its icon (D-144). Scrolling follows the keyboard focus and the preview, resets per view, keeps its anchor on repack; scrollbars on every pane (D-145). Filter and Sort menus open under their button (D-146). The quit confirmation has Quit / Cancel buttons (D-147). Open / closed hand cursors on Windows via a patched GPUI backend in `vendor/` (D-148). Right bar: tag and folder chips with Eagle-style picker popovers (D-149). Redesigned start screen (D-150). Name, note and link edited in place in the right bar; item actions only in the context menu (D-151). Drag image with the thumbnail and a count; drop targets tinted (D-152). Known gap: a view shows its first 500 items only (D-129, D-141). Deferred: GPUI NSIS, Authenticode, minisign install/relaunch, clean-machine done check, merging libraries, interface zoom |
 
 What is out of scope is in [`docs/spec.md` §9](docs/spec.md). A tag `vX.Y.Z` (the workspace
-version in `Cargo.toml`, notes in `docs/releases/X.Y.Z.md`) builds the GPUI portable zip and
-publishes the GitHub Release with it and `latest-gpui.json` (D-100); a tag `ios-vX.Y.Z` publishes
-the iPhone IPA; a tag `android-vX.Y.Z` publishes the Android APK and AAB (D-108).
+version in `Cargo.toml`, notes in `docs/releases/X.Y.Z.md`) builds the Windows GPUI portable zip and
+publishes the GitHub Release with it and `latest-gpui.json` (D-100). A tag `gpui-vX.Y.Z` builds
+Windows, Linux and macOS GPUI packages and publishes a **prerelease** (never Latest; no updater
+manifest) via [`.github/workflows/gpui-release.yml`](.github/workflows/gpui-release.yml). A tag
+`ios-vX.Y.Z` publishes the iPhone IPA; a tag `android-vX.Y.Z` publishes the Android APK and AAB
+(D-108).
 
 ## Requirements (Windows)
 
@@ -65,7 +68,9 @@ Windows, `pwsh scripts/clean-target-if-huge.ps1` runs `cargo clean` (D-135; neve
 | Command | What it does |
 |---|---|
 | `pwsh scripts/run-gpui-desktop.ps1` | Run the GPUI Kit desktop host with vcpkg heif on PATH (D-133 / D-134) |
-| `pwsh scripts/package-gpui-desktop.ps1` | Stage/zip GPUI portable layout + heif DLLs |
+| `pwsh scripts/package-gpui-desktop.ps1` | Stage/zip GPUI portable layout + heif DLLs (Windows) |
+| `bash scripts/package-gpui-linux.sh` | Stage/tar GPUI Linux x86_64 layout + bundled libheif |
+| `bash scripts/package-gpui-macos.sh` | Stage/zip unsigned `EglViewer.app` + Frameworks libheif (macOS) |
 | `pwsh scripts/clean-target-if-huge.ps1` | If workspace `target/` is over 20 GiB, run `cargo clean` (D-135; never touches `.eglib` / vcpkg) |
 | `pwsh scripts/package-gpui-desktop.ps1 -CleanHugeTarget` | Same size check before a GPUI portable build |
 | `npm run check` | rustfmt, clippy and Rust tests (the Windows `check` job) |
