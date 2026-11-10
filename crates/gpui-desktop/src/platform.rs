@@ -250,10 +250,9 @@ pub fn reduced_motion() -> bool {
     {
         if let Ok(hkcu) = winreg::RegKey::predef(winreg::enums::HKEY_CURRENT_USER)
             .open_subkey(r"Control Panel\Desktop\WindowMetrics")
+            && let Ok(value) = hkcu.get_value::<String, _>("MinAnimate")
         {
-            if let Ok(value) = hkcu.get_value::<String, _>("MinAnimate") {
-                return value.trim() == "0";
-            }
+            return value.trim() == "0";
         }
     }
     false

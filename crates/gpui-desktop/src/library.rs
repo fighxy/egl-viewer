@@ -549,12 +549,18 @@ mod tests {
         let root = create_library(dir.path(), "Spike", APP_VERSION).unwrap();
         let opened = root.to_string_lossy().into_owned();
         let session = session();
-        session.open_library(&opened).unwrap();
+        let info = session.open_library(&opened).unwrap();
+        // `LibraryInfo.path` is the absolute form the store remembers; on Windows it can
+        // differ from the path string we passed in (prefix / separators).
+        let remembered = info
+            .path
+            .clone()
+            .expect("native open must set LibraryInfo.path");
         assert!(
             session
                 .recent_libraries()
                 .iter()
-                .any(|entry| entry.path == opened),
+                .any(|entry| entry.path == remembered),
             "ephemeral store should still remember within the test session"
         );
         session.close_library().unwrap();
@@ -567,7 +573,7 @@ mod tests {
         );
         let after_text = String::from_utf8_lossy(&after);
         assert!(
-            !after_text.contains(&opened),
+            !after_text.contains(&opened) && !after_text.contains(&remembered),
             "persistent recent must not gain this test's path: {after_text}"
         );
     }
