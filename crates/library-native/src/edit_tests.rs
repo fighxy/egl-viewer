@@ -1,6 +1,5 @@
-//! Phase 7: name, note, link and rating; the trash; removing items for good; undo's state;
-//! backups and restoring one; Check Library and its repair; Rebuild Thumbnails (docs/spec.md
-//! §9, phase 7).
+//! Item edits: name, note, link and rating; the trash; removing items for good; undo's state;
+//! backups and restoring one; Check Library and its repair; Rebuild Thumbnails (D-049…D-052).
 
 use std::fs;
 use std::sync::Mutex;

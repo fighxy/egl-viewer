@@ -2,7 +2,7 @@
 //!
 //! Small JSON files in the app's local data folder, written with a lock and an atomic replace
 //! so that several app processes do not overwrite each other (D-022). The secret store for the
-//! Eagle token (Windows Credential Manager) arrives in phase 9 (docs/spec.md §9).
+//! The Eagle token (Windows Credential Manager) arrives with the live connection (docs/spec.md §8.3).
 
 mod json_file;
 pub mod location;

@@ -31,7 +31,7 @@ pub(crate) struct Migration {
 /// Steps after version 1, oldest first. Version 2 changed no schema (it marks locks); version 3
 /// rebuilds the search index for substring search (D-047). Version 4 records the retired PIV
 /// slot and the touch-or-PIN policy on `folder_piv_wrap` (D-056). Version 5 adds the Eagle
-/// import state (phase 8). Version 6 keeps the ids an export into Eagle created apart from the
+/// import state (D-072). Version 6 keeps the ids an export into Eagle created apart from the
 /// import's `eagle_id` (D-087).
 pub(crate) const MIGRATIONS: &[Migration] = &[
     Migration {

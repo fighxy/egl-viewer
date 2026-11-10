@@ -296,7 +296,7 @@ fn a_crash_during_an_import_leaves_a_consistent_library_and_previews_resume() {
     assert_eq!(again.added, 12 - added);
 }
 
-/// The done check of phase 2: 1 000 mixed files plus a few others. Slow in debug builds; run
+/// The add-files done check: 1 000 mixed files plus a few others. Slow in debug builds; run
 /// with `cargo test --release -p library-native -- --ignored`.
 #[test]
 #[ignore]

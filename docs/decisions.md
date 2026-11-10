@@ -14,7 +14,7 @@ how it is built; this file records the choices made while building it.
 
 ## D-002 Latest stable versions, pinned exactly (2026-10-28)
 
-Phase 0 started from the newest stable releases available that day, subject to D-003:
+The project started from the newest stable releases available that day, subject to D-003:
 
 | Area | Versions |
 |---|---|
@@ -45,7 +45,7 @@ lucide-react 1.61.0 instead of 1.62.0. The same rule applies to crates when upda
 `SourceError` in `library-core` is a single set of kinds (`unauthorized`, `rejected`, `network`,
 `readOnly`, `storage`, …) shared by all library sources, instead of wrapping a per-source
 `EagleError`. The UI maps `kind` to messages without knowing which kind of library is open, and
-`eagle-api` (phase 9 since D-013) maps Eagle's errors onto it one to one. architecture.md §15.2 is updated
+`eagle-api` (added with the live connection, D-013) maps Eagle's errors onto it one to one. architecture.md §15.2 is updated
 accordingly.
 
 ## D-005 Biome instead of ESLint (2026-10-28)
@@ -70,10 +70,10 @@ TypeScript 7, if a rule only ESLint has becomes necessary.
 
 ## D-007 UI text in English for now (2026-10-28)
 
-~~All UI strings are English until a localisation phase adds Russian and English through a
+~~All UI strings are English until localisation adds Russian and English through a
 message catalogue. New strings go through one place per screen, so extracting them later is
 mechanical. Confirmed on 2026-10-28: the first version ships in English only; localisation is in
-the "Later" list of spec §9.~~
+the "Out of scope" list of spec §9.~~
 
 **Superseded by D-069** (2026-10-31): English remains the default and the source catalog;
 Russian and Chinese (Simplified) are selectable in Settings.
@@ -91,12 +91,12 @@ Types that cross IPC derive `ts_rs::TS` and are written to `ui/src/ipc/generated
 is safe for millisecond timestamps). The files are committed; CI fails when they differ from
 what the Rust code generates. Do not edit them by hand.
 
-## D-010 Libraries added when a phase needs them (2026-10-28)
+## D-010 Libraries added when a feature needs them (2026-10-28)
 
-Phase 0 has a single screen, so TanStack Router and TanStack Query (architecture.md §8) are not
-installed yet. They arrive with the first phase that needs routing or server state (phase 1 or
-3). The same holds for the store plugin (phase 1; dropped by D-022), and for HTTP (`reqwest`) and the secret store
-(`keyring`), which come with the Eagle connection (phase 9 since D-013).
+The first slice has a single screen, so TanStack Router and TanStack Query (architecture.md §8) are not
+installed yet. They arrive with the first feature that needs routing or server state (the grid
+slice). The same holds for the store plugin (dropped by D-022), and for HTTP (`reqwest`) and the secret store
+(`keyring`), which come with the Eagle connection (D-013).
 
 ## D-011 Desktop-only crate type (2026-10-28)
 
@@ -114,15 +114,15 @@ checks that they stay valid JSON and contain no token and no unredacted folder p
 
 egl-viewer is a **standalone asset manager** with its own library. Connecting to Eagle is a
 secondary feature. Until now the plan was a client for a running Eagle, with an own format as a
-late addition (phases 14–16). The spec and the architecture were re-prioritised the same day:
+a late addition. The spec and the architecture were re-prioritised the same day:
 
-- Phases 1–7 build the native library: create and open, adding files and the media pipeline, the
+- The first slices build the native library: create and open, adding files and the media pipeline, the
   grid, folders, tags, search and smart folders, editing and trash.
-- Then Eagle, in the order users need it: import an Eagle library (phase 8), connect to a running
-  Eagle (phases 9–10), export into Eagle (phase 11). Hardening and the release are phase 12.
+- Then Eagle, in the order users need it: import an Eagle library, connect to a running
+  Eagle (live connection and writes), export into Eagle. Hardening and the release come last.
 - The Eagle protocol content, the 41 corrections and the fixtures are unchanged; they moved to
-  spec §8. The `LibrarySource` trait from phase 0 makes this a reordering, not a rewrite.
-- The phase-0 code stays: the Connect screen becomes one of the Eagle screens, reached from
+  spec §8. The `LibrarySource` trait makes this a reordering, not a rewrite.
+- The existing code stays: the Connect screen becomes one of the Eagle screens, reached from
   Welcome (D-017).
 
 ## D-014 A managed library: files are copied in (2026-10-28)
@@ -151,8 +151,8 @@ format version in its header (D-019), not by the name, so a renamed folder still
 
 With no library open the app shows **Welcome**: Create library, Open library and Recent
 libraries as the primary actions; Import an Eagle library and Connect to a running Eagle as
-secondary actions under "Eagle". The phase-0 Connect screen is reached from there and has a Back
-button. On start the app reopens the last library unless it was closed explicitly (phase 1).
+secondary actions under "Eagle". The existing Connect screen is reached from there and has a Back
+button. On start the app reopens the last library unless it was closed explicitly.
 
 ## D-018 Locked folders encrypt their content with age (2026-10-28)
 
@@ -172,7 +172,7 @@ wrap of the same identity: the card holds an ECDSA P-256 key in a retired PIV sl
 (82–95), not the X25519 identity itself. Touch and the slot PIN are alternatives, not
 two steps (D-056). Either one unlocks that folder when the key is present; the password
 and the recovery secret still work when it is absent. Several keys can wrap one folder.
-Detail: `docs/age-locked-folders.md`. Phase 4. Revisit if a
+Detail: `docs/age-locked-folders.md`. Revisit if a
 full-database cipher is ever required; it is out of scope here.
 
 ## D-019 Schema v1 and how a library is recognised (2026-10-28)
@@ -186,7 +186,7 @@ full-database cipher is ever required; it is out of scope here.
 - The version goes up when the meaning of stored data changes, not only the schema: the first
   locked folder raises it although its columns already exist, because an older app would add
   plaintext files to a locked folder.
-- The storage of locked folders is reserved in version 1 and stays empty until phase 4:
+- The storage of locked folders is reserved in version 1 and stays empty until folder locks land:
   `item.encrypted`, `item.sealed`, the lock columns of `folder`, and the tables `item_key_wrap`
   and `folder_piv_wrap`. `item.sealed` holds the five sensitive fields as one age message while
   the plaintext columns are empty. Ciphertext in the same columns was rejected: it breaks
@@ -225,7 +225,7 @@ full-database cipher is ever required; it is out of scope here.
 - New libraries default to `%USERPROFILE%\egl-library`. OneDrive does not move the profile root,
   and the app never puts a library into OneDrive on its own. The Create dialog can pick another
   local folder every time. The default itself is a preference in `app-store` that the user can
-  change in Settings → General (phase 1, D-027), with the same location check. Changing it does
+  change in Settings → General (D-027), with the same location check. Changing it does
   not move existing libraries.
 - Detection is best effort, in `app-store` behind a trait: the `OneDrive`, `OneDriveConsumer` and
   `OneDriveCommercial` variables; the sync roots registered with the Windows Cloud Files API
@@ -233,12 +233,12 @@ full-database cipher is ever required; it is out of scope here.
   OneDrive, recent Dropbox, iCloud, Box); the markers `.dropbox.cache` and `.stfolder` in the
   folder or an ancestor; a network path when the canonical path is a UNC path. Google Drive and
   Yandex Disk are not guaranteed; add them when a reliable signal is known. The registry reader is
-  a new dependency, chosen and recorded when the phase 1 code lands.
+  a new dependency, chosen and recorded when the shell code landed.
 - Create is refused in a sync folder, on a network path, and inside another native library or an
   Eagle `.library` folder. Open: a library in a sync folder opens read-only with `immutable=1`
   (SQLite writes no `-wal` or `-shm` there) and a message to move the folder out while the app is
   closed; a network path is refused. No override in v1; "Move library…" can come with the library
-  settings (phase 7).
+  settings slice.
 - This replaces "warn and offer the backups" in spec §3.
 
 ## D-022 Settings and recent libraries are app-store files (2026-10-28)
@@ -247,7 +247,7 @@ full-database cipher is ever required; it is out of scope here.
   (`%LOCALAPPDATA%\com.fighxy.eglviewer`; not Roaming, because the paths belong to one computer):
   re-read, change, write a temp file, rename. Several app processes (D-024) merge instead of
   overwriting each other, and the code is tested without Tauri.
-- `tauri-plugin-store` is not used (D-010 expected it in phase 1): it keeps a file in memory and
+- `tauri-plugin-store` is not used (D-010 expected it early): it keeps a file in memory and
   saves it whole, so a second process overwrites the first one's changes, and it would add a
   JavaScript store API to the capabilities.
 - Recent libraries are keyed by the canonical path, because a copied library has the same
@@ -270,36 +270,36 @@ full-database cipher is ever required; it is out of scope here.
 - An item in the trash counts as a duplicate and is reported as such.
 - The stored file keeps the original name with the part before the extension cut to 100 UTF-16
   units: paths over 260 characters break Explorer and other apps. `name` keeps the full name.
-- `library-native` gets `add_file` for one file in phase 1, with tests and without a command or
+- `library-native` gets `add_file` for one file first, with tests and without a command or
   UI, so the schema is exercised before the grid. Batches, the media pipeline and the UI stay in
-  phase 2. Later: when no item has the same size, the file cannot be a duplicate, which saves the
+  batch add. Later: when no item has the same size, the file cannot be a duplicate, which saves the
   lookup for large imports.
 
 ## D-024 Several processes, one window and one library each (2026-10-28)
 
 - No single-instance plugin: a second app process may run, and on the same library it is
-  read-only (the phase 1 done check). Two libraries at the same time means two processes until
+  read-only (the create/open done check). Two libraries at the same time means two processes until
   multi-window support comes.
 - Switching libraries in a window opens and checks the new one first and closes the current one
   only on success.
 - `AppState` holds `Option<OpenLibrary>` behind one accessor, so a map per window is a local
   change later.
 - `LibraryInfo` gains `id`, `readOnly` and `readOnlyReason` (`otherInstance`, `syncFolder`,
-  `readOnlyMedium`). `Capabilities.locked_folders` is false for the native library until phase 4.
-  App login (spec §13.2) stays outside phase 1; Welcome remains the entry route, so a gate can be
+  `readOnlyMedium`). `Capabilities.locked_folders` is false for the native library until folder locks land.
+  App login (spec §12.2) stays outside the first slice; Welcome remains the entry route, so a gate can be
   put in front of it later.
 
 ## D-025 Native window frame, the app's own menu bar, one command registry (2026-10-28)
 
-- Phase 1 keeps the native Windows frame and puts the app's own menu bar (shadcn `Menubar`) under
+- The first slice keeps the native Windows frame and puts the app's own menu bar (shadcn `Menubar`) under
   it. Snap Layouts, the system shadow and the dark title bar come from Windows.
 - Rejected: the native Tauri menu, whose classic Win32 menu bar does not match the shadcn look and
-  the dark theme. Postponed to phase 12: a custom title bar that merges the title and menu rows.
+  the dark theme. Postponed: a custom title bar that merges the title and menu rows.
   Its HTML caption buttons lose the Snap Layouts of Windows 11 unless a plugin such as
   `tauri-plugin-decorum` restores them (a new dependency, to be checked then). Moving the menu bar
   into a custom title bar moves the component, not the menu.
 - One command registry (`ui/src/commands/`) feeds the menu bar, context menus, shortcuts, the
-  Keyboard Shortcuts dialog and a later command palette. Commands of later phases are absent, not
+  Keyboard Shortcuts dialog and a later command palette. Commands of later features are absent, not
   disabled; a menu without items is hidden; write commands in a read-only library are disabled
   with the reason as a tooltip.
 - The menu (spec §7.1): File, Edit, View, Library, Help. Closing the window quits the app: one
@@ -317,25 +317,25 @@ full-database cipher is ever required; it is out of scope here.
 - Filters: a filter bar under the toolbar, shown by the Filter button and on its own while a
   filter is active. Rejected: an always visible bar (it costs a row most of the time) and filters
   in the right bar (that belongs to the selection).
-- Grid: justified rows from item aspect ratios (D-067; phase 3 shipped squares first). List
+- Grid: justified rows from item aspect ratios (D-067; the grid shipped squares first). List
   unchanged. Masonry can still come later. Double-click and `Space` open the full-size preview
   (`Space` hold-vs-toggle and letterbox click-out: D-073); `Enter` moves focus to the right bar
   (spec §7 said before that `Enter` opens the detail).
 - Right bar: fields save on `Enter` or blur, `Esc` reverts, no Save button. With several items it
-  shows batch edits; with nothing selected, the open folder's properties (from phase 4).
-- Phase 1 builds the whole frame with empty zones, so later phases fill zones instead of
+  shows batch edits; with nothing selected, the open folder's properties.
+- The shell builds the whole frame with empty zones, so later features fill zones instead of
   restructuring the screen.
 
 ## D-027 Settings and About are dialogs (2026-10-28)
 
 - Settings is a dialog (`Ctrl+,`) with sections on the left, not a screen and not a second window
-  (one window, D-024). Phase 1 has General: theme, reopening the last library on start, and the
+  (one window, D-024). General has: theme, reopening the last library on start, and the
   default folder for new libraries (D-021). Library settings stay a separate dialog in the
   Library menu.
 - About shows the version, build date and commit, the WebView2 version, links and the
-  third-party licences. The licence file is generated by the release build (phase 12), because
+  third-party licences. The licence file is generated by the release build, because
   the MIT and Apache licences of the dependencies require showing their texts. Open Log Folder in
-  the Help menu waits for logs written to a file (phase 12).
+  the Help menu waits for logs written to a file.
 
 ## D-028 Look and motion (2026-10-28)
 
@@ -343,7 +343,7 @@ full-database cipher is ever required; it is out of scope here.
   in Settings. The grid background is a neutral grey. Desktop density: rows about 28–32 px, body
   text 13–14 px.
 - Not now: Mica or Acrylic backgrounds of Windows 11. They need a transparent window and WebView,
-  a performance risk with a large grid; revisit during phase 12.
+  a performance risk with a large grid; revisit before release.
 - Motion: `opacity` and `transform` only, 120–200 ms, for menus, dialogs, panels, thumbnails
   fading in, and the preview growing out of its cell (View Transitions API). No motion on scroll,
   sort, filter, selection or hover. Everything off under `prefers-reduced-motion`.
@@ -358,10 +358,10 @@ full-database cipher is ever required; it is out of scope here.
   focus rings only for keyboard focus.
 - The window starts hidden and appears after the first paint (no white flash in the dark theme);
   its size, position and maximized state are saved by `app-store` (D-022).
-- Which of these are Tauri or WebView2 settings and which are UI code is settled when phase 1 is
+- Which of these are Tauri or WebView2 settings and which are UI code was settled when the shell was
   built; arch §8 lists them.
 
-## D-030 Dependencies of phase 1 (2026-10-28)
+## D-030 Dependencies of the shell slice (2026-10-28)
 
 The newest versions older than the minimum release age (D-002, D-003):
 
@@ -379,22 +379,22 @@ The `std::fs::File::try_lock` of the library lock needs no crate (Rust 1.89+).
 
 ## D-031 shadcn components written by hand when the registry is unreachable (2026-10-28)
 
-The shadcn CLI downloads components from `ui.shadcn.com`, which the build environment of phase 1
+The shadcn CLI downloads components from `ui.shadcn.com`, which the build environment of that slice
 could not reach. `menubar`, `dialog` and `switch` in `ui/src/components/ui/` were written by hand
 on the `radix-ui` primitives already installed, in the style of the existing Nova components. They
 belong to the project like CLI output (D-006); `pnpm dlx shadcn@<pinned> add <name> -c ui` can
 replace them when the registry is reachable. No new npm package was needed.
 
-## D-032 Phase 1 as built (2026-10-28)
+## D-032 Create/open library and Welcome as built (2026-10-28)
 
 - `library-native` exposes `Library` directly; the commands use it through `src-tauri/src/session.rs`,
   a Tauri-free layer that the tests drive. The native `LibrarySource` implementation arrives in
-  phase 3 with `load_scope`, when there is something to load.
+  the grid slice with `load_scope`, when there is something to load.
 - Holding `Shift` on start (D-017, D-022) is not implemented yet: reading the key state needs a
   Windows call, and `unsafe` is forbidden in our crates, so it needs a crate with a safe wrapper,
   chosen separately. `--no-reopen` and the Settings switch "Reopen the last library on start" work.
 - Daily backups are named by the UTC date. The library's display name is `meta.name`.
-- The left bar shows its four rows without counts; counts come with the queries of phase 3. The
+- The left bar shows its four rows without counts; counts come with the queries of the grid slice. The
   screens switch without TanStack Router (D-010): two screens do not need it yet.
 - A read-only open of a library that needs a migration is refused with `notSupported`; with only
   format version 1 this cannot happen yet.
@@ -402,7 +402,7 @@ replace them when the registry is reachable. No new npm package was needed.
   instance (Welcome notice, then read-only with Open for editing), `kill -9` and restart (lock free,
   unclean close detected). The Windows checks of the done check are still open.
 
-## D-033 Dependencies of phase 2 (2026-10-28)
+## D-033 Dependencies of the add-files slice (2026-10-28)
 
 The newest versions older than the minimum release age (D-002, D-003):
 
@@ -441,30 +441,30 @@ kilobytes, about ten times a lossy one, which would make `thumbs/` of a large li
 gigabytes. Thumbnails are encoded at quality 80 by the `webp` crate, which builds libwebp from C
 (like the bundled SQLite). Opaque images are encoded without an alpha channel.
 
-## D-037 Phase 2 as built (2026-10-28)
+## D-037 Adding files and the media pipeline as built (2026-10-28)
 
 - **The duplicate question:** the first duplicate of a batch pauses the import and asks "Skip
   duplicates", "Add anyway" or "Cancel import"; the answer holds for the rest of the batch. "Add the
-  existing item to the target folder" joins with folders (phase 4).
-- **Waiting for later phases:** mirroring dropped folders (phase 4), tags and rating for a batch
-  (phases 5 and 7). The add dialog is the system file picker without extra options.
+  existing item to the target folder" joins with folders.
+- **Waiting for later features:** mirroring dropped folders; tags and rating for a batch.
+  The add dialog is the system file picker without extra options.
 - **Paste** is Edit → Paste (`Ctrl+V`), new in the menu table of spec §7.1. Text fields keep their
   own `Ctrl+V`. A pasted image is named `Pasted YYYY-MM-DD HH-MM-SS.png` in UTC; the time zone
-  needs a dependency that phase 2 does not otherwise need.
+  needs a dependency that the add-files slice does not otherwise need.
 - **Previews** run on a pool of at most four threads. `thumb_version = -1` marks a file that cannot
   be decoded, so it is not tried again; previews that a crash or a cancel left undone are made the
   next time the library opens, as a "Previews" task that does not hold back quitting.
 - **Quitting or closing while adding:** the window's close is held back and the UI asks
   (`close-requested`); closing or switching the library asks the same in the UI. D-072 extends
   that confirmation to every quit, not only while imports or exports are running.
-- **Counts** of the left bar and the toolbar arrive in phase 2 (D-032 expected them in phase 3):
+- **Counts** of the left bar and the toolbar arrive with add files (D-032 expected them with the grid):
   with files going in, the screen needs to show that they did.
 - **Checks:** 1 020 files (1 000 previews, 20 PDF placeholders) in 2.6 s in a release build on Linux
   (the ignored test `a_thousand_mixed_files`). In the real app under Xvfb: pasting an image from
   the clipboard, adding files through the GTK file dialog, the Imports panel and the duplicate
   question. The Windows checks are still open.
 
-## D-038 Dependencies of phase 3 (2026-10-28)
+## D-038 Dependencies of the grid slice (2026-10-28)
 
 The newest versions older than the minimum release age (D-002, D-003):
 
@@ -486,7 +486,7 @@ preview is a layer, not a route (D-010, D-032). Biome formats `pnpm-lock.yaml`, 
   one once the new one is open, so the grid never flashes empty on a new sort.
 - **Snapshots** (six per library) are keyed by scope. After an import writes, every snapshot is
   dropped and the open views are recomputed under their ids, at most every 500 ms and once at the
-  end, before the final progress goes out. Patching snapshots per item comes with edits (phase 7).
+  end, before the final progress goes out. Patching snapshots per item comes with the edit slice.
 - **The selection is ids**, not positions: positions move when an import adds items above. Shift
   ranges and the rubber band ask Rust for the ids of a range (`view_ids`); Select All is a flag
   ("everything except these ids"), never a list of every id. A plain click selects on mouse
@@ -508,28 +508,28 @@ crashed the app process (SIGSEGV) at `document.startViewTransition` under Xvfb w
 turned off. The transition now runs only in Chromium (WebView2), the target of v1; elsewhere the
 preview simply appears. Revisit for macOS (WKWebView) when that target starts.
 
-## D-041 Phase 3 as built (2026-10-28)
+## D-041 Grid, views and previews as built (2026-10-28)
 
 - **`library-core`** has the pipeline of arch §6.4 in full (lock filter, subfolder union, tag and
   folder chips, type, rating, shape, search ids, sort), although folders, tags and search arrive
-  in phases 4–6: the core tests of spec §10 already run against it. An empty tag or folder
+  in later slices: the core tests of spec §10 already run against it. An empty tag or folder
   selection filters nothing, whatever the mode. Shapes follow Eagle (arch §16.6), including the
   panoramic ones.
 - **The native `LibrarySource`** reads scopes, the item, tags, thumbnails and originals. Folders,
-  tag groups and smart folders answer empty lists until their phases; search answers
-  `notSupported` until FTS5 (phase 6). The app reads the async trait on a blocking thread with a
-  single poll (the native source never waits); a waiting source (Eagle, phase 9) needs a runtime
+  tag groups and smart folders answer empty lists until their slices; search answers
+  `notSupported` until FTS5. The app reads the async trait on a blocking thread with a
+  single poll (the native source never waits); a waiting source (Eagle) needs a runtime
   there.
-- **The sort menu** shows ten keys. Duration (no video in v1) and Manual (folders, phase 4) are
+- **The sort menu** shows ten keys. Duration (no video in v1) and Manual (folders) are
   supported by the sorter but hidden. The global sort, the layout (grid or list), the thumbnail
   size (80–320 px) and Show Names are preferences (`BrowsePreferences`); the last query per
-  library comes with phase 12.
+  library comes with the release slice.
 - **Thumbnail size** is two View menu items, Larger and Smaller (`Ctrl+=`, `Ctrl+-`), plus the
   slider and `Ctrl` + wheel; the item at the top stays in place when the size changes. Images
   smaller than their cell are not enlarged.
 - **The details panel** is read-only: preview, palette, name, rating, tags, note, link, file info
   and EXIF. Several selected items show their count; the stack of thumbnails and the total size
-  come with batch edits (phase 7).
+  come with batch edits.
 - **The preview** shows originals the WebView can display (JPEG, PNG, GIF, WebP, AVIF, BMP, SVG)
   and the 512 px thumbnail for TIFF and PSD. It zooms to 800 % with the wheel or `+` / `−`, pans
   by dragging, and moves with the arrow keys.
@@ -553,11 +553,11 @@ preview simply appears. Revisit for macOS (WKWebView) when that target starts.
   the window), not before it (capture): Radix menus ignore an event that is already prevented,
   so the folder tree's menu never opened. A UI test found it.
 
-## D-043 Phase 4a as built (2026-10-28)
+## D-043 Folders as built (2026-10-28)
 
-Phase 4 is built in two parts: **4a** (folders, membership, Include subfolders, the folder sort,
-manual order) and **4b** (locked folders: age, Argon2id, the recovery secret, item keys, the
-Locked folders section). 4a's done check is phase 4's without the locked-folder part.
+Folders are built in two parts: **first** (folders, membership, Include subfolders, the folder sort,
+manual order) and **then** locked folders (age, Argon2id, the recovery secret, item keys, the
+Locked folders section). The first part's done check is the folder one without the locked-folder part.
 
 - **Folder order** among siblings is a fractional key (base 62) between the neighbours
   (`order_key_between`); siblings with equal keys (an import) are numbered again first. A move
@@ -571,7 +571,7 @@ Locked folders section). 4a's done check is phase 4's without the locked-folder 
   the folder tags of that folder and its ancestors.
 - **A duplicate going into a folder** can join that folder instead ("Add to <folder>" in the
   batch question). An item in the trash joins it and stays in the trash; restoring comes with
-  phase 7.
+  the edit slice.
 - **Manual order** is `item_folder.position`. A reorder numbers the folder's items 1..n again;
   the moved items keep their order among themselves, and a drop before one of them lands before
   the next item that stays. **An item that joins a folder gets no position:** it sorts after the
@@ -591,19 +591,19 @@ Locked folders section). 4a's done check is phase 4's without the locked-folder 
 - **Membership edits** are `ItemEdit` intents (`addToFolders`, `removeFromFolders`,
   `setFolders`) on one item or on a batch. A batch target is ids, or Select All as "every item
   of this view except these ids" (`ItemsTarget`), resolved in Rust. The other intents answer
-  "not available yet" until phases 5 and 7.
+  "not available yet" until tags and batch edits land.
 - **New Folder** (`Ctrl+Shift+N`, the Library menu) creates a folder at the top level and opens
   it; New Subfolder, Rename (`F2`, double click), Colour, Move To and Delete are in the tree's
   context menu. A folder deleted while it is open answers an empty view, and the screen goes
   back to All.
-- **Not yet:** `item_fts.folders` is written with search (phase 6); covers come with the folder
-  covers of phase 12; removing a batch from a folder waits for the batch panel (phase 7).
+- **Not yet:** `item_fts.folders` is written with search; covers come with the folder
+  covers later; removing a batch from a folder waits for the batch panel.
 - **Checks:** the 10 000-item demo library in the real app under Xvfb: creating, nesting by
   drag, colour, dragging 12 items onto a folder, Select All into a folder, Include subfolders,
   Manual with a drag to the front, the context menu, deleting a folder. The Windows checks are
   still open.
 
-## D-044 Dependencies of phase 4b (2026-10-28)
+## D-044 Dependencies of locked folders (2026-10-28)
 
 The newest versions older than the minimum release age (D-002, D-003), with one exception:
 
@@ -620,7 +620,7 @@ The newest versions older than the minimum release age (D-002, D-003), with one 
 Dev builds and tests optimise the crypto crates (`[profile.dev.package]` in `Cargo.toml`):
 unoptimised, one Argon2id of 64 MiB and the X25519 of every item took seconds.
 
-## D-045 Phase 4b as built: locked folders (2026-10-28)
+## D-045 Locked folders as built (2026-10-28)
 
 - **A lock covers its folder and every folder under it.** An item in any covered folder is
   encrypted; an item covered by no lock is plaintext. A locked folder that is not unlocked hides
@@ -667,14 +667,14 @@ unoptimised, one Argon2id of 64 MiB and the X25519 of every item took seconds.
   every locked folder with it.
 - **Not in 4b:** the YubiKey PIV wrap waited for a card. D-056 adds it. The table
   `folder_piv_wrap` was empty until then. A folder imported locked from Eagle (no identity) comes with
-  phase 8.
+  the Eagle import.
 - **Checks:** the demo library in the real app under Xvfb: lock a folder of 12 items (also in
   another folder), the recovery key dialog, the counts and the Locked folders section, a wrong
   password, unlocking (the folder opens with decrypted previews and originals), Lock All
   Folders, removing the lock (the original file names come back). The Windows checks are still
   open.
 
-## D-046 Phase 5 as built: tags (2026-10-28)
+## D-046 Tags as built (2026-10-28)
 
 - **A tag is one `tag` row**, named by its exact string; items, folders and tag groups link to
   it. Adding a tag makes the row; a write that leaves a row without links (removing a tag from
@@ -709,7 +709,7 @@ unoptimised, one Argon2id of 64 MiB and the X25519 of every item took seconds.
 - **Filters stay when the place changes** and show in the filter bar, which opens on its own
   while a filter is on; the Filter button counts them. Another library starts without filters.
   A view with no results says so and offers Clear filters. The filter bar has only Tags now;
-  phase 6 adds type, rating, shape and folders.
+  the filter slice adds type, rating, shape and folders.
 - **The Tags sheet** draws the first 300 matching tags of the vocabulary and says how many more
   there are; typing narrows the list. A virtualized list can come if libraries need it. The
   chosen tags show under the lists, not above them: picking a tag never moves the rows under
@@ -721,7 +721,7 @@ unoptimised, one Argon2id of 64 MiB and the X25519 of every item took seconds.
   Recent tags; choosing a tag opens All filtered by it. Tag rows here and in the sheet have
   Rename…, Merge Into… and Delete… in their context menu (none in a read-only library). Left bar
   sections and groups stay collapsed once collapsed.
-- **The search row's tags column** stays empty until phase 6 fills `item_fts` from the tables.
+- **The search row's tags column** stays empty until search fills `item_fts` from the tables.
 - **Checks:** the 10 000-item demo library in the real app under Xvfb: tagging one item
   (`Poster`, `Swiss` and `poster` as three tags), tagging a selection of three with dimmed tags
   and "add to every item", the four modes on two tags (Any 3, All 3, Exact 2, None 9 997),
@@ -729,7 +729,7 @@ unoptimised, one Argon2id of 64 MiB and the X25519 of every item took seconds.
   group, a group tag opening All filtered, removing the filtered tag (the empty result with
   Clear filters). The Windows checks are still open.
 
-## D-047 Phase 6 search and format version 3 (2026-10-29)
+## D-047 Search and format version 3 (2026-10-29)
 
 - **A search word is a substring**, without case, of an item's name, note, link, tag names or
   folder names, as in Eagle: `post` finds `Poster`, `плак` finds `ПЛАКАТ` (Unicode lowercase on
@@ -758,14 +758,14 @@ unoptimised, one Argon2id of 64 MiB and the X25519 of every item took seconds.
   at once on `Enter`, `Esc` clears it. The search stays when the place changes and resets with
   another library; an empty result says so and offers to clear.
 
-## D-048 Phase 6 filters and smart folders (2026-10-29)
+## D-048 Filters and smart folders (2026-10-29)
 
 - **The filter bar** has Tags, Folders (the four modes over folder ids), Type (Images, then the
   library's extensions with counts from the new `extensions` call), Rating (unrated or 1–5) and
   Shape (Eagle's five shapes, panoramic ones included), Clear all and Save as smart folder.
   Filters stay when the place changes; the Filter button counts them.
 - **Smart folders** have their own tree in the left bar, nested, a new one after its siblings
-  (moving and reordering wait for a later phase, and so do counts). A smart folder shows the
+  (moving and reordering wait for later, and so do counts). A smart folder shows the
   items outside the trash that its rules and the rules of every smart folder above it keep,
   hidden items never. Editing or deleting one recomputes its open view; deleting takes the ones
   under it.
@@ -804,7 +804,7 @@ unoptimised, one Argon2id of 64 MiB and the X25519 of every item took seconds.
   smart folder opened with the same 1 250; adding "Name contains 99" in the editor recomputed it
   to 21. The Windows checks are still open.
 
-## D-049 Dependencies of phase 7 (2026-10-29)
+## D-049 Dependencies of edits and trash (2026-10-29)
 
 The newest versions older than the minimum release age (D-002, D-003):
 
@@ -816,7 +816,7 @@ The newest versions older than the minimum release age (D-002, D-003):
 `rusqlite` turns on its `backup` feature (no new crate) for restoring a backup into the open
 connection (D-051). Copy File uses `arboard`, already there for Paste.
 
-## D-050 Phase 7 item edits, renames and undo (2026-10-29)
+## D-050 Item edits, renames and undo (2026-10-29)
 
 - **Name, note, link and rating** are written by `apply_batch_edit` like the other intents, in
   one transaction for a selection, with the search row of a plaintext item. An encrypted item
@@ -845,7 +845,7 @@ connection (D-051). Copy File uses `arboard`, already there for Paste.
   when Rust refuses it. A field shows its draft only while it is being edited; otherwise it always
   shows the stored value, so a refusal that arrives before the next render is not lost.
 
-## D-051 Phase 7 trash, backups and maintenance (2026-10-29)
+## D-051 Trash, backups and maintenance (2026-10-29)
 
 - **Delete Permanently and Empty Trash** take only visible items of the trash. One transaction
   deletes the rows (links, tags, comments and key wraps cascade, tags left unused go) and
@@ -882,7 +882,7 @@ connection (D-051). Copy File uses `arboard`, already there for Paste.
   backups), the backups with Back up now and Restore (a second click confirms), Rebuild
   thumbnails and Check library.
 
-## D-052 Phase 7 file actions and the right bar (2026-10-29)
+## D-052 File actions and the right bar (2026-10-29)
 
 - **Files leave through Rust only.** Open with default app, Show in Explorer, Copy File and
   dragging out take item ids; Rust finds the original inside the library folder and refuses an
@@ -938,7 +938,7 @@ connection (D-051). Copy File uses `arboard`, already there for Paste.
   Tauri's AppImage guidance puts it. The image is deprecated and remains runnable until
   2027-04-17.
 - The three installers are unsigned. Signing, auto-update and the Windows done check stay in
-  phase 12. Eagle import, the live connection and export are not in 0.1.1.
+  the hardening slice. Eagle import, the live connection and export are not in 0.1.1.
 
 ## D-054 Scrollbars follow the app theme (2026-10-29)
 
@@ -957,7 +957,7 @@ connection (D-051). Copy File uses `arboard`, already there for Paste.
 
 ## D-056 YubiKey folder unlock and WebAuthn app login (2026-10-29)
 
-Two locks, and they do not share keys (spec §13).
+Two locks, and they do not share keys (spec §12).
 
 - **A locked folder** keeps its password wrap and its recovery wrap. A YubiKey 5C is an
   optional third wrap of that same age X25519 identity. The ciphertext is an age file whose
@@ -1083,7 +1083,7 @@ entry does not collide.
 - **Migration.** Builds before this change (including 0.1.2) cannot self-update: one last
   manual install of the first updater-enabled release, then in-app updates work. Rollback is
   a manual reinstall of an older GitHub Release; `allowDowngrades` stays off.
-- **Still phase 12.** Authenticode / Apple notarization are separate; SmartScreen may still
+- **Still open.** Authenticode / Apple notarization are separate; SmartScreen may still
   warn on unsigned first installs.
 
 ## D-063 HEIC/HEIF previews through the system libheif (2026-10-31)
@@ -1188,7 +1188,7 @@ entry does not collide.
 
 ## D-068 No native WebView context menu anywhere (2026-10-31)
 
-- D-029 already said the WebView2 context menu is replaced by the app's own. Phase 1 still
+- D-029 already said the WebView2 context menu is replaced by the app's own. The first slice still
   left it on for `input` / `textarea` / contenteditable so cut, copy and paste stayed in the
   browser chrome. That menu also offers emoji and password-import entries (localized by the
   OS), which made the app feel like a browser page.
@@ -1263,8 +1263,8 @@ linked libheif dynamically, but the installer did not ship it).
 When the open place is the trash (`place.kind === "trash"`), the toolbar does not show
 **Add files**. Empty Trash stays (via `placeActions`). Importing into the trash would be
 misleading: new files never land there. File → Add Files… / Import Folder… remain available
-from the menu and still add into the library as usual. Covered by `LibraryScreen` and Phase 7
-UI tests.
+from the menu and still add into the library as usual. Covered by `LibraryScreen` and the
+item-actions UI tests.
 
 ## D-072 Confirm before quitting (2026-11-01)
 
@@ -1310,9 +1310,9 @@ exits. Cancel dismisses the dialog and keeps the process running.
   invalidates the folder tree so the sidebar badge and the Trash context menu stop showing
   stale numbers. Relying only on `views-invalidated` left the badge wrong or late.
 
-## D-075 Phase 9 libraries: reqwest, url, keyring, wiremock (2026-11-01)
+## D-075 Eagle connection libraries: reqwest, url, keyring, wiremock (2026-11-01)
 
-Phase 9 (connect to a running Eagle, docs/spec.md §8.3) adds four pinned
+The Eagle connection (docs/spec.md §8.3) adds four pinned
 dependencies, the newest stable releases of 2026-10-28 where available:
 
 - `reqwest 0.12.28` with `default-features = false, features = ["json",
@@ -1327,9 +1327,9 @@ dependencies, the newest stable releases of 2026-10-28 where available:
 - `wiremock 0.6.3` (dev, `eagle-api` only): the integration tests replay the
   captures from `fixtures/eagle-api/`, per docs/architecture.md §13.
 
-## D-076 Phase 10: eagle-api writes, adds, same-PC thumbnails (2026-11-01)
+## D-076 eagle-api writes, adds, same-PC thumbnails (2026-11-01)
 
-Phase 10 (docs/spec.md §9) turns a live Eagle session writable and serves
+The writes slice (docs/spec.md §8.3) turns a live Eagle session writable and serves
 same-PC thumbnails. `eagle-api` takes two already-pinned workspace crates:
 
 - `base64 0.22.1`: data-URL bodies for `item/add` from another computer
@@ -1345,9 +1345,9 @@ Unsupported native-only session commands (`delete_folder`, empty trash, tag
 groups, smart-folder writes, …) return `NotSupported` while an Eagle session
 is open, not "Open a library first".
 
-## D-077 Phase 11: export into a running Eagle (2026-11-01)
+## D-077 Export into a running Eagle (2026-11-01)
 
-Phase 11 (docs/spec.md §8.4 / §9, docs/architecture.md §15.7) exports a native
+The export slice (docs/spec.md §8.4, docs/architecture.md §15.7) exports a native
 library into a running Eagle through its API only, so Eagle stays the writer of
 its library.
 
@@ -1372,7 +1372,7 @@ its library.
 
 ## D-078 Persist place, filters and selection per library (2026-11-01)
 
-Phase 12 (docs/spec.md §9): after reopen (D-022), restore where the user was
+Hardening: after reopen (D-022), restore where the user was
 inside that library.
 
 - **File.** `queries.json` next to `preferences.json` / `recent.json` (same
@@ -1401,7 +1401,7 @@ inside that library.
 
 ## D-080 Clear the Eagle token from the WebView after send (2026-11-01)
 
-Tightens phase 12’s “token never reaches the WebView longer than needed”.
+Tightens the hardening slice’s “token never reaches the WebView longer than needed”.
 
 - **Connect.** On submit, the Connect form copies the token into the IPC payload
   and clears the password field immediately. Rust wraps it in `SecretString`
@@ -1412,7 +1412,7 @@ Tightens phase 12’s “token never reaches the WebView longer than needed”.
   token in JSON only; there is still no crash-report pipeline to scrub. Logs
   follow D-079.
 
-## D-081 Phase 12 accessibility polish; custom title bar still postponed (2026-11-01)
+## D-081 Accessibility polish; custom title bar still postponed (2026-11-01)
 
 - **Landed.** Folder tree Home / End; filter-bar chips expose `aria-label` /
   `aria-pressed`; existing tree / tag / grid roles and keyboard remain.
@@ -1537,7 +1537,7 @@ Eagle, App Store, or Play polish.
 ## D-087 Ids from an export into Eagle get their own table, format version 6 (2026-11-03)
 
 `eagle_id` on `item`, `folder`, `tag_group` and `smart_folder` meant two things: where an
-imported row came from (phase 8) and what an export into a running Eagle created (phase 10).
+imported row came from (the Eagle import) and what an export into a running Eagle created (the live-connection writes).
 `store_eagle_ids` overwrote it, so exporting an imported item into another Eagle library
 replaced its origin, and a later re-import of the first library no longer recognised it.
 
@@ -1552,9 +1552,9 @@ replaced its origin, and a later re-import of the first library no longer recogn
   (docs/library-format.md §8); `every_released_format_migrates_from_its_fixture` opens a copy of
   each one. New fixtures are written by the ignored `make_format_fixture` test.
 
-## D-088 Data-safety fixes from the post-phase-12 review (2026-11-03)
+## D-088 Data-safety fixes from the pre-release review (2026-11-03)
 
-A review of the work merged after phase 7 found these defects in the core crates; each fix has
+A review of the work merged with the edits slice found these defects in the core crates; each fix has
 a test that failed before it.
 
 - **Eagle import thumbnails.** The import set `thumb_version = 1` without writing the file. The
@@ -1585,7 +1585,7 @@ a test that failed before it.
 
 ## D-089 Session fixes for a connected Eagle (2026-11-03)
 
-The review after phase 12 found these defects in the app layer (`src-tauri`); each has a
+The pre-release review found these defects in the app layer (`src-tauri`); each has a
 test, the first Session tests against a fake Eagle (`wiremock` over `fixtures/eagle-api/`,
 `session_eagle_tests.rs`).
 
@@ -1625,7 +1625,7 @@ test, the first Session tests against a fake Eagle (`wiremock` over `fixtures/ea
 - **File actions on a selection** (Show in Explorer, Copy File, drag out) take an
   `ItemsTarget`: Select All is resolved in Rust instead of the UI fetching every id.
 
-## D-090 UI fixes from the post-phase-12 review (2026-11-03)
+## D-090 UI fixes from the pre-release review (2026-11-03)
 
 Each fix has a UI test; the ones marked † fail on the code before the fix.
 
@@ -2714,7 +2714,7 @@ so this decision is **D-126** (not D-125).
 ## D-127 Toolkit-free `desktop-session` crate (2026-11-08)
 
 Extract the desktop `Session` out of `src-tauri` so Tauri and the GPUI experiment share one
-API (GPUI migration Phase 0b).
+API (GPUI migration).
 
 Numbering: **D-125** is reserved by open PR #85 (mobile release visibility); **D-126** is the
 GPUI Kit spike. This extract is **D-127**. Open Android work that may claim nearby numbers
@@ -2728,7 +2728,7 @@ must skip 125–127.
 - **Hosts.** `src-tauri` is a thin command / window / `thumb` adapter over `Session`.
   `gpui-desktop` opens libraries through the same `Session` (no direct `LibraryService`
   glue for open/list/thumbs).
-- **YubiKey / WebAuthn (Phase 0b.4 note, not a blocker).** They live **in** `desktop-session`
+- **YubiKey / WebAuthn (GPUI migration note, not a blocker).** They live **in** `desktop-session`
   for now (`yubikey` module + Windows `webauthn` / unsupported stub): the Session methods
   already call them, and neither needs a Tauri or GPUI window handle today (WebAuthn uses
   `GetForegroundWindow`). Revisit moving them under a future `egl-desktop::platform` (or a
@@ -2738,12 +2738,12 @@ must skip 125–127.
 - **Verify.** `cargo test -p desktop-session`, `cargo test -p egl-viewer`,
   `cargo test -p gpui-desktop` (with the usual `VCPKG_ROOT` / heif PATH).
 
-## D-129 GPUI browse shell (Phase 1) (2026-11-08)
+## D-129 GPUI browse shell (2026-11-08)
 
 First usable native browse UI on `gpui-desktop`, still experimental beside Tauri/`ui/`.
 
 Numbering: **D-125** reserved by open PR #85; **D-126** spike; **D-127** session extract;
-**D-128** claimed by Android preview-swipe work. This phase is **D-129**.
+**D-128** claimed by Android preview-swipe work. This slice is **D-129**.
 
 - **Ships.** Welcome (create / open / recent / forget); startup reopen + `--no-reopen` +
   Shift-at-start via `device_query` (closes the D-032 Windows-key gap for the GPUI host);
@@ -2761,19 +2761,19 @@ Numbering: **D-125** reserved by open PR #85; **D-126** spike; **D-127** session
   restarts without colliding with the shipping desktop until cutover.
 - **Deps.** `device_query = "=4.0.1"` (safe Shift query; crate contains the Win32/FFI `unsafe`,
   not this package — D-002 / D-003 / D-032).
-- **Not yet / deferred.** Search field remains a stub label (Phase 3); Eagle Welcome actions
-  stay disabled (Phase 4); windowed `view_range` fetch beyond the first 500 cells can tighten
+- **Not yet / deferred.** Search field remains a stub label (until the search slice); Eagle Welcome actions
+  stay disabled (until the Eagle slice); windowed `view_range` fetch beyond the first 500 cells can tighten
   further for huge libraries; Tauri host still lacks Shift-at-start (unchanged D-032 for
   shipping). Rubber-band hit-testing uses content coordinates best-effort.
 - **Run.** `cargo run -p gpui-desktop` (optional path / `--no-reopen`). Tests:
   `cargo test -p gpui-desktop`. Tauri/`ui/` unchanged.
 
-## D-130 GPUI preview + details read path (Phase 2) (2026-11-08)
+## D-130 GPUI preview + details read path (2026-11-08)
 
 Full-size preview and read-only details on `gpui-desktop`, still experimental beside Tauri/`ui/`.
 
 Numbering: **D-125** reserved by open PR #85; **D-126** spike; **D-127** session extract;
-**D-128** Android preview swipe; **D-129** Phase 1 browse. This phase is **D-130**.
+**D-128** Android preview swipe; **D-129** browse shell. This slice is **D-130**.
 
 - **Ships.** Right-bar details via `Session::item_detail` (one / many / none / trash placeholder):
   thumb, palette, name, rating, tags, folders, note, link, info, EXIF (comments RO when present);
@@ -2789,7 +2789,7 @@ Numbering: **D-125** reserved by open PR #85; **D-126** spike; **D-127** session
   best-effort); Eagle.
 - **Run.** `cargo run -p gpui-desktop`. Tests: `cargo test -p gpui-desktop`. Tauri/`ui/` unchanged.
 
-## D-131 GPUI edits / organize / import / locks (Phase 3) (2026-11-08)
+## D-131 GPUI edits / organize / import / locks (2026-11-08)
 
 Day-to-day native-library editing on `gpui-desktop` via `desktop-session` (still experimental
 beside Tauri/`ui/`). Numbering: free id after D-130; **D-131**. Follow-up closed the DnD /
@@ -2808,11 +2808,11 @@ filters / locks / import-preview gaps on the same day.
   after; Manual cells). Library Settings (rename, reveal, stats, backups, check, rebuild).
 - **Still open.** Smart rule editor UI (3.C.4); OS drag-out (3.F.2); recent-tags strip; full
   import tree checkboxes; OS clipboard file-list paste; folder multi-membership checklist.
-- **Deps.** No new crates (reuses `arboard` from Phase 2).
+- **Deps.** No new crates (reuses `arboard` from D-130).
 - **Run.** `cargo run -p gpui-desktop`. Tests: `cargo test -p gpui-desktop` (23). Tauri/`ui/`
   unchanged.
 
-## D-132 GPUI Eagle / export archives / app login (Phase 4) (2026-11-08)
+## D-132 GPUI Eagle / export archives / app login (2026-11-08)
 
 Secondary flows on `gpui-desktop` via `desktop-session` (still experimental beside Tauri/`ui/`).
 Numbering: free id after D-131; **D-132**.
@@ -2833,7 +2833,7 @@ Numbering: free id after D-131; **D-132**.
 - **Run.** `cargo run -p gpui-desktop`. Tests: `cargo test -p gpui-desktop` (30). Tauri/`ui/`
   unchanged.
 
-## D-133 GPUI desktop cutover path (Phase 5 dual path) (2026-11-08)
+## D-133 GPUI desktop cutover path (dual path) (2026-11-08)
 
 Packaging, updater channel, CI, and docs for the GPUI host **beside** the shipping Tauri
 desktop. Numbering: free id after D-132; **D-133**. **Do not delete** `src-tauri` / `ui/` until
@@ -2860,7 +2860,7 @@ Ivan confirms retirement.
   script, upload `gpui-desktop-portable` artifact. Mobile path-filters (D-084) untouched. Tauri
   `check` / `nsis` / `dmg` / `appimage` / `release` jobs unchanged.
 - **Chrome.** Native GPUI window frame is enough for the GPUI host; custom title-bar merge
-  (D-025) is not required on this path (still open on Tauri Phase 12).
+  (D-025) is not required on this path (still open on the Tauri side).
 - **Deps.** `reqwest` with `blocking` on `gpui-desktop` only (workspace pin 0.12.28, D-002 /
   D-003). No new crate versions beyond existing workspace pins.
 - **Verify.** `cargo test -p gpui-desktop`; `pwsh scripts/package-gpui-desktop.ps1` on Windows
@@ -2978,3 +2978,97 @@ Show in Explorer opened an Explorer window and then `gpui-desktop` exited.
   Unit tests skip the real shell unless `EGL_REVEAL_SMOKE=1`.
 - **Verify.** `cargo test -p gpui-desktop reveal_shell_is_not`; `cargo test -p gpui-desktop detached_shell`.
   Show in Explorer on an item: Explorer selects the file and gpui-desktop stays open.
+
+## D-140 GPUI right-click menus, Eagle item shortcuts and the folder panel (2026-11-10)
+
+The GPUI host had no right-click menu anywhere, and several things Eagle does from the grid
+needed the right bar or a toolbar button. Shortcuts follow Eagle's Windows defaults
+(`default-preferences.js` of Eagle 4) where the key is free on this host.
+
+- **Item menu.** A right click in the grid or the list. A cell outside the selection becomes
+  the selection first; a cell inside keeps the whole selection. Preview, Open with default
+  app, Show in Explorer, Copy file(s), Copy Name, Copy File Path, Rename…, Add to
+  Folder(s)…, Remove from Current Folder (only in a folder), Rating ▸ five stars down to
+  Remove Rating, Add Tags…, Copy Tags, Paste Tags, Clear Tags, Move to Trash. In the Trash:
+  the reading commands, Restore, Delete permanently. On empty space with nothing selected:
+  Add Files…, Import Folder…, Paste, New Folder, Select All. A read-only library keeps the
+  reading commands and disables the rest. A live Eagle library disables what needs a local
+  file (open, reveal, copy file, copy path).
+- **Folder menu.** A right click in the folder tree opens the folder under the cursor, then
+  offers New Subfolder, Rename…, Lock…, Export…, Delete…. These are the commands that
+  already acted on the open folder. Outside a folder the menu is New Folder.
+- **Shortcuts.** `F2` renames the one selected item, or the open folder when nothing is
+  selected (before: the folder only). `1`–`5` rate the selection and `0` removes the rating;
+  Eagle ships these commands without default keys, the digits are our choice. In the preview
+  `0` still fits the image. `Ctrl+Shift+J` Add to Folder(s), `Ctrl+J` Go to Folder,
+  `Shift+Delete` Remove from Current Folder, `Ctrl+T` Add Tags, `Ctrl+Shift+C` /
+  `Ctrl+Shift+V` Copy / Paste Tags, `Ctrl+Alt+C` Copy File Path. A focused text field takes
+  plain keys first (GPUI prefers character input), so digits typed into a field do not rate.
+  Not taken from Eagle: `Ctrl+1`…`Ctrl+7` for places (`Ctrl+1` / `Ctrl+2` are Grid / List
+  here) and `Ctrl+Enter` / `Shift+Enter` (already Open with default app here).
+- **Folder panel.** One panel with a name field for both commands. Go to Folder: a click or
+  Enter on the first match opens the folder. Add to Folder(s): for one item the ticks start
+  from its folders and Apply sends the complete set (`SetFolders`), so a tick can also be
+  removed; for several items the ticked folders are added (`AddToFolders`) and no item
+  leaves a folder. A typed name and Enter with nothing ticked takes the first match. Locked
+  folders are not listed (D-059); an item keeps its membership in them. This closes the
+  "folder multi-membership checklist" gap of D-131.
+- **Tags clipboard.** Copy Tags keeps the names inside the app, not on the system
+  clipboard, as Eagle does. Case is kept. Paste adds; it removes nothing.
+- **Copy Name / Copy File Path.** Text on the system clipboard, one line per item; names
+  carry the extension.
+- **Tests.** The menus are built from a plain model (`item_menu_model`,
+  `folder_menu_model`) so they are tested without a window; so are the panel's rows, its
+  filter and the edit it sends. A test parses every key binding and refuses a keystroke
+  bound twice.
+- **Not in this step.** Batch rename, the smart folder rule editor, dragging originals out
+  to other apps, recent tags, pasting a file list, the context menu of tags and smart
+  folders.
+- **Verify.** `cargo test -p gpui-desktop ops_items`; `cargo test -p gpui-desktop commands`.
+
+## D-141 GPUI chrome in Eagle's manner (2026-11-10)
+
+Side by side with Eagle the GPUI host had plain defects: thumbnails did not fill their
+cells, the selection could not be seen, the toolbar was one crowded row of text buttons with
+white "on" states, and the left bar ran off the bottom of the window.
+
+- **Thumbnails fill the cell.** The justified layout gives a cell the item's aspect ratio,
+  but the image was drawn as a square of the row height, which left empty bands between
+  cells. The image now covers the whole cell, with 4 px corners. Gap 8 px and padding 12 px
+  (before 4 / 8); this host no longer matches the constants of `justified.ts` (D-067).
+- **Captions.** With Show Names on: the name centred under the thumbnail and the pixel size
+  under it, as in Eagle. The caption strip is 38 px (before 20). List rows show the size at
+  the right.
+- **Selection.** A 2 px ring drawn over the image, so selecting never moves or resizes a
+  thumbnail, and the name on a filled pill. The colour is the theme's `blue`: the kit's
+  `accent` is a hover grey and was invisible on a dark grid. Rows of the left bar and of the
+  list use `list_active` / `list_hover`.
+- **Toolbar, two rows.** Row 1: the name of the open place (not the library, which is in the
+  window title) and its count; a thumbnail size slider between − and +; icon buttons with
+  tooltips for Add Files, Imports, Sort By, Include Subfolders, Show Names, Grid / List;
+  search. Row 2, the filter bar: Tags, Folders, Type, Shape, rating 0–5, Clear filters, and
+  Export of the open folder or the one filtered tag at the right. A switch that is on is a
+  selected ghost button, not a white primary one. Dragging the slider repacks the grid on
+  every step and writes the preference once, on release; `Ctrl+=` / `Ctrl+-` move the slider.
+- **Left bar.** Places stay on top; folders, locked folders, smart folders and tags scroll
+  together below (tags used to be cut off at 40 and pushed the buttons out of the window).
+  Icons on rows; folder icons take the folder colour. Section buttons sit in the section
+  header: + for a folder, + for Save as smart folder, … for Tag groups. The header's Aa /
+  Del / Lock text buttons are gone: rename, delete and lock are in the folder's right-click
+  menu (D-140). A tag that filters the view is highlighted.
+- **Right bar.** Rating is five stars filled up to the rating; a click on the current
+  rating removes it. Folder colour is a row of colour dots. The bar is refreshed whenever
+  the view is: after a change of place it kept showing the item selected before.
+- **Icons.** `AllAssets` (the full Lucide set of `gpui-kit-assets`) instead of `Assets`:
+  the default bundle has only the icons the kit's own components use. No new dependency.
+- **Main thread stack 8 MiB (Windows, MSVC).** `build.rs` passes `/STACK:8388608` to the
+  linker for the binary. The shell is one element tree built on the main thread, a debug
+  build keeps every builder temporary on the stack, and Windows gives 1 MiB: the new
+  toolbar overflowed it on opening a library (0xC00000FD), as the shell did once before
+  (commit 185c477). Splitting functions only moved the limit.
+- **Still open.** A view loads its first 500 items and no more (noted in D-129): a folder of
+  2227 items shows 500. Waterfall layout, hover preview, a back / forward history and the
+  filter bar's Color and Date filters are not here.
+- **Verified** on a 300-item demo library by capturing the app's own window: grid, captions,
+  selection, the left bar, the toolbar, the item's right-click menu.
+  `cargo test -p gpui-desktop style`; `cargo test -p gpui-desktop`.

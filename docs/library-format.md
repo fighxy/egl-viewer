@@ -2,7 +2,7 @@
 
 The on-disk format of a native egl-viewer library (`Name.eglib`): the folder layout, the
 `library.db` schema, the lock, opening and closing, and how a file enters the library. It was
-written before the phase 1 code (2026-10-28); the code follows it, and a change to the format
+written before the code (2026-10-28); the code follows it, and a change to the format
 changes this document in the same commit. For the on-disk format this document is the reference;
 [`architecture.md` §15.3](architecture.md) summarises it. Decisions: D-014, D-016, D-019 to D-024.
 
@@ -19,7 +19,7 @@ My Library.eglib/
   files/
     .tmp/                       files being copied in; emptied by the writer on open
     7Q/01JB…7Q/IMG_1042.jpg     originals: <shard>/<item id>/<stored file name>
-  thumbs/7Q/01JB…7Q.webp        thumbnails (phase 2): regenerable, may be deleted at any time
+  thumbs/7Q/01JB…7Q.webp        thumbnails: regenerable, may be deleted at any time
   backups/library-2026-10-28.db copies of library.db (VACUUM INTO), the last 10 kept
   desktop.ini, .egl-icon.ico    Windows only, hidden: the app's icon on the folder (D-117)
   .directory, .egl-icon.png     Linux only: the same for KDE's Dolphin (D-117)
@@ -54,7 +54,7 @@ My Library.eglib/
 Checks when a library is opened (the full order is in §7):
 
 1. No `library.db` → not a library. If the folder looks like an Eagle library (`metadata.json`
-   and `images/`), the message says so; Eagle import is phase 8.
+   and `images/`), the message says so; Eagle import is a separate reader.
 2. A read-only connection reads the header. Another `application_id` → not a library.
    A `user_version` above the newest one the app knows → refused ("made by a newer egl-viewer"),
    and nothing is written, not even `meta.open_by`.
@@ -62,9 +62,9 @@ Checks when a library is opened (the full order is in §7):
    instance refuses a library that needs a migration and asks to close the other instance.
 
 **When the version goes up.** With every schema change, and also when the meaning of stored data
-changes while the schema stays the same. Locked folders (phase 4) use columns and tables that
+changes while the schema stays the same. Locked folders use columns and tables that
 exist from version 1; the first locked folder raised a library to version 2, so that an older app
-would not add files to a locked folder as plaintext. Version 3 (phase 6) changes the search index,
+would not add files to a locked folder as plaintext. Version 3 changes the search index,
 and since every library reaches it before anything is written, the lock step is no longer needed:
 an app older than version 3 refuses every library ([`age-locked-folders.md`](age-locked-folders.md)
 §6, D-047).
@@ -107,9 +107,9 @@ Rules:
   (removing a tag from items, editing or deleting a group). Renaming a tag updates its row; a
   rename onto an existing name, and a merge, move the links to the other row and delete the old
   one. Item tags are not sealed: a locked item keeps its `item_tag` rows in plaintext (D-046).
-- **Reserved for locked folders (phase 4):** `item.encrypted`, `item.sealed`, the lock columns of
+- **Reserved for locked folders:** `item.encrypted`, `item.sealed`, the lock columns of
   `folder`, and the tables `item_key_wrap` and `folder_piv_wrap`. They exist from version 1 and
-  stay empty until phase 4; code before phase 4 never writes them, and a test checks that they
+  stay empty until folder locks land; earlier code never writes them, and a test checks that they
   exist and are empty. While an item is encrypted, its name, note, link, EXIF and palette are one
   age message in `item.sealed` (JSON with the five fields), the plaintext columns are empty, and
   the item has no row in `item_fts`.
@@ -150,8 +150,8 @@ CREATE TABLE item (
   deleted_at       INTEGER,                         -- set while in the trash
   updated_at       INTEGER NOT NULL,
   eagle_id         TEXT UNIQUE,
-  encrypted        INTEGER NOT NULL DEFAULT 0 CHECK (encrypted IN (0, 1)),   -- reserved, phase 4
-  sealed           BLOB                                                      -- reserved, phase 4
+  encrypted        INTEGER NOT NULL DEFAULT 0 CHECK (encrypted IN (0, 1)),   -- reserved: locked folders
+  sealed           BLOB                                                      -- reserved: locked folders
 ) STRICT;
 
 CREATE TABLE folder (
@@ -167,7 +167,7 @@ CREATE TABLE folder (
   created_at       INTEGER NOT NULL,
   updated_at       INTEGER NOT NULL,
   eagle_id         TEXT UNIQUE,
-  -- reserved, phase 4: locked folders (docs/age-locked-folders.md)
+  -- reserved: locked folders (docs/age-locked-folders.md)
   locked           INTEGER NOT NULL DEFAULT 0 CHECK (locked IN (0, 1)),
   label            TEXT,                            -- the lock's tag caption; plaintext; not an item tag
   label_color      TEXT,                            -- the lock's tag colour; plaintext
@@ -266,7 +266,7 @@ CREATE TABLE eagle_export (
   PRIMARY KEY (kind, native_id)
 ) STRICT, WITHOUT ROWID;
 
--- reserved, phase 4: the key of an item in a locked folder, wrapped once per locked folder
+-- reserved: the key of an item in a locked folder, wrapped once per locked folder
 CREATE TABLE item_key_wrap (
   item_id     TEXT NOT NULL REFERENCES item(id) ON DELETE CASCADE,
   folder_id   TEXT NOT NULL REFERENCES folder(id),  -- no cascade: a locked folder is decrypted before it is deleted
@@ -338,7 +338,7 @@ the wrong items after a restore. Other tables refer to items by `id`.
 - writes nothing: no `open_by`, no cleanup of `files/.tmp/` (the writer may be copying there),
   no `pending_file` recovery, no backups, no migrations;
 - compares `PRAGMA data_version` when the window regains focus, and reloads the tree and the
-  views when another process has written (from phase 3);
+  views when another process has written;
 - offers **Open for editing**, which retries `try_lock` and, when it succeeds, reopens the library
   as the writer (§7). It is not offered for reason `syncFolder`.
 
@@ -368,16 +368,16 @@ Read-only reasons reach the UI in `LibraryInfo.readOnlyReason`: `otherInstance`,
 - `synchronous = FULL` makes each commit durable, which this order relies on. NTFS journals the
   rename itself; the temp file's data is flushed in step 2.
 - The source file is only read; it stays where it was.
-- `add_file(source, duplicates)` with `duplicates: Report | AddAnyway` adds one file (phase 1).
-  `import_files` adds batches on top of it (phase 2): dropped folders are walked, the first
+- `add_file(source, duplicates)` with `duplicates: Report | AddAnyway` adds one file.
+  `import_files` adds batches on top of it: dropped folders are walked, the first
   duplicate asks once for the batch, cancelling stops after the current file, and previews are made
   on a small thread pool. A preview is written to `thumbs/<shard>/<id>.webp` through a temp file
   before `thumb_version` goes up; a file that cannot be decoded gets `thumb_version = -1`.
-- **Into a folder** (phase 4): step 6 also inserts the `item_folder` row (no position) and the
+- **Into a folder**: step 6 also inserts the `item_folder` row (no position) and the
   `item_tag` rows of the folder's tags and its ancestors' tags. Dropped folders become library
   folders first (an existing folder of the same name under the same parent is reused). A
   duplicate can instead put the existing item into the target folder.
-- **Into a locked folder** (phase 4b, the folder unlocked): step 1 encrypts with age while it
+- **Into a locked folder** (the folder unlocked): step 1 encrypts with age while it
   copies and hashes the plaintext, so `files/.tmp/` never holds plaintext of a locked item. The
   target is `files/<shard>/<id>/<id>.age` (the file name is sealed); step 6 writes `encrypted =
   1`, empty plaintext columns, the sealed fields, one `item_key_wrap` row per covering lock, and
@@ -405,7 +405,7 @@ Windows as below.
 
 ### Renaming an item
 
-The stored file follows the item name (phase 7, D-050): characters Windows refuses become `_`,
+The stored file follows the item name (D-050): characters Windows refuses become `_`,
 the part before the extension is cut to 100 UTF-16 units without trailing dots or spaces, a device
 name (`CON`, `LPT1`, …) gets a leading `_`, and the item's extension follows.
 
@@ -424,7 +424,7 @@ fields change.
 
 ### Removing items for good
 
-Delete Permanently and Empty Trash (phase 7, D-051; Empty Trash progress D-074):
+Delete Permanently and Empty Trash (D-051; Empty Trash progress D-074):
 
 ```
 1. commit   for each item: INSERT pending_file(file_path, thumbs/<shard>/<id>.webp,
@@ -499,7 +499,7 @@ app emits `library-closed` and returns to Welcome with a message.
   82–95) and `policy` (`touch` or `pin`). The table was empty, so the rebuild drops it and
   creates it again. A YubiKey wrap is optional and does not replace the password or the
   recovery secret.
-- **Version 5** (phase 8): `eagle_import` records every item imported from an Eagle library:
+- **Version 5**: `eagle_import` records every item imported from an Eagle library:
   the Eagle id, its `lastModified` on the Eagle side (for a later incremental re-import) and
   when the import stored it. An interrupted import resumes where it stopped; the table stays
   empty for a library that never imported one.

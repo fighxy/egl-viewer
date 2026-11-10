@@ -1,5 +1,5 @@
 //! Tags: item tag edits, the vocabulary, rename, merge and delete everywhere, tag groups
-//! (docs/spec.md §9 phase 5).
+//! (D-046).
 
 use std::sync::atomic::AtomicBool;
 

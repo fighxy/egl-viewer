@@ -1,7 +1,7 @@
 //! A running Eagle as a `LibrarySource`, through its HTTP API (docs/architecture.md §4).
 //!
 //! Transport, JSend error model, pagination and the query planner live here; the session
-//! connects in phase 9 (docs/spec.md §9).
+//! connects to a running Eagle (docs/spec.md §8.3).
 
 mod add;
 mod api;

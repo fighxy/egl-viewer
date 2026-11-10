@@ -1,4 +1,4 @@
-//! The search field in the native library (docs/spec.md §5 "Search", §9 phase 6, D-047).
+//! The search field in the native library (docs/spec.md §5 "Search", D-047).
 
 use std::sync::atomic::AtomicBool;
 
@@ -9,7 +9,7 @@ use crate::import::{DuplicateChoice, ImportObserver, make_pending_previews};
 use crate::test_support::*;
 use crate::{DB_FILE, Library};
 
-/// Sets a note and a link the way the phase 7 editor will: the row and its index entry.
+/// Sets a note and a link the way the editor will: the row and its index entry.
 fn describe(library: &Library, item: &str, annotation: &str, url: &str) {
     let conn = library.conn();
     conn.execute(

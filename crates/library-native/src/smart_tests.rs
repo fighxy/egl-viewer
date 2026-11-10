@@ -1,4 +1,4 @@
-//! Smart folders in the native library (docs/spec.md §3, §9 phase 6).
+//! Smart folders in the native library (docs/spec.md §3, D-047, D-048).
 
 use library_core::{
     FolderIndex, ItemEdit, LibraryQuery, Scope, SmartFolderChange, SourceError, TagMode,

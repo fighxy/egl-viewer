@@ -15,7 +15,7 @@ use crate::events::{Emit, invalidated};
 use crate::lock;
 
 /// Runs a source call that never waits. The native source does its work in the first poll; a
-/// source that waits (a running Eagle, phase 9) needs a runtime here instead.
+/// source that waits (a running Eagle) needs a runtime here instead.
 pub fn ready<T>(future: impl Future<Output = Result<T, SourceError>>) -> Result<T, SourceError> {
     let mut future = std::pin::pin!(future);
     match future

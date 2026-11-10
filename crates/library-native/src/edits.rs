@@ -1,4 +1,4 @@
-//! The item fields of phase 7 (name, note, link, rating), the trash, removing items for good,
+//! The remaining item fields (name, note, link, rating), the trash, removing items for good,
 //! and the state undo needs (docs/spec.md §6, docs/library-format.md §6).
 
 use std::collections::HashMap;

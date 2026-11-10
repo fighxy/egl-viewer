@@ -1,5 +1,5 @@
 //! Folders: the tree and its counts, edits, moves, deletes, membership, manual order, and
-//! imports into folders (docs/spec.md §3, §9 phase 4).
+//! imports into folders (docs/spec.md §3, D-043).
 
 use std::fs;
 use std::sync::atomic::AtomicBool;

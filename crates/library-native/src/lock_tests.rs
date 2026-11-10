@@ -1,6 +1,5 @@
 //! Locked folders: encryption at rest, hiding, unlocking, recovery, removal, and every write
-//! that takes items under a lock or out from under one (docs/age-locked-folders.md, spec §9
-//! phase 4).
+//! that takes items under a lock or out from under one (docs/age-locked-folders.md, D-045).
 
 use std::fs;
 use std::path::Path;

@@ -1,5 +1,5 @@
-//! The typed layer over the transport (docs/architecture.md §4.1), phase 9 subset: everything
-//! browsing needs. Writes and thumbnails arrive in phase 10.
+//! The typed layer over the transport (docs/architecture.md §4.1), the browse subset: everything
+//! browsing needs. Writes and thumbnails arrive with the writes slice (D-076).
 
 use secrecy::SecretString;
 use serde_json::{Map, Value};

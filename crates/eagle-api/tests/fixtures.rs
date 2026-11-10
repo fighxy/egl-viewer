@@ -1,6 +1,6 @@
 //! Guards for the captured Eagle responses in `fixtures/eagle-api/`.
 //!
-//! Later phases build their HTTP mock tests on these files, so they must stay well-formed and
+//! Later HTTP mock tests build on these files, so they must stay well-formed and
 //! free of secrets.
 
 use std::fs;
