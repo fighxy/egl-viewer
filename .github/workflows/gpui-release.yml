@@ -7,10 +7,14 @@ name: GPUI Release
 #   - `android-v*`→ Mobile APK/AAB
 # Tag pushes publish a GitHub prerelease that is never marked Latest and never
 # writes latest.json / latest-gpui.json / ios-latest.
-# workflow_dispatch defaults to dry-run: build + artifacts only (no release).
+# workflow_dispatch and pull_request are dry-run by default (build + artifacts only).
+# pull_request is included so a branch that is not yet on `main` can still be verified;
+# the Actions UI "Run workflow" dropdown can also target this branch after merge.
 on:
   push:
     tags: ["gpui-v*"]
+  pull_request:
+    branches: [feat/gpui-desktop]
   workflow_dispatch:
     inputs:
       publish:
@@ -56,6 +60,8 @@ jobs:
           else
             VERSION="$CONF"
             echo "tag=" >> "$GITHUB_OUTPUT"
+            # Only an explicit workflow_dispatch publish=true can publish without a tag,
+            # and that path still requires a gpui-v* tag in the publish job.
             if [[ "${{ github.event_name }}" == "workflow_dispatch" && "${{ inputs.publish }}" == "true" ]]; then
               echo "publish=true" >> "$GITHUB_OUTPUT"
             else
