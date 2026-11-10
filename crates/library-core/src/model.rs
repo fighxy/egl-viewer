@@ -8,9 +8,7 @@ use crate::query::SortKey;
 
 /// Opaque item id: an Eagle id for the Eagle sources, a ULID for the native library.
 /// A newtype, so serde writes it as a plain string.
-#[derive(
-    Debug, Clone, PartialEq, Eq, Hash, PartialOrd, Ord, Default, Serialize, Deserialize, TS,
-)]
+#[derive(Debug, Clone, PartialEq, Eq, Hash, PartialOrd, Ord, Default, Serialize, Deserialize)]
 pub struct ItemId(pub String);
 
 impl From<&str> for ItemId {
