@@ -1,6 +1,6 @@
 [package]
 name = "gpui-desktop"
-description = "GPUI Kit desktop host over desktop-session (D-126–D-133); dual path beside Tauri until cutover"
+description = "GPUI Kit desktop host over desktop-session (D-126–D-141)"
 version.workspace = true
 edition.workspace = true
 rust-version.workspace = true

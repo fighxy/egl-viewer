@@ -133,7 +133,7 @@ impl Place {
     }
 }
 
-/// Active filter chips (Phase 3.C) — mirrors `SavedFilters` plus search text.
+/// Active filter chips — mirrors `SavedFilters` plus search text.
 #[derive(Debug, Clone, PartialEq, Eq, Default)]
 pub struct ActiveFilters {
     pub tags: Vec<String>,
@@ -625,9 +625,9 @@ mod tests {
         let state = OpenLibraryState::load(&session, info).unwrap();
         let id = state.cells[0].id.0.clone();
         let renamed = session
-            .apply_item_edit(&id, ItemEdit::Rename("Phase3Rename".into()))
+            .apply_item_edit(&id, ItemEdit::Rename("RenamedInPlace".into()))
             .unwrap();
-        assert_eq!(renamed.name, "Phase3Rename");
+        assert_eq!(renamed.name, "RenamedInPlace");
         let undone = session.undo().unwrap();
         assert!(undone.is_some());
         session.close_library().unwrap();

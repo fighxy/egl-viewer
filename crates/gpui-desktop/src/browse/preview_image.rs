@@ -73,9 +73,7 @@ impl PreviewPayload {
             _ => dyn_img,
         };
         let mut png = Cursor::new(Vec::new());
-        rotated
-            .write_to(&mut png, image::ImageFormat::Png)
-            .ok()?;
+        rotated.write_to(&mut png, image::ImageFormat::Png).ok()?;
         Some(image_from_bytes(ImageFormat::Png, png.into_inner()))
     }
 }

@@ -25,10 +25,7 @@ pub fn space_key_down(is_open: bool) -> (SpaceDown, bool) {
 
 /// The hold threshold elapsed while Space is still down.
 pub fn space_hold(down: SpaceDown) -> SpaceDown {
-    SpaceDown {
-        held: true,
-        ..down
-    }
+    SpaceDown { held: true, ..down }
 }
 
 /// Space keyup: a hold always closes; a short press closes only when the preview was already

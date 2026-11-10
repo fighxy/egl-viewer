@@ -111,10 +111,7 @@ pub fn check_latest(current: &str, endpoint: &str) -> Result<CheckOutcome, Check
         .send()
         .map_err(|e| CheckError::Network(e.to_string()))?;
     if !response.status().is_success() {
-        return Err(CheckError::Network(format!(
-            "HTTP {}",
-            response.status()
-        )));
+        return Err(CheckError::Network(format!("HTTP {}", response.status())));
     }
     let body = response
         .text()

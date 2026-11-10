@@ -1,7 +1,5 @@
-//! Phase 3.B–3.E organize surfaces: folder props, filters, tags, locks manage, import review.
+//! Organize surfaces: folder props, filters, tags, locks manage, import review (D-131).
 
-use std::collections::HashSet;
-use std::path::PathBuf;
 use gpui_kit::component::button::{Button, ButtonVariants as _};
 use gpui_kit::component::input::{Input, InputState};
 use gpui_kit::component::label::Label;
@@ -11,10 +9,10 @@ use gpui_kit::{
     AppContext as _, Context, IntoElement, ParentElement, PathPromptOptions, SharedString, Styled,
     Window, px,
 };
-use library_core::{
-    Folder, FolderChange, PivPolicy, PivPrompt, SortKey, TagGroupChange, TagMode,
-};
+use library_core::{Folder, FolderChange, PivPolicy, PivPrompt, SortKey, TagGroupChange, TagMode};
 use library_native::ImportFilter;
+use std::collections::HashSet;
+use std::path::PathBuf;
 
 use crate::app::RootApp;
 use crate::i18n::{t, t_n};
@@ -103,11 +101,7 @@ impl RootApp {
                         let name = ext.ext.clone();
                         Button::new(SharedString::from(format!("type-{name}")))
                             .ghost()
-                            .label(format!(
-                                "{} ({})",
-                                name.to_uppercase(),
-                                ext.count
-                            ))
+                            .label(format!("{} ({})", name.to_uppercase(), ext.count))
                             .on_click(move |_, window, cx| {
                                 window.close_dialog(cx);
                                 entity.update(cx, |this, cx| {
@@ -173,8 +167,11 @@ impl RootApp {
         ];
         window.open_dialog(cx, move |dialog, _, _| {
             dialog.title(t(locale, "filters.tagMode")).child(
-                v_flex().gap_2().p_2().w(px(280.)).children(modes.into_iter().map(
-                    |(mode, key)| {
+                v_flex()
+                    .gap_2()
+                    .p_2()
+                    .w(px(280.))
+                    .children(modes.into_iter().map(|(mode, key)| {
                         let entity = entity.clone();
                         Button::new(SharedString::from(key))
                             .ghost()
@@ -183,8 +180,7 @@ impl RootApp {
                                 window.close_dialog(cx);
                                 entity.update(cx, |this, cx| this.set_tag_mode(mode, cx));
                             })
-                    },
-                )),
+                    })),
             )
         });
     }
@@ -427,11 +423,13 @@ impl RootApp {
                                             .collect::<Vec<_>>();
                                         window.close_dialog(cx);
                                         entity.update(cx, |this, cx| {
-                                            match this.session.save_tag_group(TagGroupChange::Create {
-                                                name: group_name,
-                                                color: None,
-                                                tags: tag_list,
-                                            }) {
+                                            match this.session.save_tag_group(
+                                                TagGroupChange::Create {
+                                                    name: group_name,
+                                                    color: None,
+                                                    tags: tag_list,
+                                                },
+                                            ) {
                                                 Ok(groups) => {
                                                     this.tag_groups = groups;
                                                     this.status = SharedString::from(t(
@@ -469,14 +467,10 @@ impl RootApp {
                     .child(Input::new(&from))
                     .child(Label::new(t(locale, "tags.to")))
                     .child(Input::new(&to))
-                    .child(dialog_ok_cancel(
-                        locale,
-                        "tag-rename",
-                        entity.clone(),
-                        {
-                            let from = from.clone();
-                            let to = to.clone();
-                            move |this, cx| {
+                    .child(dialog_ok_cancel(locale, "tag-rename", entity.clone(), {
+                        let from = from.clone();
+                        let to = to.clone();
+                        move |this, cx| {
                             let from = from.read(cx).value().to_string();
                             let to = to.read(cx).value().to_string();
                             match this.session.rename_tag(&from, &to) {
@@ -491,8 +485,7 @@ impl RootApp {
                                 }
                             }
                         }
-                        },
-                    )),
+                    })),
             )
         });
     }
@@ -512,20 +505,15 @@ impl RootApp {
                     .child(Input::new(&from))
                     .child(Label::new(t(locale, "tags.into")))
                     .child(Input::new(&into))
-                    .child(dialog_ok_cancel(
-                        locale,
-                        "tag-merge",
-                        entity.clone(),
-                        {
-                            let from = from.clone();
-                            let into = into.clone();
-                            move |this, cx| {
+                    .child(dialog_ok_cancel(locale, "tag-merge", entity.clone(), {
+                        let from = from.clone();
+                        let into = into.clone();
+                        move |this, cx| {
                             let from = from.read(cx).value().to_string();
                             let into = into.read(cx).value().to_string();
                             match this.session.merge_tags(&from, &into) {
                                 Ok(()) => {
-                                    this.status =
-                                        SharedString::from(t(this.locale, "tags.merged"));
+                                    this.status = SharedString::from(t(this.locale, "tags.merged"));
                                     this.reload_after_write(cx);
                                 }
                                 Err(error) => {
@@ -534,8 +522,7 @@ impl RootApp {
                                 }
                             }
                         }
-                        },
-                    )),
+                    })),
             )
         });
     }
@@ -552,13 +539,9 @@ impl RootApp {
                     .w(px(360.))
                     .child(Label::new(t(locale, "tags.from")))
                     .child(Input::new(&name))
-                    .child(dialog_ok_cancel(
-                        locale,
-                        "tag-delete",
-                        entity.clone(),
-                        {
-                            let name = name.clone();
-                            move |this, cx| {
+                    .child(dialog_ok_cancel(locale, "tag-delete", entity.clone(), {
+                        let name = name.clone();
+                        move |this, cx| {
                             let name = name.read(cx).value().to_string();
                             match this.session.delete_tag(&name) {
                                 Ok(()) => {
@@ -572,17 +555,12 @@ impl RootApp {
                                 }
                             }
                         }
-                        },
-                    )),
+                    })),
             )
         });
     }
 
-    pub(crate) fn update_open_folder(
-        &mut self,
-        change: FolderChange,
-        cx: &mut Context<Self>,
-    ) {
+    pub(crate) fn update_open_folder(&mut self, change: FolderChange, cx: &mut Context<Self>) {
         match self.session.save_folder(change) {
             Ok(tree) => {
                 if let Some(lib) = self.library.as_mut() {
@@ -678,9 +656,8 @@ impl RootApp {
         };
         let locale = self.locale;
         let entity = cx.entity();
-        let input = cx.new(|cx| {
-            InputState::new(window, cx).default_value(folder.description.clone())
-        });
+        let input =
+            cx.new(|cx| InputState::new(window, cx).default_value(folder.description.clone()));
         let folder_snap = folder.clone();
         window.open_dialog(cx, move |dialog, _, _| {
             dialog.title(t(locale, "folder.description")).child(
@@ -689,15 +666,11 @@ impl RootApp {
                     .p_2()
                     .w(px(360.))
                     .child(Input::new(&input))
-                    .child(dialog_ok_cancel(
-                        locale,
-                        "folder-desc",
-                        entity.clone(),
-                        {
-                            let input = input.clone();
-                            let folder_id = folder_id.clone();
-                            let folder_snap = folder_snap.clone();
-                            move |this, cx| {
+                    .child(dialog_ok_cancel(locale, "folder-desc", entity.clone(), {
+                        let input = input.clone();
+                        let folder_id = folder_id.clone();
+                        let folder_snap = folder_snap.clone();
+                        move |this, cx| {
                             let description = input.read(cx).value().to_string();
                             this.update_open_folder(
                                 FolderChange::Update {
@@ -712,8 +685,7 @@ impl RootApp {
                                 cx,
                             );
                         }
-                        },
-                    )),
+                    })),
             )
         });
     }
@@ -865,15 +837,11 @@ impl RootApp {
                     .child(Input::new(&current))
                     .child(Label::new(t(locale, "locks.newPassword")))
                     .child(Input::new(&next))
-                    .child(dialog_ok_cancel(
-                        locale,
-                        "change-pw",
-                        entity.clone(),
-                        {
-                            let current = current.clone();
-                            let next = next.clone();
-                            let folder_id = folder_id.clone();
-                            move |this, cx| {
+                    .child(dialog_ok_cancel(locale, "change-pw", entity.clone(), {
+                        let current = current.clone();
+                        let next = next.clone();
+                        let folder_id = folder_id.clone();
+                        move |this, cx| {
                             let current = current.read(cx).value().to_string();
                             let next = next.read(cx).value().to_string();
                             match this
@@ -891,8 +859,7 @@ impl RootApp {
                                 }
                             }
                         }
-                        },
-                    )),
+                    })),
             )
         });
     }
@@ -917,15 +884,11 @@ impl RootApp {
                     .child(Input::new(&recovery))
                     .child(Label::new(t(locale, "locks.newPassword")))
                     .child(Input::new(&next))
-                    .child(dialog_ok_cancel(
-                        locale,
-                        "recover",
-                        entity.clone(),
-                        {
-                            let recovery = recovery.clone();
-                            let next = next.clone();
-                            let folder_id = folder_id.clone();
-                            move |this, cx| {
+                    .child(dialog_ok_cancel(locale, "recover", entity.clone(), {
+                        let recovery = recovery.clone();
+                        let next = next.clone();
+                        let folder_id = folder_id.clone();
+                        move |this, cx| {
                             let recovery = recovery.read(cx).value().to_string();
                             let next = next.read(cx).value().to_string();
                             match this.session.recover_folder(&folder_id, &recovery, next) {
@@ -940,8 +903,7 @@ impl RootApp {
                                 }
                             }
                         }
-                        },
-                    )),
+                    })),
             )
         });
     }
@@ -1026,14 +988,10 @@ impl RootApp {
                     .w(px(360.))
                     .child(Label::new(t(locale, "locks.password")))
                     .child(Input::new(&password))
-                    .child(dialog_ok_cancel(
-                        locale,
-                        "remove-lock",
-                        entity.clone(),
-                        {
-                            let password = password.clone();
-                            let folder_id = folder_id.clone();
-                            move |this, cx| {
+                    .child(dialog_ok_cancel(locale, "remove-lock", entity.clone(), {
+                        let password = password.clone();
+                        let folder_id = folder_id.clone();
+                        move |this, cx| {
                             let password = password.read(cx).value().to_string();
                             match this
                                 .session
@@ -1050,8 +1008,7 @@ impl RootApp {
                                 }
                             }
                         }
-                        },
-                    )),
+                    })),
             )
         });
     }
@@ -1072,32 +1029,27 @@ impl RootApp {
                     .p_2()
                     .w(px(360.))
                     .child(Input::new(&input))
-                    .child(dialog_ok_cancel(
-                        locale,
-                        "lock-label",
-                        entity.clone(),
-                        {
-                            let input = input.clone();
-                            let folder_id = folder_id.clone();
-                            move |this, cx| {
-                                let label = input.read(cx).value().to_string();
-                                let label = if label.trim().is_empty() {
-                                    None
-                                } else {
-                                    Some(label)
-                                };
-                                match this.session.set_lock_label(&folder_id, label, None) {
-                                    Ok(()) => {
-                                        this.reload_after_write(cx);
-                                    }
-                                    Err(error) => {
-                                        this.status = SharedString::from(format!("{error}"));
-                                        cx.notify();
-                                    }
+                    .child(dialog_ok_cancel(locale, "lock-label", entity.clone(), {
+                        let input = input.clone();
+                        let folder_id = folder_id.clone();
+                        move |this, cx| {
+                            let label = input.read(cx).value().to_string();
+                            let label = if label.trim().is_empty() {
+                                None
+                            } else {
+                                Some(label)
+                            };
+                            match this.session.set_lock_label(&folder_id, label, None) {
+                                Ok(()) => {
+                                    this.reload_after_write(cx);
+                                }
+                                Err(error) => {
+                                    this.status = SharedString::from(format!("{error}"));
+                                    cx.notify();
                                 }
                             }
-                        },
-                    )),
+                        }
+                    })),
             )
         });
     }
@@ -1130,25 +1082,22 @@ impl RootApp {
                         el.child(Label::new(t(locale, "locks.yubiPin")))
                             .child(Input::new(&pin_input))
                     })
-                    .child(dialog_ok_cancel(
-                        locale,
-                        "yubi-unlock",
-                        entity.clone(),
-                        {
-                            let pin_input = pin_input.clone();
-                            let folder_id = folder_id.clone();
-                            let serial = serial.clone();
-                            move |this, cx| {
+                    .child(dialog_ok_cancel(locale, "yubi-unlock", entity.clone(), {
+                        let pin_input = pin_input.clone();
+                        let folder_id = folder_id.clone();
+                        let serial = serial.clone();
+                        move |this, cx| {
                             let prompt = match policy {
                                 PivPolicy::Touch => PivPrompt::Touch,
                                 PivPolicy::Pin => PivPrompt::Pin {
                                     pin: pin_input.read(cx).value().to_string(),
                                 },
                             };
-                            match this
-                                .session
-                                .unlock_with_yubikey(&folder_id, serial.clone(), prompt)
-                            {
+                            match this.session.unlock_with_yubikey(
+                                &folder_id,
+                                serial.clone(),
+                                prompt,
+                            ) {
                                 Ok(()) => {
                                     this.set_place(
                                         Place::Folder {
@@ -1163,18 +1112,12 @@ impl RootApp {
                                 }
                             }
                         }
-                        },
-                    )),
+                    })),
             )
         });
     }
 
-    fn bind_yubi_dialog(
-        &mut self,
-        window: &mut Window,
-        cx: &mut Context<Self>,
-        folder_id: String,
-    ) {
+    fn bind_yubi_dialog(&mut self, window: &mut Window, cx: &mut Context<Self>, folder_id: String) {
         let locale = self.locale;
         let entity = cx.entity();
         let password = cx.new(|cx| InputState::new(window, cx).masked(true));
@@ -1186,14 +1129,10 @@ impl RootApp {
                     .w(px(360.))
                     .child(Label::new(t(locale, "locks.password")))
                     .child(Input::new(&password))
-                    .child(dialog_ok_cancel(
-                        locale,
-                        "yubi-bind",
-                        entity.clone(),
-                        {
-                            let password = password.clone();
-                            let folder_id = folder_id.clone();
-                            move |this, cx| {
+                    .child(dialog_ok_cancel(locale, "yubi-bind", entity.clone(), {
+                        let password = password.clone();
+                        let folder_id = folder_id.clone();
+                        move |this, cx| {
                             let password = password.read(cx).value().to_string();
                             match this.session.bind_yubikey(
                                 &folder_id,
@@ -1212,8 +1151,7 @@ impl RootApp {
                                 }
                             }
                         }
-                        },
-                    )),
+                    })),
             )
         });
     }
@@ -1236,15 +1174,11 @@ impl RootApp {
                     .w(px(360.))
                     .child(Label::new(t(locale, "locks.password")))
                     .child(Input::new(&password))
-                    .child(dialog_ok_cancel(
-                        locale,
-                        "yubi-unbind",
-                        entity.clone(),
-                        {
-                            let password = password.clone();
-                            let folder_id = folder_id.clone();
-                            let serial = serial.clone();
-                            move |this, cx| {
+                    .child(dialog_ok_cancel(locale, "yubi-unbind", entity.clone(), {
+                        let password = password.clone();
+                        let folder_id = folder_id.clone();
+                        let serial = serial.clone();
+                        move |this, cx| {
                             let password = password.read(cx).value().to_string();
                             match this
                                 .session
@@ -1261,8 +1195,7 @@ impl RootApp {
                                 }
                             }
                         }
-                        },
-                    )),
+                    })),
             )
         });
     }
@@ -1343,14 +1276,12 @@ impl RootApp {
             };
             if let Some(path) = path {
                 let _ = this.update(cx, |this, cx| {
-                    match this.session.save_recovery_file(
-                        &path.to_string_lossy(),
-                        &folder,
-                        &key,
-                    ) {
+                    match this
+                        .session
+                        .save_recovery_file(&path.to_string_lossy(), &folder, &key)
+                    {
                         Ok(()) => {
-                            this.status =
-                                SharedString::from(t(this.locale, "locks.recoverySaved"));
+                            this.status = SharedString::from(t(this.locale, "locks.recoverySaved"));
                             cx.notify();
                         }
                         Err(error) => {
@@ -1393,12 +1324,7 @@ impl RootApp {
         .detach();
     }
 
-    fn show_import_preview(
-        &mut self,
-        window: &mut Window,
-        path: PathBuf,
-        cx: &mut Context<Self>,
-    ) {
+    fn show_import_preview(&mut self, window: &mut Window, path: PathBuf, cx: &mut Context<Self>) {
         let path_str = path.to_string_lossy().into_owned();
         let preview = match self.session.preview_import(&path_str) {
             Ok(preview) => preview,

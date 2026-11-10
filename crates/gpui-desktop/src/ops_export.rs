@@ -1,4 +1,4 @@
-//! Phase 4 Session-backed flows: export/backup/decrypt, Eagle import/connect, app login.
+//! Session-backed export flows: backup/export/decrypt, Eagle import/connect, app login (D-132).
 
 use std::path::PathBuf;
 use std::sync::{Arc, Mutex};
@@ -17,17 +17,17 @@ use gpui_kit::{
 };
 use library_core::{
     Compression, EagleExportTarget, ExportFormat, ExportProgress, ExportRequest, ExportState,
-    LibraryKind, ZipEncryption, MIN_PASSPHRASE_CHARS,
+    LibraryKind, MIN_PASSPHRASE_CHARS, ZipEncryption,
 };
 
 use crate::app::RootApp;
 use crate::browse::format::format_bytes;
-use crate::i18n::t;
-use crate::phase4::{
+use crate::export_rules::{
     ExportPreset, FormatKind, LoginGate, build_archive_request, decrypt_default_folder,
     export_format, export_selection, export_state_label, is_terminal_export, passphrase_problem,
     validate_connect_host_port,
 };
+use crate::i18n::t;
 use crate::platform;
 
 /// Live export dialog / overlay state.
@@ -157,11 +157,7 @@ impl RootApp {
     }
 
     /// Startup reopen runs after the gate opens (matches Tauri App.tsx).
-    pub(crate) fn run_deferred_startup(
-        &mut self,
-        window: &mut Window,
-        cx: &mut Context<Self>,
-    ) {
+    pub(crate) fn run_deferred_startup(&mut self, window: &mut Window, cx: &mut Context<Self>) {
         if self.startup_done {
             return;
         }
@@ -203,7 +199,8 @@ impl RootApp {
         let Some(lib) = self.library.as_ref() else {
             return;
         };
-        if matches!(lib.info.kind, LibraryKind::EagleApi) && matches!(preset, ExportPreset::Backup) {
+        if matches!(lib.info.kind, LibraryKind::EagleApi) && matches!(preset, ExportPreset::Backup)
+        {
             // Backup archives are native-only; Eagle live uses Export into Eagle from folders.
             self.status = SharedString::from(t(self.locale, "exportUi.nativeOnly"));
             cx.notify();
@@ -567,23 +564,20 @@ impl RootApp {
         let session = Arc::clone(&self.session);
         let source = ui.source.clone();
         let destination = ui.destination.clone();
-        let result_slot: Arc<Mutex<Option<Result<Option<library_core::DecryptedArchive>, String>>>> =
-            Arc::new(Mutex::new(None));
+        let result_slot: Arc<
+            Mutex<Option<Result<Option<library_core::DecryptedArchive>, String>>>,
+        > = Arc::new(Mutex::new(None));
         let progress_slot: Arc<Mutex<(u64, u64)>> = Arc::new(Mutex::new((0, 0)));
         self.decrypt_result = Some(result_slot.clone());
         self.decrypt_progress = Some(progress_slot.clone());
         thread::spawn(move || {
             let progress = progress_slot;
-            let outcome = session.decrypt_archive(
-                &source,
-                &destination,
-                &password,
-                &mut |done, total| {
+            let outcome =
+                session.decrypt_archive(&source, &destination, &password, &mut |done, total| {
                     if let Ok(mut slot) = progress.lock() {
                         *slot = (done, total);
                     }
-                },
-            );
+                });
             if let Ok(mut slot) = result_slot.lock() {
                 *slot = Some(outcome.map_err(|e| e.to_string()));
             }
@@ -863,8 +857,7 @@ impl RootApp {
                                     .primary()
                                     .label(t(locale, "login.submit"))
                                     .on_click(cx.listener(|this, _, window, cx| {
-                                        let secret =
-                                            this.login_secret.read(cx).value().to_string();
+                                        let secret = this.login_secret.read(cx).value().to_string();
                                         this.unlock_with_password(secret, window, cx);
                                     })),
                             )
@@ -881,11 +874,7 @@ impl RootApp {
                         )
                     })
                     .when(!status.is_empty(), |el| {
-                        el.child(
-                            Label::new(status)
-                                .text_sm()
-                                .text_color(theme.danger),
-                        )
+                        el.child(Label::new(status).text_sm().text_color(theme.danger))
                     }),
             )
     }
@@ -939,7 +928,13 @@ impl RootApp {
                     .child(
                         h_flex()
                             .gap_1()
-                            .child(format_btn("fmt-zip", "ZIP", FormatKind::Zip, form.format, cx))
+                            .child(format_btn(
+                                "fmt-zip",
+                                "ZIP",
+                                FormatKind::Zip,
+                                form.format,
+                                cx,
+                            ))
                             .child(format_btn(
                                 "fmt-7z",
                                 "7z",
@@ -1217,7 +1212,11 @@ impl RootApp {
                     .border_1()
                     .border_color(theme.border)
                     .bg(theme.popover)
-                    .child(Label::new(t(locale, "decryptUi.title")).font_bold().text_lg())
+                    .child(
+                        Label::new(t(locale, "decryptUi.title"))
+                            .font_bold()
+                            .text_lg(),
+                    )
                     .child(
                         Label::new(t(locale, "decryptUi.description"))
                             .text_sm()
@@ -1358,9 +1357,13 @@ impl RootApp {
                     .child(Label::new(t(locale, "createLibrary.name")).text_sm())
                     .child(Input::new(&self.import_name))
                     .child(
-                        Label::new(format!("{}: {}", t(locale, "createLibrary.location"), ui.parent))
-                            .text_xs()
-                            .text_color(theme.muted_foreground),
+                        Label::new(format!(
+                            "{}: {}",
+                            t(locale, "createLibrary.location"),
+                            ui.parent
+                        ))
+                        .text_xs()
+                        .text_color(theme.muted_foreground),
                     )
                     .child(
                         Button::new("import-eagle-trash")

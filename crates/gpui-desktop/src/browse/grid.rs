@@ -5,6 +5,7 @@ use std::sync::Arc;
 
 use app_store::{Locale, ViewMode};
 use desktop_session::Session;
+use gpui_kit::component::menu::ContextMenuExt as _;
 use gpui_kit::component::{h_flex, label::Label, v_flex, v_virtual_list};
 use gpui_kit::prelude::FluentBuilder as _;
 use gpui_kit::{
@@ -15,11 +16,13 @@ use gpui_kit::{
 use library_core::{ItemCell, ItemId, SortKey};
 
 use crate::app::{RootApp, RubberBand};
+use crate::browse::style;
 use crate::dnd::{self, DragPayload};
 use crate::i18n::t;
 use crate::justified::{self, CellDimensions, JustifiedLayout, PADDING, pack_justified};
 use crate::library::{OpenLibraryState, Place, Selection, cell_thumbnail};
 use crate::ops_dnd::DropIntent;
+use crate::ops_items;
 
 #[derive(Clone)]
 pub struct ListedItem {
@@ -47,10 +50,7 @@ pub fn load_listed(session: &Session, cells: &[ItemCell]) -> Vec<ListedItem> {
         .collect()
 }
 
-pub fn build_justified(
-    state: &OpenLibraryState,
-    container_width: f32,
-) -> JustifiedLayout {
+pub fn build_justified(state: &OpenLibraryState, container_width: f32) -> JustifiedLayout {
     let dims = &state.dimensions;
     pack_justified(
         state.cells.len(),
@@ -105,6 +105,7 @@ pub fn render_items(
             rubber,
             reorderable,
             folder_id,
+            Rc::new(state.dimensions.clone()),
         ),
         ViewMode::Grid => {
             if let Some(layout) = layout {
@@ -119,15 +120,27 @@ pub fn render_items(
                     container_width,
                     reorderable,
                     folder_id,
+                    Rc::new(state.dimensions.clone()),
                 )
             } else {
-                render_wrap_grid(state, items, &state.selection, theme, entity, reorderable, folder_id)
+                render_wrap_grid(
+                    state,
+                    items,
+                    &state.selection,
+                    theme,
+                    entity,
+                    reorderable,
+                    folder_id,
+                )
             }
         }
     }
 }
 
-fn rubber_overlay(rubber: Option<&RubberBand>, theme: &gpui_kit::component::theme::Theme) -> Option<gpui_kit::AnyElement> {
+fn rubber_overlay(
+    rubber: Option<&RubberBand>,
+    theme: &gpui_kit::component::theme::Theme,
+) -> Option<gpui_kit::AnyElement> {
     let band = rubber?;
     let rect = justified::band_rect(band.start, band.current);
     Some(
@@ -180,6 +193,7 @@ fn attach_rubber_handlers(
     })
 }
 
+#[allow(clippy::too_many_arguments)]
 fn render_virtual_list(
     items: &[ListedItem],
     selection: &Selection,
@@ -188,6 +202,7 @@ fn render_virtual_list(
     rubber: Option<&RubberBand>,
     reorderable: bool,
     folder_id: Option<String>,
+    dimensions: Rc<Vec<[u32; 2]>>,
 ) -> gpui_kit::AnyElement {
     let row_h = px(48.);
     let sizes = Rc::new(vec![size(px(100.), row_h); items.len()]);
@@ -206,7 +221,7 @@ fn render_virtual_list(
                     let focused = selection.focus == Some(index);
                     let entity = list_entity.clone();
                     let title = format!("{}.{}", item.cell.name, item.cell.ext);
-                    let preview = thumb_or_palette(item, 40.0, theme.muted, theme.muted_foreground);
+                    let preview = thumb_fill(item, 40.0, 40.0, theme.muted, theme.muted_foreground);
                     let payload = this.drag_payload_for_index(index);
                     let mut row = h_flex()
                         .id(SharedString::from(format!("list-{index}")))
@@ -218,10 +233,14 @@ fn render_virtual_list(
                         .h(row_h)
                         .rounded(theme.radius)
                         .aria_label(title.clone())
-                        .when(selected, |el| {
-                            el.bg(theme.accent).text_color(theme.accent_foreground)
+                        .when(selected, |el| el.bg(theme.list_active))
+                        .when(!selected, |el| {
+                            let hover = theme.list_hover;
+                            el.hover(move |el| el.bg(hover))
                         })
-                        .when(focused && !selected, |el| el.border_1().border_color(theme.accent))
+                        .when(focused && !selected, |el| {
+                            el.border_1().border_color(style::selection_color(&theme))
+                        })
                         .cursor_pointer()
                         .on_click(move |event, _window: &mut Window, cx: &mut App| {
                             let mods = event.modifiers();
@@ -234,6 +253,7 @@ fn render_virtual_list(
                             });
                         });
                     row = attach_item_drag(row, payload, list_entity.clone());
+                    row = attach_context_select(row, list_entity.clone(), index);
                     if reorderable {
                         if let Some(folder_id) = folder_id.clone() {
                             row = attach_cell_drop(
@@ -245,7 +265,30 @@ fn render_virtual_list(
                         }
                     }
                     row.child(preview)
-                        .child(Label::new(title).text_sm())
+                        .child(
+                            div()
+                                .flex_1()
+                                .min_w(px(0.))
+                                .text_sm()
+                                .whitespace_nowrap()
+                                .overflow_hidden()
+                                .text_ellipsis()
+                                .child(title),
+                        )
+                        .when_some(
+                            dimensions
+                                .get(index)
+                                .and_then(|d| style::dimensions_caption(d[0], d[1])),
+                            |el, size| {
+                                el.child(
+                                    div()
+                                        .flex_none()
+                                        .text_xs()
+                                        .text_color(theme.muted_foreground)
+                                        .child(size),
+                                )
+                            },
+                        )
                         .into_any_element()
                 })
                 .collect()
@@ -259,8 +302,12 @@ fn render_virtual_list(
             .size_full()
             .child(list)
             .when_some(overlay, |el, overlay| el.child(overlay)),
-        entity,
+        entity.clone(),
     )
+    .context_menu(ops_items::context_menu_builder(
+        entity,
+        ops_items::item_menu_model,
+    ))
     .into_any_element()
 }
 
@@ -275,6 +322,7 @@ fn render_justified_virtual(
     container_width: f32,
     reorderable: bool,
     folder_id: Option<String>,
+    dimensions: Rc<Vec<[u32; 2]>>,
 ) -> gpui_kit::AnyElement {
     let sizes: Rc<Vec<gpui_kit::Size<Pixels>>> = Rc::new(
         layout
@@ -308,12 +356,17 @@ fn render_justified_virtual(
                             let focused = selection.focus == Some(index);
                             let entity = entity.clone();
                             let title = format!("{}.{}", item.cell.name, item.cell.ext);
-                            let preview = thumb_or_palette(
+                            let preview = thumb_fill(
                                 item,
+                                cell.width,
                                 cell.height,
                                 theme.muted,
                                 theme.muted_foreground,
                             );
+                            let ring = style::selection_color(&theme);
+                            let size_caption = dimensions
+                                .get(index)
+                                .and_then(|d| style::dimensions_caption(d[0], d[1]));
                             let payload = this.drag_payload_for_index(index);
                             let mut cell_el = v_flex()
                                 .id(SharedString::from(format!("grid-{index}")))
@@ -321,13 +374,8 @@ fn render_justified_virtual(
                                 .left(px(PADDING + cell.left))
                                 .top(px(0.))
                                 .w(px(cell.width))
-                                .gap_1()
-                                .rounded(theme.radius)
+                                .gap(px(3.))
                                 .aria_label(title.clone())
-                                .when(selected, |el| el.border_2().border_color(theme.accent))
-                                .when(focused && !selected, |el| {
-                                    el.border_1().border_color(theme.accent)
-                                })
                                 .cursor_pointer()
                                 .on_click(move |event, _, cx| {
                                     let mods = event.modifiers();
@@ -340,6 +388,7 @@ fn render_justified_virtual(
                                     });
                                 });
                             cell_el = attach_item_drag(cell_el, payload, list_entity.clone());
+                            cell_el = attach_context_select(cell_el, list_entity.clone(), index);
                             if reorderable {
                                 if let Some(folder_id) = folder_id.clone() {
                                     cell_el = attach_cell_drop(
@@ -350,21 +399,53 @@ fn render_justified_virtual(
                                     );
                                 }
                             }
+                            // The ring is drawn over the image, so selecting a cell never
+                            // moves or resizes its thumbnail.
                             cell_el
                                 .child(
                                     div()
+                                        .relative()
                                         .w(px(cell.width))
                                         .h(px(cell.height))
                                         .overflow_hidden()
-                                        .child(preview),
+                                        .child(preview)
+                                        .when(selected || focused, |el| {
+                                            el.child(
+                                                div()
+                                                    .absolute()
+                                                    .inset_0()
+                                                    .rounded(px(style::THUMB_RADIUS))
+                                                    .when(selected, |el| el.border_2())
+                                                    .when(!selected, |el| el.border_1())
+                                                    .border_color(ring),
+                                            )
+                                        }),
                                 )
                                 .when(show_names, |el| {
                                     el.child(
-                                        Label::new(title)
-                                            .text_xs()
-                                            .whitespace_nowrap()
-                                            .overflow_hidden()
-                                            .text_ellipsis(),
+                                        h_flex().w_full().justify_center().child(
+                                            div()
+                                                .max_w_full()
+                                                .px_1()
+                                                .rounded(px(3.))
+                                                .text_xs()
+                                                .whitespace_nowrap()
+                                                .overflow_hidden()
+                                                .text_ellipsis()
+                                                .when(selected, |el| {
+                                                    el.bg(ring).text_color(gpui_kit::white())
+                                                })
+                                                .child(title),
+                                        ),
+                                    )
+                                    .child(
+                                        div()
+                                            .w_full()
+                                            .text_center()
+                                            .text_size(px(10.))
+                                            .line_height(px(12.))
+                                            .text_color(theme.muted_foreground)
+                                            .child(size_caption.unwrap_or_default()),
                                     )
                                 })
                                 .into_any_element()
@@ -383,8 +464,12 @@ fn render_justified_virtual(
             .pt(px(PADDING))
             .child(list)
             .when_some(overlay, |el, overlay| el.child(overlay)),
-        entity,
+        entity.clone(),
     )
+    .context_menu(ops_items::context_menu_builder(
+        entity,
+        ops_items::item_menu_model,
+    ))
     .into_any_element()
 }
 
@@ -439,14 +524,11 @@ fn render_wrap_grid(
                     });
                 });
             cell = attach_item_drag(cell, Some(payload), entity_drag);
+            cell = attach_context_select(cell, entity_drop.clone(), index);
             if reorderable {
                 if let Some(folder_id) = folder_id.clone() {
-                    cell = attach_cell_drop(
-                        cell,
-                        entity_drop,
-                        folder_id,
-                        Some(item.cell.id.clone()),
-                    );
+                    cell =
+                        attach_cell_drop(cell, entity_drop, folder_id, Some(item.cell.id.clone()));
                 }
             }
             cell.child(preview)
@@ -461,14 +543,24 @@ fn render_wrap_grid(
                 })
                 .into_any_element()
         }))
+        .context_menu(ops_items::context_menu_builder(
+            entity,
+            ops_items::item_menu_model,
+        ))
         .into_any_element()
 }
 
-fn attach_item_drag<E>(
-    el: E,
-    payload: Option<DragPayload>,
-    entity: Entity<RootApp>,
-) -> E
+/// A right click selects the cell before the grid's menu opens (D-140).
+fn attach_context_select<E>(el: E, entity: Entity<RootApp>, index: usize) -> E
+where
+    E: InteractiveElement,
+{
+    el.on_mouse_down(MouseButton::Right, move |_, _, cx| {
+        entity.update(cx, |this, cx| this.select_for_context(index, cx));
+    })
+}
+
+fn attach_item_drag<E>(el: E, payload: Option<DragPayload>, entity: Entity<RootApp>) -> E
 where
     E: InteractiveElement + StatefulInteractiveElement,
 {
@@ -524,6 +616,44 @@ where
     })
 }
 
+/// A thumbnail that covers its whole cell. The justified layout gives every cell the
+/// item's aspect ratio, so drawing a square here leaves empty bands between cells.
+fn thumb_fill(
+    item: &ListedItem,
+    width: f32,
+    height: f32,
+    muted: Hsla,
+    muted_foreground: Hsla,
+) -> gpui_kit::AnyElement {
+    match &item.thumb {
+        Some(image) => img(image.clone())
+            .w(px(width))
+            .h(px(height))
+            .rounded(px(style::THUMB_RADIUS))
+            .object_fit(gpui_kit::ObjectFit::Cover)
+            .into_any_element(),
+        None => {
+            let color = item.cell.palette0.map_or(muted, |[r, g, b]| {
+                rgb((u32::from(r) << 16) | (u32::from(g) << 8) | u32::from(b)).into()
+            });
+            div()
+                .w(px(width))
+                .h(px(height))
+                .rounded(px(style::THUMB_RADIUS))
+                .bg(color)
+                .flex()
+                .items_center()
+                .justify_center()
+                .child(
+                    Label::new(item.cell.ext.to_uppercase())
+                        .text_xs()
+                        .text_color(muted_foreground),
+                )
+                .into_any_element()
+        }
+    }
+}
+
 fn thumb_or_palette(
     item: &ListedItem,
     size: f32,
@@ -556,4 +686,3 @@ fn thumb_or_palette(
         }
     }
 }
-

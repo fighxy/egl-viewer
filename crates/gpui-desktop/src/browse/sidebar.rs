@@ -1,8 +1,11 @@
-//! Left bar: scopes, folders, locked folders, smart folders, tags (Phase 1 + 3).
+//! Left bar: places, then one scrolling column with folders, locked folders, smart folders
+//! and tags (D-129 + D-131, restyled in D-141).
 
 use app_store::Locale;
+use gpui_kit::assets::IconName;
 use gpui_kit::component::button::{Button, ButtonVariants as _};
-use gpui_kit::component::{h_flex, label::Label, v_flex};
+use gpui_kit::component::menu::ContextMenuExt as _;
+use gpui_kit::component::{Icon, Sizable as _, v_flex};
 use gpui_kit::prelude::FluentBuilder as _;
 use gpui_kit::{
     AnyElement, App, DragMoveEvent, Entity, InteractiveElement, IntoElement, ParentElement,
@@ -11,14 +14,17 @@ use gpui_kit::{
 use library_core::Folder;
 
 use crate::app::RootApp;
+use crate::browse::style::{self, Kit};
 use crate::dnd::{self, DragPayload, FolderZone};
 use crate::i18n::t;
 use crate::library::{self, OpenLibraryState, Place};
 use crate::ops_dnd::DropIntent;
+use crate::ops_items;
 
 pub fn render_sidebar(
     state: &OpenLibraryState,
     locale: Locale,
+    theme: &Kit,
     entity: Entity<RootApp>,
     tags: &[library_core::Tag],
 ) -> impl IntoElement {
@@ -26,43 +32,50 @@ pub fn render_sidebar(
     let locked = library::locked_folders(&state.folders);
     let read_only = state.info.read_only;
 
-    v_flex()
-        .id("sidebar")
-        .size_full()
-        .gap_1()
-        .p_2()
+    let places = v_flex()
+        .id("sidebar-places")
+        .w_full()
+        .gap(px(1.))
         .child(scope_row(
             "all",
+            IconName::Images,
             t(locale, "shell.all"),
             state.counts.all,
             matches!(state.place, Place::All),
+            theme,
             entity.clone(),
             Place::All,
             None,
         ))
         .child(scope_row(
             "uncategorized",
+            IconName::FolderX,
             t(locale, "shell.uncategorized"),
             state.counts.uncategorized,
             matches!(state.place, Place::Uncategorized),
+            theme,
             entity.clone(),
             Place::Uncategorized,
             None,
         ))
         .child(scope_row(
             "untagged",
+            IconName::Bookmark,
             t(locale, "shell.untagged"),
             state.counts.untagged,
             matches!(state.place, Place::Untagged),
+            theme,
             entity.clone(),
             Place::Untagged,
             None,
         ))
         .child(scope_row(
             "trash",
+            IconName::Trash,
             t(locale, "shell.trash"),
             state.counts.trash,
             matches!(state.place, Place::Trash),
+            theme,
             entity.clone(),
             Place::Trash,
             if read_only {
@@ -70,157 +83,159 @@ pub fn render_sidebar(
             } else {
                 Some(DropIntent::Trash)
             },
+        ));
+
+    let folders_header = {
+        let mut header = style::section_header("folders-header", t(locale, "shell.folders"), theme);
+        if !read_only {
+            header = attach_drop(header, entity.clone(), DropIntent::Root);
+            let new_folder = entity.clone();
+            header = header.child(
+                Button::new("sb-new-folder")
+                    .ghost()
+                    .xsmall()
+                    .icon(IconName::Plus)
+                    .tooltip(t(locale, "commands.folder.new"))
+                    .on_click(move |_, window, cx| {
+                        new_folder.update(cx, |this, cx| this.create_folder(window, cx));
+                    }),
+            );
+        }
+        header
+    };
+
+    let folder_tree = v_flex()
+        .id("folder-tree")
+        .w_full()
+        // A scrolling column shrinks its children to fit unless they refuse: without this
+        // the tree collapsed and the sections below were drawn over its rows.
+        .flex_none()
+        .gap(px(1.))
+        .min_h(px(24.))
+        .children(render_folders(
+            &unlocked,
+            &state.place,
+            &state.expanded,
+            state.browse.include_subfolders,
+            0,
+            theme,
+            entity.clone(),
+            read_only,
         ))
-        .child({
-            let root_entity = entity.clone();
-            let mut header = h_flex()
-                .id("folders-header")
-                .w_full()
-                .items_center()
-                .mt_3()
-                .mb_1()
-                .child(Label::new(t(locale, "shell.folders")).text_xs().flex_1());
-            if !read_only {
-                header = attach_drop(
-                    header,
-                    root_entity.clone(),
-                    DropIntent::Root,
-                );
-                let new_folder = entity.clone();
-                let rename = entity.clone();
-                let delete = entity.clone();
-                let lock = entity.clone();
-                header = header
-                    .child(
-                        Button::new("sb-new-folder")
-                            .ghost()
-                            .label("+")
-                            .on_click(move |_, window, cx| {
-                                new_folder.update(cx, |this, cx| this.create_folder(window, cx));
-                            }),
-                    )
-                    .child(
-                        Button::new("sb-rename-folder")
-                            .ghost()
-                            .label("Aa")
-                            .on_click(move |_, window, cx| {
-                                rename.update(cx, |this, cx| this.rename_open_folder(window, cx));
-                            }),
-                    )
-                    .child(
-                        Button::new("sb-del-folder")
-                            .ghost()
-                            .label("Del")
-                            .on_click(move |_, window, cx| {
-                                delete.update(cx, |this, cx| this.delete_open_folder(window, cx));
-                            }),
-                    )
-                    .child(
-                        Button::new("sb-lock-folder")
-                            .ghost()
-                            .label("Lock")
-                            .on_click(move |_, window, cx| {
-                                lock.update(cx, |this, cx| this.lock_open_folder(window, cx));
-                            }),
-                    );
-            }
-            header
-        })
-        .child(
-            div()
-                .id("folder-tree")
-                .flex_1()
-                .w_full()
-                .overflow_y_scroll()
-                .children(render_folders(
-                    &unlocked,
-                    &state.place,
-                    &state.expanded,
-                    state.browse.include_subfolders,
-                    0,
-                    entity.clone(),
-                    read_only,
-                )),
-        )
-        .when(!locked.is_empty(), |el| {
-            el.child(
-                Label::new(t(locale, "shell.lockedFolders"))
-                    .text_xs()
-                    .mt_3()
-                    .mb_1(),
-            )
-            .children(locked.into_iter().map(|folder| {
-                locked_row(folder, locale, entity.clone())
-            }))
-        })
-        .when(!tags.is_empty() && !read_only, |el| {
-            el.child(
-                Label::new(t(locale, "shell.tags"))
-                    .text_xs()
-                    .mt_3()
-                    .mb_1(),
-            )
-            .children(tags.iter().take(40).map(|tag| {
-                tag_drop_row(
-                    tag.name.clone(),
-                    tag.image_count.unwrap_or(0),
-                    entity.clone(),
-                )
-            }))
-        })
-        .when(!state.smart_folders.is_empty(), |el| {
-            el.child(
-                Label::new(t(locale, "shell.smartFolders"))
-                    .text_xs()
-                    .mt_3()
-                    .mb_1(),
-            )
-            .children(state.smart_folders.iter().map(|smart| {
-                let id = smart.id.clone();
-                let selected =
-                    matches!(state.place, Place::Smart { id: ref open } if open == &smart.id);
-                let entity = entity.clone();
-                h_flex()
-                    .id(SharedString::from(format!("smart-{id}")))
-                    .w_full()
-                    .items_center()
-                    .px_2()
-                    .py_1()
-                    .rounded_md()
-                    .when(selected, |el| el.border_1())
-                    .cursor_pointer()
-                    .on_click(move |_, _, cx| {
-                        entity.update(cx, |this, cx| {
-                            this.set_place(Place::Smart { id: id.clone() }, cx);
-                        });
-                    })
-                    .child(Label::new(smart.name.clone()).text_sm())
-                    .into_any_element()
-            }))
-        })
-        .when(!state.info.read_only, |el| {
+        .context_menu(ops_items::context_menu_builder(
+            entity.clone(),
+            ops_items::folder_menu_model,
+        ));
+
+    let smart_header = {
+        let mut header =
+            style::section_header("smart-header", t(locale, "shell.smartFolders"), theme);
+        if !read_only {
             let save = entity.clone();
-            let groups = entity.clone();
-            el.child(
+            header = header.child(
                 Button::new("sb-save-smart")
                     .ghost()
-                    .label(t(locale, "smart.save"))
+                    .xsmall()
+                    .icon(IconName::Plus)
+                    .tooltip(t(locale, "smart.save"))
                     .on_click(move |_, window, cx| {
                         save.update(cx, |this, cx| this.save_as_smart_folder(window, cx));
                     }),
-            )
-            .child(
+            );
+        }
+        header
+    };
+
+    let tags_header = {
+        let mut header = style::section_header("tags-header", t(locale, "shell.tags"), theme);
+        if !read_only {
+            let groups = entity.clone();
+            header = header.child(
                 Button::new("sb-tag-groups")
                     .ghost()
-                    .label(t(locale, "tags.groups"))
+                    .xsmall()
+                    .icon(IconName::Ellipsis)
+                    .tooltip(t(locale, "tags.groups"))
                     .on_click(move |_, window, cx| {
                         groups.update(cx, |this, cx| this.open_tag_groups_dialog(window, cx));
                     }),
-            )
-        })
+            );
+        }
+        header
+    };
+
+    let show_smart = !state.smart_folders.is_empty() || !read_only;
+    let show_tags = !tags.is_empty();
+
+    v_flex()
+        .id("sidebar")
+        .size_full()
+        .min_h(px(0.))
+        .p_2()
+        .bg(theme.sidebar)
+        .child(places)
+        .child(
+            v_flex()
+                .id("sidebar-scroll")
+                .flex_1()
+                .min_h(px(0.))
+                .w_full()
+                .overflow_y_scroll()
+                .child(folders_header)
+                .child(folder_tree)
+                .when(!locked.is_empty(), |el| {
+                    el.child(style::section_header(
+                        "locked-header",
+                        t(locale, "shell.lockedFolders"),
+                        theme,
+                    ))
+                    .children(
+                        locked
+                            .into_iter()
+                            .map(|folder| locked_row(folder, locale, theme, entity.clone())),
+                    )
+                })
+                .when(show_smart, |el| {
+                    el.child(smart_header)
+                        .children(state.smart_folders.iter().map(|smart| {
+                            let id = smart.id.clone();
+                            let selected = matches!(
+                                state.place,
+                                Place::Smart { id: ref open } if open == &smart.id
+                            );
+                            let entity = entity.clone();
+                            style::nav_row(
+                                SharedString::from(format!("smart-{id}")),
+                                selected,
+                                theme,
+                            )
+                            .on_click(move |_, _, cx| {
+                                entity.update(cx, |this, cx| {
+                                    this.set_place(Place::Smart { id: id.clone() }, cx);
+                                });
+                            })
+                            .child(style::row_icon(IconName::FolderSearch, theme))
+                            .child(style::row_label(smart.name.clone()))
+                            .into_any_element()
+                        }))
+                })
+                .when(show_tags, |el| {
+                    el.child(tags_header)
+                        .children(tags.iter().take(200).map(|tag| {
+                            tag_row(
+                                tag.name.clone(),
+                                tag.image_count.unwrap_or(0),
+                                state.filters.tags.contains(&tag.name),
+                                read_only,
+                                theme,
+                                entity.clone(),
+                            )
+                        }))
+                }),
+        )
 }
 
-fn locked_row(folder: Folder, locale: Locale, entity: Entity<RootApp>) -> AnyElement {
+fn locked_row(folder: Folder, locale: Locale, theme: &Kit, entity: Entity<RootApp>) -> AnyElement {
     let id = folder.id.clone();
     let manage_id = folder.id.clone();
     let name = folder
@@ -230,24 +245,11 @@ fn locked_row(folder: Folder, locale: Locale, entity: Entity<RootApp>) -> AnyEle
         .unwrap_or_else(|| folder.name.clone());
     let unlocked = folder.is_unlocked;
     let click = entity.clone();
-    h_flex()
-        .id(SharedString::from(format!("locked-{id}")))
-        .w_full()
-        .items_center()
-        .gap_2()
-        .px_2()
-        .py_1()
-        .rounded_md()
-        .cursor_pointer()
+    style::nav_row(SharedString::from(format!("locked-{id}")), false, theme)
         .on_click(move |_, window, cx| {
             if unlocked {
                 click.update(cx, |this, cx| {
-                    this.set_place(
-                        Place::Folder {
-                            id: id.clone(),
-                        },
-                        cx,
-                    );
+                    this.set_place(Place::Folder { id: id.clone() }, cx);
                 });
             } else {
                 click.update(cx, |this, cx| {
@@ -255,20 +257,30 @@ fn locked_row(folder: Folder, locale: Locale, entity: Entity<RootApp>) -> AnyEle
                 });
             }
         })
-        .child(Label::new(name).text_sm().flex_1())
-        .child(
-            Label::new(if unlocked {
-                t(locale, "shell.unlocked")
+        .child(style::row_icon(
+            if unlocked {
+                IconName::LockOpen
             } else {
-                t(locale, "shell.locked")
-            })
-            .text_xs(),
-        )
+                IconName::Lock
+            },
+            theme,
+        ))
+        .child(style::row_label(name))
         .child(
             Button::new(SharedString::from(format!("locked-manage-{manage_id}")))
                 .ghost()
-                .label("…")
+                .xsmall()
+                .icon(IconName::Ellipsis)
+                .tooltip(t(
+                    locale,
+                    if unlocked {
+                        "shell.unlocked"
+                    } else {
+                        "shell.locked"
+                    },
+                ))
                 .on_click(move |_, window, cx| {
+                    cx.stop_propagation();
                     entity.update(cx, |this, cx| {
                         this.open_lock_manage_dialog(window, cx, manage_id.clone());
                     });
@@ -277,70 +289,70 @@ fn locked_row(folder: Folder, locale: Locale, entity: Entity<RootApp>) -> AnyEle
         .into_any_element()
 }
 
-fn tag_drop_row(name: String, count: u32, entity: Entity<RootApp>) -> AnyElement {
+/// A tag: a click filters by it, items dropped on it get it.
+fn tag_row(
+    name: String,
+    count: u32,
+    active: bool,
+    read_only: bool,
+    theme: &Kit,
+    entity: Entity<RootApp>,
+) -> AnyElement {
     let filter_tag = name.clone();
     let intent = DropIntent::Tag { name: name.clone() };
     let click = entity.clone();
-    let mut row = h_flex()
-        .id(SharedString::from(format!("tag-{name}")))
-        .w_full()
-        .items_center()
-        .justify_between()
-        .gap_2()
-        .px_2()
-        .py_1()
-        .rounded_md()
-        .cursor_pointer()
+    let mut row = style::nav_row(SharedString::from(format!("tag-{name}")), active, theme)
         .on_click(move |_, _, cx| {
             click.update(cx, |this, cx| {
                 this.toggle_tag_filter(filter_tag.clone(), cx);
             });
         })
-        .child(Label::new(name).text_sm())
-        .child(Label::new(count.to_string()).text_xs());
-    row = attach_drop(row, entity, intent);
+        .child(style::row_icon(IconName::Tag, theme))
+        .child(style::row_label(name))
+        .child(style::row_count(count, theme));
+    if !read_only {
+        row = attach_drop(row, entity, intent);
+    }
     row.into_any_element()
 }
 
+#[allow(clippy::too_many_arguments)]
 fn scope_row(
     id: &'static str,
+    icon: IconName,
     label: String,
     count: u32,
     selected: bool,
+    theme: &Kit,
     entity: Entity<RootApp>,
     place: Place,
     drop: Option<DropIntent>,
 ) -> impl IntoElement {
     let click = entity.clone();
-    let mut row = h_flex()
-        .id(SharedString::from(id))
-        .w_full()
-        .items_center()
-        .justify_between()
-        .gap_2()
-        .px_2()
-        .py_1()
-        .rounded_md()
-        .when(selected, |el| el.border_1())
-        .cursor_pointer()
-        .on_click(move |_event: &gpui_kit::ClickEvent, _window: &mut Window, cx: &mut App| {
-            let place = place.clone();
-            click.update(cx, |this, cx| this.set_place(place, cx));
-        })
-        .child(Label::new(label).text_sm())
-        .child(Label::new(count.to_string()).text_xs());
+    let mut row = style::nav_row(SharedString::from(id), selected, theme)
+        .on_click(
+            move |_event: &gpui_kit::ClickEvent, _window: &mut Window, cx: &mut App| {
+                let place = place.clone();
+                click.update(cx, |this, cx| this.set_place(place, cx));
+            },
+        )
+        .child(style::row_icon(icon, theme))
+        .child(style::row_label(label))
+        .child(style::row_count(count, theme));
     if let Some(intent) = drop {
         row = attach_drop(row, entity, intent);
     }
     row
 }
 
+#[allow(clippy::too_many_arguments)]
 fn render_folders(
     folders: &[Folder],
     place: &Place,
     expanded: &std::collections::HashSet<String>,
     include_subfolders: bool,
     depth: u32,
+    theme: &Kit,
     entity: Entity<RootApp>,
     read_only: bool,
 ) -> Vec<AnyElement> {
@@ -366,17 +378,8 @@ fn render_folders(
             Some(DragPayload::folder(id.clone(), name.clone()))
         };
 
-        let mut row = h_flex()
-            .id(SharedString::from(format!("folder-{id}")))
-            .w_full()
-            .items_center()
-            .gap_1()
-            .px_2()
-            .py_1()
-            .pl(px(8.0 + depth as f32 * 12.0))
-            .rounded_md()
-            .when(selected, |el| el.border_1())
-            .cursor_pointer()
+        let mut row = style::nav_row(SharedString::from(format!("folder-{id}")), selected, theme)
+            .pl(px(4.0 + depth as f32 * 14.0))
             .on_click(move |_, _, cx| {
                 entity_place.update(cx, |this, cx| {
                     this.set_place(
@@ -388,12 +391,13 @@ fn render_folders(
                 });
             })
             .child(if has_children {
-                let label = if is_expanded { "▾" } else { "▸" };
                 div()
                     .id(SharedString::from(format!("expand-{id}")))
-                    .w(px(16.))
+                    .w(px(14.))
+                    .flex_none()
                     .cursor_pointer()
                     .on_click(move |_, _, cx| {
+                        cx.stop_propagation();
                         entity_toggle.update(cx, |this, cx| {
                             if let Some(lib) = this.library.as_mut() {
                                 if !lib.expanded.remove(&toggle_id) {
@@ -403,14 +407,34 @@ fn render_folders(
                             }
                         });
                     })
-                    .child(Label::new(label).text_xs())
+                    .child(
+                        Icon::new(if is_expanded {
+                            IconName::ChevronDown
+                        } else {
+                            IconName::ChevronRight
+                        })
+                        .xsmall()
+                        .text_color(theme.muted_foreground),
+                    )
                     .into_any_element()
             } else {
-                div().w(px(16.)).into_any_element()
+                div().w(px(14.)).flex_none().into_any_element()
             })
-            .child(Label::new(name).text_sm().flex_1())
-            .child(Label::new(count.to_string()).text_xs());
+            .child(style::folder_icon(
+                folder.icon_color.as_deref(),
+                selected || is_expanded,
+                theme,
+            ))
+            .child(style::row_label(name))
+            .child(style::row_count(count, theme));
 
+        row = row.on_mouse_down(gpui_kit::MouseButton::Right, {
+            let entity = entity.clone();
+            let id = id.clone();
+            move |_, _, cx| {
+                entity.update(cx, |this, cx| this.open_folder_for_context(id.clone(), cx));
+            }
+        });
         if let Some(payload) = drag_payload {
             row = attach_folder_drag(row, payload, entity.clone());
         }
@@ -427,6 +451,7 @@ fn render_folders(
                 expanded,
                 include_subfolders,
                 depth + 1,
+                theme,
                 entity.clone(),
                 read_only,
             ));
@@ -491,12 +516,9 @@ where
                     },
                 )
             }
-            DragPayload::Items { .. } => entity_can.read(cx).can_accept_drop(
-                payload,
-                &DropIntent::Folder {
-                    id: id_can.clone(),
-                },
-            ),
+            DragPayload::Items { .. } => entity_can
+                .read(cx)
+                .can_accept_drop(payload, &DropIntent::Folder { id: id_can.clone() }),
         }
     })
     .on_drop(move |payload: &DragPayload, _, cx| {

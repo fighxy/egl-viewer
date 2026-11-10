@@ -1,4 +1,4 @@
-//! Native desktop shell: GPUI Kit + desktop-session (D-126 / D-129 Phase 1 browse).
+//! Native desktop shell: GPUI Kit + desktop-session (D-126 / D-129 browse).
 //!
 //! ```text
 //! cargo run -p gpui-desktop
@@ -11,15 +11,16 @@ mod browse;
 mod commands;
 mod dialogs;
 mod dnd;
+mod export_rules;
 mod i18n;
 mod justified;
 mod library;
 mod menus;
-mod ops;
 mod ops_dnd;
+mod ops_export;
+mod ops_items;
+mod ops_mutations;
 mod ops_organize;
-mod ops_phase4;
-mod phase4;
 mod platform;
 #[cfg(windows)]
 mod reveal_win;
@@ -28,7 +29,7 @@ mod settings_ui;
 mod theme;
 mod updater;
 
-use gpui_kit::assets::Assets;
+use gpui_kit::assets::AllAssets;
 use gpui_kit::{AppContext as _, Pixels, Size, WindowBounds, WindowOptions, px, size};
 
 use crate::app::RootApp;
@@ -54,7 +55,7 @@ pub fn clamp_window_size(width: f32, height: f32) -> Size<Pixels> {
 fn main() {
     init_logging();
 
-    let app = gpui_kit::application().with_assets(Assets);
+    let app = gpui_kit::application().with_assets(AllAssets);
     app.run(move |cx| {
         gpui_kit::init(cx);
         bind_keymap(cx);

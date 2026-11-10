@@ -1,4 +1,4 @@
-//! Phase 3 Session-backed mutations: edits, trash, folders, import, locks, maintenance.
+//! Session-backed library mutations: edits, trash, folders, import, locks, maintenance (D-131).
 
 use std::path::PathBuf;
 use std::sync::{Arc, Mutex};
@@ -21,11 +21,7 @@ use crate::library::Place;
 use crate::platform;
 
 impl RootApp {
-    pub(crate) fn apply_edit_to_selection(
-        &mut self,
-        edit: ItemEdit,
-        cx: &mut Context<Self>,
-    ) {
+    pub(crate) fn apply_edit_to_selection(&mut self, edit: ItemEdit, cx: &mut Context<Self>) {
         if self.library.as_ref().is_some_and(|lib| lib.info.read_only) {
             self.status = SharedString::from(t(self.locale, "errors.readOnly"));
             cx.notify();
@@ -91,7 +87,10 @@ impl RootApp {
     }
 
     pub(crate) fn trash_selection(&mut self, window: &mut Window, cx: &mut Context<Self>) {
-        if self.library.as_ref().is_some_and(|lib| matches!(lib.place, Place::Trash))
+        if self
+            .library
+            .as_ref()
+            .is_some_and(|lib| matches!(lib.place, Place::Trash))
         {
             return;
         }
@@ -104,42 +103,41 @@ impl RootApp {
             let entity = cx.entity();
             let count = target.ids.len();
             window.open_dialog(cx, move |dialog, _, _| {
-                dialog
-                    .title(t(locale, "trash.confirmTitle"))
-                    .child(
-                        v_flex()
-                            .gap_3()
-                            .p_2()
-                            .w(px(360.))
-                            .child(Label::new(t_n(locale, "trash.confirmMessage", count as u32)))
-                            .child(
-                                h_flex()
-                                    .gap_2()
-                                    .justify_end()
-                                    .child(
-                                        Button::new("trash-cancel")
-                                            .label(t(locale, "common.cancel"))
-                                            .on_click(|_, window, cx| {
-                                                window.close_dialog(cx);
-                                            }),
-                                    )
-                                    .child({
-                                        let entity = entity.clone();
-                                        Button::new("trash-ok")
-                                            .primary()
-                                            .label(t(locale, "trash.move"))
-                                            .on_click(move |_, window, cx| {
-                                                window.close_dialog(cx);
-                                                entity.update(cx, |this, cx| {
-                                                    this.apply_edit_to_selection(
-                                                        ItemEdit::Trash,
-                                                        cx,
-                                                    );
-                                                });
-                                            })
-                                    }),
-                            ),
-                    )
+                dialog.title(t(locale, "trash.confirmTitle")).child(
+                    v_flex()
+                        .gap_3()
+                        .p_2()
+                        .w(px(360.))
+                        .child(Label::new(t_n(
+                            locale,
+                            "trash.confirmMessage",
+                            count as u32,
+                        )))
+                        .child(
+                            h_flex()
+                                .gap_2()
+                                .justify_end()
+                                .child(
+                                    Button::new("trash-cancel")
+                                        .label(t(locale, "common.cancel"))
+                                        .on_click(|_, window, cx| {
+                                            window.close_dialog(cx);
+                                        }),
+                                )
+                                .child({
+                                    let entity = entity.clone();
+                                    Button::new("trash-ok")
+                                        .primary()
+                                        .label(t(locale, "trash.move"))
+                                        .on_click(move |_, window, cx| {
+                                            window.close_dialog(cx);
+                                            entity.update(cx, |this, cx| {
+                                                this.apply_edit_to_selection(ItemEdit::Trash, cx);
+                                            });
+                                        })
+                                }),
+                        ),
+                )
             });
         } else {
             self.apply_edit_to_selection(ItemEdit::Trash, cx);
@@ -162,41 +160,35 @@ impl RootApp {
         let entity = cx.entity();
         let count = target.ids.len();
         window.open_dialog(cx, move |dialog, _, _| {
-            dialog
-                .title(t(locale, "trash.deleteTitle"))
-                .child(
-                    v_flex()
-                        .gap_3()
-                        .p_2()
-                        .w(px(360.))
-                        .child(Label::new(t_n(
-                            locale,
-                            "trash.deleteMessage",
-                            count as u32,
-                        )))
-                        .child(
-                            h_flex()
-                                .gap_2()
-                                .justify_end()
-                                .child(
-                                    Button::new("del-cancel")
-                                        .label(t(locale, "common.cancel"))
-                                        .on_click(|_, window, cx| window.close_dialog(cx)),
-                                )
-                                .child({
-                                    let entity = entity.clone();
-                                    Button::new("del-ok")
-                                        .primary()
-                                        .label(t(locale, "trash.delete"))
-                                        .on_click(move |_, window, cx| {
-                                            window.close_dialog(cx);
-                                            entity.update(cx, |this, cx| {
-                                                this.run_delete_permanently(cx);
-                                            });
-                                        })
-                                }),
-                        ),
-                )
+            dialog.title(t(locale, "trash.deleteTitle")).child(
+                v_flex()
+                    .gap_3()
+                    .p_2()
+                    .w(px(360.))
+                    .child(Label::new(t_n(locale, "trash.deleteMessage", count as u32)))
+                    .child(
+                        h_flex()
+                            .gap_2()
+                            .justify_end()
+                            .child(
+                                Button::new("del-cancel")
+                                    .label(t(locale, "common.cancel"))
+                                    .on_click(|_, window, cx| window.close_dialog(cx)),
+                            )
+                            .child({
+                                let entity = entity.clone();
+                                Button::new("del-ok")
+                                    .primary()
+                                    .label(t(locale, "trash.delete"))
+                                    .on_click(move |_, window, cx| {
+                                        window.close_dialog(cx);
+                                        entity.update(cx, |this, cx| {
+                                            this.run_delete_permanently(cx);
+                                        });
+                                    })
+                            }),
+                    ),
+            )
         });
     }
 
@@ -241,11 +233,7 @@ impl RootApp {
                     .gap_3()
                     .p_2()
                     .w(px(360.))
-                    .child(Label::new(t_n(
-                        locale,
-                        "trash.emptyMessage",
-                        info.items,
-                    )))
+                    .child(Label::new(t_n(locale, "trash.emptyMessage", info.items)))
                     .child(
                         h_flex()
                             .gap_2()
@@ -779,11 +767,7 @@ impl RootApp {
         }
     }
 
-    pub(crate) fn handle_external_drop(
-        &mut self,
-        paths: &ExternalPaths,
-        cx: &mut Context<Self>,
-    ) {
+    pub(crate) fn handle_external_drop(&mut self, paths: &ExternalPaths, cx: &mut Context<Self>) {
         if self.library.is_none() {
             return;
         }
@@ -847,10 +831,7 @@ impl RootApp {
                                         let password = input.read(cx).value().to_string();
                                         window.close_dialog(cx);
                                         entity.update(cx, |this, cx| {
-                                            match this
-                                                .session
-                                                .unlock_folder(&folder_id, password)
-                                            {
+                                            match this.session.unlock_folder(&folder_id, password) {
                                                 Ok(()) => {
                                                     this.set_place(
                                                         Place::Folder {
@@ -1209,34 +1190,35 @@ impl RootApp {
                                         let parent = draft.parent.clone();
                                         let conditions = draft.conditions.clone();
                                         move |_, window, cx| {
-                                        let name = input.read(cx).value().to_string();
-                                        window.close_dialog(cx);
-                                        entity.update(cx, |this, cx| {
-                                            match this.session.save_smart_folder(
-                                                SmartFolderChange::Create {
-                                                    name: name.trim().to_string(),
-                                                    parent: parent.clone(),
-                                                    conditions: conditions.clone(),
-                                                },
-                                            ) {
-                                                Ok(folders) => {
-                                                    if let Some(lib) = this.library.as_mut() {
-                                                        lib.smart_folders = folders;
+                                            let name = input.read(cx).value().to_string();
+                                            window.close_dialog(cx);
+                                            entity.update(cx, |this, cx| {
+                                                match this.session.save_smart_folder(
+                                                    SmartFolderChange::Create {
+                                                        name: name.trim().to_string(),
+                                                        parent: parent.clone(),
+                                                        conditions: conditions.clone(),
+                                                    },
+                                                ) {
+                                                    Ok(folders) => {
+                                                        if let Some(lib) = this.library.as_mut() {
+                                                            lib.smart_folders = folders;
+                                                        }
+                                                        this.status = SharedString::from(t(
+                                                            this.locale,
+                                                            "smart.saved",
+                                                        ));
+                                                        cx.notify();
                                                     }
-                                                    this.status = SharedString::from(t(
-                                                        this.locale,
-                                                        "smart.saved",
-                                                    ));
-                                                    cx.notify();
+                                                    Err(error) => {
+                                                        this.status =
+                                                            SharedString::from(format!("{error}"));
+                                                        cx.notify();
+                                                    }
                                                 }
-                                                Err(error) => {
-                                                    this.status =
-                                                        SharedString::from(format!("{error}"));
-                                                    cx.notify();
-                                                }
-                                            }
-                                        });
-                                    }})
+                                            });
+                                        }
+                                    })
                             }),
                     ),
             )

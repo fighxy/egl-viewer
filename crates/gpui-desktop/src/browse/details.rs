@@ -1,11 +1,13 @@
-//! Details panel with in-place / dialog edits (Phase 2 read + Phase 3 write).
+//! Details panel with in-place / dialog edits (D-130 read, D-131 write).
 
 use std::sync::Arc;
 
 use app_store::Locale;
 use gpui_kit::component::button::{Button, ButtonVariants as _};
 use gpui_kit::component::label::Label;
-use gpui_kit::component::{Disableable as _, StyledExt as _, h_flex, v_flex};
+use gpui_kit::component::{
+    Disableable as _, Selectable as _, Sizable as _, StyledExt as _, h_flex, v_flex,
+};
 use gpui_kit::prelude::FluentBuilder as _;
 use gpui_kit::{
     Entity, Image, InteractiveElement, IntoElement, ParentElement, SharedString,
@@ -15,9 +17,10 @@ use library_core::{Folder, Item, ItemCell, SelectionTags, SortKey};
 
 use crate::app::RootApp;
 use crate::browse::format::{format_bytes, format_date, format_dimensions};
+use crate::browse::style;
 use crate::i18n::{t, t_n};
 use crate::library::OpenLibraryState;
-use crate::ops::EditField;
+use crate::ops_mutations::EditField;
 
 #[derive(Clone)]
 pub struct DetailsModel {
@@ -98,9 +101,7 @@ fn empty_placeholder(
         .size_full()
         .items_center()
         .justify_center()
-        .child(
-            Label::new(t(locale, "details.selectItem")).text_color(theme.muted_foreground),
-        )
+        .child(Label::new(t(locale, "details.selectItem")).text_color(theme.muted_foreground))
 }
 
 fn multi_select(
@@ -127,7 +128,12 @@ fn multi_select(
             .text_color(theme.muted_foreground),
         )
         .when(!read_only && !in_trash, |el| {
-            el.child(rating_editor(locale, None, entity.clone()))
+            el.child(rating_editor(
+                locale,
+                None,
+                theme.muted_foreground,
+                entity.clone(),
+            ))
         })
         .when_some(model.selection.as_ref(), |el, sel| {
             el.child(tags_editor(
@@ -232,7 +238,13 @@ fn single_item(
             entity.clone(),
         ))
         .child(if can_edit {
-            rating_editor(locale, Some(item.star), entity.clone()).into_any_element()
+            rating_editor(
+                locale,
+                Some(item.star),
+                theme.muted_foreground,
+                entity.clone(),
+            )
+            .into_any_element()
         } else {
             field(
                 locale,
@@ -331,7 +343,12 @@ fn single_item(
                     )
                     .text_sm(),
                 )
-                .child(field(locale, theme, "details.added", format_date(item.added_at)))
+                .child(field(
+                    locale,
+                    theme,
+                    "details.added",
+                    format_date(item.added_at),
+                ))
                 .child(field(
                     locale,
                     theme,
@@ -382,25 +399,36 @@ fn editable_field(
         })
 }
 
-fn rating_editor(locale: Locale, current: Option<u8>, entity: Entity<RootApp>) -> impl IntoElement {
+fn rating_editor(
+    locale: Locale,
+    current: Option<u8>,
+    muted: gpui_kit::Hsla,
+    entity: Entity<RootApp>,
+) -> impl IntoElement {
     h_flex()
         .id("rating-editor")
         .gap_1()
         .items_center()
-        .child(
-            Label::new(t(locale, "details.rating"))
-                .text_sm()
-                .w(px(72.)),
-        )
-        .children((0..=5).map(|star| {
-            let selected = current == Some(star);
+        .child(Label::new(t(locale, "details.rating")).text_sm().w(px(72.)))
+        .children((1..=5u8).map(|star| {
+            // Five stars in a row, filled up to the rating. A click on the current rating
+            // removes it, as in Eagle.
+            let filled = current.is_some_and(|rating| star <= rating);
+            let is_current = current == Some(star);
             let entity = entity.clone();
             Button::new(SharedString::from(format!("star-{star}")))
-                .when(selected, |b| b.primary())
-                .when(!selected, |b| b.ghost())
-                .label(if star == 0 { "0".into() } else { "★".repeat(star as usize) })
+                .ghost()
+                .small()
+                .compact()
+                .text_color(if filled {
+                    gpui_kit::rgb(0xf5b301).into()
+                } else {
+                    muted
+                })
+                .label(if filled { "★" } else { "☆" })
                 .on_click(move |_, _, cx| {
-                    entity.update(cx, |this, cx| this.set_rating(star, cx));
+                    let next = if is_current { 0 } else { star };
+                    entity.update(cx, |this, cx| this.set_rating(next, cx));
                 })
         }))
 }
@@ -435,9 +463,7 @@ fn tags_editor(
                 .children(tags.iter().map(|tag| {
                     let name = tag.name.clone();
                     let entity = entity.clone();
-                    let dimmed = tag
-                        .image_count
-                        .is_some_and(|n| n > 0 && n < selected_items);
+                    let dimmed = tag.image_count.is_some_and(|n| n > 0 && n < selected_items);
                     Button::new(SharedString::from(format!("tag-{name}")))
                         .ghost()
                         .label(if dimmed {
@@ -583,7 +609,9 @@ fn folder_names(folders: &[Folder], ids: &[String], locale: Locale) -> String {
         return t(locale, "details.none");
     }
     ids.iter()
-        .map(|id| find_folder_name(folders, id).unwrap_or_else(|| t(locale, "details.unknownFolder")))
+        .map(|id| {
+            find_folder_name(folders, id).unwrap_or_else(|| t(locale, "details.unknownFolder"))
+        })
         .collect::<Vec<_>>()
         .join(", ")
 }
@@ -651,7 +679,8 @@ fn folder_properties(
         })
         .child(Label::new(t(locale, "folder.colour")).text_xs())
         .child(
-            h_flex().gap_1().children(
+            // Colour dots, the chosen one ringed. The first, hollow dot is "no colour".
+            h_flex().gap_2().flex_wrap().items_center().children(
                 std::iter::once(None)
                     .chain(library_core::FOLDER_COLORS.iter().copied().map(Some))
                     .map(|c| {
@@ -659,21 +688,28 @@ fn folder_properties(
                         let fid = id.clone();
                         let selected = color.as_deref() == c;
                         let label = c.unwrap_or("none");
-                        Button::new(SharedString::from(format!("fp-color-{label}")))
-                            .when(selected, |b| b.primary())
-                            .when(!selected, |b| b.ghost())
-                            .label(label)
-                            .disabled(read_only)
+                        let fill = c.and_then(style::folder_color);
+                        div()
+                            .id(SharedString::from(format!("fp-color-{label}")))
+                            .size(px(18.))
+                            .rounded_full()
+                            .border_2()
+                            .border_color(if selected {
+                                theme.foreground
+                            } else if fill.is_some() {
+                                gpui_kit::transparent_black()
+                            } else {
+                                theme.muted_foreground
+                            })
+                            .when_some(fill, |el, hex| el.bg(gpui_kit::rgb(hex)))
+                            .when(!read_only, |el| el.cursor_pointer())
+                            .aria_label(label)
                             .on_click(move |_, _, cx| {
                                 if read_only {
                                     return;
                                 }
                                 entity.update(cx, |this, cx| {
-                                    this.set_folder_color(
-                                        fid.clone(),
-                                        c.map(str::to_owned),
-                                        cx,
-                                    );
+                                    this.set_folder_color(fid.clone(), c.map(str::to_owned), cx);
                                 });
                             })
                     }),
@@ -691,7 +727,7 @@ fn folder_properties(
         })
         .child(Label::new(t(locale, "sort.title")).text_xs())
         .child(
-            h_flex().gap_1().children(
+            h_flex().gap_1().flex_wrap().children(
                 [
                     (None, "sort.global"),
                     (Some(SortKey::Manual), "sort.manual"),
@@ -705,8 +741,9 @@ fn folder_properties(
                     let fid = id.clone();
                     let selected = order == key;
                     Button::new(SharedString::from(format!("fp-sort-{label}")))
-                        .when(selected, |b| b.primary())
-                        .when(!selected, |b| b.ghost())
+                        .ghost()
+                        .small()
+                        .selected(selected)
                         .label(t(locale, label))
                         .disabled(read_only)
                         .on_click(move |_, _, cx| {
@@ -714,12 +751,7 @@ fn folder_properties(
                                 return;
                             }
                             entity.update(cx, |this, cx| {
-                                this.set_folder_sort(
-                                    fid.clone(),
-                                    key,
-                                    key.map(|_| true),
-                                    cx,
-                                );
+                                this.set_folder_sort(fid.clone(), key, key.map(|_| true), cx);
                             });
                         })
                 }),
@@ -784,11 +816,7 @@ fn exif_rows(
     let defs: [(&str, &str, Option<fn(&str) -> String>); 6] = [
         ("camera", "details.camera", None),
         ("isoSpeed", "details.iso", None),
-        (
-            "aperture",
-            "details.aperture",
-            Some(|v| format!("ƒ/{v}")),
-        ),
+        ("aperture", "details.aperture", Some(|v| format!("ƒ/{v}"))),
         ("shutter", "details.shutter", None),
         (
             "focalLength",

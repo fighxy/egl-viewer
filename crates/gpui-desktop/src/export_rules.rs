@@ -1,4 +1,5 @@
-//! Phase 4 pure helpers: export selection, passphrase rules, connect validation, login gate.
+//! Pure helpers for export/backup/decrypt: selection, formats, passphrase rules,
+//! Eagle connect validation and the app login gate.
 
 use app_store::{ConnectionSettings, LoginMethod};
 use library_core::{
@@ -11,8 +12,13 @@ use library_core::{
 pub enum ExportPreset {
     /// Library → Backup… — free scope starts as whole library.
     Backup,
-    Folder { id: String, name: String },
-    Tag { name: String },
+    Folder {
+        id: String,
+        name: String,
+    },
+    Tag {
+        name: String,
+    },
 }
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
@@ -27,7 +33,9 @@ pub enum FormatKind {
 pub enum LoginGate {
     /// Checking `login_status` before first paint of Welcome.
     Pending,
-    Locked { method: LoginMethod },
+    Locked {
+        method: LoginMethod,
+    },
     Open,
 }
 
@@ -70,7 +78,11 @@ pub fn export_selection(preset: &ExportPreset, whole_only: bool) -> ExportSelect
     }
 }
 
-pub fn export_format(kind: FormatKind, compression: Compression, zip_enc: ZipEncryption) -> ExportFormat {
+pub fn export_format(
+    kind: FormatKind,
+    compression: Compression,
+    zip_enc: ZipEncryption,
+) -> ExportFormat {
     match kind {
         FormatKind::Mirror => ExportFormat::Mirror,
         FormatKind::Zip => ExportFormat::Zip {
@@ -115,9 +127,7 @@ pub fn validate_connect_host_port(host: &str, port: &str) -> Result<ConnectionSe
         return Err("The port is a number from 1 to 65535.".into());
     }
     let settings = ConnectionSettings { host, port };
-    settings
-        .validate()
-        .map_err(|e| e.to_string())?;
+    settings.validate().map_err(|e| e.to_string())?;
     Ok(settings)
 }
 

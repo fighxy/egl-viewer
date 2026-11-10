@@ -1,4 +1,4 @@
-//! Full-size preview overlay: fit / zoom / pan / rotate / prev-next (Phase 2).
+//! Full-size preview overlay: fit / zoom / pan / rotate / prev-next (D-130).
 
 use std::sync::Arc;
 use std::time::{Duration, Instant};
@@ -206,14 +206,11 @@ pub fn render_preview(
                             rotate.update(cx, |this, cx| this.preview_rotate(cx));
                         }),
                 )
-                .child(
-                    Button::new("preview-close")
-                        .ghost()
-                        .label("×")
-                        .on_click(move |_, _, cx| {
-                            close_entity.update(cx, |this, cx| this.close_preview(cx));
-                        }),
-                ),
+                .child(Button::new("preview-close").ghost().label("×").on_click(
+                    move |_, _, cx| {
+                        close_entity.update(cx, |this, cx| this.close_preview(cx));
+                    },
+                )),
         )
         .child(
             div()
@@ -267,30 +264,30 @@ pub fn render_preview(
                                         let w = (920.0 * zoom).max(120.0);
                                         let h = (720.0 * zoom).max(120.0);
                                         // After 90/270 the fit box swaps (same idea as React).
-                                        let (w, h) = if rotation % 180 != 0 {
-                                            (h, w)
-                                        } else {
-                                            (w, h)
-                                        };
+                                        let (w, h) =
+                                            if rotation % 180 != 0 { (h, w) } else { (w, h) };
                                         img(image.clone())
                                             .id("preview-image")
                                             .object_fit(gpui_kit::ObjectFit::Contain)
                                             .w(px(w))
                                             .h(px(h))
                                             .when(zoom > 1.0, |el| el.cursor_grab())
-                                            .on_mouse_down(MouseButton::Left, move |event, _, cx| {
-                                                if zoom <= 1.0 {
-                                                    return;
-                                                }
-                                                let pos = event.position;
-                                                pan.update(cx, |this, cx| {
-                                                    this.preview_pan_start(
-                                                        pos.x.as_f32() - ox,
-                                                        pos.y.as_f32() - oy,
-                                                        cx,
-                                                    );
-                                                });
-                                            })
+                                            .on_mouse_down(
+                                                MouseButton::Left,
+                                                move |event, _, cx| {
+                                                    if zoom <= 1.0 {
+                                                        return;
+                                                    }
+                                                    let pos = event.position;
+                                                    pan.update(cx, |this, cx| {
+                                                        this.preview_pan_start(
+                                                            pos.x.as_f32() - ox,
+                                                            pos.y.as_f32() - oy,
+                                                            cx,
+                                                        );
+                                                    });
+                                                },
+                                            )
                                             .on_mouse_up(MouseButton::Left, {
                                                 let pan = pan_entity.clone();
                                                 move |_, _, cx| {

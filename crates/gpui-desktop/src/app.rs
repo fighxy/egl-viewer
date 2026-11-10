@@ -1,4 +1,4 @@
-//! Root GPUI entity: Welcome ↔ Library shell, commands, dialogs (Phase 1–5 / D-129–D-133).
+//! Root GPUI entity: Welcome ↔ Library shell, commands, dialogs (D-129–D-133).
 
 use std::path::PathBuf;
 use std::sync::{Arc, Mutex};
@@ -6,11 +6,14 @@ use std::time::Duration;
 
 use app_store::{BrowsePreferences, Locale, Preferences, Theme, ViewMode};
 use desktop_session::{Event, ItemsTarget, Session};
+use gpui_kit::assets::IconName;
 use gpui_kit::component::button::{Button, ButtonVariants as _};
 use gpui_kit::component::input::{Input, InputEvent, InputState};
 use gpui_kit::component::label::Label;
+use gpui_kit::component::slider::{Slider, SliderEvent, SliderState};
 use gpui_kit::component::{
-    ActiveTheme, StyledExt as _, WindowExt as _, h_flex, h_resizable, resizable_panel, v_flex,
+    ActiveTheme, Icon, Selectable as _, Sizable as _, StyledExt as _, WindowExt as _, h_flex,
+    h_resizable, resizable_panel, v_flex,
 };
 use gpui_kit::prelude::FluentBuilder as _;
 use gpui_kit::{
@@ -26,12 +29,14 @@ use crate::browse::grid::{self, ListedItem};
 use crate::browse::preview::{self, PreviewState, SpaceGesture};
 use crate::browse::preview_image::{self, PreviewPayload};
 use crate::browse::sidebar;
+use crate::browse::style;
 use crate::commands::{self, *};
+use crate::export_rules::LoginGate;
 use crate::i18n::{self, t, t_n};
 use crate::justified::{self, JustifiedLayout};
 use crate::library::{self, EventMailbox, OpenLibraryState, Place, window_title};
-use crate::ops_phase4::{DecryptUi, ExportUi, ImportEagleUi};
-use crate::phase4::LoginGate;
+use crate::ops_export::{DecryptUi, ExportUi, ImportEagleUi};
+use crate::ops_items::PickerMode;
 use crate::platform;
 use crate::screens::library as library_ui;
 use crate::theme;
@@ -53,7 +58,7 @@ type UpdateCheckResult = Arc<Mutex<Option<Result<CheckOutcome, String>>>>;
 pub struct RootApp {
     pub(crate) session: Arc<Session>,
     events: EventMailbox,
-    focus: FocusHandle,
+    pub(crate) focus: FocusHandle,
     pub(crate) locale: Locale,
     pub(crate) theme_pref: Theme,
     pub(crate) status: SharedString,
@@ -95,7 +100,7 @@ pub struct RootApp {
     pub(crate) tag_groups: Vec<library_core::TagGroup>,
     pub(crate) extensions: Vec<library_core::ExtensionCount>,
     _search_sub: Option<Subscription>,
-    // Phase 4
+    // Login gate + export / decrypt / Eagle connect (D-132).
     pub(crate) login_gate: LoginGate,
     pub(crate) startup_done: bool,
     pub(crate) pending_startup_library: Option<LibraryInfo>,
@@ -123,6 +128,24 @@ pub struct RootApp {
     update_check_result: Option<UpdateCheckResult>,
     update_check_started: bool,
     pending_update_url: Option<String>,
+    /// Go to Folder / Add to Folder(s) panel (D-140).
+    pub(crate) folder_picker: Option<crate::ops_items::FolderPickerUi>,
+    pub(crate) picker_input: Entity<InputState>,
+    _picker_sub: Option<Subscription>,
+    /// Tags taken by Copy Tags, for Paste Tags. Kept inside the app, as Eagle does.
+    pub(crate) tag_clipboard: Vec<String>,
+    /// The toolbar's thumbnail size slider (D-141).
+    thumb_slider: Entity<SliderState>,
+    _thumb_slider_sub: Option<Subscription>,
+}
+
+/// One step of Larger / Smaller Thumbnails, kept inside the allowed sizes.
+fn stepped_thumbnail_size(current: u32, delta: i32) -> u32 {
+    let next = i64::from(current) + i64::from(delta);
+    next.clamp(
+        i64::from(BrowsePreferences::MIN_THUMBNAIL),
+        i64::from(BrowsePreferences::MAX_THUMBNAIL),
+    ) as u32
 }
 
 impl RootApp {
@@ -152,6 +175,16 @@ impl RootApp {
         });
         let settings_password = cx.new(|cx| InputState::new(window, cx).masked(true));
         let settings_pin = cx.new(|cx| InputState::new(window, cx).masked(true));
+        let thumb_slider = cx.new(|_| {
+            SliderState::new()
+                .min(BrowsePreferences::MIN_THUMBNAIL as f32)
+                .max(BrowsePreferences::MAX_THUMBNAIL as f32)
+                .step(10.)
+                .default_value(prefs.browse.thumbnail_size as f32)
+        });
+        let picker_input = cx.new(|cx| {
+            InputState::new(window, cx).placeholder(crate::i18n::t(prefs.locale, "picker.search"))
+        });
 
         let mut app = Self {
             session,
@@ -227,7 +260,33 @@ impl RootApp {
             update_check_result: None,
             update_check_started: false,
             pending_update_url: None,
+            folder_picker: None,
+            picker_input: picker_input.clone(),
+            _picker_sub: None,
+            tag_clipboard: Vec::new(),
+            thumb_slider: thumb_slider.clone(),
+            _thumb_slider_sub: None,
         };
+        app._thumb_slider_sub = Some(cx.subscribe(
+            &thumb_slider,
+            |this, _, event: &SliderEvent, cx| match event {
+                SliderEvent::Change(value) => {
+                    this.set_thumbnail_size(value.start().round() as u32, false, cx);
+                }
+                SliderEvent::Release(value) => {
+                    this.set_thumbnail_size(value.start().round() as u32, true, cx);
+                }
+            },
+        ));
+        app._picker_sub = Some(cx.subscribe_in(
+            &picker_input,
+            window,
+            |this, _, event: &InputEvent, window, cx| match event {
+                InputEvent::Change => cx.notify(),
+                InputEvent::PressEnter { .. } => this.picker_confirm(window, cx),
+                _ => {}
+            },
+        ));
         app.create_location = SharedString::from(app.session.default_library_location());
         app._search_sub = Some(cx.subscribe(
             &search_input,
@@ -546,6 +605,7 @@ impl RootApp {
                 self.search_input.update(cx, |input, cx| {
                     input.set_value(search, window, cx);
                 });
+                self.sync_thumb_slider(window, cx);
                 self.recompute_justified();
                 self.refresh_details(cx);
             }
@@ -618,7 +678,9 @@ impl RootApp {
                 lib.persist_browse_prefs(&self.session);
                 self.recompute_justified();
             }
-            cx.notify();
+            // The right bar follows the view: a new place clears the selection, and the
+            // bar must not keep showing the item that was selected before.
+            self.refresh_details(cx);
         }
     }
 
@@ -864,8 +926,8 @@ impl RootApp {
                         let sort = *sort;
                         Button::new(SharedString::from(format!("sort-{key}")))
                             .label(t(locale, key))
-                            .when(sort == current, |b| b.primary())
-                            .when(sort != current, |b| b.ghost())
+                            .ghost()
+                            .selected(sort == current)
                             .on_click(move |_, _, cx| {
                                 entity.update(cx, |this, cx| this.set_sort(sort, cx));
                             })
@@ -879,8 +941,8 @@ impl RootApp {
                                 let entity = entity.clone();
                                 Button::new("sort-asc")
                                     .label(t(locale, "sort.ascending"))
-                                    .when(ascending, |b| b.primary())
-                                    .when(!ascending, |b| b.ghost())
+                                    .ghost()
+                                    .selected(ascending)
                                     .on_click(move |_, _, cx| {
                                         entity.update(cx, |this, cx| this.set_ascending(true, cx));
                                     })
@@ -889,8 +951,8 @@ impl RootApp {
                                 let entity = entity.clone();
                                 Button::new("sort-desc")
                                     .label(t(locale, "sort.descending"))
-                                    .when(!ascending, |b| b.primary())
-                                    .when(ascending, |b| b.ghost())
+                                    .ghost()
+                                    .selected(!ascending)
                                     .on_click(move |_, _, cx| {
                                         entity.update(cx, |this, cx| this.set_ascending(false, cx));
                                     })
@@ -1252,6 +1314,10 @@ impl RootApp {
         self.refresh_details(cx);
     }
 
+    pub(crate) fn preview_is_open(&self) -> bool {
+        self.preview.is_some()
+    }
+
     pub(crate) fn close_preview(&mut self, cx: &mut Context<Self>) {
         self.preview = None;
         self.preview_payload = None;
@@ -1579,25 +1645,11 @@ impl Render for RootApp {
             .on_action(cx.listener(|this, _: &ViewList, _, cx| {
                 this.update_browse(|b| b.view_mode = ViewMode::List, cx);
             }))
-            .on_action(cx.listener(|this, _: &LargerThumbs, _, cx| {
-                this.update_browse(
-                    |b| {
-                        b.thumbnail_size =
-                            (b.thumbnail_size + 20).min(BrowsePreferences::MAX_THUMBNAIL);
-                    },
-                    cx,
-                );
+            .on_action(cx.listener(|this, _: &LargerThumbs, window, cx| {
+                this.step_thumbnail_size(20, window, cx);
             }))
-            .on_action(cx.listener(|this, _: &SmallerThumbs, _, cx| {
-                this.update_browse(
-                    |b| {
-                        b.thumbnail_size = b
-                            .thumbnail_size
-                            .saturating_sub(20)
-                            .max(BrowsePreferences::MIN_THUMBNAIL);
-                    },
-                    cx,
-                );
+            .on_action(cx.listener(|this, _: &SmallerThumbs, window, cx| {
+                this.step_thumbnail_size(-20, window, cx);
             }))
             .on_action(cx.listener(|this, _: &ToggleShowNames, _, cx| {
                 this.update_browse(|b| b.show_names = !b.show_names, cx);
@@ -1618,10 +1670,68 @@ impl Render for RootApp {
             .on_action(cx.listener(|this, _: &Preview, _, cx| {
                 this.open_preview(cx);
             }))
-            .on_action(cx.listener(|this, _: &ClosePreview, _, cx| {
-                if this.preview.is_some() {
+            .on_action(cx.listener(|this, _: &ClosePreview, window, cx| {
+                if this.folder_picker.is_some() {
+                    this.close_folder_picker(window, cx);
+                } else if this.preview.is_some() {
                     this.close_preview(cx);
                 }
+            }))
+            .on_action(cx.listener(|this, _: &RenameSelection, window, cx| {
+                this.rename_selection(window, cx);
+            }))
+            .on_action(cx.listener(|this, _: &AddToFolders, window, cx| {
+                this.open_folder_picker(PickerMode::AddTo, window, cx);
+            }))
+            .on_action(cx.listener(|this, _: &GoToFolder, window, cx| {
+                this.open_folder_picker(PickerMode::GoTo, window, cx);
+            }))
+            .on_action(cx.listener(|this, _: &RemoveFromFolder, _, cx| {
+                this.remove_from_open_folder(cx);
+            }))
+            .on_action(cx.listener(|this, _: &AddTags, window, cx| {
+                if this.selection_target().is_some() {
+                    this.open_add_tag_dialog(window, cx);
+                }
+            }))
+            .on_action(cx.listener(|this, _: &CopyTags, _, cx| {
+                this.copy_tags(cx);
+            }))
+            .on_action(cx.listener(|this, _: &PasteTags, _, cx| {
+                this.paste_tags(cx);
+            }))
+            .on_action(cx.listener(|this, _: &ClearTags, _, cx| {
+                this.clear_tags(cx);
+            }))
+            .on_action(cx.listener(|this, _: &CopyName, _, cx| {
+                this.copy_names(cx);
+            }))
+            .on_action(cx.listener(|this, _: &CopyPath, _, cx| {
+                this.copy_paths(cx);
+            }))
+            .on_action(cx.listener(|this, _: &Rate0, _, cx| {
+                this.rate_selection(0, cx);
+            }))
+            .on_action(cx.listener(|this, _: &Rate1, _, cx| {
+                this.rate_selection(1, cx);
+            }))
+            .on_action(cx.listener(|this, _: &Rate2, _, cx| {
+                this.rate_selection(2, cx);
+            }))
+            .on_action(cx.listener(|this, _: &Rate3, _, cx| {
+                this.rate_selection(3, cx);
+            }))
+            .on_action(cx.listener(|this, _: &Rate4, _, cx| {
+                this.rate_selection(4, cx);
+            }))
+            .on_action(cx.listener(|this, _: &Rate5, _, cx| {
+                this.rate_selection(5, cx);
+            }))
+            .on_action(cx.listener(|this, _: &LockFolder, window, cx| {
+                this.lock_open_folder(window, cx);
+            }))
+            .on_action(cx.listener(|this, _: &ExportFolder, window, cx| {
+                this.export_open_folder(window, cx);
             }))
             .on_action(cx.listener(|this, _: &PreviewRotate, _, cx| {
                 if this.preview.is_some() {
@@ -1826,6 +1936,9 @@ impl Render for RootApp {
             })
             .when(self.show_settings, |el| {
                 el.child(self.render_settings(&theme, locale, cx))
+            })
+            .when_some(self.folder_picker.as_ref(), |el, picker| {
+                el.child(self.render_folder_picker(picker, &theme, locale, cx))
             })
             .into_any_element()
     }
@@ -2085,7 +2198,7 @@ impl RootApp {
             })
             .child(toolbar)
             .child(body)
-            .child(library_ui::render_status_bar(lib, locale))
+            .child(library_ui::render_status_bar(lib, locale, theme))
             .when(!self.status.is_empty(), |el| {
                 el.child(
                     h_flex().id("status-message").w_full().px_3().py_1().child(
@@ -2141,136 +2254,262 @@ impl RootApp {
         entity: Entity<Self>,
         cx: &mut Context<Self>,
     ) -> gpui_kit::AnyElement {
-        h_flex()
+        let title = style::place_title(&lib.place, &lib.folders, &lib.smart_folders, locale);
+
+        // Row 1: where you are, the thumbnail size, the view switches, search.
+        let top = h_flex()
             .id("toolbar")
             .w_full()
+            .h(px(44.))
+            .flex_none()
             .items_center()
             .gap_2()
             .px_3()
-            .py_1()
-            .border_b_1()
-            .border_color(theme.border)
-            .child(Label::new(lib.info.name.clone()).font_bold())
-            .child(Label::new(i18n::t_n(locale, "shell.statusItems", lib.total)).text_sm())
-            .when_some(
-                lib.place.open_folder_id().map(|s| s.to_owned()),
-                |el, id| {
-                    let name =
-                        library::folder_name(&lib.folders, &id).unwrap_or_else(|| id.clone());
-                    el.child(
-                        Button::new("tb-export-folder")
+            .child(
+                div()
+                    .max_w(px(320.))
+                    .font_bold()
+                    .whitespace_nowrap()
+                    .overflow_hidden()
+                    .text_ellipsis()
+                    .child(title),
+            )
+            .child(
+                Label::new(i18n::t_n(locale, "shell.statusItems", lib.total))
+                    .text_xs()
+                    .text_color(theme.muted_foreground),
+            )
+            .child(div().flex_1())
+            .child(
+                h_flex()
+                    .id("thumb-size")
+                    .items_center()
+                    .gap_1()
+                    .child(
+                        Button::new("tb-smaller")
                             .ghost()
-                            .label(t(locale, "exportUi.titleExportFolder"))
-                            .on_click(cx.listener(move |this, _, window, cx| {
-                                this.open_export_folder(id.clone(), name.clone(), window, cx);
+                            .xsmall()
+                            .icon(IconName::Minus)
+                            .tooltip(t(locale, "commands.view.smaller"))
+                            .on_click(cx.listener(|this, _, window, cx| {
+                                this.step_thumbnail_size(-20, window, cx);
                             })),
                     )
-                },
+                    .child(
+                        div().w(px(120.)).child(
+                            Slider::new(&self.thumb_slider)
+                                .accessibility_label(t(locale, "settings.thumbnailSize")),
+                        ),
+                    )
+                    .child(
+                        Button::new("tb-larger")
+                            .ghost()
+                            .xsmall()
+                            .icon(IconName::Plus)
+                            .tooltip(t(locale, "commands.view.larger"))
+                            .on_click(cx.listener(|this, _, window, cx| {
+                                this.step_thumbnail_size(20, window, cx);
+                            })),
+                    ),
             )
-            .when(lib.filters.tags.len() == 1, |el| {
-                let tag = lib.filters.tags[0].clone();
-                el.child(
-                    Button::new("tb-export-tag")
-                        .ghost()
-                        .label(t(locale, "exportUi.titleExportTag"))
-                        .on_click(cx.listener(move |this, _, window, cx| {
-                            this.open_export_tag(tag.clone(), window, cx);
-                        })),
-                )
-            })
+            .child(div().flex_1())
+            .child(
+                Button::new("tb-add")
+                    .ghost()
+                    .small()
+                    .icon(IconName::Plus)
+                    .tooltip(t(locale, "commands.file.addFiles"))
+                    .on_click(cx.listener(|this, _, window, cx| {
+                        this.pick_add_files(window, cx);
+                    })),
+            )
+            .child(
+                Button::new("tb-imports")
+                    .ghost()
+                    .small()
+                    .icon(IconName::Download)
+                    .tooltip(t(locale, "import.panel"))
+                    .selected(self.imports_open)
+                    .on_click(cx.listener(|this, _, _, cx| {
+                        this.imports_open = !this.imports_open;
+                        cx.notify();
+                    })),
+            )
+            .child(
+                Button::new("tb-sort")
+                    .ghost()
+                    .small()
+                    .icon(IconName::ArrowUpDown)
+                    .tooltip(t(locale, "commands.view.sortBy"))
+                    .on_click(cx.listener(|this, _, window, cx| {
+                        this.open_sort_menu(window, cx);
+                    })),
+            )
+            .child(
+                Button::new("tb-sub")
+                    .ghost()
+                    .small()
+                    .icon(IconName::FolderTree)
+                    .tooltip(t(locale, "commands.view.includeSubfolders"))
+                    .selected(lib.browse.include_subfolders)
+                    .on_click(cx.listener(|this, _, _, cx| {
+                        if let Some(lib) = this.library.as_mut() {
+                            lib.browse.include_subfolders = !lib.browse.include_subfolders;
+                        }
+                        this.refresh_view(cx);
+                    })),
+            )
+            .child(
+                Button::new("tb-names")
+                    .ghost()
+                    .small()
+                    .icon(IconName::Captions)
+                    .tooltip(t(locale, "commands.view.showNames"))
+                    .selected(lib.browse.show_names)
+                    .on_click(cx.listener(|this, _, _, cx| {
+                        this.update_browse(|b| b.show_names = !b.show_names, cx);
+                    })),
+            )
+            .child(
+                h_flex()
+                    .id("view-mode")
+                    .items_center()
+                    .child(
+                        Button::new("tb-grid")
+                            .ghost()
+                            .small()
+                            .icon(IconName::LayoutGrid)
+                            .tooltip(t(locale, "commands.view.grid"))
+                            .selected(mode == ViewMode::Grid)
+                            .on_click(cx.listener(|this, _, _, cx| {
+                                this.update_browse(|b| b.view_mode = ViewMode::Grid, cx);
+                            })),
+                    )
+                    .child(
+                        Button::new("tb-list")
+                            .ghost()
+                            .small()
+                            .icon(IconName::List)
+                            .tooltip(t(locale, "commands.view.list"))
+                            .selected(mode == ViewMode::List)
+                            .on_click(cx.listener(|this, _, _, cx| {
+                                this.update_browse(|b| b.view_mode = ViewMode::List, cx);
+                            })),
+                    ),
+            )
             .child(
                 div()
                     .id("search-field")
                     .w(px(220.))
-                    .child(Input::new(&self.search_input)),
+                    .child(Input::new(&self.search_input).small()),
+            );
+
+        // Row 2: the filter bar.
+        let filter_button = |id: &'static str, icon: IconName, label: String, active: bool| {
+            Button::new(id)
+                .ghost()
+                .small()
+                .icon(icon)
+                .label(label)
+                .selected(active)
+        };
+        let tags_label = if lib.filters.tags.is_empty() {
+            t(locale, "filters.tags")
+        } else {
+            format!("{} ({})", t(locale, "filters.tags"), lib.filters.tags.len())
+        };
+        let folders_label = if lib.filters.folders.is_empty() {
+            t(locale, "filters.folders")
+        } else {
+            format!(
+                "{} ({})",
+                t(locale, "filters.folders"),
+                lib.filters.folders.len()
             )
-            .when(!lib.filters.is_empty(), |el| {
-                el.child(
-                    Button::new("tb-clear-filters")
-                        .ghost()
-                        .label(t(locale, "filters.clear"))
-                        .on_click(cx.listener(|this, _, window, cx| {
-                            this.clear_filters(window, cx);
-                        })),
+        };
+        let filters = h_flex()
+            .id("filter-bar")
+            .w_full()
+            .h(px(36.))
+            .flex_none()
+            .items_center()
+            .gap_1()
+            .px_2()
+            .border_b_1()
+            .border_color(theme.border)
+            .child(
+                filter_button(
+                    "tb-filter-tags",
+                    IconName::Tag,
+                    tags_label,
+                    !lib.filters.tags.is_empty(),
                 )
-            })
+                .on_click(cx.listener(|this, _, window, cx| {
+                    this.open_tag_mode_menu(window, cx);
+                })),
+            )
+            .child(
+                filter_button(
+                    "tb-filter-folders",
+                    IconName::Folder,
+                    folders_label,
+                    !lib.filters.folders.is_empty(),
+                )
+                .on_click(cx.listener(|this, _, window, cx| {
+                    this.open_folder_filter_menu(window, cx);
+                })),
+            )
+            .child(
+                filter_button(
+                    "tb-filter-type",
+                    IconName::Image,
+                    lib.filters
+                        .ext
+                        .as_ref()
+                        .map(|e| e.to_uppercase())
+                        .unwrap_or_else(|| t(locale, "filters.type")),
+                    lib.filters.ext.is_some(),
+                )
+                .on_click(cx.listener(|this, _, window, cx| {
+                    this.open_filter_type_menu(window, cx);
+                })),
+            )
+            .child(
+                filter_button(
+                    "tb-filter-shape",
+                    IconName::Shapes,
+                    lib.filters
+                        .shape
+                        .clone()
+                        .unwrap_or_else(|| t(locale, "filters.shape")),
+                    lib.filters.shape.is_some(),
+                )
+                .on_click(cx.listener(|this, _, window, cx| {
+                    this.open_filter_shape_menu(window, cx);
+                })),
+            )
             .child(
                 h_flex()
-                    .gap_1()
+                    .id("rating-filter")
+                    .items_center()
+                    .ml_2()
                     .child(
-                        Button::new("tb-filter-tags")
-                            .ghost()
-                            .label({
-                                if lib.filters.tags.is_empty() {
-                                    t(locale, "filters.tags")
-                                } else {
-                                    format!(
-                                        "{} ({})",
-                                        t(locale, "filters.tags"),
-                                        lib.filters.tags.len()
-                                    )
-                                }
-                            })
-                            .on_click(cx.listener(|this, _, window, cx| {
-                                this.open_tag_mode_menu(window, cx);
-                            })),
+                        Icon::new(IconName::Star)
+                            .small()
+                            .text_color(theme.muted_foreground),
                     )
-                    .child(
-                        Button::new("tb-filter-folders")
-                            .ghost()
-                            .label({
-                                if lib.filters.folders.is_empty() {
-                                    t(locale, "filters.folders")
-                                } else {
-                                    format!(
-                                        "{} ({})",
-                                        t(locale, "filters.folders"),
-                                        lib.filters.folders.len()
-                                    )
-                                }
-                            })
-                            .on_click(cx.listener(|this, _, window, cx| {
-                                this.open_folder_filter_menu(window, cx);
-                            })),
-                    )
-                    .child(
-                        Button::new("tb-filter-type")
-                            .ghost()
-                            .label(
-                                lib.filters
-                                    .ext
-                                    .as_ref()
-                                    .map(|e| e.to_uppercase())
-                                    .unwrap_or_else(|| t(locale, "filters.type")),
-                            )
-                            .on_click(cx.listener(|this, _, window, cx| {
-                                this.open_filter_type_menu(window, cx);
-                            })),
-                    )
-                    .child(
-                        Button::new("tb-filter-shape")
-                            .ghost()
-                            .label(
-                                lib.filters
-                                    .shape
-                                    .clone()
-                                    .unwrap_or_else(|| t(locale, "filters.shape")),
-                            )
-                            .on_click(cx.listener(|this, _, window, cx| {
-                                this.open_filter_shape_menu(window, cx);
-                            })),
-                    )
-                    .child(Label::new(t(locale, "filters.rating")).text_xs())
                     .children((0..=5).map(|star| {
                         let selected = lib.filters.rating == Some(star);
                         let entity = entity.clone();
                         Button::new(SharedString::from(format!("rate-filter-{star}")))
-                            .when(selected, |b| b.primary())
-                            .when(!selected, |b| b.ghost())
-                            .label(if star == 0 {
-                                t(locale, "filters.unrated")
+                            .ghost()
+                            .xsmall()
+                            .selected(selected)
+                            .label(star.to_string())
+                            .tooltip(if star == 0 {
+                                t(locale, "filters.unratedHint")
                             } else {
-                                format!("{star}★")
+                                "★".repeat(usize::from(star))
                             })
                             .on_click(move |_, _, cx| {
                                 entity.update(cx, |this, cx| {
@@ -2288,102 +2527,98 @@ impl RootApp {
                             })
                     })),
             )
+            .when(!lib.filters.is_empty(), |el| {
+                el.child(
+                    Button::new("tb-clear-filters")
+                        .ghost()
+                        .small()
+                        .icon(IconName::X)
+                        .label(t(locale, "filters.clear"))
+                        .on_click(cx.listener(|this, _, window, cx| {
+                            this.clear_filters(window, cx);
+                        })),
+                )
+            })
             .child(div().flex_1())
-            .child(
-                Button::new("tb-add")
-                    .primary()
-                    .label(t(locale, "commands.file.addFiles"))
-                    .on_click(cx.listener(|this, _, window, cx| {
-                        this.pick_add_files(window, cx);
-                    })),
+            .when_some(
+                lib.place.open_folder_id().map(|s| s.to_owned()),
+                |el, id| {
+                    let name =
+                        library::folder_name(&lib.folders, &id).unwrap_or_else(|| id.clone());
+                    el.child(
+                        Button::new("tb-export-folder")
+                            .ghost()
+                            .small()
+                            .icon(IconName::Upload)
+                            .tooltip(t(locale, "exportUi.titleExportFolder"))
+                            .on_click(cx.listener(move |this, _, window, cx| {
+                                this.open_export_folder(id.clone(), name.clone(), window, cx);
+                            })),
+                    )
+                },
             )
-            .child(
-                Button::new("tb-imports")
-                    .ghost()
-                    .label(t(locale, "import.panel"))
-                    .on_click(cx.listener(|this, _, _, cx| {
-                        this.imports_open = !this.imports_open;
-                        cx.notify();
-                    })),
-            )
-            .child(
-                Button::new("tb-sort")
-                    .ghost()
-                    .label(t(locale, "commands.view.sortBy"))
-                    .on_click(cx.listener(|this, _, window, cx| {
-                        this.open_sort_menu(window, cx);
-                    })),
-            )
-            .child(
-                Button::new("tb-grid")
-                    .label(t(locale, "commands.view.grid"))
-                    .when(mode == ViewMode::Grid, |b| b.primary())
-                    .when(mode != ViewMode::Grid, |b| b.ghost())
-                    .on_click(cx.listener(|this, _, _, cx| {
-                        this.update_browse(|b| b.view_mode = ViewMode::Grid, cx);
-                    })),
-            )
-            .child(
-                Button::new("tb-list")
-                    .label(t(locale, "commands.view.list"))
-                    .when(mode == ViewMode::List, |b| b.primary())
-                    .when(mode != ViewMode::List, |b| b.ghost())
-                    .on_click(cx.listener(|this, _, _, cx| {
-                        this.update_browse(|b| b.view_mode = ViewMode::List, cx);
-                    })),
-            )
-            .child(
-                Button::new("tb-smaller")
-                    .ghost()
-                    .label("−")
-                    .on_click(cx.listener(|this, _, _, cx| {
-                        this.update_browse(
-                            |b| {
-                                b.thumbnail_size = b
-                                    .thumbnail_size
-                                    .saturating_sub(20)
-                                    .max(BrowsePreferences::MIN_THUMBNAIL);
-                            },
-                            cx,
-                        );
-                    })),
-            )
-            .child(
-                Button::new("tb-larger")
-                    .ghost()
-                    .label("+")
-                    .on_click(cx.listener(|this, _, _, cx| {
-                        this.update_browse(
-                            |b| {
-                                b.thumbnail_size =
-                                    (b.thumbnail_size + 20).min(BrowsePreferences::MAX_THUMBNAIL);
-                            },
-                            cx,
-                        );
-                    })),
-            )
-            .child(
-                Button::new("tb-names")
-                    .label(t(locale, "commands.view.showNames"))
-                    .when(lib.browse.show_names, |b| b.primary())
-                    .when(!lib.browse.show_names, |b| b.ghost())
-                    .on_click(cx.listener(|this, _, _, cx| {
-                        this.update_browse(|b| b.show_names = !b.show_names, cx);
-                    })),
-            )
-            .child(
-                Button::new("tb-sub")
-                    .label(t(locale, "commands.view.includeSubfolders"))
-                    .when(lib.browse.include_subfolders, |b| b.primary())
-                    .when(!lib.browse.include_subfolders, |b| b.ghost())
-                    .on_click(cx.listener(|this, _, _, cx| {
-                        if let Some(lib) = this.library.as_mut() {
-                            lib.browse.include_subfolders = !lib.browse.include_subfolders;
-                        }
-                        this.refresh_view(cx);
-                    })),
-            )
+            .when(lib.filters.tags.len() == 1, |el| {
+                let tag = lib.filters.tags[0].clone();
+                el.child(
+                    Button::new("tb-export-tag")
+                        .ghost()
+                        .small()
+                        .icon(IconName::Upload)
+                        .tooltip(t(locale, "exportUi.titleExportTag"))
+                        .on_click(cx.listener(move |this, _, window, cx| {
+                            this.open_export_tag(tag.clone(), window, cx);
+                        })),
+                )
+            });
+
+        v_flex()
+            .id("toolbar-rows")
+            .w_full()
+            .flex_none()
+            .child(top)
+            .child(filters)
             .into_any_element()
+    }
+
+    /// The thumbnail size from the toolbar slider. Dragging repacks the grid on every step
+    /// and writes the preference once, on release.
+    fn set_thumbnail_size(&mut self, size: u32, persist: bool, cx: &mut Context<Self>) {
+        let Some(lib) = self.library.as_mut() else {
+            return;
+        };
+        let size = size.clamp(
+            BrowsePreferences::MIN_THUMBNAIL,
+            BrowsePreferences::MAX_THUMBNAIL,
+        );
+        let changed = lib.browse.thumbnail_size != size;
+        lib.browse.thumbnail_size = size;
+        if persist {
+            lib.persist_browse_prefs(&self.session);
+        }
+        if changed {
+            self.recompute_justified();
+            cx.notify();
+        }
+    }
+
+    /// Larger / Smaller Thumbnails: one step, and the slider follows.
+    fn step_thumbnail_size(&mut self, delta: i32, window: &mut Window, cx: &mut Context<Self>) {
+        let Some(current) = self.library.as_ref().map(|lib| lib.browse.thumbnail_size) else {
+            return;
+        };
+        let next = stepped_thumbnail_size(current, delta);
+        self.set_thumbnail_size(next, true, cx);
+        self.sync_thumb_slider(window, cx);
+    }
+
+    /// Puts the slider's thumb where the open library's thumbnail size is.
+    pub(crate) fn sync_thumb_slider(&mut self, window: &mut Window, cx: &mut Context<Self>) {
+        let Some(size) = self.library.as_ref().map(|lib| lib.browse.thumbnail_size) else {
+            return;
+        };
+        self.thumb_slider.update(cx, |slider, cx| {
+            slider.set_value(size as f32, window, cx);
+        });
     }
 
     #[inline(never)]
@@ -2414,6 +2649,7 @@ impl RootApp {
                             .child(sidebar::render_sidebar(
                                 lib,
                                 locale,
+                                theme,
                                 entity.clone(),
                                 &self.tag_vocabulary,
                             )),

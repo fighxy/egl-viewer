@@ -1,8 +1,9 @@
-//! Justified grid packing — Rust port of `ui/src/features/browse/justified.ts` (D-067 / Phase 1).
+//! Justified grid packing — Rust port of `ui/src/features/browse/justified.ts` (D-067).
 
-pub const GAP: f32 = 4.0;
-pub const PADDING: f32 = 8.0;
-pub const NAME_HEIGHT: f32 = 20.0;
+pub const GAP: f32 = 8.0;
+pub const PADDING: f32 = 12.0;
+/// Room under a thumbnail for its caption: the name and the pixel size (D-141).
+pub const NAME_HEIGHT: f32 = 38.0;
 
 #[derive(Debug, Clone, Copy)]
 pub struct CellDimensions {
@@ -237,8 +238,8 @@ pub fn move_focus_justified(
                 "pagedown" => page_rows.max(1) as isize,
                 _ => 0,
             };
-            let target_row = (current_row as isize + delta).clamp(0, layout.rows.len() as isize - 1)
-                as usize;
+            let target_row =
+                (current_row as isize + delta).clamp(0, layout.rows.len() as isize - 1) as usize;
             if target_row == current_row && (key == "up" || key == "pageup") {
                 return Some(0);
             }
@@ -297,10 +298,7 @@ mod tests {
             height: 100,
         });
         assert!(!layout.rows.is_empty());
-        assert_eq!(
-            layout.rows.iter().map(|r| r.cells.len()).sum::<usize>(),
-            5
-        );
+        assert_eq!(layout.rows.iter().map(|r| r.cells.len()).sum::<usize>(), 5);
         assert_eq!(layout.row_of.len(), 5);
         assert!(layout.max_columns >= 1);
     }

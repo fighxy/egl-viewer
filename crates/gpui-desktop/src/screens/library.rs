@@ -8,15 +8,22 @@ use gpui_kit::{InteractiveElement, IntoElement, ParentElement, Styled, div};
 use crate::i18n::{t, t_n};
 use crate::library::OpenLibraryState;
 
-pub fn render_status_bar(state: &OpenLibraryState, locale: Locale) -> impl IntoElement {
+pub fn render_status_bar(
+    state: &OpenLibraryState,
+    locale: Locale,
+    theme: &gpui_kit::component::theme::Theme,
+) -> impl IntoElement {
     h_flex()
         .id("status-bar")
         .w_full()
+        .flex_none()
         .items_center()
         .gap_3()
         .px_3()
         .py_1()
         .border_t_1()
+        .border_color(theme.border)
+        .text_color(theme.muted_foreground)
         .child(Label::new(t_n(locale, "shell.statusItems", state.total)).text_xs())
         .when(state.selection.count() > 0, |el| {
             el.child(
@@ -42,4 +49,3 @@ pub fn render_read_only_banner(locale: Locale) -> impl IntoElement {
         .py_1()
         .child(Label::new(t(locale, "shell.readOnlyBanner")).text_sm())
 }
-

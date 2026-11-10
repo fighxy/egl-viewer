@@ -1,4 +1,4 @@
-//! Drop intents for Phase 3.F + folder tree helpers.
+//! Drop intents for item drags + folder tree helpers.
 
 use desktop_session::ItemsTarget;
 use gpui_kit::{Context, SharedString};
@@ -10,7 +10,12 @@ use crate::i18n::{t, t_n};
 use crate::library::Place;
 
 impl RootApp {
-    pub(crate) fn handle_drop(&mut self, payload: &DragPayload, target: DropIntent, cx: &mut Context<Self>) {
+    pub(crate) fn handle_drop(
+        &mut self,
+        payload: &DragPayload,
+        target: DropIntent,
+        cx: &mut Context<Self>,
+    ) {
         if self.library.as_ref().is_some_and(|lib| lib.info.read_only) {
             self.status = SharedString::from(t(self.locale, "errors.readOnly"));
             cx.notify();
@@ -83,7 +88,10 @@ impl RootApp {
                     folder_id,
                     before_id,
                 },
-            ) => match self.session.reorder_items(&folder_id, ids.clone(), before_id) {
+            ) => match self
+                .session
+                .reorder_items(&folder_id, ids.clone(), before_id)
+            {
                 Ok(()) => {
                     self.status = SharedString::from(t(self.locale, "dnd.reordered"));
                     self.reload_after_write(cx);
@@ -126,7 +134,11 @@ impl RootApp {
                 let mut siblings = children_of(&lib.folders, parent.as_deref());
                 siblings.retain(|s| s != id);
                 let at = siblings.iter().position(|s| s == target_id).unwrap_or(0);
-                let index = if zone == FolderZone::After { at + 1 } else { at };
+                let index = if zone == FolderZone::After {
+                    at + 1
+                } else {
+                    at
+                };
                 self.move_folder(id, parent, index as u32, cx);
             }
         }
@@ -241,9 +253,16 @@ impl RootApp {
 
 #[derive(Clone, Debug)]
 pub enum DropIntent {
-    Folder { id: String },
-    FolderNest { parent: String, zone: FolderZone },
-    Tag { name: String },
+    Folder {
+        id: String,
+    },
+    FolderNest {
+        parent: String,
+        zone: FolderZone,
+    },
+    Tag {
+        name: String,
+    },
     Trash,
     Root,
     Cell {
@@ -319,5 +338,7 @@ fn is_descendant(folders: &[Folder], ancestor: &str, maybe_child: &str) -> bool 
 }
 
 fn contains_id(folders: &[Folder], id: &str) -> bool {
-    folders.iter().any(|f| f.id == id || contains_id(&f.children, id))
+    folders
+        .iter()
+        .any(|f| f.id == id || contains_id(&f.children, id))
 }
