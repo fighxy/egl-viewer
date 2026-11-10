@@ -1,114 +1,74 @@
+<img src="src-tauri/icons/128x128.png" alt="" width="56">
+
 # egl-viewer
 
-A standalone desktop app for collections of images and design references: its own library
-(`Name.eglib`) with folders, tags, ratings, notes, search, filters and smart folders.
-Compatible with [Eagle](https://eagle.cool): import Eagle libraries, connect to a running Eagle
-on the same PC or in the network, export into Eagle. Built with Tauri 2, a Rust core and a
-React UI. Windows first; no AI features.
+A standalone app for collections of images and design references, with its own `.eglib` libraries.
 
-- What the app does: [`docs/spec.md`](docs/spec.md)
-- How it is built: [`docs/architecture.md`](docs/architecture.md)
-- Decisions taken so far: [`docs/decisions.md`](docs/decisions.md)
-- The native library format: [`docs/library-format.md`](docs/library-format.md)
-- Captured Eagle responses for tests: [`fixtures/eagle-api/`](fixtures/eagle-api/)
+[![Release](https://img.shields.io/github/v/release/fighxy/egl-viewer?label=release)](https://github.com/fighxy/egl-viewer/releases/latest)
+[![License](https://img.shields.io/badge/license-unlicensed-lightgrey)](#license)
+[![CI](https://github.com/fighxy/egl-viewer/actions/workflows/ci.yml/badge.svg)](https://github.com/fighxy/egl-viewer/actions/workflows/ci.yml)
 
-## Status
+## Features
 
-| Phase | State |
-|---|---|
-| 0. Project skeleton | Done (2026-10-28): workspace, core types, the `LibrarySource` trait, Welcome screen, Connect screen without networking, tests, CI |
-| 1. Native library: create and open | Implemented (2026-10-28), CI on Windows green, the manual done check on Windows still open: `library-native` (create, open, the OS lock, recovery, backups, `add_file`), library locations and recent libraries in `app-store`, the library commands, the window frame with the menu bar, Welcome, the empty library screen, Settings, About and Keyboard Shortcuts (D-032) |
-| 2. Adding files and the media pipeline | Implemented (2026-10-28), CI on Windows green, the manual done check on Windows still open: the `media` crate (thumbnails, palettes, EXIF), batches with one duplicate question, Add files, dropping and pasting, progress, the Imports panel, counts (D-037). Import Folder… reviews one picked folder before copy (D-061) |
-| 3. Grid and detail | Implemented (2026-10-28), waiting for the done check on Windows: the local pipeline, the sorter and views in `library-core`, `load_scope` in SQL and the native `LibrarySource`, the view commands, the `thumb` scheme, the virtualized justified grid and list, selection, sort, thumbnail size, the read-only details panel, the full-size preview (D-041, D-067) |
-| 4. Folders | Implemented (2026-10-28), waiting for the done check on Windows. 4a: the folder tree with counts, create, rename, colour, description, folder tags, move with the cycle guard, sibling order, delete, membership (picker, dragging items onto folders, files added into the open folder, mirrored dropped folders), Include subfolders, the folder's own sort, manual order by dragging (D-042, D-043). 4b: locked folders, encrypted at rest with age, each with its own password, Argon2id, recovery key and item keys; the Locked folders section (locked folders are listed only there, not also in Folders, D-059), unlock and Lock All Folders, change password, a new recovery key, removing a lock (D-044, D-045). A YubiKey 5C is an optional third wrap (retired PIV slots 82–95); app login is exactly one of password, PIN, or WebAuthn (D-056) |
-| 5. Tags | Implemented (2026-10-28), waiting for the done check on Windows: the tag editor in the right bar with vocabulary suggestions, tagging a selection with tags on only some items dimmed, the Tags filter (counts, Any / All / Exact / None, recent tags, groups), the filter bar, rename, merge and delete everywhere, tag groups, Tag groups and Recent tags in the left bar (D-046). Dropping items onto a tag row there adds that tag (D-057) |
-| 6. Search, filters and smart folders | Implemented (2026-10-29), waiting for the done check on Windows: search as in Eagle (any part of a word, `OR`, `-`, parentheses) through an FTS5 trigram index (format version 3), the filter bar with Tags, Folders, Type, Rating and Shape, smart folders with their own tree, Eagle's rules evaluated locally for the v1 subset, the rule editor, Save as smart folder (D-047, D-048) |
-| 7. Editing and trash | Implemented (2026-10-29), waiting for the done check on Windows: name (the stored file is renamed too), note, link and rating edited in place, batch rating, undo of the last edits (`Ctrl+Z`), the trash with restore, delete permanently and Empty Trash (files removed, with progress and cancel — D-074), dragging items onto the Trash row (same confirmation as Delete, D-073), Open with the default app, Show in Explorer, Copy File, dragging originals out from the right bar, the right-click menu, Library Settings with backups and restore, Check Library with repair, Rebuild Thumbnails (D-049 to D-052). Backup… / Export… copy originals to a folder, a ZIP or a 7z (optional passphrase of at least 8 characters: an age file encrypted while written, an AES-256 ZIP for 7-Zip / WinRAR, or a 7z with hidden names; D-112, D-113), with progress and cancel (D-064 to D-066); File → Decrypt Archive… opens an encrypted export again (D-110) |
-| 8. Eagle: import from a library folder | Implemented (2026-11-01), the done check on Windows with a real Eagle library still open: the `eagle-folder` crate (read-only, retries on half-written JSON, passwords dropped), the resumable import in transactions of 500 with the `eagle_import` state table (format version 5, D-072), Eagle thumbnails as the first thumbnails, locked folders imported locked with no identity and plaintext files, the wizard from Welcome and the File menu, the report (imported, duplicates by hash, skipped, locked folders) (D-071) |
-| 9. Eagle: live connection (browse) | Implemented (2026-11-01), done checks against a real Eagle still open: `eagle-api` transport (`EagleHttp`, errors, pagination), `SecretStore` on Credential Manager, `connect_eagle` / `eagle_session` / `disconnect_eagle`, Connect screen wired, `EagleSource` browse (D-075) |
-| 10. Eagle: live edits, adds, thumbnails | Implemented (2026-11-01), done checks against a real Eagle still open: `ItemMutator` / folder updates / tag rename-merge, same-PC `path` and remote data-URL `item/add` with “Importing…” cells, same-PC thumbnails (incl. `noThumbnail` downscale); remote thumbs wait for the helper plugin; undo of item edits stays native-only |
-| 11. Eagle: export into Eagle | Implemented (2026-11-01), done check against a real Eagle still open: Export… offers “Into a running Eagle”, folders top-down then items (same-PC `path` / remote data URL), comments, tag groups and smart folders through the API; `eagle_id` columns store the mapping so a second export updates (D-077) |
-| 12. Hardening and the Windows release | In progress: restore place/filters/selection per library (D-078); file logs + Help → Open Log Folder (D-079); clear Eagle token from Connect/Export forms after send (D-080); a11y Home/End and filter aria (D-081); updater (D-062) and bundled libheif (D-070) already in. Custom title bar (D-025), Authenticode, notarization, 100k/manual done checks and the clean-machine done check remain open |
-| iOS app (not a numbered phase) | Done (2026-11-05): the foundation on `EglCore` and the shared core (D-091–D-100): Welcome, create in On My iPhone, open from Files (iCloud read-only), recent libraries; browsing (D-094): places, folders and smart folders, a lazy grid and a list by view id, sort, thumbnail size, search, filters, selection with Select All, the saved view; the preview with zoom, item details and edits, actions on a selection with undo, sharing originals (D-095); adding from Photos, Files, the clipboard and drops with the duplicate question, HEIC through ImageIO (D-096); folders, tags, tag groups and the smart folder editor (D-097); locked folders, locking on leaving and the app login with Face ID (D-098); Settings with backups, check and repair, rebuilt thumbnails and export to Files (D-099); Eagle library import into a new library (D-116); light and dark, en / ru / zh-Hans; icon, privacy manifest, accessibility audit, 10,000 items, unsigned IPA releases by tag `ios-vX.Y.Z` (D-100); see [`ios/README.md`](ios/README.md) |
-| Android app (not a numbered phase) | Done (2026-11-05): A1–A8 (D-101…D-108, ≈ iOS D-093…D-100): Kotlin `eglcore` over JNI / `library-ffi`, real `.so` (no mock), Welcome, places, lazy grid by view id, thumbs, filters, selection; full-screen preview pager + zoom, details sheet, selection actions with undo snackbar, share originals (≤100 temp copies); adding from Gallery / Files / folder / paste / drops with duplicate question and HEIC through ImageDecoder; folders / tags / tag groups / smart folder editor; locked folders + App Lock (PIN / biometrics, relock on background); Settings with backups, check and repair, rebuilt thumbnails, export and Decrypt Archive (no Eagle); System / Light / Dark theme (D-119, AppCompatActivity so the toggle applies — D-127); libraries anywhere on the phone with All files access (D-111); Eagle library import into a new library (D-116); icon, Privacy screen, TalkBack labels, 10,000-item perf test, APK/AAB releases by tag `android-vX.Y.Z` (D-108); en / ru / zh; see [`android/README.md`](android/README.md). Not Tauri Android |
-| Mobile CI (not a numbered phase) | [`.github/workflows/mobile.yml`](.github/workflows/mobile.yml): Linux `library-ffi` and the shells' layout and strings; Android cargo-ndk `.so`, JVM unit tests, `assembleDebug`, tagged APK/AAB (`android-release`); macOS `EglCore` tests (`ios-core`), app unit and UI tests on a simulator (`ios-app`), the unsigned device IPA (`ios-ipa`, rolling `ios-latest`) (D-084, D-092, D-093, D-100, D-101, D-108) |
+- A library is a folder (`Name.eglib`) with folders, tags, ratings, notes, search, filters and smart folders.
+- Import an Eagle library. On the desktop, connect to a running Eagle on the same PC or the network, and export into Eagle.
+- Locked folders, trash, backups, and export of the original files.
+- The same `.eglib` libraries on the desktop, iPhone and Android.
+- English, Russian and Simplified Chinese.
+
+What the app does: [`docs/spec.md`](docs/spec.md). How it is built: [`docs/architecture.md`](docs/architecture.md). The library format: [`docs/library-format.md`](docs/library-format.md).
+
+## Current state
+
+egl-viewer is a desktop app and two phone apps. `main` is the stable line: the Tauri desktop app (latest release 0.2.77) together with the iOS and Android apps. A native Rust desktop shell built with GPUI is in early alpha on [`feat/gpui-desktop`](https://github.com/fighxy/egl-viewer/tree/feat/gpui-desktop).
+
+| App | Line | Maturity |
+| --- | --- | --- |
+| Desktop | `main` | Stable. Tauri 2, a Rust core and a React UI. Release 0.2.77 for Windows, macOS and Linux. |
+| Desktop | [`feat/gpui-desktop`](https://github.com/fighxy/egl-viewer/tree/feat/gpui-desktop) | Early alpha. Native GPUI shell. No release builds. |
+| iOS | `main` | Alpha. SwiftUI over [`crates/library-ffi`](crates/library-ffi). Unsigned IPA. |
+| Android | `main` | Very early alpha. Jetpack Compose over the same crate. |
+
+Recent work on `feat/gpui-desktop`: Eagle-like chrome, a folder picker, item shortcuts, a rating filter, background preview decode, and drag-and-drop. That branch drops Tauri and the web UI; GPUI is the desktop shell there.
+
+On `main`, the phone apps are SwiftUI and Jetpack Compose over `crates/library-ffi`, on the same `.eglib` libraries. Eagle import into a new library on iPhone and Android was added in 0.2.55. Release 0.2.77 adds an Android theme (system, light or dark) and folder import that walks nested folders, and on iPhone a borderless justified grid plus a preview that shows the image and swipes between items. Both phone UIs are English, Russian and Simplified Chinese. See [`ios/README.md`](ios/README.md) and [`android/README.md`](android/README.md).
 
 ## Downloads
 
-Mobile builds are **GitHub Releases**, not the App Store, TestFlight or Google Play
-(D-100, D-108, D-125). Each platform has its own release tag so the desktop in-app updater
-can keep `releases/latest` (D-062). Open the [Releases](https://github.com/fighxy/egl-viewer/releases)
-page and look past the “Latest” badge, or use these links for the current version:
+Desktop buttons install the stable Tauri app, **0.2.77**, which is [the latest release](https://github.com/fighxy/egl-viewer/releases/latest). iOS and Android are alpha builds of the same version, on their own tags.
 
-| Platform | Tag | What you get |
-|---|---|---|
-| Desktop (Windows / macOS / Linux) | [`v0.2.77`](https://github.com/fighxy/egl-viewer/releases/tag/v0.2.77) (also [`/releases/latest`](https://github.com/fighxy/egl-viewer/releases/latest)) | NSIS, DMG, AppImage, updater files |
-| iPhone | [`ios-v0.2.77`](https://github.com/fighxy/egl-viewer/releases/tag/ios-v0.2.77) | Unsigned IPA (`EglViewer-0.2.77.ipa`); sideload — see [`ios/README.md`](ios/README.md) |
-| Android | [`android-v0.2.77`](https://github.com/fighxy/egl-viewer/releases/tag/android-v0.2.77) | Signed APK + AAB; see [`android/README.md`](android/README.md) |
-| iPhone rolling | [`ios-latest`](https://github.com/fighxy/egl-viewer/releases/tag/ios-latest) (pre-release) | Latest unsigned IPA from `main` |
+[![Windows x64](https://img.shields.io/badge/Windows-x64_setup-444444?style=for-the-badge&logo=windows&logoColor=white)](https://github.com/fighxy/egl-viewer/releases/download/v0.2.77/egl-viewer_0.2.77_x64-setup.exe)
+[![macOS Apple Silicon](https://img.shields.io/badge/macOS-Apple_Silicon-444444?style=for-the-badge&logo=apple&logoColor=white)](https://github.com/fighxy/egl-viewer/releases/download/v0.2.77/egl-viewer_0.2.77_aarch64.dmg)
+[![Linux x64](https://img.shields.io/badge/Linux-x64_AppImage-444444?style=for-the-badge&logo=linux&logoColor=white)](https://github.com/fighxy/egl-viewer/releases/download/v0.2.77/egl-viewer_0.2.77_amd64.AppImage)
 
-`/releases/latest` always resolves to the **desktop** release on purpose. iPhone and Android
-releases are published with `--latest=false` so they never steal that slot.
+[![Android, very early alpha](https://img.shields.io/badge/Android-very_early_alpha-444444?style=for-the-badge&logo=android&logoColor=white)](https://github.com/fighxy/egl-viewer/releases/download/android-v0.2.77/EglViewer-0.2.77.apk)
+[![iOS alpha, unsigned IPA](https://img.shields.io/badge/iOS-alpha_%C2%B7_unsigned_IPA-444444?style=for-the-badge&logo=apple&logoColor=white)](https://github.com/fighxy/egl-viewer/releases/download/ios-v0.2.77/EglViewer-0.2.77.ipa)
 
-The full plan is in [`docs/spec.md` §9](docs/spec.md). The Project-store plan for auto-update is mirrored by **D-062** in [`docs/decisions.md`](docs/decisions.md); set GitHub secrets `TAURI_SIGNING_PRIVATE_KEY` (and optional `TAURI_SIGNING_PRIVATE_KEY_PASSWORD`) before tagging a release. A tag `vX.Y.Z` (the version of `tauri.conf.json`, notes in `docs/releases/X.Y.Z.md`) builds the installers and publishes the GitHub Release with them, their signatures and `latest.json` (D-100); a tag `ios-vX.Y.Z` publishes the iPhone IPA; a tag `android-vX.Y.Z` publishes the Android APK and AAB (D-108). Already-installed builds without the updater need **one last manual install** of the first updater-enabled release.
+| Platform | File | Release |
+| --- | --- | --- |
+| Windows x64 | `egl-viewer_0.2.77_x64-setup.exe` | [v0.2.77](https://github.com/fighxy/egl-viewer/releases/latest) |
+| macOS (Apple Silicon) | `egl-viewer_0.2.77_aarch64.dmg` | [v0.2.77](https://github.com/fighxy/egl-viewer/releases/latest) |
+| Linux x64 | `egl-viewer_0.2.77_amd64.AppImage` | [v0.2.77](https://github.com/fighxy/egl-viewer/releases/latest) |
+| Android (very early alpha) | `EglViewer-0.2.77.apk` (`.aab` on the same release) | [android-v0.2.77](https://github.com/fighxy/egl-viewer/releases/tag/android-v0.2.77) |
+| iOS (alpha, unsigned IPA) | `EglViewer-0.2.77.ipa` | [ios-v0.2.77](https://github.com/fighxy/egl-viewer/releases/tag/ios-v0.2.77) |
 
-## Requirements (Windows)
+The macOS disk image is Apple Silicon only. Sideloading the IPA is described in [`ios/README.md`](ios/README.md).
 
-- Rust via `rustup` (the toolchain in `rust-toolchain.toml` installs on first use)
-- Visual Studio Build Tools 2022 with "Desktop development with C++"
-- WebView2 Runtime (part of Windows 11)
-- Node.js 24 LTS and pnpm 12 (`npm install --global pnpm`)
-- [vcpkg](https://vcpkg.io) with `libheif[core,libde265]:x64-windows` for HEIC/HEIF (D-063);
-  set `VCPKG_ROOT` and `VCPKGRS_DYNAMIC=1`, and put `installed/x64-windows/bin` on `PATH` for
-  tests. A release / NSIS build also runs `pwsh scripts/bundle-heif-dlls.ps1` so the installer
-  ships `heif.dll` and `libde265.dll` beside the exe (D-070)
-- Eagle 4.0 or newer, only for the Eagle phases (9–11)
+## Build from source
 
-## Getting started
+These commands build the Tauri desktop app on `main`. Use Rust from `rust-toolchain.toml`, Node.js 24 and pnpm 12.
 
 ```bash
 pnpm install
 pnpm dev
 ```
 
-`pnpm dev` starts Vite and the Tauri window with hot reload. The UI alone also runs in a browser
-(`pnpm --filter egl-viewer-ui dev`, then http://localhost:5173), without the Rust side.
+`pnpm build` on Windows produces the NSIS installer. `pnpm check` runs formatting, Clippy, Rust tests, Biome, TypeScript and the UI tests.
 
-## Commands
+HEIC previews need libheif. On Windows, install `libheif[core,libde265]:x64-windows` with vcpkg, set `VCPKG_ROOT` and `VCPKGRS_DYNAMIC=1`, and use Visual Studio Build Tools 2022 (Desktop development with C++) plus the WebView2 Runtime. On macOS, `brew install libheif`. On Linux the release build is an AppImage; the package list is the `appimage` job in [`.github/workflows/ci.yml`](.github/workflows/ci.yml).
 
-| Command | What it does |
-|---|---|
-| `pnpm dev` | Run the app in development mode |
-| `pnpm build` | Build the release app and the NSIS installer |
-| `pnpm check` | Everything CI runs: rustfmt, clippy, Rust tests, Biome, TypeScript, UI tests |
-| `cargo test --workspace` | Rust tests; also regenerates the TypeScript types in `ui/src/ipc/generated/` |
-| `pnpm test` | UI tests (Vitest) |
-| `pnpm lint` | Biome lint and format check |
-| `pnpm typecheck` | TypeScript type check |
-| `EGL_DEMO_PARENT=<folder> cargo test --release -p library-native -- --ignored demo_library` | Makes `Demo.eglib` with 10 000 images in that folder, for checking the app by hand (`EGL_DEMO_COUNT` changes the number) |
+iPhone and Android: [`ios/README.md`](ios/README.md), [`android/README.md`](android/README.md).
 
-## Layout
+## License
 
-```
-crates/library-core/   models, queries and views (filters, sorter), edits, errors, the LibrarySource trait (no IO)
-crates/library-native/ the native library: create, open, the library lock, recovery, adding files, scopes in SQL, edits, backups, export of originals, checks
-crates/app-service/    the open native library as an app uses it: views, undo, edits, tasks (desktop and mobile, D-091)
-crates/library-ffi/    C ABI over app-service for the mobile apps (D-082, D-083, D-092); no Eagle
-crates/app-store/      settings, recent libraries, library locations, secrets
-crates/eagle-api/      a running Eagle as a LibrarySource (transport from phase 9)
-crates/eagle-folder/   read-only Eagle `.library` folder parsing (phase 8, D-071)
-crates/media/          decoding, thumbnails, palettes and EXIF for the native library
-src-tauri/             the Tauri app: commands, configuration, capabilities, icons (desktop default)
-ui/                    React + TypeScript + Tailwind + shadcn/ui; i18n catalogs in ui/src/i18n/ (en, ru, zh-CN; D-069)
-ios/                   experimental SwiftUI iPhone draft (D-082); see ios/README.md
-android/               Jetpack Compose app (A1–A8, D-101–D-108); see android/README.md
-docs/                  spec, architecture, decisions
-fixtures/eagle-api/    real Eagle 4.0.0 request and response captures
-fixtures/eagle-library/ synthetic Eagle `.library` for the folder import (D-071)
-```
-
-## Tests
-
-Every change comes with tests. Rust logic is tested with `cargo test` (unit tests next to the
-code, contract tests in `crates/*/tests`), the UI with Vitest and Testing Library, with Tauri IPC
-mocked through `@tauri-apps/api/mocks`.
+No license is granted. The workspace license in `Cargo.toml` is `UNLICENSED`. Dependencies keep their own licenses.
