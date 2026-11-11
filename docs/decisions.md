@@ -3402,3 +3402,7 @@ stayed in GPUI's asset cache for the life of the window. The grid only had the s
   0.3.12 with the same `load_cursor` change; upstream `src/util.rs` is identical in 0.3.11 and
   0.3.12, so the patch applies unchanged. `Cargo.lock` lists `gpui-pre-windows` 0.3.12 without
   a registry source, which is how to check that the patch is in use.
+- **Clippy on Linux and macOS.** `updater::INSTALL_DIR_NAME` and `default_install_dir` serve
+  only the Windows NSIS self-update; they are `#[cfg(windows)]` now (with their test), and the
+  non-Windows fallback into the temp folder, which nothing used, is gone. `cargo clippy
+  --workspace --all-targets -- -D warnings` passes on Linux again.
