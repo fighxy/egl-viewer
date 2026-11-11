@@ -51,4 +51,54 @@ final class OriginalCacheTests: XCTestCase {
         let image = await open.originals.image(for: cell.id, version: cell.thumbVersion, pixels: 0)
         XCTAssertNotNil(image)
     }
+
+    private func firstCell(_ open: OpenLibrary) async throws -> ItemCell {
+        let browse = BrowseModel(open: open, place: .all)
+        await browse.start()
+        let deadline = Date().addingTimeInterval(15)
+        while browse.cell(at: 0) == nil, Date() < deadline {
+            try await Task.sleep(for: .milliseconds(20))
+        }
+        return try XCTUnwrap(browse.cell(at: 0))
+    }
+
+    /// D-127: two pages asking for one original share one decode, and the result is there for
+    /// the next page's first frame.
+    func testTwoAsksShareOneDecodeAndTheResultIsCached() async throws {
+        let open = try await sample(images: 1)
+        let cell = try await firstCell(open)
+        open.originals.removeAll()
+        XCTAssertNil(open.originals.cached(for: cell.id, version: cell.thumbVersion, pixels: 300))
+        async let one = open.originals.image(for: cell.id, version: cell.thumbVersion, pixels: 300)
+        async let two = open.originals.image(for: cell.id, version: cell.thumbVersion, pixels: 300)
+        let (first, second) = await (one, two)
+        XCTAssertNotNil(first)
+        XCTAssertIdentical(first, second, "one decode for both")
+        XCTAssertIdentical(open.originals.cached(for: cell.id, version: cell.thumbVersion, pixels: 300), first)
+        XCTAssertEqual(open.originals.runningCount, 0)
+    }
+
+    /// D-127: a page swiped away stops its decode; nothing keeps running for it.
+    func testACancelledAskLeavesNoDecodeBehind() async throws {
+        let open = try await sample(images: 1)
+        let cell = try await firstCell(open)
+        open.originals.removeAll()
+        let task = Task { await open.originals.image(for: cell.id, version: cell.thumbVersion, pixels: 400) }
+        task.cancel()
+        let image = await task.value
+        XCTAssertNil(image, "a cancelled ask gets nothing")
+        XCTAssertEqual(open.originals.runningCount, 0)
+        // Asked again, it decodes.
+        let again = await open.originals.image(for: cell.id, version: cell.thumbVersion, pixels: 400)
+        XCTAssertNotNil(again)
+    }
+
+    /// D-127: prefetching a neighbour leaves it in memory.
+    func testAPrefetchWarmsTheCache() async throws {
+        let open = try await sample(images: 1)
+        let cell = try await firstCell(open)
+        open.originals.removeAll()
+        await open.originals.prefetch(cell.id, version: cell.thumbVersion, pixels: 256).value
+        XCTAssertNotNil(open.originals.cached(for: cell.id, version: cell.thumbVersion, pixels: 256))
+    }
 }

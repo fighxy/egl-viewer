@@ -15,6 +15,12 @@ struct PreviewScreen: View {
     @State private var deleting = false
     @State private var details: ItemCell? = nil
     @State private var sharing: ShareFiles? = nil
+    /// Decodes of the pages next to this one, so a swipe lands on the original (D-127).
+    @State private var prefetching: [Task<Void, Never>] = []
+    @State private var pixels = 0
+    /// How far a downward drag has pulled the page on iOS 17 (D-128); iOS 18 dismisses with
+    /// the zoom transition's own gesture.
+    @State private var pull: CGFloat = 0
 
     init(model: BrowseModel, start: Int) {
         self.model = model
@@ -27,7 +33,9 @@ struct PreviewScreen: View {
 
     var body: some View {
         GeometryReader { geometry in
-            let pixels = Int(max(geometry.size.width, geometry.size.height) * scale * 1.5)
+            // Screen pixels on the long side (D-127): a sharper decode for zoom comes later; a
+            // bigger one here cost ~50 MB a photo and ended the app on a fast swipe.
+            let pixels = Int(max(geometry.size.width, geometry.size.height) * scale)
             ScrollViewReader { proxy in
                 ScrollView(.horizontal) {
                     LazyHStack(spacing: 0) {
@@ -47,15 +55,20 @@ struct PreviewScreen: View {
                 .modifier(VisiblePage(position: $position))
                 .scrollDisabled(zoomed)
                 .scrollIndicators(.hidden)
+                .offset(y: pull)
+                .scaleEffect(1 - min(pull / 1600, 0.12))
+                .simultaneousGesture(pullDown, including: Self.ownPull && !zoomed ? .all : .none)
                 .accessibilityIdentifier("preview.pager")
                 .onAppear {
                     position = start
                     proxy.scrollTo(start, anchor: .leading)
                 }
             }
+            .onAppear { self.pixels = pixels }
+            .onChange(of: pixels) { _, now in self.pixels = now }
         }
         .ignoresSafeArea()
-        .background(EglTokens.previewStage.ignoresSafeArea())
+        .background(EglTokens.previewStage.opacity(1 - min(pull / 400, 0.6)).ignoresSafeArea())
         .overlay(alignment: .top) {
             if chrome { topBar }
         }
@@ -68,6 +81,18 @@ struct PreviewScreen: View {
         .onChange(of: index) { _, _ in
             // A recycled or previous page must not leave paging locked after a zoom.
             if zoomed { zoomed = false }
+        }
+        .onChange(of: ShownItem(index: index, id: cell?.id), initial: true) { _, shown in
+            // The grid follows behind, and the zoom back lands on this item's tile (D-128).
+            model.previewIndex = shown.index
+            if let id = shown.id { model.previewCellID = id }
+        }
+        .onChange(of: PrefetchKey(index: index, pixels: pixels, loaded: cell != nil), initial: true) {
+            prefetchNeighbours()
+        }
+        .onDisappear {
+            prefetching.forEach { $0.cancel() }
+            prefetching = []
         }
         .onChange(of: model.total) { _, total in
             if total == 0 { dismiss() }
@@ -86,6 +111,45 @@ struct PreviewScreen: View {
         } message: {
             Text("trash.noUndo")
         }
+    }
+
+    /// iOS 17 has no zoom transition and so no interactive dismissal: the preview's own pull.
+    private static var ownPull: Bool {
+        if #available(iOS 18.0, *) { return false }
+        return true
+    }
+
+    /// Dragging the page down closes the preview; a short or sideways drag springs back.
+    private var pullDown: some Gesture {
+        DragGesture(minimumDistance: 24)
+            .onChanged { value in
+                let down = value.translation.height
+                guard down > 0, abs(down) > abs(value.translation.width) else { return }
+                pull = down
+            }
+            .onEnded { value in
+                if pull > 120 || value.predictedEndTranslation.height > 320 {
+                    dismiss()
+                } else {
+                    withAnimation(.spring(duration: 0.25)) { pull = 0 }
+                }
+            }
+    }
+
+    /// Starts the decodes of the pages on both sides and drops the ones no longer next.
+    private func prefetchNeighbours() {
+        guard pixels > 0 else { return }
+        let started = [index - 1, index + 1].compactMap { neighbour -> Task<Void, Never>? in
+            guard neighbour >= 0, neighbour < model.total, let cell = model.cell(at: neighbour) else {
+                model.need(max(neighbour, 0))
+                return nil
+            }
+            return model.open.originals.prefetch(cell.id, version: cell.thumbVersion, pixels: pixels)
+        }
+        // New ones first: a page still next keeps its decode alive across the swap.
+        let old = prefetching
+        prefetching = started
+        old.forEach { $0.cancel() }
     }
 
     private var topBar: some View {
@@ -181,8 +245,9 @@ struct PreviewScreen: View {
     }
 }
 
-/// One position of the preview: the original at screen size, its thumbnail until then, or the
-/// thumbnail with the file type for what the phone cannot draw.
+/// One position of the preview (D-095, D-127): the thumbnail fills the stage at once, and the
+/// original at screen size fades in over it when decoded; the file type shows where the phone
+/// cannot draw the original.
 private struct PreviewPage: View {
     let model: BrowseModel
     let index: Int
@@ -195,6 +260,25 @@ private struct PreviewPage: View {
     var body: some View {
         let cell = model.cell(at: index)
         ZStack {
+            if let cell, image == nil {
+                ItemThumbnail(cell: cell, cache: model.open.thumbnails, pixels: 512)
+                    .frame(maxWidth: .infinity, maxHeight: .infinity)
+                    .overlay(alignment: .bottom) {
+                        if failed {
+                            Text(verbatim: cell.ext.uppercased())
+                                .font(.footnote.weight(.semibold))
+                                .foregroundStyle(.secondary)
+                                .padding(.bottom, 120)
+                        }
+                    }
+                    .contentShape(Rectangle())
+                    .onTapGesture(perform: tapped)
+            } else if cell == nil {
+                ProgressView()
+                    .frame(maxWidth: .infinity, maxHeight: .infinity)
+                    .contentShape(Rectangle())
+                    .onTapGesture(perform: tapped)
+            }
             if let image {
                 ZoomingImage(
                     image: image,
@@ -204,39 +288,40 @@ private struct PreviewPage: View {
                 )
                 // New identity resets zoom @State when the decoded original changes.
                 .id("\(cell?.id ?? "")#\(cell?.thumbVersion ?? 0)#\(pixels)")
-            } else {
-                Group {
-                    if let cell {
-                        VStack(spacing: 12) {
-                            ItemThumbnail(cell: cell, cache: model.open.thumbnails, pixels: 512)
-                                .frame(maxWidth: 320, maxHeight: 320)
-                            if failed {
-                                Text(verbatim: cell.ext.uppercased())
-                                    .font(.footnote.weight(.semibold))
-                                    .foregroundStyle(.secondary)
-                            } else {
-                                ProgressView()
-                            }
-                        }
-                    } else {
-                        ProgressView()
-                    }
-                }
-                .frame(maxWidth: .infinity, maxHeight: .infinity)
-                .contentShape(Rectangle())
-                .onTapGesture(perform: tapped)
+                .transition(.opacity)
             }
         }
         .frame(maxWidth: .infinity, maxHeight: .infinity)
         .task(id: cell.map { "\($0.id)#\($0.thumbVersion)#\(pixels)" } ?? "nil#\(pixels)") {
             guard let cell, pixels > 0 else { return }
             failed = false
-            image = await model.open.originals.image(for: cell.id, version: cell.thumbVersion, pixels: pixels)
-            failed = image == nil
+            // A neighbour decoded ahead shows at once, without the fade.
+            if let ready = model.open.originals.cached(for: cell.id, version: cell.thumbVersion, pixels: pixels) {
+                image = ready
+                return
+            }
+            image = nil
+            let decoded = await model.open.originals.image(for: cell.id, version: cell.thumbVersion, pixels: pixels)
+            guard !Task.isCancelled else { return }
+            withAnimation(.easeOut(duration: 0.18)) { image = decoded }
+            failed = decoded == nil
         }
         .accessibilityElement(children: .contain)
         .accessibilityIdentifier(cell.map { "preview.page.\($0.name)" } ?? "preview.page")
     }
+}
+
+/// The position the preview shows and its item, once its cell has arrived.
+private struct ShownItem: Equatable {
+    let index: Int
+    let id: String?
+}
+
+/// What makes the neighbours worth decoding again: another page, size or the cell arriving.
+private struct PrefetchKey: Equatable {
+    let index: Int
+    let pixels: Int
+    let loaded: Bool
 }
 
 /// The page that fills the screen on iOS 18 and later, from the scroll offset itself (one page is
