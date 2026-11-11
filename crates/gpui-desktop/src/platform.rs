@@ -331,7 +331,10 @@ mod tests {
     #[test]
     fn log_file_lives_under_log_dir() {
         let path = log_file_path();
-        assert_eq!(path.file_name().and_then(|n| n.to_str()), Some("egl-viewer-gpui.log"));
+        assert_eq!(
+            path.file_name().and_then(|n| n.to_str()),
+            Some("egl-viewer-gpui.log")
+        );
         assert_eq!(path.parent().map(Path::to_path_buf), Some(log_dir()));
     }
 
