@@ -40,7 +40,10 @@ struct PreviewScreen: View {
                 ScrollView(.horizontal) {
                     LazyHStack(spacing: 0) {
                         ForEach(0..<model.total, id: \.self) { index in
-                            PreviewPage(model: model, index: index, pixels: pixels, zoomed: $zoomed) {
+                            PreviewPage(
+                                model: model, index: index, pixels: pixels, current: index == self.index,
+                                zoomed: $zoomed
+                            ) {
                                 withAnimation(.easeInOut(duration: 0.2)) { chrome.toggle() }
                             }
                             .containerRelativeFrame([.horizontal, .vertical])
@@ -252,10 +255,18 @@ private struct PreviewPage: View {
     let model: BrowseModel
     let index: Int
     let pixels: Int
+    /// The page on screen: only it decodes a sharper original when zoomed in.
+    let current: Bool
     @Binding var zoomed: Bool
     let tapped: () -> Void
     @State private var image: UIImage? = nil
     @State private var failed = false
+    /// The original is the sharper decode for zoom (D-129).
+    @State private var sharp = false
+
+    /// Twice the screen when zoomed in, but no more than 4,096 px on the long side: a 48 MP
+    /// photo in full would be ~190 MB.
+    private var sharpPixels: Int { min(pixels * 2, 4096) }
 
     var body: some View {
         let cell = model.cell(at: index)
@@ -295,6 +306,7 @@ private struct PreviewPage: View {
         .task(id: cell.map { "\($0.id)#\($0.thumbVersion)#\(pixels)" } ?? "nil#\(pixels)") {
             guard let cell, pixels > 0 else { return }
             failed = false
+            sharp = false
             // A neighbour decoded ahead shows at once, without the fade.
             if let ready = model.open.originals.cached(for: cell.id, version: cell.thumbVersion, pixels: pixels) {
                 image = ready
@@ -306,9 +318,26 @@ private struct PreviewPage: View {
             withAnimation(.easeOut(duration: 0.18)) { image = decoded }
             failed = decoded == nil
         }
+        .task(id: SharpKey(zoomed: zoomed && current && image != nil, id: cell?.id, pixels: sharpPixels)) {
+            guard zoomed, current, !sharp, image != nil, let cell, sharpPixels > pixels else { return }
+            let decoded = await model.open.originals.image(
+                for: cell.id, version: cell.thumbVersion, pixels: sharpPixels
+            )
+            guard !Task.isCancelled, let decoded else { return }
+            // The same identity: the zoom stays where it is, only the pixels get sharper.
+            image = decoded
+            sharp = true
+        }
         .accessibilityElement(children: .contain)
         .accessibilityIdentifier(cell.map { "preview.page.\($0.name)" } ?? "preview.page")
     }
+}
+
+/// When the sharper decode is wanted: zoomed in on the current page with its original shown.
+private struct SharpKey: Equatable {
+    let zoomed: Bool
+    let id: String?
+    let pixels: Int
 }
 
 /// The position the preview shows and its item, once its cell has arrived.

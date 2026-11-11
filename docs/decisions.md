@@ -2803,3 +2803,24 @@ only with its ✕, and the grid stayed where it was when the user had paged far 
   land on and the user is where they stopped.
 - Tests: a tap records the tile the preview opens from; in selection mode a tap selects and
   leaves the preview's place alone. The transitions and the drag are checked on a device.
+
+## D-129 iOS preview: zoom where the fingers are, within the edges (2026-11-11)
+
+Third step of the grid and preview review (D-127, D-128).
+
+- **Where the fingers are.** Pinch and double tap zoomed about the image's centre, so zooming
+  into a corner needed a pan after. The pinch now keeps the image point under its start
+  location where it is, and a double tap zooms to 2.5× at the tapped point
+  (`ZoomGeometry.anchored`).
+- **Within the edges.** A zoomed photo could be dragged off the screen into the dark. A pan now
+  stops at the photo's edges: past them it moves at a third of the finger's speed and springs
+  back when let go; an axis the photo does not fill stays centred. A pinch below fit springs
+  back to fit; above 6× it settles at 6×.
+- **Paging from a zoom.** Paging stays off while zoomed (the pan needs the drag). A pan more
+  than 60 pt past the left or right edge springs back to fit, so the next swipe pages: one extra
+  swipe compared with Photos, without a custom pager.
+- **Sharper while zoomed.** The page on screen decodes a second original at twice the screen's
+  long side, at most 4,096 px (a 48 MP photo in full would be ~190 MB), when zoomed in, and
+  swaps it in without moving the zoom. Pages off screen never do.
+- The arithmetic lives in `ZoomGeometry`, tested apart from the view: the fit and the limits,
+  the anchor of a zoom, the pull past an edge and the distance that leaves the zoom.

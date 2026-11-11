@@ -60,6 +60,7 @@ need ios/EglViewer/Resources/Assets.xcassets/AppIcon.appiconset/AppIcon.png
 need ios/EglViewer/Resources/Assets.xcassets/AppIcon.appiconset/Contents.json
 need ios/EglViewerTests/PerformanceTests.swift
 need ios/EglViewerTests/ReleaseTests.swift
+need ios/EglViewerTests/ZoomGeometryTests.swift
 need ios/EglViewerTests/EagleImportTests.swift
 need ios/EglViewerTests/YubiKeyTests.swift
 need ios/EglViewerUITests/AccessibilityUITests.swift
