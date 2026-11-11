@@ -2732,3 +2732,24 @@ follow) found the preview could run the phone out of memory and stuttered on a f
   cannot draw keeps the thumbnail with its type.
 - Tests: two asks share a decode and the result is cached; a cancelled ask gets nothing and
   leaves no decode running; a prefetch warms the cache.
+
+## D-128 iOS preview: zooms out of its tile, closes with a drag down, the grid follows (2026-11-11)
+
+Second step of the grid and preview review (D-127). The preview slid up from the bottom, closed
+only with its ✕, and the grid stayed where it was when the user had paged far away.
+
+- **Zoom from the tile (iOS 18 and later).** Every grid, square and list tile is a
+  `matchedTransitionSource` keyed by the item id, and the full-screen preview uses
+  `navigationTransition(.zoom)` with the id of the item it shows now: it grows out of the tapped
+  tile and, after paging, shrinks back into the tile of the item on screen. The model records
+  the tapped tile before the cover appears (`previewIndex`, `previewCellID`), and the preview
+  updates them as it pages.
+- **Drag down to close.** On iOS 18 the zoom transition's own interactive dismissal does it. On
+  iOS 17, which has no zoom transition, the preview has its own pull: a downward drag moves and
+  shrinks the page and fades the stage; past 120 pt (or a fast flick) it closes, otherwise it
+  springs back. A zoomed-in image keeps the drag for panning.
+- **The grid follows.** Behind the preview the grid scrolls, without animation, to the row
+  (justified grid) or cell (square grid, list) of the item shown, so the zoom back has a tile to
+  land on and the user is where they stopped.
+- Tests: a tap records the tile the preview opens from; in selection mode a tap selects and
+  leaves the preview's place alone. The transitions and the drag are checked on a device.

@@ -32,6 +32,10 @@ final class BrowseModel {
 
     // What the screen presents: the preview, an item's details, the share sheet.
     var previewing: PreviewStart?
+    /// The position and item the preview shows now (D-128): the grid scrolls to it behind the
+    /// preview, and the zoom back lands on its tile.
+    var previewIndex: Int?
+    var previewCellID: String?
     var details: ItemCell?
     var sharing: ShareFiles?
     /// "Save as Smart Folder": a new smart folder with this view's rules.
@@ -321,6 +325,9 @@ final class BrowseModel {
         if selecting {
             toggle(cell.id)
         } else {
+            // Set before the cover appears, so the zoom starts from this tile (D-128).
+            previewIndex = index
+            previewCellID = cell.id
             previewing = PreviewStart(index: index)
         }
     }
