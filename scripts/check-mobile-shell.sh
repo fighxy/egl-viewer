@@ -31,6 +31,7 @@ need ios/EglViewer/Browse/ThumbnailCache.swift
 need ios/EglViewer/Browse/SelectionActions.swift
 need ios/EglViewer/Preview/PreviewScreen.swift
 need ios/EglViewer/Preview/ZoomingImage.swift
+need ios/EglViewer/Preview/OriginalCache.swift
 need ios/EglViewer/Details/DetailsSheet.swift
 need ios/EglViewer/Details/ItemDetailsModel.swift
 need ios/EglViewer/Details/ShareFiles.swift
