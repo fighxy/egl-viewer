@@ -2691,7 +2691,7 @@ mobile shells (D-082 / D-083): prove the stack by calling Rust services directly
 Numbering note: open PR #85 already reserves **D-125** for mobile GitHub Release visibility,
 so this decision is **D-126** (not D-125).
 
-- **Crate.** `crates/gpui-desktop` (bin `gpui-desktop`) depends on `gpui-kit` **=0.9.0**
+- **Crate.** `crates/gpui-desktop` (bin `gpui-desktop`) depends on `gpui-kit` **=0.9.0** (=0.9.1 since D-155)
   (Longbridge, https://gpui-kit.com / crates.io `gpui-kit`), and (after D-127)
   `desktop-session` / `library-core` / `library-native`. Workspace pin is exact (D-002);
   0.9.0 was published 2026-11-02, older than the supply-chain age rule in D-003. The app never
@@ -3223,7 +3223,7 @@ Nothing held a scroll handle, so the app could not move the view itself. Found a
   dragging. Windows has no such cursors (only the pointing hand `IDC_HAND`), and
   `gpui-pre-windows` maps `CursorStyle::OpenHand` / `ClosedHand` to the arrow. It sets the
   cursor again on every mouse move, so the app cannot set its own from outside.
-- **Patch.** `vendor/gpui-pre-windows` is the published 0.3.11 with one change in
+- **Patch.** `vendor/gpui-pre-windows` is the published 0.3.11 (0.3.12 since D-155) with one change in
   `src/util.rs` (`EGL-VIEWER-PATCH.md` there): `OpenHand` loads cursor resource 102 of the exe,
   `ClosedHand` resource 101, and without them the system hand. It is wired with
   `[patch.crates-io]`; the workspace excludes `vendor/`, so the copy is built as a dependency
@@ -3390,3 +3390,15 @@ stayed in GPUI's asset cache for the life of the window. The grid only had the s
 - **Verify.** `cargo test -p media animation`, `cargo test -p gpui-desktop` (player, decode,
   keys); by hand on Windows: a GIF plays in the preview, `P` / `,` / `.` and the bar work,
   rotation keeps it playing, hovering a GIF in the grid plays it.
+
+## D-155 gpui-kit 0.9.1 (2026-11-11)
+
+- **Bump.** `gpui-kit` =0.9.0 → =0.9.1 (published 2026-11-09, older than the age rule of
+  D-003). It moves the whole `gpui-pre-*` family from 0.3.11 to 0.3.12 and `gpui-component`,
+  `gpui-base`, `gpui-kit-assets` to 0.9.1. No code in the app had to change.
+- **The Windows patch moved with it.** `[patch.crates-io]` only applies to the exact version
+  in `vendor/`, so 0.9.1 would have silently dropped the hand cursors of D-148 (the lock showed
+  `gpui-pre-windows` from crates.io again). `vendor/gpui-pre-windows` is now the published
+  0.3.12 with the same `load_cursor` change; upstream `src/util.rs` is identical in 0.3.11 and
+  0.3.12, so the patch applies unchanged. `Cargo.lock` lists `gpui-pre-windows` 0.3.12 without
+  a registry source, which is how to check that the patch is in use.

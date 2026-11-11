@@ -1,7 +1,7 @@
-# egl-viewer changes to gpui-pre-windows 0.3.11
+# egl-viewer changes to gpui-pre-windows 0.3.12
 
-This is `gpui-pre-windows` 0.3.11 from crates.io (Apache-2.0, see `LICENSE-APACHE`), used
-through `[patch.crates-io]` in the workspace `Cargo.toml`. egl-viewer decision D-148.
+This is `gpui-pre-windows` 0.3.12 from crates.io (Apache-2.0, see `LICENSE-APACHE`), used
+through `[patch.crates-io]` in the workspace `Cargo.toml`. egl-viewer decision D-148 (moved to 0.3.12 with gpui-kit 0.9.1, D-155).
 
 Changed file: `src/util.rs`.
 

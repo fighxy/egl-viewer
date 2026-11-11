@@ -37,7 +37,7 @@ drag = "2.1.1"
 fast_image_resize = "6.1.0"
 device_query = "=4.0.1"
 getrandom = "0.4.3"
-gpui-kit = "=0.9.0"
+gpui-kit = "=0.9.1"
 icu_collator = "2.4.0"
 image = { version = "0.25.10", default-features = false, features = ["bmp", "gif", "jpeg", "png", "tiff", "webp"] }
 kamadak-exif = "0.6.1"
