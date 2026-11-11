@@ -8,7 +8,7 @@ import XCTest
 final class YubiKeyTests: XCTestCase {
     func testEveryFailureSaysWhatToDo() {
         let failures: [YubiKeyCard.Failure] = [
-            .absent, .otherCard, .wrongPin(retries: 2), .pinLocked, .managementKey, .noFreeSlot, .unreadable,
+            .absent, .nfcStopped, .otherCard, .wrongPin(retries: 2), .pinLocked, .managementKey, .noFreeSlot, .unreadable,
         ]
         for failure in failures {
             let text = failure.errorDescription ?? ""
@@ -21,5 +21,10 @@ final class YubiKeyTests: XCTestCase {
     func testTheAppDeclaresTheYubiKeyConnections() throws {
         let protocols = Bundle.main.object(forInfoDictionaryKey: "UISupportedExternalAccessoryProtocols") as? [String]
         XCTAssertEqual(protocols, ["com.yubico.ylp"], "the 5Ci on Lightning")
+        let applets = Bundle.main.object(
+            forInfoDictionaryKey: "com.apple.developer.nfc.readersession.iso7816.select-identifiers"
+        ) as? [String]
+        XCTAssertEqual(applets, ["A000000308"], "the PIV applet over NFC")
+        XCTAssertNotNil(Bundle.main.object(forInfoDictionaryKey: "NFCReaderUsageDescription"))
     }
 }

@@ -1,6 +1,29 @@
 {
   "sourceLanguage": "en",
   "strings": {
+    "NFCReaderUsageDescription": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "egl-viewer reads a YubiKey held to the iPhone to open a locked folder."
+          }
+        },
+        "ru": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "egl-viewer считывает YubiKey, приложенный к iPhone, чтобы открыть запертую папку."
+          }
+        },
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "egl-viewer 读取贴近 iPhone 的 YubiKey，以打开加锁的文件夹。"
+          }
+        }
+      }
+    },
     "NSFaceIDUsageDescription": {
       "extractionState": "manual",
       "localizations": {

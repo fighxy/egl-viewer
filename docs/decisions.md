@@ -2734,12 +2734,14 @@ other.
   generated project and its `Package.resolved` are not committed.
 - **Connections:** USB-C first (`USBSmartCardConnection`, CryptoTokenKit; iPhone 15 and later,
   USB-C iPads), then Lightning (`LightningSmartCardConnection`, the 5Ci; protocol
-  `com.yubico.ylp` in Info.plist) when such an accessory is connected. Nothing plugged in is
-  said at once instead of a wait. NFC is left out: it needs the NFC reading entitlement, which
-  a sideloaded build signed with an ordinary certificate may not get, and the YubiKey 5C has
-  no NFC.
-- **Entitlement:** `com.apple.security.smartcard` (USB-C smart cards) in
-  `EglViewer.entitlements`. The CI IPA is unsigned, so the pack step now signs it ad hoc with
+  `com.yubico.ylp` in Info.plist) when such an accessory is connected, and otherwise NFC
+  (`NFCSmartCardConnection`, the system sheet "Hold the YubiKey to the top of the iPhone"; a
+  YubiKey 5C NFC or 5 NFC, any iPhone with NFC). NFC needs the tag-reading entitlement
+  (`com.apple.developer.nfc.readersession.formats` = `TAG`), the PIV applet id `A000000308`
+  in Info.plist and `NFCReaderUsageDescription`; a build signed without that entitlement
+  cannot start the sheet, and the app says to plug the key into USB-C instead.
+- **Entitlements:** `com.apple.security.smartcard` (USB-C smart cards) and the NFC tag
+  reading in `EglViewer.entitlements`. The CI IPA is unsigned, so the pack step now signs it ad hoc with
   these entitlements and checks they are there: a re-signing tool (ESign, AltStore) sees what
   the app asks for. Whether a given signing certificate keeps it is up to that certificate.
 - **Unlock:** the unlock sheet lists the folder's keys under the password; a PIN wrap asks for

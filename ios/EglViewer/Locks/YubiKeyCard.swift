@@ -1,15 +1,18 @@
 import EglCore
+import CoreNFC
 import ExternalAccessory
 import Foundation
 import YubiKit
 
 /// The YubiKey as a PIV card on the iPhone (D-126), through YubiKit: a YubiKey 5C in the USB-C
-/// port (iPhone 15 and later), or a 5Ci on Lightning. The card does the P-256 ECDH the core asks
+/// port (iPhone 15 and later), a 5Ci on Lightning, or a YubiKey NFC (5C NFC, 5 NFC) held to the
+/// top of the iPhone. The card does the P-256 ECDH the core asks
 /// for; its private key never leaves it, and the core never sees the card.
 enum YubiKeyCard {
     /// What went wrong, in words the lock sheets show.
     enum Failure: LocalizedError, Equatable {
         case absent
+        case nfcStopped
         case otherCard
         case wrongPin(retries: Int)
         case pinLocked
@@ -20,6 +23,7 @@ enum YubiKeyCard {
         var errorDescription: String? {
             switch self {
             case .absent: String(localized: "yubikey.absent")
+            case .nfcStopped: String(localized: "yubikey.nfcStopped")
             case .otherCard: String(localized: "yubikey.otherCard")
             case let .wrongPin(retries): String(localized: "yubikey.wrongPin \(retries)")
             case .pinLocked: String(localized: "yubikey.pinLocked")
@@ -41,8 +45,9 @@ enum YubiKeyCard {
     /// The retired slots `age-plugin-yubikey` uses, 0x82–0x95.
     private static let retired: [UInt8] = Array(0x82...0x95)
 
-    /// The YubiKey plugged in now: USB-C first, then Lightning. Nothing plugged in is `absent`
-    /// at once, rather than a wait without end.
+    /// The YubiKey to talk to: one plugged into USB-C, then one on Lightning, and otherwise the
+    /// system NFC sheet asks to hold a YubiKey NFC to the iPhone. With none of these the answer
+    /// is `absent` at once, rather than a wait without end.
     private static func connect() async throws -> any SmartCardConnection {
         if let device = try? await USBSmartCardConnection.availableDevices().first {
             return try await USBSmartCardConnection(slot: device)
@@ -53,16 +58,29 @@ enum YubiKeyCard {
         if lightning {
             return try await LightningSmartCardConnection()
         }
+        if NFCTagReaderSession.readingAvailable {
+            do {
+                return try await NFCSmartCardConnection(alertMessage: String(localized: "yubikey.nfcHold"))
+            } catch {
+                // The sheet was closed, no key came near it, or the build has no NFC entitlement.
+                throw Failure.nfcStopped
+            }
+        }
         throw Failure.absent
     }
 
-    /// Runs `work` on a PIV session of the plugged-in key and closes the connection after.
+    /// Runs `work` on a PIV session of the key and closes the connection after; the NFC sheet
+    /// closes with a word of what happened.
     private static func withSession<T>(_ work: (PIVSession) async throws -> T) async throws -> T {
         let connection = try await connect()
         do {
             let session = try await PIVSession.makeSession(connection: connection)
             let value = try await work(session)
-            await connection.close(error: nil)
+            if let nfc = connection as? NFCSmartCardConnection {
+                await nfc.close(message: String(localized: "yubikey.nfcDone"))
+            } else {
+                await connection.close(error: nil)
+            }
             return value
         } catch {
             await connection.close(error: error)

@@ -5,5 +5,10 @@
 	<!-- A YubiKey 5C in the USB-C port is a smart card to iOS (CryptoTokenKit, D-126). -->
 	<key>com.apple.security.smartcard</key>
 	<true/>
+	<!-- A YubiKey NFC held to the iPhone: ISO 7816 tags, the PIV applet (D-126). -->
+	<key>com.apple.developer.nfc.readersession.formats</key>
+	<array>
+		<string>TAG</string>
+	</array>
 </dict>
 </plist>

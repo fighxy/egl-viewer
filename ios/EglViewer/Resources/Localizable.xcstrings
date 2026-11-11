@@ -11220,19 +11220,19 @@
         "en": {
           "stringUnit": {
             "state": "translated",
-            "value": "No YubiKey is plugged in. Plug it into the USB-C port (a 5Ci into Lightning) and try again."
+            "value": "No YubiKey answered. Plug it into the USB-C port (a 5Ci into Lightning), or hold a YubiKey NFC to the top of the iPhone, and try again."
           }
         },
         "ru": {
           "stringUnit": {
             "state": "translated",
-            "value": "YubiKey не подключён. Вставьте его в разъём USB-C (5Ci — в Lightning) и попробуйте снова."
+            "value": "YubiKey не ответил. Вставьте его в разъём USB-C (5Ci — в Lightning) или приложите YubiKey NFC к верхней части iPhone и попробуйте снова."
           }
         },
         "zh-Hans": {
           "stringUnit": {
             "state": "translated",
-            "value": "未插入 YubiKey。请将其插入 USB-C 接口（5Ci 插入 Lightning）后重试。"
+            "value": "YubiKey 没有响应。请将其插入 USB-C 接口（5Ci 插入 Lightning），或将 YubiKey NFC 贴近 iPhone 顶部后重试。"
           }
         }
       }
@@ -11394,6 +11394,75 @@
           "stringUnit": {
             "state": "translated",
             "value": "YubiKey 的 PIV 管理密钥不是出厂密钥。请在电脑上绑定，或在 YubiKey Manager 中重置 PIV。"
+          }
+        }
+      }
+    },
+    "yubikey.nfcDone": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Done. You can take the YubiKey away."
+          }
+        },
+        "ru": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Готово. Ключ можно убрать."
+          }
+        },
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "完成。可以移开 YubiKey 了。"
+          }
+        }
+      }
+    },
+    "yubikey.nfcHold": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Hold the YubiKey to the top of the iPhone."
+          }
+        },
+        "ru": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Приложите YubiKey к верхней части iPhone."
+          }
+        },
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "将 YubiKey 贴近 iPhone 顶部。"
+          }
+        }
+      }
+    },
+    "yubikey.nfcStopped": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "The NFC reading stopped before the YubiKey answered. Hold it still at the top of the iPhone and try again. If NFC never starts, this build may be signed without NFC: plug the YubiKey into USB-C instead."
+          }
+        },
+        "ru": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Чтение NFC остановилось раньше, чем YubiKey ответил. Держите ключ неподвижно у верхней части iPhone и попробуйте снова. Если NFC вообще не запускается, сборка, возможно, подписана без NFC: вставьте YubiKey в USB-C."
+          }
+        },
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "NFC 读取在 YubiKey 响应前已停止。请将其稳定贴近 iPhone 顶部后重试。如果 NFC 始终无法启动，此版本可能未带 NFC 签名：请改为将 YubiKey 插入 USB-C。"
           }
         }
       }
@@ -11657,19 +11726,19 @@
         "en": {
           "stringUnit": {
             "state": "translated",
-            "value": "Plug the YubiKey into the iPhone's USB-C port (a 5Ci into Lightning). Touch it when it blinks, or enter its PIN first."
+            "value": "Plug the YubiKey into the USB-C port (a 5Ci into Lightning), or hold a YubiKey NFC to the top of the iPhone when asked. Touch a plugged-in key when it blinks, or enter its PIN first."
           }
         },
         "ru": {
           "stringUnit": {
             "state": "translated",
-            "value": "Вставьте YubiKey в разъём USB-C iPhone (5Ci — в Lightning). Коснитесь ключа, когда он мигает, или сначала введите его PIN."
+            "value": "Вставьте YubiKey в разъём USB-C (5Ci — в Lightning) или, когда попросят, приложите YubiKey NFC к верхней части iPhone. Вставленного ключа коснитесь, когда он мигает, или сначала введите его PIN."
           }
         },
         "zh-Hans": {
           "stringUnit": {
             "state": "translated",
-            "value": "将 YubiKey 插入 iPhone 的 USB-C 接口（5Ci 插入 Lightning）。在其闪烁时轻触，或先输入其 PIN。"
+            "value": "将 YubiKey 插入 USB-C 接口（5Ci 插入 Lightning），或在提示时将 YubiKey NFC 贴近 iPhone 顶部。插入的密钥闪烁时请轻触，或先输入其 PIN。"
           }
         }
       }

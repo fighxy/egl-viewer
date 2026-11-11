@@ -38,6 +38,12 @@
 	<true/>
 	<key>LSSupportsOpeningDocumentsInPlace</key>
 	<true/>
+	<key>NFCReaderUsageDescription</key>
+	<string>egl-viewer reads a YubiKey held to the iPhone to open a locked folder.</string>
+	<key>com.apple.developer.nfc.readersession.iso7816.select-identifiers</key>
+	<array>
+		<string>A000000308</string>
+	</array>
 	<key>NSFaceIDUsageDescription</key>
 	<string>Face ID opens egl-viewer when you have turned on the app lock.</string>
 	<key>NSPhotoLibraryAddUsageDescription</key>
