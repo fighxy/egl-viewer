@@ -52,6 +52,10 @@ struct LockSheet: View {
     @State private var working = false
     @State private var wrong = false
     @State private var key: RecoveryKey? = nil
+    /// The YubiKeys that also open this folder, for the unlock sheet (D-126).
+    @State private var wraps: [PivWrap] = []
+    @State private var yubiKeyPin = ""
+    @State private var yubiKeyFailure: String?
 
     var body: some View {
         NavigationStack {
@@ -69,6 +73,11 @@ struct LockSheet: View {
         .onAppear {
             label = action.folder.lockLabel ?? ""
             color = action.folder.lockColor
+        }
+        .task {
+            guard case let .unlock(folder) = action else { return }
+            let id = folder.id
+            wraps = await open.perform { try $0.pivWraps(id) } ?? []
         }
     }
 
@@ -122,6 +131,11 @@ struct LockSheet: View {
                     .submitLabel(.go)
                     .onSubmit(run)
                     .accessibilityIdentifier("lock.password")
+            }
+            if case .unlock = action, !wraps.isEmpty {
+                YubiKeyUnlockSection(wraps: wraps, pin: $yubiKeyPin, failure: yubiKeyFailure) { wrap in
+                    unlockWithYubiKey(wrap)
+                }
             }
         case .recover:
             Section {
@@ -246,6 +260,35 @@ struct LockSheet: View {
                 finish(await open.lockWork { try $0.removeFolderLock(id, password: password) })
             case .label:
                 finish(await open.lockWork { try $0.setLockLabel(id, label: label.isEmpty ? nil : label, color: color) })
+            }
+        }
+    }
+
+    /// The core's challenge, the key's answer, and the folder opens (D-126).
+    private func unlockWithYubiKey(_ wrap: PivWrap) {
+        guard !working else { return }
+        working = true
+        wrong = false
+        yubiKeyFailure = nil
+        let id = action.folder.id
+        let pin = wrap.policy == .pin ? yubiKeyPin : nil
+        Task {
+            defer { working = false }
+            guard let challenge = await open.perform({ try $0.pivChallenge(id, serial: wrap.serial) }) else { return }
+            let shared: Data
+            do {
+                shared = try await YubiKeyCard.answer(challenge, serial: wrap.serial, pin: pin)
+            } catch {
+                yubiKeyFailure = error.localizedDescription
+                return
+            }
+            switch await open.lockWork({ try $0.unlockWithPiv(id, serial: wrap.serial, sharedSecret: shared) }) {
+            case .success:
+                dismiss()
+            case let .failure(error) where error.code == .wrongPassword:
+                yubiKeyFailure = String(localized: "yubikey.notThisFolder")
+            case .failure:
+                break
             }
         }
     }

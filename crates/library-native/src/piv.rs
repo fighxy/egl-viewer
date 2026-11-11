@@ -84,6 +84,22 @@ impl PivCard {
     }
 }
 
+impl PivCard {
+    /// A card from the public key its slot returned, SEC1 bytes (uncompressed 65 or compressed
+    /// 33), as an app that talks to the card itself reads it (D-126).
+    pub fn from_public_key(
+        serial: impl Into<String>,
+        slot: u8,
+        policy: PivPolicy,
+        sec1: &[u8],
+    ) -> Result<Self, SourceError> {
+        let public = PublicKey::from_sec1_bytes(sec1).map_err(|_| {
+            SourceError::Invalid("The YubiKey returned an unreadable P-256 public key.".into())
+        })?;
+        Self::new(serial, slot, policy, recipient_from_public_key(&public))
+    }
+}
+
 /// Touch takes no PIN. PIN takes the YubiKey PIN and no touch. Anything else is refused.
 pub fn check_enrollment(policy: PivPolicy, pin: Option<&str>) -> Result<(), SourceError> {
     match (policy, pin.map(str::trim).filter(|pin| !pin.is_empty())) {

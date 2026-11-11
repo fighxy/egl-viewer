@@ -867,3 +867,53 @@ fn an_imported_lock_is_removed_without_a_password() {
     assert!(!find(&library.folder_tree().unwrap(), &folder).is_locked);
     assert_eq!(all(&library), [item]);
 }
+
+/// D-126: an app that talks to the card itself gets the point, has the card do the ECDH and
+/// hands the answer back; a wrong answer opens nothing.
+#[test]
+fn a_yubikey_challenge_and_its_answer_open_the_folder() {
+    let dir = tempfile::tempdir().unwrap();
+    let root = new_library(dir.path(), "Challenge");
+    let library = open(&root);
+    let folder = create(&library, "Scans", None);
+    lock(&library, &folder, "scans-pw");
+    let card = SoftwarePiv::generate("333", 0x83, PivPolicy::Pin, Some("123456"));
+    library
+        .bind_piv(&folder, "scans-pw".into(), card.card())
+        .unwrap();
+    library.relock_all();
+
+    let challenge = library.piv_challenge(&folder, "333").unwrap();
+    assert_eq!(challenge.slot, 0x83);
+    assert_eq!(challenge.policy, PivPolicy::Pin);
+    assert_eq!(challenge.ephemeral.len(), 65, "an uncompressed P-256 point");
+    assert_eq!(challenge.ephemeral[0], 4);
+    assert!(!library.is_unlocked(&folder), "a challenge opens nothing");
+
+    assert!(matches!(
+        library.unlock_with_piv_secret(&folder, "333", &[7; 32]),
+        Err(SourceError::WrongPassword)
+    ));
+    assert!(matches!(
+        library.unlock_with_piv_secret(&folder, "333", &[7; 31]),
+        Err(SourceError::Invalid(_))
+    ));
+    assert!(matches!(
+        library.piv_challenge(&folder, "999"),
+        Err(SourceError::NotFound)
+    ));
+    assert!(!library.is_unlocked(&folder));
+
+    let shared = card
+        .agree(
+            &PivPrompt::Pin {
+                pin: "123456".into(),
+            },
+            &challenge.ephemeral,
+        )
+        .unwrap();
+    library
+        .unlock_with_piv_secret(&folder, "333", &shared)
+        .unwrap();
+    assert!(library.is_unlocked(&folder));
+}

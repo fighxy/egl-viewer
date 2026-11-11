@@ -466,6 +466,64 @@ public final class Library: @unchecked Sendable {
         return text.withCString { body($0) }
     }
 
+    // MARK: YubiKey (D-126)
+
+    /// The YubiKeys bound to locked folder `id`.
+    public func pivWraps(_ id: String) throws -> [PivWrap] {
+        try id.withCString { id in try json { egl_piv_wraps($0, id, $1) } }
+    }
+
+    /// What card `serial` must compute to open folder `id`.
+    public func pivChallenge(_ id: String, serial: String) throws -> PivChallenge {
+        struct Wire: Decodable {
+            let slot: UInt8
+            let policy: PivPolicy
+            let ephemeral: String
+        }
+        let wire: Wire = try id.withCString { id in
+            try serial.withCString { serial in try json { egl_piv_challenge($0, id, serial, $1) } }
+        }
+        guard let ephemeral = Data(hex: wire.ephemeral) else {
+            throw EglError(code: .other, message: "unreadable YubiKey challenge")
+        }
+        return PivChallenge(slot: wire.slot, policy: wire.policy, ephemeral: ephemeral)
+    }
+
+    /// Opens folder `id` with the card's 32-byte ECDH answer to `pivChallenge`.
+    public func unlockWithPiv(_ id: String, serial: String, sharedSecret: Data) throws {
+        let lib = try live()
+        let shared = sharedSecret.hexString
+        try check(id.withCString { id in
+            serial.withCString { serial in shared.withCString { egl_unlock_with_piv(lib, id, serial, $0) } }
+        })
+    }
+
+    /// Binds the key a card made in retired `slot` (SEC1 `publicKey`) to folder `id`.
+    public func bindPiv(
+        _ id: String, password: String, serial: String, slot: UInt8, policy: PivPolicy, publicKey: Data
+    ) throws {
+        struct Request: Encodable {
+            let password: String
+            let serial: String
+            let slot: UInt8
+            let policy: PivPolicy
+            let publicKey: String
+        }
+        let request = try encode(Request(
+            password: password, serial: serial, slot: slot, policy: policy, publicKey: publicKey.hexString
+        ))
+        let lib = try live()
+        try check(id.withCString { id in request.withCString { egl_bind_piv(lib, id, $0) } })
+    }
+
+    /// Drops card `serial` from folder `id`; the password still opens it.
+    public func unbindPiv(_ id: String, password: String, serial: String) throws {
+        let lib = try live()
+        try check(id.withCString { id in
+            password.withCString { password in serial.withCString { egl_unbind_piv(lib, id, password, $0) } }
+        })
+    }
+
     public func unlockFolder(_ id: String, password: String) throws {
         let lib = try live()
         try check(id.withCString { id in password.withCString { egl_unlock_folder(lib, id, $0) } })
@@ -567,5 +625,33 @@ private final class EventBox: @unchecked Sendable {
         let data = Data(bytes: json, count: strlen(json))
         guard let event = try? JSONDecoder().decode(LibraryEvent.self, from: data) else { return }
         handler(event)
+    }
+}
+
+extension Data {
+    /// Lowercase hex, as the C ABI passes bytes (D-126).
+    var hexString: String { map { String(format: "%02x", $0) }.joined() }
+
+    /// Bytes from hex; nil for an odd length or a character that is not hex.
+    init?(hex: String) {
+        let digits = Array(hex.utf8)
+        guard digits.count % 2 == 0 else { return nil }
+        var bytes = [UInt8]()
+        bytes.reserveCapacity(digits.count / 2)
+        func nibble(_ c: UInt8) -> UInt8? {
+            switch c {
+            case 48...57: return c - 48
+            case 97...102: return c - 87
+            case 65...70: return c - 55
+            default: return nil
+            }
+        }
+        var index = 0
+        while index < digits.count {
+            guard let high = nibble(digits[index]), let low = nibble(digits[index + 1]) else { return nil }
+            bytes.append(high << 4 | low)
+            index += 2
+        }
+        self.init(bytes)
     }
 }

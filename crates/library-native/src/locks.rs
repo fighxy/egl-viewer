@@ -634,6 +634,49 @@ impl Library {
         if let PivPrompt::Pin { pin } = prompt {
             piv::check_piv_pin(pin)?;
         }
+        self.unlock_with_card_row(id, row, agree)
+    }
+
+    /// What the card has to compute to open this folder (D-126): its slot, its policy and the
+    /// sender's ephemeral P-256 point of the wrap, uncompressed. For an app that talks to the
+    /// card itself (the iPhone): it asks the card for the ECDH with this point, then hands the
+    /// result to [`Self::unlock_with_piv_secret`]. Nothing secret is in the challenge.
+    pub fn piv_challenge(&self, id: &str, serial: &str) -> Result<PivChallenge> {
+        let row = self.piv_row(id, serial)?;
+        let seen = std::cell::RefCell::new(None);
+        // The age decryption asks for the ECDH with the stanza's point; the point is recorded
+        // and the agreement refused, so nothing is decrypted here.
+        let _ = piv::open_identity(&row.wrapped, &row.recipient, |ephemeral| {
+            *seen.borrow_mut() = Some(ephemeral.to_vec());
+            Err(VaultError::WrongKey)
+        });
+        let ephemeral = seen
+            .into_inner()
+            .ok_or_else(|| SourceError::Invalid("This YubiKey wrap is damaged.".into()))?;
+        Ok(PivChallenge {
+            slot: row.slot,
+            policy: row.policy,
+            ephemeral,
+        })
+    }
+
+    /// Opens one folder with the ECDH result the card returned for [`Self::piv_challenge`]
+    /// (D-126). The card has already asked for its PIN or touch; a wrong result is
+    /// `WrongPassword` and opens nothing.
+    pub fn unlock_with_piv_secret(&self, id: &str, serial: &str, shared: &[u8]) -> Result<()> {
+        let shared: [u8; 32] = shared
+            .try_into()
+            .map_err(|_| SourceError::Invalid("A YubiKey answer is 32 bytes.".into()))?;
+        let row = self.piv_row(id, serial)?;
+        self.unlock_with_card_row(id, row, |_, _| Ok(shared))
+    }
+
+    fn unlock_with_card_row(
+        &self,
+        id: &str,
+        row: PivRow,
+        agree: impl Fn(u8, &[u8]) -> std::result::Result<[u8; 32], SourceError>,
+    ) -> Result<()> {
         let captured = std::cell::RefCell::new(None);
         let slot = row.slot;
         let key = piv::open_identity(&row.wrapped, &row.recipient, |ephemeral| {
@@ -803,6 +846,17 @@ impl Library {
             .and_then(Iterator::collect)
             .context("find wrapped items")
     }
+}
+
+/// What a card must compute to open a folder (D-126).
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub struct PivChallenge {
+    /// The retired PIV slot, 0x82–0x95.
+    pub slot: u8,
+    /// Touch or PIN: the card asks for it.
+    pub policy: PivPolicy,
+    /// The wrap's ephemeral P-256 point, uncompressed SEC1 (65 bytes).
+    pub ephemeral: Vec<u8>,
 }
 
 struct PivRow {

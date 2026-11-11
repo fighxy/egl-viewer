@@ -454,6 +454,14 @@ jobs:
             echo "the app says $SHORT, the tag $EXPECTED" >&2
             exit 1
           fi
+          # Signed ad hoc with the app's entitlements (D-126), so a re-signing tool sees that
+          # the app asks for smart cards (USB-C) and NFC tag reading (a YubiKey held to the
+          # iPhone); it signs again for the device.
+          codesign --force --deep --sign - --timestamp=none \
+            --entitlements ios/EglViewer/Resources/EglViewer.entitlements "$APP"
+          ENTITLEMENTS="$(codesign -d --entitlements - "$APP" 2>/dev/null)"
+          grep -q "com.apple.security.smartcard" <<<"$ENTITLEMENTS"
+          grep -q "com.apple.developer.nfc.readersession.formats" <<<"$ENTITLEMENTS"
           mkdir -p "$RUNNER_TEMP/ipa/Payload"
           cp -R "$APP" "$RUNNER_TEMP/ipa/Payload/"
           (cd "$RUNNER_TEMP/ipa" && zip -qry "$GITHUB_WORKSPACE/EglViewer.ipa" Payload)

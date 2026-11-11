@@ -74,6 +74,7 @@ pub use import::{
     import_files, make_pending_previews, preview_threads,
 };
 pub use library::{Library, OpenOptions};
+pub use locks::PivChallenge;
 pub use name::validate_library_name;
 pub use piv::{PivCard, check_enrollment, recipient_from_public_key};
 pub use preview::{NO_PREVIEW, PendingPreview};

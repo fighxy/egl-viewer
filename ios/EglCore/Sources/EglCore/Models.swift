@@ -347,6 +347,33 @@ public struct ExportProgress: Codable, Equatable, Identifiable, Sendable {
     public var isFinished: Bool { state == .done || state == .failed || state == .cancelled }
 }
 
+/// How a YubiKey bound to a locked folder asks the user: a touch, or its PIV PIN (D-126).
+public enum PivPolicy: String, Codable, Sendable {
+    case touch, pin
+}
+
+/// One YubiKey bound to a locked folder; the private key stays on the card.
+public struct PivWrap: Codable, Equatable, Hashable, Sendable {
+    public var serial: String
+    /// The retired PIV slot, 0x82–0x95.
+    public var slot: UInt8
+    public var policy: PivPolicy
+
+    public init(serial: String, slot: UInt8, policy: PivPolicy) {
+        self.serial = serial
+        self.slot = slot
+        self.policy = policy
+    }
+}
+
+/// What a YubiKey must compute to open a folder (D-126): P-256 ECDH in `slot` with
+/// `ephemeral`, an uncompressed SEC1 point (65 bytes).
+public struct PivChallenge: Equatable, Sendable {
+    public var slot: UInt8
+    public var policy: PivPolicy
+    public var ephemeral: Data
+}
+
 /// Shown once when a folder is locked or the key renewed; never stored.
 public struct RecoveryKey: Codable, Equatable, Sendable {
     public var key: String

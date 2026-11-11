@@ -24,6 +24,9 @@ serde_json.workspace = true
 [dev-dependencies]
 image.workspace = true
 media = { workspace = true, features = ["fixtures"] }
+# A software P-256 key stands in for the YubiKey in the D-126 tests.
+p256.workspace = true
+rand.workspace = true
 tempfile.workspace = true
 
 [lints]
