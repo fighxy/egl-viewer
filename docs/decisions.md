@@ -2845,15 +2845,14 @@ Ivan confirms retirement.
   release-path clarity, not deletion.
 - **Packaging (ships).** `scripts/package-gpui-desktop.ps1` builds release `gpui-desktop.exe`,
   stages `heif.dll` / `libde265.dll` (+ LGPL notices) beside the exe (same D-070 rule as Tauri),
-  copies About licenses + icon, and writes `dist/egl-viewer-gpui_<version>_x64.zip`.
-- **Packaging (deferred).** Dedicated NSIS installer, `.eglib` file association, Authenticode /
-  SmartScreen signing for the GPUI artifact. Clean-machine install done check stays open.
-- **Updater (ships, partial).** Help → Check for Updates… and a silent post-gate check fetch
-  `https://github.com/fighxy/egl-viewer/releases/latest/download/latest-gpui.json` (not
-  `tauri-plugin-updater`). SemVer compare + “Open download” in the browser. Manifest writer:
-  `scripts/write-latest-gpui-json.mjs`. Skip with `EGL_SKIP_UPDATE_CHECK`.
-- **Updater (deferred).** Minisign verification, download-install-relaunch of a signed installer,
-  publishing `latest-gpui.json` from the `v*` release job (Tauri `latest.json` unchanged).
+  copies About licenses + icon, and writes `dist/egl-viewer-gpui_<version>_x64.zip`. Per-user
+  NSIS setup is D-153 (`scripts/package-gpui-nsis.ps1`).
+- **Packaging (deferred).** `.eglib` file association, Authenticode / SmartScreen signing for the
+  GPUI artifact. Clean-machine install done check stays open.
+- **Updater (ships, partial → D-153).** Help → Check for Updates… and a silent post-gate check
+  fetch the rolling `gpui-latest` manifest (not GitHub Latest / Tauri `latest.json`). Skip with
+  `EGL_SKIP_UPDATE_CHECK`. Manifest writer: `scripts/write-latest-gpui-json.mjs`.
+- **Updater (deferred).** Minisign verification and Authenticode for the Windows installer.
 - **Licenses.** About → Third-party licenses shows
   `crates/gpui-desktop/assets/THIRD_PARTY_LICENSES.txt` (summary; fuller cargo inventory later).
 - **CI.** `.github/workflows/ci.yml` job `gpui-desktop`: `cargo test -p gpui-desktop`, package
@@ -3330,3 +3329,25 @@ Nothing held a scroll handle, so the app could not move the view itself. Found a
   folders, tags, the Trash, and the Folders header (which also takes folders, to the root).
   A folder dragged onto a folder keeps the zone lines (before / inside / after) instead.
 - **Verified.** `cargo test -p gpui-desktop`; not yet tried in the running app.
+
+## D-153 GPUI Windows NSIS + `gpui-latest` auto-update (2026-11-11)
+
+Per-user Windows installer and in-app update channel for the GPUI host, without colliding
+with the shipping Tauri app or GitHub Latest.
+
+- **NSIS.** `scripts/installer/egl-viewer-gpui.nsi` + `scripts/package-gpui-nsis.ps1` package the
+  same payload as the portable zip into
+  `egl-viewer-gpui_<version>_windows-x64-setup.exe`. Install dir
+  `%LOCALAPPDATA%\Programs\egl-viewer-gpui`, display name `egl-viewer (GPUI)`, current-user /
+  `/S`, Start Menu + HKCU uninstall. Does not touch `%LOCALAPPDATA%\egl-viewer-gpui`. No MSI /
+  Inno / Authenticode in this decision.
+- **Release.** `gpui-v*` prereleases (`--latest=false`) attach the setup exe beside the zip.
+  Dry-run (`workflow_dispatch` / PR) builds artifacts only. Rolling prerelease `gpui-latest`
+  (same idea as `ios-latest`) holds `latest-gpui.json` pointing at the versioned NSIS URL;
+  updated only on a real tag publish.
+- **App.** Default endpoint
+  `…/releases/download/gpui-latest/latest-gpui.json`. Windows: confirm → download setup → exit →
+  silent NSIS → relaunch. macOS/Linux keep open-download. Minisign still deferred (empty
+  signature).
+- **Verify.** `cargo test -p gpui-desktop`; Windows dry-run of `.github/workflows/gpui-release.yml`
+  produces the setup exe artifact.
