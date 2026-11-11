@@ -263,7 +263,14 @@ fn en() -> Catalog {
         ("updates.checking", "Checking for updates…"),
         ("updates.upToDate", "You’re up to date."),
         ("updates.available", "Update available"),
+        (
+            "updates.availableVersion",
+            "Version {version} is available. Download and install it now?",
+        ),
         ("updates.download", "Open download"),
+        ("updates.installRestart", "Install and Restart"),
+        ("updates.downloading", "Downloading update…"),
+        ("updates.installFailed", "Could not install the update"),
         ("updates.error", "Could not check for updates"),
         (
             "updates.silentAvailable",
@@ -594,7 +601,14 @@ fn ru() -> Catalog {
         ("updates.checking", "Проверка обновлений…"),
         ("updates.upToDate", "У вас актуальная версия."),
         ("updates.available", "Доступно обновление"),
+        (
+            "updates.availableVersion",
+            "Доступна версия {version}. Скачать и установить сейчас?",
+        ),
         ("updates.download", "Открыть загрузку"),
+        ("updates.installRestart", "Установить и перезапустить"),
+        ("updates.downloading", "Загрузка обновления…"),
+        ("updates.installFailed", "Не удалось установить обновление"),
         ("updates.error", "Не удалось проверить обновления"),
         (
             "updates.silentAvailable",
@@ -848,7 +862,14 @@ fn zh_cn() -> Catalog {
         ("updates.checking", "正在检查更新…"),
         ("updates.upToDate", "已是最新版本。"),
         ("updates.available", "有可用更新"),
+        (
+            "updates.availableVersion",
+            "有可用版本 {version}。立即下载并安装？",
+        ),
         ("updates.download", "打开下载"),
+        ("updates.installRestart", "安装并重启"),
+        ("updates.downloading", "正在下载更新…"),
+        ("updates.installFailed", "无法安装更新"),
         ("updates.error", "无法检查更新"),
         (
             "updates.silentAvailable",

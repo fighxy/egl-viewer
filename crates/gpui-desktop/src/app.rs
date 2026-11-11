@@ -45,7 +45,7 @@ use crate::ops_scroll::ViewKey;
 use crate::platform;
 use crate::screens::library as library_ui;
 use crate::theme;
-use crate::updater::{self, CheckOutcome};
+use crate::updater::{self, AvailableUpdate, CheckOutcome};
 use gpui_kit::component::VirtualListScrollHandle;
 use gpui_kit::component::menu::DropdownMenu as _;
 use gpui_kit::component::popover::Popover;
@@ -64,6 +64,8 @@ pub(crate) type DecryptResultSlot =
 
 /// Background update-check completion (thread → UI poll).
 type UpdateCheckResult = Arc<Mutex<Option<Result<CheckOutcome, String>>>>;
+/// Background NSIS download + handoff spawn (thread → UI poll).
+type ApplyUpdateResult = Arc<Mutex<Option<Result<(), String>>>>;
 
 pub struct RootApp {
     pub(crate) session: Arc<Session>,
@@ -143,7 +145,9 @@ pub struct RootApp {
     /// Background update check (Help → Check for Updates / silent after gate).
     update_check_result: Option<UpdateCheckResult>,
     update_check_started: bool,
-    pending_update_url: Option<String>,
+    pending_update: Option<AvailableUpdate>,
+    apply_update_result: Option<ApplyUpdateResult>,
+    applying_update: bool,
     /// Go to Folder / Add to Folder(s) panel (D-140).
     pub(crate) folder_picker: Option<crate::ops_items::FolderPickerUi>,
     pub(crate) picker_input: Entity<InputState>,
@@ -307,7 +311,9 @@ impl RootApp {
             eagle_badge: None,
             update_check_result: None,
             update_check_started: false,
-            pending_update_url: None,
+            pending_update: None,
+            apply_update_result: None,
+            applying_update: false,
             folder_picker: None,
             picker_input: picker_input.clone(),
             tag_pick,
@@ -415,6 +421,7 @@ impl RootApp {
                         this.poll_empty_trash(cx);
                         this.poll_decrypt(cx);
                         this.poll_update_check(cx);
+                        this.poll_apply_update(cx);
                     })
                     .is_err()
                 {
@@ -488,7 +495,7 @@ impl RootApp {
                 }
             }
             Ok(CheckOutcome::Update(update)) => {
-                self.pending_update_url = Some(update.url.clone());
+                self.pending_update = Some(update.clone());
                 self.status = SharedString::from(
                     t(self.locale, "updates.silentAvailable").replace("{version}", &update.version),
                 );
@@ -501,6 +508,60 @@ impl RootApp {
             }
         }
         cx.notify();
+    }
+
+    fn start_apply_update(&mut self, cx: &mut Context<Self>) {
+        let Some(update) = self.pending_update.clone() else {
+            return;
+        };
+        if self.applying_update {
+            return;
+        }
+        self.applying_update = true;
+        self.status = SharedString::from(t(self.locale, "updates.downloading"));
+        let slot: ApplyUpdateResult = Arc::new(Mutex::new(None));
+        self.apply_update_result = Some(slot.clone());
+        let url = update.url.clone();
+        std::thread::spawn(move || {
+            let outcome = if updater::supports_silent_install() {
+                updater::prepare_silent_install_and_relaunch(&url).map(|_| ())
+            } else {
+                Err(updater::ApplyError::Spawn(
+                    "silent install is only implemented on Windows".into(),
+                ))
+            }
+            .map_err(|e| e.to_string());
+            if let Ok(mut guard) = slot.lock() {
+                *guard = Some(outcome);
+            }
+        });
+        cx.notify();
+    }
+
+    fn poll_apply_update(&mut self, cx: &mut Context<Self>) {
+        let Some(slot) = self.apply_update_result.clone() else {
+            return;
+        };
+        let finished = slot.lock().ok().and_then(|mut g| g.take());
+        let Some(finished) = finished else {
+            return;
+        };
+        self.apply_update_result = None;
+        self.applying_update = false;
+        match finished {
+            Ok(()) => {
+                // Handoff is waiting for this process to exit, then runs NSIS /S and relaunches.
+                self.shutdown();
+                std::process::exit(0);
+            }
+            Err(error) => {
+                self.status = SharedString::from(format!(
+                    "{}: {error}",
+                    t(self.locale, "updates.installFailed")
+                ));
+                cx.notify();
+            }
+        }
     }
 
     fn poll_empty_trash(&mut self, cx: &mut Context<Self>) {
@@ -899,23 +960,44 @@ impl RootApp {
     fn open_check_for_updates(&mut self, window: &mut Window, cx: &mut Context<Self>) {
         let locale = self.locale;
         let entity = cx.entity();
-        let url = self.pending_update_url.clone();
-        let has_url = url.is_some();
+        let pending = self.pending_update.clone();
+        let has_update = pending.is_some();
+        let silent_install = updater::supports_silent_install();
         window.open_dialog(cx, move |dialog, _, _| {
-            let mut body = v_flex().gap_2().p_2().child(Label::new(if has_url {
-                t(locale, "updates.available")
+            let message = if let Some(update) = pending.as_ref() {
+                t(locale, "updates.availableVersion").replace("{version}", &update.version)
             } else {
-                t(locale, "updates.checking")
-            }));
-            if let Some(url) = url.clone() {
-                body = body.child(
-                    Button::new("upd-download")
-                        .primary()
-                        .label(t(locale, "updates.download"))
-                        .on_click(move |_, _, _| {
-                            let _ = platform::open_url(&url);
-                        }),
-                );
+                t(locale, "updates.checking").to_string()
+            };
+            let mut body = v_flex().gap_2().p_2().child(Label::new(message));
+            if let Some(update) = pending.clone() {
+                if !update.notes.is_empty() {
+                    body = body.child(Label::new(update.notes.clone()).text_xs());
+                }
+                if silent_install {
+                    let entity = entity.clone();
+                    body = body.child(
+                        Button::new("upd-install")
+                            .primary()
+                            .label(t(locale, "updates.installRestart"))
+                            .on_click(move |_, window, cx| {
+                                window.close_dialog(cx);
+                                entity.update(cx, |this, cx| {
+                                    this.start_apply_update(cx);
+                                });
+                            }),
+                    );
+                } else {
+                    let url = update.url.clone();
+                    body = body.child(
+                        Button::new("upd-download")
+                            .primary()
+                            .label(t(locale, "updates.download"))
+                            .on_click(move |_, _, _| {
+                                let _ = platform::open_url(&url);
+                            }),
+                    );
+                }
             } else {
                 body = body.child(
                     Button::new("upd-check-now")
@@ -935,7 +1017,7 @@ impl RootApp {
                 .title(t(locale, "commands.help.checkForUpdates"))
                 .child(body)
         });
-        if !has_url {
+        if !has_update {
             self.start_update_check(true, cx);
         }
     }
