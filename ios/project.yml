@@ -14,6 +14,10 @@ options:
 packages:
   EglCore:
     path: EglCore
+  # Yubico's Swift SDK: the YubiKey as a PIV card over USB-C and Lightning (D-126).
+  YubiKit:
+    url: https://github.com/Yubico/yubikit-swift
+    exactVersion: 1.4.0
 settings:
   base:
     MARKETING_VERSION: "0.2.77"
@@ -32,9 +36,12 @@ targets:
       - path: EglViewer
     dependencies:
       - package: EglCore
+      - package: YubiKit
+        product: YubiKit
     settings:
       base:
         PRODUCT_BUNDLE_IDENTIFIER: app.eglviewer.ios
+        CODE_SIGN_ENTITLEMENTS: EglViewer/Resources/EglViewer.entitlements
         PRODUCT_NAME: EglViewer
         INFOPLIST_FILE: EglViewer/Resources/Info.plist
         GENERATE_INFOPLIST_FILE: NO

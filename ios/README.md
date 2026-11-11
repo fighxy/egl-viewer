@@ -2,8 +2,9 @@
 
 A SwiftUI app over the same native `.eglib` core as the desktop: `crates/app-service` through
 the C ABI of `crates/library-ffi`, wrapped for Swift by the `EglCore` package (D-091, D-092,
-D-093–D-100). It has the desktop's features for native libraries, except auto-update and
-the YubiKey. Of Eagle it has only the import: a `Name.library` picked in Files becomes a new
+D-093–D-100). It has the desktop's features for native libraries, except auto-update. A
+YubiKey opens locked folders too, in the USB-C port (iPhone 15 and later) or on Lightning
+(5Ci) (D-126). Of Eagle it has only the import: a `Name.library` picked in Files becomes a new
 library on the iPhone (D-116); no live connection to a running Eagle, no export into Eagle.
 
 ## What works
@@ -18,6 +19,7 @@ library on the iPhone (D-116); no live connection to a running Eagle, no export 
 | Adding (D-096) | The + menu: Photos (originals, HEIC kept), Files (files and folders, security scopes held during the import), Paste; drops; progress with Stop and a summary; the duplicate question (skip, add anyway, add to the folder, stop) for the batch; HEIC dimensions and thumbnails through ImageIO, lent to the core as its platform decoder |
 | Organizing (D-097) | Folders: new, subfolder, edit (name, description, colour), move, delete with or without their items; the tag list by group with rename, merge, delete and tag groups; a tag's items; smart folders: new, subfolder, edit, delete, Save as Smart Folder, and the rule editor (Eagle's rules kept as JSON, unknown rules preserved) |
 | Locks and login (D-098) | Locked folders: unlock, recovery key, lock with a label, change password, new recovery key, remove lock, Lock All; every open folder locks again when the app leaves the screen; the app's login (password or PIN, Face ID / Touch ID through the Keychain) with a privacy cover |
+| YubiKey (D-126) | Unlock a locked folder with a bound YubiKey (touch, or its PIV PIN) from the unlock sheet; the folder's YubiKey list: bind the key plugged in (a new P-256 key in a free retired slot, the factory management key needed) and remove one, with the folder's password. Through YubiKit Swift 1.4.0: USB-C (iPhone 15 and later, iPads with USB-C) and Lightning (5Ci); NFC is not used. A key bound on the desktop opens the folder here too |
 | Settings (D-099) | Library name, location and storage, Rebuild Thumbnails; backups (Back Up Now, Restore); Check and Repair; export of the library, folders or tags as ZIP, 7z or a folder tree (compression; an optional passphrase of at least 8 characters: age or AES-256 for a ZIP, AES-256 with hidden names for a 7z, D-112, D-113), saved to Files or shared; Decrypt Archive for an encrypted export (D-110); App Lock, version and language |
 | Eagle import (D-116) | Welcome → Import Eagle Library: pick `Name.library` in Files; its name, item count and size; the name of the new library and Eagle's trash on or off; the copy runs in the background with progress and Stop, then a report (imported, same content, could not be imported, left in the trash, locked folders without a password). The Eagle library is only read |
 | Release (D-100) | The icon, a privacy manifest and translated privacy strings; VoiceOver descriptions checked by Xcode's accessibility audit; a 10,000-item library timed in a test; a GitHub Release with the unsigned IPA for each tag `ios-vX.Y.Z` |

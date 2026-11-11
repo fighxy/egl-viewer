@@ -42,6 +42,10 @@
 	<string>Face ID opens egl-viewer when you have turned on the app lock.</string>
 	<key>NSPhotoLibraryAddUsageDescription</key>
 	<string>egl-viewer saves the images you share to Photos only when you choose Save Image.</string>
+	<key>UISupportedExternalAccessoryProtocols</key>
+	<array>
+		<string>com.yubico.ylp</string>
+	</array>
 	<key>UIFileSharingEnabled</key>
 	<true/>
 	<key>CFBundleDocumentTypes</key>

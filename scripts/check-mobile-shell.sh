@@ -43,6 +43,9 @@ need ios/EglViewer/Organize/TagsScreen.swift
 need ios/EglViewer/Locks/AppLock.swift
 need ios/EglViewer/Locks/AppLockForm.swift
 need ios/EglViewer/Locks/LockSheets.swift
+need ios/EglViewer/Locks/YubiKeyCard.swift
+need ios/EglViewer/Locks/YubiKeySheets.swift
+need ios/EglViewer/Resources/EglViewer.entitlements
 need ios/EglViewer/Locks/LoginScreen.swift
 need ios/EglViewer/Settings/SettingsScreen.swift
 need ios/EglViewer/Settings/ExportScreen.swift
@@ -57,6 +60,7 @@ need ios/EglViewer/Resources/Assets.xcassets/AppIcon.appiconset/Contents.json
 need ios/EglViewerTests/PerformanceTests.swift
 need ios/EglViewerTests/ReleaseTests.swift
 need ios/EglViewerTests/EagleImportTests.swift
+need ios/EglViewerTests/YubiKeyTests.swift
 need ios/EglViewerUITests/AccessibilityUITests.swift
 need scripts/ios-release-version.sh
 need ios/EglViewer/Resources/Localizable.xcstrings

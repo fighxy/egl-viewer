@@ -17,11 +17,13 @@ mod decoder;
 mod events;
 mod maintenance;
 mod manage;
+mod piv;
 mod read;
 
 pub use events::*;
 pub use maintenance::*;
 pub use manage::*;
+pub use piv::*;
 pub use read::*;
 
 use std::ffi::{CStr, CString};

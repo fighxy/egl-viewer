@@ -17,6 +17,8 @@ struct LibraryScreen: View {
     @State private var smartEditing: SmartEditing? = nil
     @State private var deletingSmart: SmartFolder? = nil
     @State private var lockAction: LockAction? = nil
+    /// The folder whose YubiKeys are being managed (D-126).
+    @State private var yubiKeysFolder: Folder? = nil
     @State private var settings = false
 
     var body: some View {
@@ -160,6 +162,9 @@ struct LibraryScreen: View {
         .sheet(item: $lockAction) { action in
             LockSheet(open: open, action: action)
         }
+        .sheet(item: $yubiKeysFolder) { folder in
+            YubiKeysSheet(open: open, folder: folder)
+        }
         .sheet(item: $smartEditing) { editing in
             SmartFolderEditor(open: open, editing: editing)
         }
@@ -247,6 +252,13 @@ struct LibraryScreen: View {
         } label: {
             Label("lock.recover", systemImage: "key")
         }
+        if folder.hasPassword {
+            Button {
+                yubiKeysFolder = folder
+            } label: {
+                Label("yubikey.title", systemImage: "key.horizontal")
+            }
+        }
         if !open.readOnly, !folder.hasPassword {
             // A lock imported without a password (an Eagle folder): give it one or take it off.
             Button {
@@ -286,6 +298,11 @@ struct LibraryScreen: View {
                 lockAction = .renewKey(folder)
             } label: {
                 Label("lock.renewKey", systemImage: "key.viewfinder")
+            }
+            Button {
+                yubiKeysFolder = folder
+            } label: {
+                Label("yubikey.title", systemImage: "key.horizontal")
             }
             Button {
                 lockAction = .label(folder)

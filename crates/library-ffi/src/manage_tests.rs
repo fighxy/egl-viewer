@@ -1080,3 +1080,96 @@ fn an_eagle_library_is_summarised_and_imported_through_the_c_abi() {
         EglStatus::Ok
     );
 }
+
+/// D-126: an app that talks to the YubiKey itself binds the key its slot made, then opens the
+/// folder with the card's ECDH answer to the core's challenge. A software P-256 key does the
+/// ECDH the card would do.
+#[test]
+fn a_yubikey_opens_a_folder_through_the_c_abi() {
+    use p256::elliptic_curve::sec1::ToEncodedPoint;
+
+    let hex = |bytes: &[u8]| -> String { bytes.iter().map(|b| format!("{b:02x}")).collect() };
+    let (f, _) = seeded(1);
+    let change = cstring(
+        r#"{"type":"create","name":"Ключи 🔑","parent":null,"description":"","iconColor":null}"#,
+    );
+    let tree = json(f.lib, |out| unsafe {
+        egl_save_folder(f.lib, change.as_ptr(), out)
+    });
+    let folder = cstring(tree[0]["id"].as_str().unwrap());
+    let lock_request = cstring(r#"{"password":"pässwörd 🔒"}"#);
+    json(f.lib, |out| unsafe {
+        egl_lock_folder(f.lib, folder.as_ptr(), lock_request.as_ptr(), out)
+    });
+
+    let card = p256::SecretKey::random(&mut rand::rngs::OsRng);
+    let public = card.public_key().to_encoded_point(false);
+    let bind = |password: &str| {
+        cstring(
+            &serde_json::json!({
+                "password": password, "serial": "12345678", "slot": 0x82, "policy": "pin",
+                "publicKey": hex(public.as_bytes()),
+            })
+            .to_string(),
+        )
+    };
+    let wrong_password = bind("nope");
+    assert_eq!(
+        unsafe { egl_bind_piv(f.lib, folder.as_ptr(), wrong_password.as_ptr()) },
+        EglStatus::WrongPassword
+    );
+    let request = bind("pässwörd 🔒");
+    assert_eq!(
+        unsafe { egl_bind_piv(f.lib, folder.as_ptr(), request.as_ptr()) },
+        EglStatus::Ok,
+        "{}",
+        last_error(f.lib)
+    );
+    let wraps = json(f.lib, |out| unsafe {
+        egl_piv_wraps(f.lib, folder.as_ptr(), out)
+    });
+    assert_eq!(
+        wraps,
+        serde_json::json!([{"serial": "12345678", "slot": 130, "policy": "pin"}])
+    );
+
+    let serial = cstring("12345678");
+    let challenge = json(f.lib, |out| unsafe {
+        egl_piv_challenge(f.lib, folder.as_ptr(), serial.as_ptr(), out)
+    });
+    assert_eq!(challenge["slot"], 130);
+    assert_eq!(challenge["policy"], "pin");
+    let point = challenge["ephemeral"].as_str().unwrap();
+    assert_eq!(point.len(), 130, "65 bytes, uncompressed");
+    let bytes: Vec<u8> = (0..point.len())
+        .step_by(2)
+        .map(|at| u8::from_str_radix(&point[at..at + 2], 16).unwrap())
+        .collect();
+    let peer = p256::PublicKey::from_sec1_bytes(&bytes).unwrap();
+    let shared = p256::ecdh::diffie_hellman(card.to_nonzero_scalar(), peer.as_affine());
+
+    let junk = cstring(&"07".repeat(32));
+    assert_eq!(
+        unsafe { egl_unlock_with_piv(f.lib, folder.as_ptr(), serial.as_ptr(), junk.as_ptr()) },
+        EglStatus::WrongPassword
+    );
+    let answer = cstring(&hex(shared.raw_secret_bytes()));
+    assert_eq!(
+        unsafe { egl_unlock_with_piv(f.lib, folder.as_ptr(), serial.as_ptr(), answer.as_ptr()) },
+        EglStatus::Ok,
+        "{}",
+        last_error(f.lib)
+    );
+    let folders = json(f.lib, |out| unsafe { egl_folder_tree(f.lib, out) });
+    assert_eq!(folders[0]["isUnlocked"], true);
+
+    let password = cstring("pässwörd 🔒");
+    assert_eq!(
+        unsafe { egl_unbind_piv(f.lib, folder.as_ptr(), password.as_ptr(), serial.as_ptr()) },
+        EglStatus::Ok
+    );
+    let wraps = json(f.lib, |out| unsafe {
+        egl_piv_wraps(f.lib, folder.as_ptr(), out)
+    });
+    assert_eq!(wraps, serde_json::json!([]));
+}

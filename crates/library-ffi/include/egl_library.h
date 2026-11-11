@@ -350,6 +350,26 @@ EglStatus egl_lock_folder(EglLibrary *lib, const char *id_utf8, const char *requ
 EglStatus egl_unlock_folder(EglLibrary *lib, const char *id_utf8, const char *password_utf8);
 /** Locks an open folder again; id NULL: every open folder. */
 EglStatus egl_relock_folder(EglLibrary *lib, const char *id_utf8);
+
+/*
+ * A YubiKey for a locked folder, when the app talks to the card itself (D-126). Bytes are
+ * lowercase hex. The private key stays on the card; the core never sees the card.
+ */
+/** PivWrap[] {"serial","slot","policy":"touch"|"pin"} of folder id. */
+EglStatus egl_piv_wraps(EglLibrary *lib, const char *id_utf8, char **out_json);
+/** What card serial must compute: {"slot":130,"policy":"touch"|"pin","ephemeral":"04…"}.
+ *  Ask the card for P-256 ECDH in the slot with the point, then call egl_unlock_with_piv. */
+EglStatus egl_piv_challenge(EglLibrary *lib, const char *id_utf8, const char *serial_utf8,
+                            char **out_json);
+/** Opens folder id with the card's 32-byte ECDH answer (hex); EGL_ERR_WRONG_PASSWORD if not. */
+EglStatus egl_unlock_with_piv(EglLibrary *lib, const char *id_utf8, const char *serial_utf8,
+                              const char *shared_hex);
+/** request_json: {"password":"…","serial":"…","slot":130,"policy":"touch"|"pin",
+ *  "publicKey":"04…"}: the folder password and the key the card made in a retired slot. */
+EglStatus egl_bind_piv(EglLibrary *lib, const char *id_utf8, const char *request_json);
+/** Drops card serial's wrap; the password still opens the folder. */
+EglStatus egl_unbind_piv(EglLibrary *lib, const char *id_utf8, const char *password_utf8,
+                         const char *serial_utf8);
 /** The recovery key or phrase opens the folder and sets a new password. */
 EglStatus egl_recover_folder(EglLibrary *lib, const char *id_utf8, const char *recovery_utf8,
                              const char *new_password_utf8);

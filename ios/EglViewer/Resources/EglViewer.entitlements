@@ -1,0 +1,9 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<!DOCTYPE plist PUBLIC "-//Apple//DTD PLIST 1.0//EN" "http://www.apple.com/DTDs/PropertyLists-1.0.dtd">
+<plist version="1.0">
+<dict>
+	<!-- A YubiKey 5C in the USB-C port is a smart card to iOS (CryptoTokenKit, D-126). -->
+	<key>com.apple.security.smartcard</key>
+	<true/>
+</dict>
+</plist>

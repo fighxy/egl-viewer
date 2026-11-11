@@ -454,6 +454,11 @@ jobs:
             echo "the app says $SHORT, the tag $EXPECTED" >&2
             exit 1
           fi
+          # Signed ad hoc with the app's entitlements (D-126), so a re-signing tool sees that
+          # the app asks for smart cards (a YubiKey 5C on USB-C); it signs again for the device.
+          codesign --force --deep --sign - --timestamp=none \
+            --entitlements ios/EglViewer/Resources/EglViewer.entitlements "$APP"
+          codesign -d --entitlements - "$APP" 2>/dev/null | grep -q "com.apple.security.smartcard"
           mkdir -p "$RUNNER_TEMP/ipa/Payload"
           cp -R "$APP" "$RUNNER_TEMP/ipa/Payload/"
           (cd "$RUNNER_TEMP/ipa" && zip -qry "$GITHUB_WORKSPACE/EglViewer.ipa" Payload)

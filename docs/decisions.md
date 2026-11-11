@@ -2708,3 +2708,51 @@ gap was where to look.
 - **Operator.** To publish a new mobile build: push `ios-vX.Y.Z` and/or `android-vX.Y.Z` after
   `docs/releases/X.Y.Z.md` exists (and Android release secrets are set). To find builds today:
   open the linked tags above or the Releases page and skip past the Latest badge.
+
+## D-126 YubiKey on the iPhone (2026-11-11)
+
+Locked folders on the iPhone open with a bound YubiKey too, as on the desktop (D-056), and the
+app binds one. The folder format does not change: a key bound on one opens the folder on the
+other.
+
+- **The core never sees the card.** On the desktop the core calls the card through the
+  `yubikey` crate. On the phone the card is reached through Yubico's SDK, so the unlock is two
+  steps: `Library::piv_challenge` returns the wrap's slot, policy and the sender's ephemeral
+  P-256 point (it runs the age decryption with an agreement that records the point and
+  refuses, so nothing is decrypted); the app has the card do the ECDH and hands the 32 bytes to
+  `Library::unlock_with_piv_secret`, which runs the same unwrap as the desktop. A wrong answer
+  is `WrongPassword` and opens nothing. The PIN or the touch is the card's business: the core
+  does not see the PIN. Binding takes the SEC1 public key the card made
+  (`PivCard::from_public_key`).
+- **C ABI:** `egl_piv_wraps`, `egl_piv_challenge`, `egl_unlock_with_piv`, `egl_bind_piv`,
+  `egl_unbind_piv`; bytes travel as lowercase hex. In the three header copies; EglCore wraps
+  them (`pivWraps`, `pivChallenge`, `unlockWithPiv`, `bindPiv`, `unbindPiv`).
+- **YubiKit Swift 1.4.0** (`https://github.com/Yubico/yubikit-swift`, `exactVersion` in
+  `ios/project.yml`): Yubico's current SDK (the Objective-C yubikit-ios points new projects to
+  it), the newest release, published in September. It brings `swift-log` (and
+  `swift-docc-plugin`, a build plugin); SPM resolves those within YubiKit's ranges, since the
+  generated project and its `Package.resolved` are not committed.
+- **Connections:** USB-C first (`USBSmartCardConnection`, CryptoTokenKit; iPhone 15 and later,
+  USB-C iPads), then Lightning (`LightningSmartCardConnection`, the 5Ci; protocol
+  `com.yubico.ylp` in Info.plist) when such an accessory is connected. Nothing plugged in is
+  said at once instead of a wait. NFC is left out: it needs the NFC reading entitlement, which
+  a sideloaded build signed with an ordinary certificate may not get, and the YubiKey 5C has
+  no NFC.
+- **Entitlement:** `com.apple.security.smartcard` (USB-C smart cards) in
+  `EglViewer.entitlements`. The CI IPA is unsigned, so the pack step now signs it ad hoc with
+  these entitlements and checks they are there: a re-signing tool (ESign, AltStore) sees what
+  the app asks for. Whether a given signing certificate keeps it is up to that certificate.
+- **Unlock:** the unlock sheet lists the folder's keys under the password; a PIN wrap asks for
+  the 6–8 digit PIV PIN first. The card's serial must be the wrap's. Wrong PIN says the tries
+  left; a blocked PIN, another card or no card say what to do; the password and the recovery
+  key keep working.
+- **Binding:** the folder's YubiKey list (in both lock menus) binds the key plugged in: the
+  factory management key, the PIN for a PIN wrap, the first retired slot 0x82–0x95 without
+  metadata, a new P-256 key with PIN always or touch always, as the desktop does. A management
+  key changed from the factory one is refused with a plain reason (the desktop also tries a
+  PIN-protected one; the phone does not yet). Removing a key takes the password.
+- **Tests:** the challenge and its answer in library-native and through the C ABI (a software
+  P-256 key does the card's ECDH; wrong answers, an unbound serial, a wrong password, unbind);
+  EglCore against the core with a CryptoKit P-256 key; the app's failure texts and the
+  Lightning protocol. The card itself is not in CI: the first unlock with a real YubiKey on an
+  iPhone is a manual check.
