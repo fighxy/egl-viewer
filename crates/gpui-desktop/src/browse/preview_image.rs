@@ -3,7 +3,8 @@
 //! The full-size preview reads and decodes off the UI thread (D-143): [`preview_payload`] reads
 //! the bytes, [`decode_payload`] turns them into a ready-to-upload [`RenderImage`] (EXIF
 //! orientation applied, BGRA, capped at [`MAX_EDGE`]), so GPUI never decodes a large original
-//! while painting.
+//! while painting. Animated GIFs decode into all their frames, which the preview's player
+//! steps through itself (D-154).
 
 use std::io::Cursor;
 use std::sync::Arc;
@@ -13,12 +14,18 @@ use gpui_kit::{Image, ImageFormat, ImageSource, RenderImage};
 use image::{DynamicImage, ImageDecoder as _, ImageReader};
 use library_core::{ItemCell, Thumbnail};
 
-/// Extensions GPUI decodes from the original bytes itself (GIF keeps its animation this way).
+/// Extensions whose original bytes the preview reads directly (no `media` decode).
 const SHOWN_AS_IS: &[&str] = &["jpg", "jpeg", "png", "gif", "webp", "bmp", "svg"];
 
 /// The longest edge of a decoded preview. Larger originals are scaled down once, on the
 /// background thread: GPU textures stop at 16384 and 8192 still leaves room to zoom.
 pub const MAX_EDGE: u32 = 8192;
+
+/// Pixel memory for the frames of one animated GIF in the preview; longer or larger GIFs
+/// play at a smaller size (`media::decode_gif` halves them until they fit).
+const PREVIEW_ANIMATION_BYTES: u64 = 384 << 20;
+/// The same for a GIF playing under the pointer in the grid.
+const HOVER_ANIMATION_BYTES: u64 = 64 << 20;
 
 /// Whether the full-size preview should try the original file bytes first.
 pub fn shows_original(ext: &str) -> bool {
@@ -87,18 +94,20 @@ fn decodes_through_media(ext: &str) -> bool {
     )
 }
 
-/// What the preview paints: pixels decoded by us, or encoded bytes GPUI decodes itself
-/// (animated GIF frames, SVG).
+/// What the preview paints: pixels decoded by us, every frame of an animated GIF decoded by
+/// us, or encoded bytes GPUI decodes itself (SVG, the thumbnail placeholder).
 #[derive(Clone)]
 pub enum Shown {
     Pixels(Arc<RenderImage>),
+    /// Two or more frames with their delays; the preview paints one at a time (D-154).
+    Animation(Arc<RenderImage>),
     Encoded(Arc<Image>),
 }
 
 impl Shown {
     pub fn source(&self) -> ImageSource {
         match self {
-            Self::Pixels(image) => ImageSource::Render(image.clone()),
+            Self::Pixels(image) | Self::Animation(image) => ImageSource::Render(image.clone()),
             Self::Encoded(image) => ImageSource::Image(image.clone()),
         }
     }
@@ -106,7 +115,7 @@ impl Shown {
     /// Our own pixels; GPUI must be told to free their texture (`App::drop_image`).
     pub fn pixels(&self) -> Option<&Arc<RenderImage>> {
         match self {
-            Self::Pixels(image) => Some(image),
+            Self::Pixels(image) | Self::Animation(image) => Some(image),
             Self::Encoded(_) => None,
         }
     }
@@ -193,17 +202,69 @@ fn rotate(image: DynamicImage, degrees: u16) -> DynamicImage {
 }
 
 /// GPUI paints BGRA frames.
-fn to_render_image(image: DynamicImage) -> Arc<RenderImage> {
+fn to_bgra(image: DynamicImage) -> image::RgbaImage {
     let mut rgba = image.into_rgba8();
     let (pixels, _) = rgba.as_chunks_mut::<4>();
     for pixel in pixels {
         pixel.swap(0, 2);
     }
-    Arc::new(RenderImage::new(vec![image::Frame::new(rgba)]))
+    rgba
+}
+
+fn to_render_image(image: DynamicImage) -> Arc<RenderImage> {
+    Arc::new(RenderImage::new(vec![image::Frame::new(to_bgra(image))]))
+}
+
+/// Every frame, turned clockwise by `degrees`, with its file delay.
+fn animation_image(animation: media::Animation, degrees: u16) -> Arc<RenderImage> {
+    let frames: Vec<image::Frame> = animation
+        .frames
+        .into_iter()
+        .map(|frame| {
+            let turned = rotate(DynamicImage::ImageRgba8(frame.pixels), degrees);
+            let delay = image::Delay::from_saturating_duration(frame.delay);
+            image::Frame::from_parts(to_bgra(turned), 0, 0, delay)
+        })
+        .collect();
+    Arc::new(RenderImage::new(frames))
+}
+
+/// A GIF for the preview: every frame when it moves, one picture when it is still.
+fn decode_gif(bytes: &[u8], degrees: u16) -> Option<Shown> {
+    let limits = media::AnimationLimits {
+        max_edge: MAX_EDGE,
+        max_bytes: PREVIEW_ANIMATION_BYTES,
+    };
+    match media::decode_gif(bytes, limits) {
+        Ok(animation) if animation.frames.len() > 1 => {
+            Some(Shown::Animation(animation_image(animation, degrees)))
+        }
+        Ok(mut still) => {
+            let frame = still.frames.pop()?;
+            let turned = rotate(DynamicImage::ImageRgba8(frame.pixels), degrees);
+            Some(Shown::Pixels(to_render_image(turned)))
+        }
+        // Too many frames even when small: the first frame still shows.
+        Err(_) => {
+            let first = decode_upright(bytes, image::ImageFormat::Gif)?;
+            Some(Shown::Pixels(to_render_image(rotate(first, degrees))))
+        }
+    }
+}
+
+/// The frames of an animated GIF for a grid cell whose long edge is `edge` pixels; `None` for
+/// a still or unreadable GIF (the thumbnail stays). Heavy: background only.
+pub fn hover_animation(bytes: &[u8], edge: u32) -> Option<Arc<RenderImage>> {
+    let limits = media::AnimationLimits {
+        max_edge: edge.clamp(media::MIN_ANIMATION_EDGE, 1024),
+        max_bytes: HOVER_ANIMATION_BYTES,
+    };
+    let animation = media::decode_gif(bytes, limits).ok()?;
+    (animation.frames.len() > 1).then(|| animation_image(animation, 0))
 }
 
 /// Decodes the payload for painting, rotated clockwise by `degrees`. Heavy: background only.
-/// An unrotated GIF stays encoded so it keeps its animation; SVG always does (no rotation).
+/// A GIF keeps its animation at any rotation; SVG stays encoded (no rotation).
 pub fn decode_payload(payload: &PreviewPayload, degrees: u16) -> Option<Shown> {
     let degrees = degrees % 360;
     if let Some(ext) = &payload.media_ext {
@@ -215,8 +276,8 @@ pub fn decode_payload(payload: &PreviewPayload, degrees: u16) -> Option<Shown> {
     let Some(format) = raster_format(payload.format) else {
         return Some(encoded());
     };
-    if payload.format == ImageFormat::Gif && degrees == 0 {
-        return Some(encoded());
+    if payload.format == ImageFormat::Gif {
+        return decode_gif(&payload.bytes, degrees);
     }
     let decoded = decode_upright(&payload.bytes, format)?;
     Some(Shown::Pixels(to_render_image(rotate(decoded, degrees))))
@@ -302,6 +363,52 @@ mod tests {
         assert!(decodes_through_media("HEIC"));
         assert!(decodes_through_media("psd"));
         assert!(!decodes_through_media("svg"));
+    }
+
+    fn gif(width: u32, height: u32, delays_ms: &[u32]) -> PreviewPayload {
+        PreviewPayload::encoded(
+            media::fixtures::animated_gif(width, height, delays_ms),
+            ImageFormat::Gif,
+        )
+    }
+
+    #[test]
+    fn animated_gifs_decode_every_frame_at_any_rotation() {
+        for degrees in [0, 90, 180, 270] {
+            let Some(Shown::Animation(image)) = decode_payload(&gif(6, 4, &[40, 80, 120]), degrees)
+            else {
+                panic!("an animation at {degrees}°");
+            };
+            assert_eq!(image.frame_count(), 3);
+            let size = image.size(2);
+            let expected = if degrees % 180 == 0 { (6, 4) } else { (4, 6) };
+            assert_eq!((size.width.0, size.height.0), expected, "{degrees}°");
+            assert_eq!(
+                std::time::Duration::from(image.delay(1)),
+                std::time::Duration::from_millis(80)
+            );
+        }
+    }
+
+    #[test]
+    fn a_still_gif_is_plain_pixels() {
+        let still = PreviewPayload::encoded(
+            media::fixtures::raster(image::ImageFormat::Gif, 5, 3, 1),
+            ImageFormat::Gif,
+        );
+        assert!(matches!(decode_payload(&still, 0), Some(Shown::Pixels(_))));
+        assert!(decode_payload(&gif(5, 3, &[50]), 90).is_some());
+    }
+
+    #[test]
+    fn hover_frames_fit_the_cell_and_skip_stills() {
+        let bytes = media::fixtures::animated_gif(800, 400, &[50, 50]);
+        let frames = hover_animation(&bytes, 200).expect("frames");
+        assert_eq!(frames.frame_count(), 2);
+        assert_eq!(frames.size(0).width.0, 200);
+        let still = media::fixtures::animated_gif(10, 10, &[50]);
+        assert!(hover_animation(&still, 200).is_none());
+        assert!(hover_animation(b"nope", 200).is_none());
     }
 
     #[test]

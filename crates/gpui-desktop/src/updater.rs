@@ -13,7 +13,9 @@ use serde_json::Value;
 pub const DEFAULT_ENDPOINT: &str =
     "https://github.com/fighxy/egl-viewer/releases/download/gpui-latest/latest-gpui.json";
 
-/// Per-user install directory (must stay distinct from Tauri's `egl-viewer`).
+/// Per-user install directory (must stay distinct from Tauri's `egl-viewer`). Windows only:
+/// the NSIS setup is the only installer that the app updates itself.
+#[cfg(windows)]
 pub const INSTALL_DIR_NAME: &str = "egl-viewer-gpui";
 
 #[derive(Debug, Clone, PartialEq, Eq)]
@@ -167,19 +169,13 @@ pub fn check_latest(current: &str, endpoint: &str) -> Result<CheckOutcome, Check
 }
 
 /// Default per-user install directory for the GPUI NSIS layout.
+#[cfg(windows)]
 pub fn default_install_dir() -> PathBuf {
-    #[cfg(windows)]
-    {
-        std::env::var_os("LOCALAPPDATA")
-            .map(PathBuf::from)
-            .unwrap_or_else(std::env::temp_dir)
-            .join("Programs")
-            .join(INSTALL_DIR_NAME)
-    }
-    #[cfg(not(windows))]
-    {
-        std::env::temp_dir().join(INSTALL_DIR_NAME)
-    }
+    std::env::var_os("LOCALAPPDATA")
+        .map(PathBuf::from)
+        .unwrap_or_else(std::env::temp_dir)
+        .join("Programs")
+        .join(INSTALL_DIR_NAME)
 }
 
 /// Whether this host can download the NSIS setup, exit, install silently, and relaunch.
@@ -332,6 +328,7 @@ mod tests {
         assert!(!DEFAULT_ENDPOINT.contains("/releases/latest/"));
     }
 
+    #[cfg(windows)]
     #[test]
     fn install_dir_name_is_not_tauri() {
         assert_eq!(INSTALL_DIR_NAME, "egl-viewer-gpui");

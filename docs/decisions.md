@@ -2691,7 +2691,7 @@ mobile shells (D-082 / D-083): prove the stack by calling Rust services directly
 Numbering note: open PR #85 already reserves **D-125** for mobile GitHub Release visibility,
 so this decision is **D-126** (not D-125).
 
-- **Crate.** `crates/gpui-desktop` (bin `gpui-desktop`) depends on `gpui-kit` **=0.9.0**
+- **Crate.** `crates/gpui-desktop` (bin `gpui-desktop`) depends on `gpui-kit` **=0.9.0** (=0.9.1 since D-155)
   (Longbridge, https://gpui-kit.com / crates.io `gpui-kit`), and (after D-127)
   `desktop-session` / `library-core` / `library-native`. Workspace pin is exact (D-002);
   0.9.0 was published 2026-11-02, older than the supply-chain age rule in D-003. The app never
@@ -3223,7 +3223,7 @@ Nothing held a scroll handle, so the app could not move the view itself. Found a
   dragging. Windows has no such cursors (only the pointing hand `IDC_HAND`), and
   `gpui-pre-windows` maps `CursorStyle::OpenHand` / `ClosedHand` to the arrow. It sets the
   cursor again on every mouse move, so the app cannot set its own from outside.
-- **Patch.** `vendor/gpui-pre-windows` is the published 0.3.11 with one change in
+- **Patch.** `vendor/gpui-pre-windows` is the published 0.3.11 (0.3.12 since D-155) with one change in
   `src/util.rs` (`EGL-VIEWER-PATCH.md` there): `OpenHand` loads cursor resource 102 of the exe,
   `ClosedHand` resource 101, and without them the system hand. It is wired with
   `[patch.crates-io]`; the workspace excludes `vendor/`, so the copy is built as a dependency
@@ -3351,3 +3351,58 @@ with the shipping Tauri app or GitHub Latest.
   signature).
 - **Verify.** `cargo test -p gpui-desktop`; Windows dry-run of `.github/workflows/gpui-release.yml`
   produces the setup exe artifact.
+
+## D-154 GPUI: playing animated GIFs in the preview and the grid (2026-11-11)
+
+Before, the preview handed an unrotated GIF's bytes to GPUI, which animated it on its own clock
+with no way to pause it; a rotated GIF showed its first frame only, and the decoded frames
+stayed in GPUI's asset cache for the life of the window. The grid only had the still thumbnail.
+
+- **Frames from `media`.** `media::decode_gif` returns every frame composited onto the canvas,
+  with its delay, scaled to `max_edge` and halved (down to 128 px on the long edge) until all
+  frames fit a byte budget; past that it refuses with `TooLarge` and the preview shows the first
+  frame. Budgets: 384 MiB for the preview, 64 MiB under the pointer (cell size × 2, at most
+  1024 px). The thumbnail pipeline is unchanged (first frame).
+- **Our own frames, our own clock.** The preview decodes a GIF into one multi-frame
+  `RenderImage` (`Shown::Animation`), turned like any other image, and paints one frame through
+  `canvas` + `Window::paint_image`. GPUI's `img` is not used for it: it cannot pause or seek,
+  races through 0 ms delays and stops in an inactive window. Its texture is freed with
+  `App::drop_image` like the other previews (all frames at once).
+- **`GifPlayer`** (`browse/gif_player.rs`, pure and tested): frame, play / pause, step (pauses,
+  wraps), seek (keeps playing), speed 0.25×–2×. Delays of 10 ms or less play at 100 ms, as
+  browsers do. Pauses do not count toward the next frame; after a long stall it skips whole
+  loops. A turned GIF with the same frame count keeps its frame, speed and state.
+- **One ticker.** A detached task sleeps until the next frame of whichever player is due (the
+  preview's and the hover GIF's) and stops in the same update that sees nothing playing, so
+  a quick pause and play can never leave a playing GIF without a ticker.
+- **The bar.** At the bottom of the stage: previous frame, play / pause, next frame, a track of
+  up to 240 segments (longer GIFs share segments; a seek lands on the first frame of its segment
+  so the track shows it reached), the frame number, the loop length at 1× and the speed. Fixed
+  widths keep the track still under a dragging pointer. The bar occludes the letterbox, so a
+  click on it neither closes the preview nor starts a pan. Keys: `P`, `,`, `.` (in Help →
+  Keyboard Shortcuts).
+- **Grid.** Hovering a GIF cell in the justified grid reads the original in the background and
+  plays it with its own `GifPlayer` in the cell (object-fit cover, rounded like the thumbnail);
+  leaving the cell, another hover, opening or closing a library free its frames. Nothing plays
+  on hover with Windows animation effects off, and a GIF opens paused in the preview then.
+- **Not done here.** Animated WebP and APNG still show their first frame; the list view keeps
+  still thumbnails; iOS and Android are unchanged.
+- **Verify.** `cargo test -p media animation`, `cargo test -p gpui-desktop` (player, decode,
+  keys); by hand on Windows: a GIF plays in the preview, `P` / `,` / `.` and the bar work,
+  rotation keeps it playing, hovering a GIF in the grid plays it.
+
+## D-155 gpui-kit 0.9.1 (2026-11-11)
+
+- **Bump.** `gpui-kit` =0.9.0 → =0.9.1 (published 2026-11-09, older than the age rule of
+  D-003). It moves the whole `gpui-pre-*` family from 0.3.11 to 0.3.12 and `gpui-component`,
+  `gpui-base`, `gpui-kit-assets` to 0.9.1. No code in the app had to change.
+- **The Windows patch moved with it.** `[patch.crates-io]` only applies to the exact version
+  in `vendor/`, so 0.9.1 would have silently dropped the hand cursors of D-148 (the lock showed
+  `gpui-pre-windows` from crates.io again). `vendor/gpui-pre-windows` is now the published
+  0.3.12 with the same `load_cursor` change; upstream `src/util.rs` is identical in 0.3.11 and
+  0.3.12, so the patch applies unchanged. `Cargo.lock` lists `gpui-pre-windows` 0.3.12 without
+  a registry source, which is how to check that the patch is in use.
+- **Clippy on Linux and macOS.** `updater::INSTALL_DIR_NAME` and `default_install_dir` serve
+  only the Windows NSIS self-update; they are `#[cfg(windows)]` now (with their test), and the
+  non-Windows fallback into the temp folder, which nothing used, is gone. `cargo clippy
+  --workspace --all-targets -- -D warnings` passes on Linux again.

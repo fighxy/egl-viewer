@@ -1,18 +1,23 @@
-//! Full-size preview overlay: fit / zoom / pan / rotate / prev-next (Phase 2).
+//! Full-size preview overlay: fit / zoom / pan / rotate / prev-next, and the GIF player
+//! (D-154).
 
+use std::sync::Arc;
 use std::time::{Duration, Instant};
 
 use app_store::Locale;
+use gpui_kit::assets::IconName;
 use gpui_kit::component::button::{Button, ButtonVariants as _};
 use gpui_kit::component::label::Label;
 use gpui_kit::component::{Disableable as _, StyledExt as _, h_flex};
 use gpui_kit::prelude::FluentBuilder as _;
 use gpui_kit::{
-    CursorStyle, Entity, InteractiveElement, IntoElement, MouseButton, ParentElement, SharedString,
-    Styled, StyledImage as _, black, div, img, px, white,
+    AnyElement, Bounds, Corners, CursorStyle, Entity, InteractiveElement, IntoElement, MouseButton,
+    ObjectFit, ParentElement, Pixels, RenderImage, SharedString, Styled, StyledImage as _, black,
+    canvas, div, img, px, white,
 };
 
 use crate::app::RootApp;
+use crate::browse::gif_player::{self, GifPlayer};
 use crate::browse::preview_cache::PreviewKey;
 use crate::browse::preview_image::Shown;
 use crate::browse::space_preview::{self, SpaceDown};
@@ -45,6 +50,8 @@ pub struct PreviewState {
     /// 0.0…1.0 appear progress for best-effort fade (2.4).
     pub appear: f32,
     pub opened_at: Instant,
+    /// Playback of an animated GIF; set whenever [`Self::image`] is an animation (D-154).
+    pub player: Option<GifPlayer>,
 }
 
 impl PreviewState {
@@ -68,7 +75,34 @@ impl PreviewState {
             drag_origin: None,
             appear: if platform::reduced_motion() { 1.0 } else { 0.0 },
             opened_at: Instant::now(),
+            player: None,
         }
+        .with_player()
+    }
+
+    fn with_player(mut self) -> Self {
+        self.sync_player(Instant::now());
+        self
+    }
+
+    /// Shows `image`. An animation gets a player; the same GIF turned (same frame count)
+    /// keeps its frame, speed and play state.
+    pub fn show(&mut self, image: Option<Shown>, now: Instant) {
+        self.image = image;
+        self.sync_player(now);
+    }
+
+    fn sync_player(&mut self, now: Instant) {
+        let Some(Shown::Animation(frames)) = &self.image else {
+            self.player = None;
+            return;
+        };
+        let count = frames.frame_count();
+        if self.player.as_ref().map(GifPlayer::frame_count) == Some(count) {
+            return;
+        }
+        let delays = (0..count).map(|index| Duration::from(frames.delay(index)));
+        self.player = Some(GifPlayer::new(delays, !platform::reduced_motion(), now));
     }
 
     /// Sets the zoom (1.0 is the fit), between [`MIN_ZOOM`] and [`MAX_ZOOM`]. Steps that land
@@ -193,7 +227,7 @@ pub fn fit_box(natural: Option<(f32, f32)>, stage: (f32, f32), zoom: f32) -> (f3
 /// the thumbnail placeholder stands in for the original.
 fn natural_size(state: &PreviewState) -> Option<(f32, f32)> {
     match &state.image {
-        Some(Shown::Pixels(image)) => {
+        Some(Shown::Pixels(image) | Shown::Animation(image)) => {
             let size = image.size(0);
             Some((size.width.0 as f32, size.height.0 as f32))
         }
@@ -381,30 +415,52 @@ pub fn render_preview(
                         .child(match &state.image {
                             Some(shown) => {
                                 let pan = pan_entity.clone();
-                                img(shown.source())
-                                    .id("preview-image")
-                                    .flex_none()
-                                    .relative()
-                                    .left(px(ox))
-                                    .top(px(oy))
-                                    .object_fit(gpui_kit::ObjectFit::Contain)
-                                    .w(px(box_w))
-                                    .h(px(box_h))
-                                    .cursor(drag_cursor(dragging))
-                                    // Grab and drag at any zoom. A click on the image never
-                                    // reaches the letterbox, so it does not close the preview.
-                                    .on_mouse_down(MouseButton::Left, move |event, _, cx| {
-                                        cx.stop_propagation();
-                                        let pos = event.position;
-                                        pan.update(cx, |this, cx| {
-                                            this.preview_pan_start(
-                                                pos.x.as_f32() - ox,
-                                                pos.y.as_f32() - oy,
-                                                cx,
-                                            );
-                                        });
-                                    })
-                                    .into_any_element()
+                                // Grab and drag at any zoom. A click on the image never
+                                // reaches the letterbox, so it does not close the preview.
+                                let grab = move |event: &gpui_kit::MouseDownEvent,
+                                                 _: &mut gpui_kit::Window,
+                                                 cx: &mut gpui_kit::App| {
+                                    cx.stop_propagation();
+                                    let pos = event.position;
+                                    pan.update(cx, |this, cx| {
+                                        this.preview_pan_start(
+                                            pos.x.as_f32() - ox,
+                                            pos.y.as_f32() - oy,
+                                            cx,
+                                        );
+                                    });
+                                };
+                                match (shown, &state.player) {
+                                    (Shown::Animation(frames), Some(player)) => div()
+                                        .id("preview-image")
+                                        .flex_none()
+                                        .relative()
+                                        .left(px(ox))
+                                        .top(px(oy))
+                                        .w(px(box_w))
+                                        .h(px(box_h))
+                                        .cursor(drag_cursor(dragging))
+                                        .on_mouse_down(MouseButton::Left, grab)
+                                        .child(animation_frame(
+                                            frames.clone(),
+                                            player.frame(),
+                                            ObjectFit::Contain,
+                                            0.0,
+                                        ))
+                                        .into_any_element(),
+                                    _ => img(shown.source())
+                                        .id("preview-image")
+                                        .flex_none()
+                                        .relative()
+                                        .left(px(ox))
+                                        .top(px(oy))
+                                        .object_fit(ObjectFit::Contain)
+                                        .w(px(box_w))
+                                        .h(px(box_h))
+                                        .cursor(drag_cursor(dragging))
+                                        .on_mouse_down(MouseButton::Left, grab)
+                                        .into_any_element(),
+                                }
                             }
                             None => Label::new(t(locale, "preview.unavailable"))
                                 .text_lg()
@@ -434,8 +490,193 @@ pub fn render_preview(
                         .on_click(move |_, _, cx| {
                             next_entity.update(cx, |this, cx| this.preview_step(1, cx));
                         }),
+                )
+                .when_some(state.player.as_ref(), |el, player| {
+                    el.child(gif_controls(player, locale, entity.clone()))
+                }),
+        )
+}
+
+/// One frame of an animation, fitted into its parent. GPUI's `img` would play the frames on
+/// its own clock (racing through 0 ms delays, stopping in an inactive window); painting the
+/// frame directly lets [`GifPlayer`] pause, step, seek and set the speed. Also the grid's
+/// hover playback (D-154).
+pub fn animation_frame(
+    frames: Arc<RenderImage>,
+    frame: usize,
+    fit: ObjectFit,
+    radius: f32,
+) -> impl IntoElement {
+    canvas(
+        |_, _, _| {},
+        move |bounds: Bounds<Pixels>, _, window, _| {
+            let size = frames.size(frame);
+            let fitted = fit.get_bounds(bounds, size);
+            window
+                .paint_image(
+                    bounds,
+                    fitted,
+                    Corners::all(px(radius)),
+                    frames,
+                    frame,
+                    false,
+                )
+                .ok();
+        },
+    )
+    .size_full()
+}
+
+/// Height of the GIF player bar and its gap to the bottom of the stage.
+const CONTROLS_HEIGHT: f32 = 40.0;
+/// Width of the scrubber track.
+const TRACK_WIDTH: f32 = 320.0;
+
+fn speed_label(speed: f32) -> String {
+    let text = format!("{speed}");
+    format!("{text}×")
+}
+
+/// The GIF player bar at the bottom of the stage: previous frame, play / pause, next frame,
+/// a scrubber to click or drag, the frame number and the speed (D-154).
+fn gif_controls(player: &GifPlayer, locale: Locale, entity: Entity<RootApp>) -> AnyElement {
+    let frames = player.frame_count();
+    let segments = gif_player::segment_count(frames);
+    let reached = gif_player::segment_for_frame(player.frame(), frames);
+    let playing = player.is_playing();
+    let (back, toggle, forward, speed) = (
+        entity.clone(),
+        entity.clone(),
+        entity.clone(),
+        entity.clone(),
+    );
+    let seconds = player.duration().as_secs_f32();
+
+    let track = h_flex()
+        .id("gif-track")
+        .w(px(TRACK_WIDTH))
+        .h(px(20.0))
+        .items_center()
+        .cursor(CursorStyle::PointingHand)
+        .children((0..segments).map(|segment| {
+            let seek = entity.clone();
+            let drag = entity.clone();
+            let frame = gif_player::frame_for_segment(segment, frames);
+            div()
+                .id(("gif-segment", segment))
+                .flex_1()
+                .h_full()
+                .flex()
+                .items_center()
+                .child(div().w_full().h(px(4.0)).bg(if segment <= reached {
+                    white().opacity(0.9)
+                } else {
+                    white().opacity(0.25)
+                }))
+                .on_mouse_down(MouseButton::Left, move |_, _, cx| {
+                    cx.stop_propagation();
+                    seek.update(cx, |this, cx| this.preview_gif_seek(frame, cx));
+                })
+                // Dragging along the track scrubs through the frames.
+                .on_mouse_move(move |event, _, cx| {
+                    if event.pressed_button == Some(MouseButton::Left) {
+                        drag.update(cx, |this, cx| this.preview_gif_seek(frame, cx));
+                    }
+                })
+        }));
+
+    h_flex()
+        .id("gif-controls")
+        .absolute()
+        .bottom(px(12.0))
+        .left_0()
+        .right_0()
+        .justify_center()
+        .child(
+            h_flex()
+                .id("gif-controls-bar")
+                // Clicks on the bar neither close the preview nor start a pan.
+                .occlude()
+                .on_mouse_down(MouseButton::Left, |_, _, cx| cx.stop_propagation())
+                .on_mouse_down(MouseButton::Right, |_, _, cx| cx.stop_propagation())
+                .h(px(CONTROLS_HEIGHT))
+                .px_2()
+                .gap_1()
+                .items_center()
+                .rounded(px(8.0))
+                .bg(black().opacity(0.7))
+                .child(
+                    Button::new("gif-prev-frame")
+                        .ghost()
+                        // White on the dark bar in either theme.
+                        .text_color(white())
+                        .icon(IconName::StepBack)
+                        .tooltip(t(locale, "preview.gif.prevFrame"))
+                        .on_click(move |_, _, cx| {
+                            back.update(cx, |this, cx| this.preview_gif_step(-1, cx));
+                        }),
+                )
+                .child(
+                    Button::new("gif-play")
+                        .ghost()
+                        .text_color(white())
+                        .icon(if playing {
+                            IconName::Pause
+                        } else {
+                            IconName::Play
+                        })
+                        .tooltip(t(
+                            locale,
+                            if playing {
+                                "preview.gif.pause"
+                            } else {
+                                "preview.gif.play"
+                            },
+                        ))
+                        .on_click(move |_, _, cx| {
+                            toggle.update(cx, |this, cx| this.preview_gif_toggle(cx));
+                        }),
+                )
+                .child(
+                    Button::new("gif-next-frame")
+                        .ghost()
+                        .text_color(white())
+                        .icon(IconName::StepForward)
+                        .tooltip(t(locale, "preview.gif.nextFrame"))
+                        .on_click(move |_, _, cx| {
+                            forward.update(cx, |this, cx| this.preview_gif_step(1, cx));
+                        }),
+                )
+                .child(div().px_2().child(track))
+                // Fixed widths: the bar keeps its place (and the track stays under a
+                // dragging pointer) while the numbers change.
+                .child(
+                    h_flex().w(px(72.0)).justify_end().child(
+                        Label::new(format!("{} / {frames}", player.frame() + 1))
+                            .text_xs()
+                            .text_color(white().opacity(0.8)),
+                    ),
+                )
+                .child(
+                    h_flex().w(px(48.0)).justify_end().child(
+                        Label::new(format!("{seconds:.1} s"))
+                            .text_xs()
+                            .text_color(white().opacity(0.55)),
+                    ),
+                )
+                .child(
+                    Button::new("gif-speed")
+                        .ghost()
+                        .text_color(white())
+                        .w(px(56.0))
+                        .label(speed_label(player.speed()))
+                        .tooltip(t(locale, "preview.gif.speed"))
+                        .on_click(move |_, _, cx| {
+                            speed.update(cx, |this, cx| this.preview_gif_speed(cx));
+                        }),
                 ),
         )
+        .into_any_element()
 }
 
 #[cfg(test)]
@@ -533,6 +774,51 @@ mod tests {
         assert_eq!(wheel_zoom_factor(1.0), Some(WHEEL_ZOOM));
         assert_eq!(wheel_zoom_factor(-1.0), Some(1.0 / WHEEL_ZOOM));
         assert_eq!(wheel_zoom_factor(0.0), None);
+    }
+
+    fn animation(frames: usize) -> Shown {
+        let frames: Vec<image::Frame> = (0..frames)
+            .map(|_| {
+                image::Frame::from_parts(
+                    image::RgbaImage::new(4, 2),
+                    0,
+                    0,
+                    image::Delay::from_numer_denom_ms(50, 1),
+                )
+            })
+            .collect();
+        Shown::Animation(Arc::new(RenderImage::new(frames)))
+    }
+
+    #[test]
+    fn an_animation_gets_a_player_and_a_still_does_not() {
+        let now = Instant::now();
+        let mut state = PreviewState::new(0, 1, "a.gif", Some(animation(3)));
+        let player = state.player.as_ref().expect("a player");
+        assert_eq!(player.frame_count(), 3);
+        assert_eq!(player.duration(), Duration::from_millis(150));
+        assert_eq!(natural_size(&state), Some((4.0, 2.0)));
+
+        // The same GIF turned keeps where it was.
+        state.player.as_mut().unwrap().step(1);
+        state.show(Some(animation(3)), now);
+        assert_eq!(state.player.as_ref().unwrap().frame(), 1);
+
+        // Another GIF starts over; a still has no player.
+        state.show(Some(animation(5)), now);
+        assert_eq!(state.player.as_ref().unwrap().frame(), 0);
+        let still = Shown::Pixels(Arc::new(RenderImage::new(vec![image::Frame::new(
+            image::RgbaImage::new(1, 1),
+        )])));
+        state.show(Some(still), now);
+        assert!(state.player.is_none());
+    }
+
+    #[test]
+    fn speeds_read_as_multipliers() {
+        assert_eq!(speed_label(1.0), "1×");
+        assert_eq!(speed_label(0.25), "0.25×");
+        assert_eq!(speed_label(1.5), "1.5×");
     }
 
     #[test]

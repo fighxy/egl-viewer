@@ -17,6 +17,7 @@ use gpui_kit::{
 use library_core::{ItemCell, ItemId, SortKey};
 
 use crate::app::{RootApp, RubberBand};
+use crate::browse::preview::animation_frame;
 use crate::browse::style;
 use crate::dnd::{self, DragPayload};
 use crate::i18n::t;
@@ -24,6 +25,7 @@ use crate::justified::{self, CellDimensions, JustifiedLayout, PADDING, pack_just
 use crate::library::{OpenLibraryState, Place, Selection, cell_thumbnail};
 use crate::ops_dnd::DropIntent;
 use crate::ops_items;
+use crate::ops_preview::plays_on_hover;
 
 #[derive(Clone)]
 pub struct ListedItem {
@@ -365,13 +367,26 @@ fn render_justified_virtual(
                             let focused = selection.focus == Some(index);
                             let entity = entity.clone();
                             let title = format!("{}.{}", item.cell.name, item.cell.ext);
-                            let preview = thumb_fill(
-                                item,
-                                cell.width,
-                                cell.height,
-                                theme.muted,
-                                theme.muted_foreground,
-                            );
+                            // A GIF under the pointer plays in its cell (D-154).
+                            let preview = match this.hover_frames(&item.cell) {
+                                Some((frames, frame)) => div()
+                                    .w(px(cell.width))
+                                    .h(px(cell.height))
+                                    .child(animation_frame(
+                                        frames,
+                                        frame,
+                                        gpui_kit::ObjectFit::Cover,
+                                        style::THUMB_RADIUS,
+                                    ))
+                                    .into_any_element(),
+                                None => thumb_fill(
+                                    item,
+                                    cell.width,
+                                    cell.height,
+                                    theme.muted,
+                                    theme.muted_foreground,
+                                ),
+                            };
                             let ring = style::selection_color(&theme);
                             let size_caption = dimensions
                                 .get(index)
@@ -398,6 +413,16 @@ fn render_justified_virtual(
                                 });
                             cell_el = attach_item_drag(cell_el, payload, list_entity.clone());
                             cell_el = attach_context_select(cell_el, list_entity.clone(), index);
+                            if plays_on_hover(&item.cell) {
+                                let hover = list_entity.clone();
+                                let hovered_cell = item.cell.clone();
+                                let edge = cell.width.max(cell.height);
+                                cell_el = cell_el.on_hover(move |hovered, _, cx| {
+                                    hover.update(cx, |this, cx| {
+                                        this.hover_gif(&hovered_cell, edge, *hovered, cx);
+                                    });
+                                });
+                            }
                             if reorderable && let Some(folder_id) = folder_id.clone() {
                                 cell_el = attach_cell_drop(
                                     cell_el,

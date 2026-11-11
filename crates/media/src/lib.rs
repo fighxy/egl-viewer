@@ -3,6 +3,7 @@
 //! Tauri. Formats without a preview are reported as [`MediaError::Unsupported`] and get an
 //! extension placeholder (D-015). HEIC/HEIF decode through libheif (D-063).
 
+mod animation;
 mod decode;
 #[cfg(any(test, feature = "fixtures"))]
 pub mod fixtures;
@@ -17,6 +18,7 @@ use image::RgbaImage;
 use library_core::Palette;
 use thiserror::Error;
 
+pub use animation::{Animation, AnimationFrame, AnimationLimits, MIN_ANIMATION_EDGE, decode_gif};
 pub use palette::palette;
 pub use platform::{PlatformDecoder, PlatformImage, set_platform_decoder};
 

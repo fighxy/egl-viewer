@@ -36,6 +36,26 @@ pub fn raster(format: ImageFormat, width: u32, height: u32, seed: u32) -> Vec<u8
     )
 }
 
+/// An animated GIF that loops forever, one solid colour per frame, with these delays in
+/// milliseconds (GIF stores hundredths of a second: use multiples of 10).
+pub fn animated_gif(width: u32, height: u32, delays_ms: &[u32]) -> Vec<u8> {
+    use image::codecs::gif::{GifEncoder, Repeat};
+    use image::{Delay, Frame};
+
+    let mut bytes = Vec::new();
+    {
+        let mut encoder = GifEncoder::new(&mut bytes);
+        encoder.set_repeat(Repeat::Infinite).expect("gif repeat");
+        for (index, delay) in delays_ms.iter().enumerate() {
+            let shade = (index as u8).wrapping_mul(61);
+            let pixels = RgbaImage::from_pixel(width, height, Rgba([shade, 255 - shade, 90, 255]));
+            let frame = Frame::from_parts(pixels, 0, 0, Delay::from_numer_denom_ms(*delay, 1));
+            encoder.encode_frame(frame).expect("gif frame");
+        }
+    }
+    bytes
+}
+
 pub fn svg(width: u32, height: u32, seed: u32) -> Vec<u8> {
     format!(
         r##"<svg xmlns="http://www.w3.org/2000/svg" width="{width}" height="{height}" viewBox="0 0 {width} {height}">

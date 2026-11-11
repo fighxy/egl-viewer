@@ -1,6 +1,7 @@
 pub mod details;
 pub mod filter_menus;
 pub mod format;
+pub mod gif_player;
 pub mod grid;
 pub mod picker;
 pub mod preview;

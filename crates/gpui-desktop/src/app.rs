@@ -104,6 +104,10 @@ pub struct RootApp {
     pub(crate) preview_cache: PreviewCache,
     /// The open item drawn at a rotation, owned apart from the cache (D-058).
     pub(crate) preview_rotated: Option<Shown>,
+    /// A task advances the GIF players (preview, hover) while one plays (D-154).
+    pub(crate) gif_ticking: bool,
+    /// The animated GIF playing under the pointer in the grid (D-154).
+    pub(crate) hover_gif: Option<crate::ops_preview::HoverGif>,
     /// Scroll position of the items view (grid rows or list rows) (D-145).
     pub(crate) grid_scroll: VirtualListScrollHandle,
     /// The view the scroll position belongs to; another view starts at the top.
@@ -274,6 +278,8 @@ impl RootApp {
             preview: None,
             preview_cache: PreviewCache::default(),
             preview_rotated: None,
+            gif_ticking: false,
+            hover_gif: None,
             grid_scroll: VirtualListScrollHandle::new(),
             scrolled_view: None,
             space_gesture: None,
@@ -1773,6 +1779,15 @@ impl Render for RootApp {
                 if this.preview.is_some() {
                     this.preview_rotate(cx);
                 }
+            }))
+            .on_action(cx.listener(|this, _: &PreviewGifToggle, _, cx| {
+                this.preview_gif_toggle(cx);
+            }))
+            .on_action(cx.listener(|this, _: &PreviewGifPrevFrame, _, cx| {
+                this.preview_gif_step(-1, cx);
+            }))
+            .on_action(cx.listener(|this, _: &PreviewGifNextFrame, _, cx| {
+                this.preview_gif_step(1, cx);
             }))
             .on_action(cx.listener(|this, _: &SpacePreviewDown, _, cx| {
                 this.space_preview_down(cx);
