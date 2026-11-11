@@ -1195,7 +1195,7 @@ The full schema of format version 1, the connection settings, and the protocols 
 
 Eagle generates thumbnails, palettes and metadata itself; the native library needs its own pipeline, in the `media` crate.
 
-**v1 formats** (D-015): JPEG, PNG, GIF (first frame), WebP, SVG, TIFF, BMP, and the composite image of PSD files, plus HEIC/HEIF through `libheif` (D-063); the iOS and Android builds have no libheif and decode HEIC through a platform decoder lent to the core (`media::set_platform_decoder`, `egl_set_platform_decoder`: ImageIO on iOS, D-096; ImageDecoder on Android, D-104). AVIF waits for a decoder (D-035). Every other file is accepted and stored, with an extension placeholder instead of a thumbnail; its `width`, `height` and palette stay empty.
+**v1 formats** (D-015): JPEG, PNG, GIF (first frame; `media::decode_gif` gives every frame, composited and with its delay, to the desktop's GIF player, D-154), WebP, SVG, TIFF, BMP, and the composite image of PSD files, plus HEIC/HEIF through `libheif` (D-063); the iOS and Android builds have no libheif and decode HEIC through a platform decoder lent to the core (`media::set_platform_decoder`, `egl_set_platform_decoder`: ImageIO on iOS, D-096; ImageDecoder on Android, D-104). AVIF waits for a decoder (D-035). Every other file is accepted and stored, with an extension placeholder instead of a thumbnail; its `width`, `height` and palette stay empty.
 
 | Step | Tools |
 |---|---|

@@ -41,6 +41,9 @@ actions!(
         PreviewZoomOut,
         PreviewZoomReset,
         PreviewRotate,
+        PreviewGifToggle,
+        PreviewGifPrevFrame,
+        PreviewGifNextFrame,
         SpacePreviewDown,
         OpenOriginal,
         RevealOriginals,
@@ -224,6 +227,16 @@ pub const SHORTCUTS: &[ShortcutEntry] = &[
         keys: "Space",
     },
     ShortcutEntry {
+        id: "preview.gifPlay",
+        label_key: "commands.preview.gifPlay",
+        keys: "P",
+    },
+    ShortcutEntry {
+        id: "preview.gifFrames",
+        label_key: "commands.preview.gifFrames",
+        keys: ", / .",
+    },
+    ShortcutEntry {
         id: "item.openOriginal",
         label_key: "details.openDefault",
         keys: "Ctrl+Enter",
@@ -338,6 +351,10 @@ fn key_bindings() -> Vec<KeyBinding> {
         KeyBinding::new("space", SpacePreviewDown, None),
         KeyBinding::new("escape", ClosePreview, None),
         KeyBinding::new("r", PreviewRotate, None),
+        // The GIF player in the preview (D-154).
+        KeyBinding::new("p", PreviewGifToggle, None),
+        KeyBinding::new(",", PreviewGifPrevFrame, None),
+        KeyBinding::new(".", PreviewGifNextFrame, None),
         KeyBinding::new("ctrl-enter", OpenOriginal, None),
         KeyBinding::new("ctrl-shift-r", RevealOriginals, None),
         KeyBinding::new("ctrl-c", CopyOriginals, None),
@@ -390,6 +407,25 @@ mod tests {
         let total = keys.len();
         keys.dedup();
         assert_eq!(keys.len(), total, "two commands share a shortcut");
+    }
+
+    #[test]
+    fn gif_player_keys_are_bound_and_listed() {
+        let bindings = key_bindings();
+        for key in ["p", ",", "."] {
+            assert!(
+                bindings
+                    .iter()
+                    .any(|binding| format!("{:?}", binding.keystrokes())
+                        .contains(&format!("{key:?}"))),
+                "{key} is bound"
+            );
+        }
+        for (id, keys) in [("preview.gifPlay", "P"), ("preview.gifFrames", ", / .")] {
+            let entry = SHORTCUTS.iter().find(|entry| entry.id == id).expect(id);
+            assert_eq!(entry.keys, keys);
+            assert!(!crate::i18n::t(app_store::Locale::Ru, entry.label_key).is_empty());
+        }
     }
 
     #[test]

@@ -3,14 +3,36 @@
 //! Opening never reads or decodes the original on the UI thread. The preview shows the grid
 //! thumbnail at once and swaps in the full image when the background decode lands; the
 //! neighbours decode at the same time, so the next step is usually instant.
+//!
+//! Animated GIFs play through [`crate::browse::gif_player::GifPlayer`]: a task wakes when
+//! the next frame is due while one plays. A GIF under the pointer in the grid plays too
+//! (D-154).
 
-use gpui_kit::{App, Context};
+use std::sync::Arc;
+use std::time::{Duration, Instant};
+
+use gpui_kit::{App, Context, RenderImage};
 use library_core::ItemCell;
 
 use crate::app::RootApp;
+use crate::browse::gif_player::GifPlayer;
 use crate::browse::preview::PreviewState;
 use crate::browse::preview_cache::{PreviewKey, Slot};
 use crate::browse::preview_image::{self, Shown};
+
+/// A GIF playing in a grid cell while the pointer is over it.
+pub struct HoverGif {
+    pub key: PreviewKey,
+    /// `None` while its frames decode.
+    pub frames: Option<Arc<RenderImage>>,
+    /// Plays the frames once they are there, on the same clock as the preview's player.
+    pub player: Option<GifPlayer>,
+}
+
+/// Whether hovering this cell plays it: a GIF with an original to read.
+pub fn plays_on_hover(cell: &ItemCell) -> bool {
+    cell.ext.eq_ignore_ascii_case("gif")
+}
 
 fn key_of(cell: &ItemCell) -> PreviewKey {
     PreviewKey {
@@ -77,6 +99,7 @@ impl RootApp {
         self.drop_rotated(cx);
         self.preview = Some(state);
         self.load_preview_window(index, cx);
+        self.ensure_gif_ticker(cx);
         cx.notify();
     }
 
@@ -145,12 +168,13 @@ impl RootApp {
             preview.loading = false;
             // A failed decode keeps the thumbnail rather than going blank.
             if rotation == 0 && shown.is_some() {
-                preview.image = shown;
+                preview.show(shown, Instant::now());
             }
         }
         if rotation != 0 {
             self.load_rotated(cx);
         }
+        self.ensure_gif_ticker(cx);
         cx.notify();
     }
 
@@ -165,10 +189,12 @@ impl RootApp {
         }
     }
 
-    /// Closes the preview and frees every decoded image it holds.
+    /// Closes the preview and frees every decoded image it holds, and the hover GIF's.
     pub(crate) fn release_preview(&mut self, cx: &mut App) {
         self.preview = None;
         self.drop_rotated(cx);
+        // Libraries open and close through here too: the hover GIF goes with them.
+        self.stop_hover_gif(cx);
         for image in self.preview_cache.clear() {
             cx.drop_image(image, None);
         }
@@ -240,9 +266,10 @@ impl RootApp {
                     _ => None,
                 });
             if let Some(ready) = ready {
-                preview.image = Some(ready);
+                preview.show(Some(ready), Instant::now());
             }
             self.drop_rotated(cx);
+            self.ensure_gif_ticker(cx);
         } else {
             self.load_rotated(cx);
         }
@@ -288,9 +315,10 @@ impl RootApp {
                 if let Some(preview) = this.preview.as_mut()
                     && shown.is_some()
                 {
-                    preview.image = shown.clone();
+                    preview.show(shown.clone(), Instant::now());
                 }
                 this.preview_rotated = shown;
+                this.ensure_gif_ticker(cx);
                 cx.notify();
             })
             .ok();
@@ -334,5 +362,175 @@ impl RootApp {
         self.preview
             .as_ref()
             .is_some_and(|preview| preview.drag_origin.is_some())
+    }
+
+    fn gif_player_mut(&mut self) -> Option<&mut GifPlayer> {
+        self.preview.as_mut()?.player.as_mut()
+    }
+
+    /// The preview's player and the hover GIF's: whatever the ticker moves on.
+    fn gif_players(&mut self) -> [Option<&mut GifPlayer>; 2] {
+        [
+            self.preview.as_mut().and_then(|p| p.player.as_mut()),
+            self.hover_gif.as_mut().and_then(|h| h.player.as_mut()),
+        ]
+    }
+
+    /// `P` or the play button.
+    pub(crate) fn preview_gif_toggle(&mut self, cx: &mut Context<Self>) {
+        if let Some(player) = self.gif_player_mut() {
+            player.toggle(Instant::now());
+            self.ensure_gif_ticker(cx);
+            cx.notify();
+        }
+    }
+
+    /// `,` / `.` or the frame buttons: one frame back or forward, paused.
+    pub(crate) fn preview_gif_step(&mut self, delta: isize, cx: &mut Context<Self>) {
+        if let Some(player) = self.gif_player_mut() {
+            player.step(delta);
+            cx.notify();
+        }
+    }
+
+    /// A click or drag on the scrubber.
+    pub(crate) fn preview_gif_seek(&mut self, frame: usize, cx: &mut Context<Self>) {
+        if let Some(player) = self.gif_player_mut()
+            && player.frame() != frame
+        {
+            player.seek(frame, Instant::now());
+            cx.notify();
+        }
+    }
+
+    pub(crate) fn preview_gif_speed(&mut self, cx: &mut Context<Self>) {
+        if let Some(player) = self.gif_player_mut() {
+            player.cycle_speed(Instant::now());
+            cx.notify();
+        }
+    }
+
+    /// Starts the task that moves a playing GIF on, unless one runs. It sleeps until the next
+    /// frame is due and ends, in the same update that sees it, once nothing plays.
+    pub(crate) fn ensure_gif_ticker(&mut self, cx: &mut Context<Self>) {
+        let playing = self
+            .gif_players()
+            .into_iter()
+            .flatten()
+            .any(|player| player.is_playing());
+        if self.gif_ticking || !playing {
+            return;
+        }
+        self.gif_ticking = true;
+        cx.spawn(async move |this, cx| {
+            loop {
+                let wait = this
+                    .update(cx, |this, cx| {
+                        let now = Instant::now();
+                        let mut moved = false;
+                        let wait = this
+                            .gif_players()
+                            .into_iter()
+                            .flatten()
+                            .filter_map(|player| {
+                                moved |= player.advance_to(now);
+                                player.until_next()
+                            })
+                            .min();
+                        if moved {
+                            cx.notify();
+                        }
+                        if wait.is_none() {
+                            this.gif_ticking = false;
+                        }
+                        wait
+                    })
+                    .ok()
+                    .flatten();
+                let Some(wait) = wait else {
+                    break;
+                };
+                // A floor keeps a run of zero-length waits from spinning.
+                cx.background_executor()
+                    .timer(wait.max(Duration::from_millis(4)))
+                    .await;
+            }
+        })
+        .detach();
+    }
+
+    /// The pointer entered (`true`) or left a grid cell that plays on hover.
+    pub(crate) fn hover_gif(
+        &mut self,
+        cell: &ItemCell,
+        edge: f32,
+        entered: bool,
+        cx: &mut Context<Self>,
+    ) {
+        let key = key_of(cell);
+        if !entered {
+            if self.hover_gif.as_ref().is_some_and(|h| h.key == key) {
+                self.stop_hover_gif(cx);
+                cx.notify();
+            }
+            return;
+        }
+        if self.hover_gif.as_ref().is_some_and(|h| h.key == key)
+            || crate::platform::reduced_motion()
+        {
+            return;
+        }
+        self.stop_hover_gif(cx);
+        self.hover_gif = Some(HoverGif {
+            key: key.clone(),
+            frames: None,
+            player: None,
+        });
+        let session = self.session.clone();
+        let cell = cell.clone();
+        // Device pixels: a 2x screen needs twice the cell size to stay sharp.
+        let edge = (edge * 2.0).round() as u32;
+        cx.spawn(async move |this, cx| {
+            let frames = cx
+                .background_executor()
+                .spawn(async move {
+                    let original = session.image(&format!("/{}/original", cell.id.0), None)?;
+                    preview_image::hover_animation(&original.bytes, edge)
+                })
+                .await;
+            this.update(cx, |this, cx| match this.hover_gif.as_mut() {
+                Some(hover) if hover.key == key && hover.frames.is_none() => {
+                    hover.player = frames.as_ref().map(|frames| {
+                        let delays = (0..frames.frame_count())
+                            .map(|index| Duration::from(frames.delay(index)));
+                        GifPlayer::new(delays, true, Instant::now())
+                    });
+                    hover.frames = frames;
+                    this.ensure_gif_ticker(cx);
+                    cx.notify();
+                }
+                // The pointer moved on while it decoded: never uploaded, nothing to free.
+                _ => {}
+            })
+            .ok();
+        })
+        .detach();
+    }
+
+    /// Frees the frames of the GIF playing under the pointer, if any.
+    pub(crate) fn stop_hover_gif(&mut self, cx: &mut App) {
+        if let Some(frames) = self.hover_gif.take().and_then(|h| h.frames) {
+            cx.drop_image(frames, None);
+        }
+    }
+
+    /// The frames and the frame to draw in the grid cell of `cell`, while it plays under the
+    /// pointer.
+    pub(crate) fn hover_frames(&self, cell: &ItemCell) -> Option<(Arc<RenderImage>, usize)> {
+        let hover = self.hover_gif.as_ref()?;
+        if hover.key.id != cell.id.0 || hover.key.version != cell.thumb_version {
+            return None;
+        }
+        Some((hover.frames.clone()?, hover.player.as_ref()?.frame()))
     }
 }

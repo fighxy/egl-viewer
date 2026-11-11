@@ -3351,3 +3351,42 @@ with the shipping Tauri app or GitHub Latest.
   signature).
 - **Verify.** `cargo test -p gpui-desktop`; Windows dry-run of `.github/workflows/gpui-release.yml`
   produces the setup exe artifact.
+
+## D-154 GPUI: playing animated GIFs in the preview and the grid (2026-11-11)
+
+Before, the preview handed an unrotated GIF's bytes to GPUI, which animated it on its own clock
+with no way to pause it; a rotated GIF showed its first frame only, and the decoded frames
+stayed in GPUI's asset cache for the life of the window. The grid only had the still thumbnail.
+
+- **Frames from `media`.** `media::decode_gif` returns every frame composited onto the canvas,
+  with its delay, scaled to `max_edge` and halved (down to 128 px on the long edge) until all
+  frames fit a byte budget; past that it refuses with `TooLarge` and the preview shows the first
+  frame. Budgets: 384 MiB for the preview, 64 MiB under the pointer (cell size × 2, at most
+  1024 px). The thumbnail pipeline is unchanged (first frame).
+- **Our own frames, our own clock.** The preview decodes a GIF into one multi-frame
+  `RenderImage` (`Shown::Animation`), turned like any other image, and paints one frame through
+  `canvas` + `Window::paint_image`. GPUI's `img` is not used for it: it cannot pause or seek,
+  races through 0 ms delays and stops in an inactive window. Its texture is freed with
+  `App::drop_image` like the other previews (all frames at once).
+- **`GifPlayer`** (`browse/gif_player.rs`, pure and tested): frame, play / pause, step (pauses,
+  wraps), seek (keeps playing), speed 0.25×–2×. Delays of 10 ms or less play at 100 ms, as
+  browsers do. Pauses do not count toward the next frame; after a long stall it skips whole
+  loops. A turned GIF with the same frame count keeps its frame, speed and state.
+- **One ticker.** A detached task sleeps until the next frame of whichever player is due (the
+  preview's and the hover GIF's) and stops in the same update that sees nothing playing, so
+  a quick pause and play can never leave a playing GIF without a ticker.
+- **The bar.** At the bottom of the stage: previous frame, play / pause, next frame, a track of
+  up to 240 segments (longer GIFs share segments; a seek lands on the first frame of its segment
+  so the track shows it reached), the frame number, the loop length at 1× and the speed. Fixed
+  widths keep the track still under a dragging pointer. The bar occludes the letterbox, so a
+  click on it neither closes the preview nor starts a pan. Keys: `P`, `,`, `.` (in Help →
+  Keyboard Shortcuts).
+- **Grid.** Hovering a GIF cell in the justified grid reads the original in the background and
+  plays it with its own `GifPlayer` in the cell (object-fit cover, rounded like the thumbnail);
+  leaving the cell, another hover, opening or closing a library free its frames. Nothing plays
+  on hover with Windows animation effects off, and a GIF opens paused in the preview then.
+- **Not done here.** Animated WebP and APNG still show their first frame; the list view keeps
+  still thumbnails; iOS and Android are unchanged.
+- **Verify.** `cargo test -p media animation`, `cargo test -p gpui-desktop` (player, decode,
+  keys); by hand on Windows: a GIF plays in the preview, `P` / `,` / `.` and the bar work,
+  rotation keeps it playing, hovering a GIF in the grid plays it.
