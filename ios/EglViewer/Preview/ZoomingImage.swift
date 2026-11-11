@@ -4,57 +4,6 @@ import ImageIO
 import SwiftUI
 import UIKit
 
-/// Decodes originals for the preview at screen size (D-095): a stored original is read by path,
-/// an item of an unlocked folder through the core's decrypted bytes. A few stay in memory so
-/// paging back and forth is instant.
-final class OriginalCache: @unchecked Sendable {
-    private let library: Library
-    private let cache = NSCache<NSString, UIImage>()
-
-    init(library: Library) {
-        self.library = library
-        cache.countLimit = 6
-    }
-
-    /// The original of `id` at most `pixels` on its long side; nil when ImageIO cannot read it
-    /// (a video, a PDF, a format the phone does not know).
-    func image(for id: String, version: Int, pixels: Int) async -> UIImage? {
-        let key = "\(id)#\(version)#\(pixels)" as NSString
-        if let image = cache.object(forKey: key) {
-            return image
-        }
-        let library = library
-        let capped = max(pixels, 1)
-        let image = await Task.detached(priority: .userInitiated) { () -> UIImage? in
-            let source: CGImageSource?
-            if let path = try? library.originalPath(id) {
-                source = CGImageSourceCreateWithURL(path as CFURL, [kCGImageSourceShouldCache: false] as CFDictionary)
-            } else if let bytes = try? library.originalBytes(id) {
-                source = CGImageSourceCreateWithData(bytes as CFData, [kCGImageSourceShouldCache: false] as CFDictionary)
-            } else {
-                source = nil
-            }
-            guard let source, CGImageSourceGetCount(source) > 0 else { return nil }
-            let options = [
-                kCGImageSourceCreateThumbnailFromImageAlways: true,
-                kCGImageSourceCreateThumbnailWithTransform: true,
-                kCGImageSourceShouldCacheImmediately: true,
-                kCGImageSourceThumbnailMaxPixelSize: capped,
-            ] as CFDictionary
-            guard let image = CGImageSourceCreateThumbnailAtIndex(source, 0, options) else { return nil }
-            return UIImage(cgImage: image)
-        }.value
-        if let image {
-            cache.setObject(image, forKey: key)
-        }
-        return image
-    }
-
-    func removeAll() {
-        cache.removeAllObjects()
-    }
-}
-
 /// Pinch / double-tap zoom over a decoded original. Pure SwiftUI so a nested UIScrollView
 /// cannot sit at zero bounds (black stage) or swallow the pager's horizontal swipes while
 /// fitting (D-095 follow-up).

@@ -2708,3 +2708,27 @@ gap was where to look.
 - **Operator.** To publish a new mobile build: push `ios-vX.Y.Z` and/or `android-vX.Y.Z` after
   `docs/releases/X.Y.Z.md` exists (and Android release secrets are set). To find builds today:
   open the linked tags above or the Releases page and skip past the Latest badge.
+
+## D-127 iOS preview: decoded at screen size, within a budget, ahead and cancelled (2026-11-11)
+
+A review of the grid and the preview (first of three steps; the open and close and the zoom
+follow) found the preview could run the phone out of memory and stuttered on a fast swipe.
+
+- **Screen size, not 1.5×.** Originals were decoded at 1.5 times the screen's long side in
+  pixels: ~4,200 px on an iPhone Pro, ~50 MB a photo, and the cache kept six by count. They are
+  now decoded at the screen's long side (sharper pixels for zoom come with the zoom step), and
+  `OriginalCache` keeps them within a 96 MB byte budget, cost the decoded bytes. A memory
+  warning empties it.
+- **Two decodes at a time, cancelled when unneeded.** A decode ran detached and finished even
+  after its page scrolled away, so a fast swipe queued many full decodes at once. Decodes now
+  pass a gate of two; a page that disappears (its `.task` cancelled) cancels its decode unless
+  another caller still waits for it; two callers of one original share one decode.
+- **Neighbours ahead.** The pages on both sides are decoded while the user looks at one, so a
+  swipe usually lands on the original; the prefetches follow the page, and the ones no longer
+  next are cancelled (the new ones start first, so a page still next keeps its decode).
+- **No jump.** Until the original is ready the page shows the grid's thumbnail filling the
+  stage (it was a 320 pt box with a spinner, then jumped to full screen); the original fades in
+  over it in 0.18 s, and one decoded ahead shows at once without the fade. A file the phone
+  cannot draw keeps the thumbnail with its type.
+- Tests: two asks share a decode and the result is cached; a cancelled ask gets nothing and
+  leaves no decode running; a prefetch warms the cache.
