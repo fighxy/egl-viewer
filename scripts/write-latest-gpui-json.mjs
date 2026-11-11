@@ -1,21 +1,31 @@
 #!/usr/bin/env node
 /**
- * Builds the static GPUI updater manifest (`latest-gpui.json`) for GitHub Releases (D-133).
+ * Builds the static GPUI updater manifest (`latest-gpui.json`) for the
+ * rolling `gpui-latest` prerelease (D-153). Not attached to GitHub Latest.
  *
  * Usage:
  *   node scripts/write-latest-gpui-json.mjs \
  *     --version 0.2.77 \
- *     --notes "GPUI desktop portable." \
+ *     --notes "GPUI desktop." \
  *     --out latest-gpui.json \
- *     --windows-x86_64 url=https://…/egl-viewer-gpui_0.2.77_x64.zip[,sig=path/to.zip.sig]
+ *     --windows-x86_64 url=https://…/egl-viewer-gpui_0.2.77_windows-x64-setup.exe \
+ *     [--linux-x86_64 url=…] [--macos-aarch64 url=…]
  *
- * Signature is optional until GPUI artifacts are minisign-signed (deferred).
+ * Signature is optional until minisign is wired (deferred); leave empty.
  */
 import { readFileSync, writeFileSync } from "node:fs";
 
+const PLATFORM_FLAGS = new Set([
+  "windows-x86_64",
+  "linux-x86_64",
+  "macos-aarch64",
+]);
+
 function usage() {
   console.error(`Usage: node scripts/write-latest-gpui-json.mjs --version <semver> --out <file> [--notes <text>] [--pub-date <rfc3339>]
-  --windows-x86_64 url=<url>[,sig=<sig-file>]`);
+  --windows-x86_64 url=<url>[,sig=<sig-file>]
+  [--linux-x86_64 url=<url>[,sig=<sig-file>]]
+  [--macos-aarch64 url=<url>[,sig=<sig-file>]]`);
   process.exit(1);
 }
 
@@ -44,14 +54,14 @@ for (let i = 0; i < args.length; i += 1) {
   if (!key?.startsWith("--") || value === undefined) usage();
   i += 1;
   const name = key.slice(2);
-  if (name === "windows-x86_64") {
+  if (PLATFORM_FLAGS.has(name)) {
     platforms[name] = parsePlatform(value);
   } else {
     opts[name] = value;
   }
 }
 
-if (!opts.version || !opts.out || Object.keys(platforms).length === 0) usage();
+if (!opts.version || !opts.out || !platforms["windows-x86_64"]) usage();
 
 const manifest = {
   version: opts.version.replace(/^v/, ""),

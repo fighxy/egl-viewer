@@ -1,7 +1,8 @@
-# Stages a portable Windows layout for the GPUI desktop host (D-133).
+# Stages a portable Windows layout for the GPUI desktop host (D-133 / D-153).
 # Ships gpui-desktop.exe + heif.dll / libde265.dll (+ LGPL notices) in one folder,
-# then optionally zips it. Full NSIS installer, Authenticode, and .eglib file
-# association stay deferred until Ivan confirms cutover.
+# then optionally zips it. The per-user NSIS setup is built separately by
+# scripts/package-gpui-nsis.ps1 from the same stage. Authenticode and .eglib
+# file association stay deferred.
 #
 # Usage (repo root, after libheif is installed via vcpkg):
 #   pwsh scripts/package-gpui-desktop.ps1

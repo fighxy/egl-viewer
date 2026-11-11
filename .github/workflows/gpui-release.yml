@@ -2,12 +2,15 @@ name: GPUI Release
 
 # Multi-platform GPUI desktop packages (Windows / Linux / macOS).
 # Tag prefix `gpui-v*` is separate from:
-#   - `v*`        → CI release + latest-gpui.json (Windows updater)
+#   - `v*`        → CI release (Tauri / legacy portable; do not mark GPUI Latest)
 #   - `ios-v*`    → Mobile IPA
 #   - `android-v*`→ Mobile APK/AAB
 # Tag pushes publish a GitHub prerelease that is never marked Latest and never
-# writes latest.json / latest-gpui.json / ios-latest.
-# workflow_dispatch and pull_request are dry-run by default (build + artifacts only).
+# writes Tauri `latest.json` or touches `ios-latest`. On a real `gpui-v*` publish
+# only, the rolling `gpui-latest` prerelease is updated with `latest-gpui.json`
+# (points at the Windows NSIS setup; zip/tarball URLs optional).
+# workflow_dispatch and pull_request are dry-run by default (build + artifacts only;
+# never create/update a release or gpui-latest).
 # pull_request is included so a branch that is not yet on `main` can still be verified;
 # the Actions UI "Run workflow" dropdown can also target this branch after merge.
 on:
@@ -113,7 +116,20 @@ jobs:
         with:
           prefix-key: gpui-release-windows-v1
 
-      - name: Package portable GPUI desktop
+      - name: Install NSIS
+        shell: pwsh
+        run: |
+          choco install nsis -y --no-progress
+          $nsisBin = "${env:ProgramFiles(x86)}\NSIS"
+          if (-not (Test-Path -LiteralPath (Join-Path $nsisBin "makensis.exe"))) {
+            $nsisBin = "${env:ProgramFiles}\NSIS"
+          }
+          if (-not (Test-Path -LiteralPath (Join-Path $nsisBin "makensis.exe"))) {
+            throw "makensis.exe missing after NSIS install"
+          }
+          echo $nsisBin | Out-File -FilePath $env:GITHUB_PATH -Encoding utf8 -Append
+
+      - name: Package portable zip + NSIS setup
         shell: pwsh
         run: |
           ./scripts/package-gpui-desktop.ps1
@@ -135,13 +151,20 @@ jobs:
           }
           # Stable multi-platform name for the gpui-v* channel.
           Copy-Item -LiteralPath $zip -Destination "dist/egl-viewer-gpui_${version}_windows-x64.zip" -Force
+
+          # Per-user NSIS from the same stage (D-153). Unsigned on purpose.
+          ./scripts/package-gpui-nsis.ps1 -StageDir dist/gpui-desktop -Version $version
+          $setup = "dist/egl-viewer-gpui_${version}_windows-x64-setup.exe"
+          if (-not (Test-Path -LiteralPath $setup)) { throw "missing $setup" }
           Get-ChildItem dist -Filter "egl-viewer-gpui_*"
 
-      - name: Upload Windows artifact
+      - name: Upload Windows artifacts
         uses: actions/upload-artifact@v4
         with:
           name: gpui-windows-x64
-          path: dist/egl-viewer-gpui_${{ needs.version.outputs.version }}_windows-x64.zip
+          path: |
+            dist/egl-viewer-gpui_${{ needs.version.outputs.version }}_windows-x64.zip
+            dist/egl-viewer-gpui_${{ needs.version.outputs.version }}_windows-x64-setup.exe
           if-no-files-found: error
 
   linux:
@@ -259,8 +282,8 @@ jobs:
           if-no-files-found: error
 
   # Tag pushes always publish. workflow_dispatch only when inputs.publish=true.
-  # Never marks the release as Latest; never touches latest.json / latest-gpui.json /
-  # ios-latest / android releases.
+  # Never marks the release as Latest; never touches Tauri latest.json / ios-latest /
+  # android releases. Updates rolling gpui-latest with latest-gpui.json only here.
   publish:
     if: needs.version.outputs.publish == 'true'
     needs: [version, windows, linux, macos]
@@ -271,6 +294,10 @@ jobs:
       - uses: actions/checkout@v7
         with:
           fetch-depth: 0
+
+      - uses: actions/setup-node@v7
+        with:
+          node-version: 24
 
       - name: Download platform artifacts
         uses: actions/download-artifact@v4
@@ -288,18 +315,21 @@ jobs:
             echo "Push a gpui-vX.Y.Z tag to publish." >&2
             exit 1
           fi
-          mkdir -p release
+          mkdir -p release channel
           win="$(find artifacts -type f -name "egl-viewer-gpui_${VERSION}_windows-x64.zip" | head -n1)"
+          setup="$(find artifacts -type f -name "egl-viewer-gpui_${VERSION}_windows-x64-setup.exe" | head -n1)"
           linux="$(find artifacts -type f -name "egl-viewer-gpui_${VERSION}_linux-x86_64.tar.gz" | head -n1)"
           mac="$(find artifacts -type f -name "egl-viewer-gpui_${VERSION}_macos-aarch64.zip" | head -n1)"
-          test -n "$win" && test -n "$linux" && test -n "$mac"
+          test -n "$win" && test -n "$setup" && test -n "$linux" && test -n "$mac"
           cp "$win" "release/egl-viewer-gpui_${VERSION}_windows-x64.zip"
+          cp "$setup" "release/egl-viewer-gpui_${VERSION}_windows-x64-setup.exe"
           cp "$linux" "release/egl-viewer-gpui_${VERSION}_linux-x86_64.tar.gz"
           cp "$mac" "release/egl-viewer-gpui_${VERSION}_macos-aarch64.zip"
           (
             cd release
             sha256sum \
               "egl-viewer-gpui_${VERSION}_windows-x64.zip" \
+              "egl-viewer-gpui_${VERSION}_windows-x64-setup.exe" \
               "egl-viewer-gpui_${VERSION}_linux-x86_64.tar.gz" \
               "egl-viewer-gpui_${VERSION}_macos-aarch64.zip" \
               > SHA256SUMS
@@ -308,8 +338,9 @@ jobs:
           {
             echo "egl-viewer GPUI desktop $VERSION (prerelease), built from ${GITHUB_SHA::7}."
             echo
-            echo "Platforms: Windows x64 portable zip, Linux x86_64 tarball, macOS Apple Silicon .app zip (unsigned)."
-            echo "NSIS / Authenticode / notarization are deferred."
+            echo "Platforms: Windows x64 per-user NSIS setup + portable zip, Linux x86_64 tarball, macOS Apple Silicon .app zip (unsigned)."
+            echo "Install path (Windows): %LOCALAPPDATA%\\Programs\\egl-viewer-gpui (display name \"egl-viewer (GPUI)\")."
+            echo "Authenticode / notarization / minisign remain deferred."
             echo
             if [[ -f "$NOTES" ]]; then
               cat "$NOTES"
@@ -320,10 +351,19 @@ jobs:
             fi
             echo "Check downloads: \`sha256sum -c SHA256SUMS\`."
           } > release/notes.md
-          ls -lh release
+          # Manifest for the rolling gpui-latest channel (not attached to this tag release).
+          BASE="$GITHUB_SERVER_URL/$GITHUB_REPOSITORY/releases/download/$TAG"
+          node scripts/write-latest-gpui-json.mjs \
+            --version "$VERSION" \
+            --notes "egl-viewer GPUI $VERSION" \
+            --out channel/latest-gpui.json \
+            --windows-x86_64 "url=$BASE/egl-viewer-gpui_${VERSION}_windows-x64-setup.exe" \
+            --linux-x86_64 "url=$BASE/egl-viewer-gpui_${VERSION}_linux-x86_64.tar.gz" \
+            --macos-aarch64 "url=$BASE/egl-viewer-gpui_${VERSION}_macos-aarch64.zip"
+          ls -lh release channel
           echo "tag=$TAG" >> "$GITHUB_OUTPUT"
 
-      - name: Publish prerelease
+      - name: Publish versioned prerelease
         env:
           GH_TOKEN: ${{ github.token }}
         run: |
@@ -341,9 +381,33 @@ jobs:
           if [[ -n "$PREVIOUS" ]]; then
             ARGS+=(--generate-notes --notes-start-tag "$PREVIOUS")
           fi
-          # Guard: never upload updater manifests on this channel.
+          # Guard: updater manifests live only on the rolling gpui-latest release.
           if compgen -G 'release/latest*.json' > /dev/null; then
-            echo "refusing to publish updater manifests on gpui-v* releases" >&2
+            echo "refusing to publish updater manifests on gpui-v* versioned releases" >&2
             exit 1
           fi
           gh release create "$TAG" release/* "${ARGS[@]}"
+
+      - name: Update rolling gpui-latest prerelease
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: |
+          set -euo pipefail
+          VERSION="${{ needs.version.outputs.version }}"
+          TAG="${{ steps.assemble.outputs.tag }}"
+          NOTES="GPUI updater channel for $VERSION (from $TAG / ${GITHUB_SHA::7}). Not GitHub Latest — Tauri keeps releases/latest. Signature empty until minisign is wired."
+          if gh release view gpui-latest >/dev/null 2>&1; then
+            gh release upload gpui-latest channel/latest-gpui.json --clobber
+            gh release edit gpui-latest \
+              --title "GPUI latest (prerelease channel)" \
+              --notes "$NOTES" \
+              --prerelease \
+              --latest=false
+          else
+            gh release create gpui-latest channel/latest-gpui.json \
+              --title "GPUI latest (prerelease channel)" \
+              --notes "$NOTES" \
+              --prerelease \
+              --latest=false \
+              --target "$GITHUB_SHA"
+          fi
