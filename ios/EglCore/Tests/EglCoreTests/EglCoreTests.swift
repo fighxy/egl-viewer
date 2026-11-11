@@ -2,6 +2,7 @@
 // files, views, edits with undo, events, locked folders, thumbnails and errors.
 
 import CoreGraphics
+import CryptoKit
 import EglCore
 import Foundation
 import ImageIO
@@ -266,6 +267,43 @@ final class EglCoreTests: XCTestCase {
         try library.saveSmartFolder(.update(id: folder.id, name: "PNGs", conditions: draft.conditions))
         XCTAssertEqual(try library.openView(LibraryQuery(scope: .smart(id: folder.id))).total, 2)
         XCTAssertEqual(try library.deleteSmartFolder(folder.id), [])
+    }
+
+    /// D-126: the app binds the key a YubiKey made, then opens the folder with the card's
+    /// ECDH answer to the core's challenge. A CryptoKit P-256 key does what the card would do.
+    func testAYubiKeyAnswerOpensItsFolder() throws {
+        let library = try openNew()
+        try seeded(library, count: 1)
+        let folder = try XCTUnwrap(try library.createFolder(named: "Ключи").first)
+        _ = try library.lockFolder(folder.id, password: "pässwörd")
+
+        let card = P256.KeyAgreement.PrivateKey()
+        XCTAssertThrowsError(try library.bindPiv(
+            folder.id, password: "wrong", serial: "12345678", slot: 0x82, policy: .touch,
+            publicKey: card.publicKey.x963Representation
+        )) { error in
+            XCTAssertEqual((error as! EglError).code, .wrongPassword)
+        }
+        try library.bindPiv(
+            folder.id, password: "pässwörd", serial: "12345678", slot: 0x82, policy: .touch,
+            publicKey: card.publicKey.x963Representation
+        )
+        XCTAssertEqual(try library.pivWraps(folder.id), [PivWrap(serial: "12345678", slot: 0x82, policy: .touch)])
+
+        let challenge = try library.pivChallenge(folder.id, serial: "12345678")
+        XCTAssertEqual(challenge.slot, 0x82)
+        XCTAssertEqual(challenge.policy, .touch)
+        XCTAssertEqual(challenge.ephemeral.count, 65)
+        XCTAssertThrowsError(try library.unlockWithPiv(folder.id, serial: "12345678", sharedSecret: Data(repeating: 7, count: 32))) { error in
+            XCTAssertEqual((error as! EglError).code, .wrongPassword)
+        }
+        let peer = try P256.KeyAgreement.PublicKey(x963Representation: challenge.ephemeral)
+        let shared = try card.sharedSecretFromKeyAgreement(with: peer).withUnsafeBytes { Data($0) }
+        try library.unlockWithPiv(folder.id, serial: "12345678", sharedSecret: shared)
+        XCTAssertTrue(try XCTUnwrap(try library.folders().first).isUnlocked)
+
+        try library.unbindPiv(folder.id, password: "pässwörd", serial: "12345678")
+        XCTAssertEqual(try library.pivWraps(folder.id), [])
     }
 
     func testALockCanBeRecoveredChangedAndRemoved() throws {

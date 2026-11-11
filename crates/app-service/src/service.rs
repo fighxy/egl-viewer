@@ -845,6 +845,30 @@ impl LibraryService {
         Ok(())
     }
 
+    /// What the card has to compute to open one folder (D-126): the app talks to the card.
+    pub fn piv_challenge(
+        &self,
+        id: &str,
+        serial: &str,
+    ) -> Result<library_native::PivChallenge, SourceError> {
+        self.current_library()
+            .ok_or_else(no_library)?
+            .piv_challenge(id, serial)
+    }
+
+    /// Opens one folder with the card's answer to [`Self::piv_challenge`] (D-126).
+    pub fn unlock_with_piv_secret(
+        &self,
+        id: &str,
+        serial: &str,
+        shared: &[u8],
+    ) -> Result<(), SourceError> {
+        let library = self.current_library().ok_or_else(no_library)?;
+        library.unlock_with_piv_secret(id, serial, shared)?;
+        self.after_unlock(library);
+        Ok(())
+    }
+
     /// The views show the folder; previews that waited for its key are made now.
     fn after_unlock(&self, library: Arc<Library>) {
         self.refresh_views();

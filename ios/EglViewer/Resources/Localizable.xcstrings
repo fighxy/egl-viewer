@@ -11213,6 +11213,604 @@
           }
         }
       }
+    },
+    "yubikey.absent": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "No YubiKey answered. Plug it into the USB-C port (a 5Ci into Lightning), or hold a YubiKey NFC to the top of the iPhone, and try again."
+          }
+        },
+        "ru": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "YubiKey не ответил. Вставьте его в разъём USB-C (5Ci — в Lightning) или приложите YubiKey NFC к верхней части iPhone и попробуйте снова."
+          }
+        },
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "YubiKey 没有响应。请将其插入 USB-C 接口（5Ci 插入 Lightning），或将 YubiKey NFC 贴近 iPhone 顶部后重试。"
+          }
+        }
+      }
+    },
+    "yubikey.add": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Bind the YubiKey plugged in"
+          }
+        },
+        "ru": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Привязать вставленный YubiKey"
+          }
+        },
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "绑定已插入的 YubiKey"
+          }
+        }
+      }
+    },
+    "yubikey.addHint": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "A new key is made in a free retired PIV slot of the YubiKey; the factory management key is needed. The private key never leaves the YubiKey."
+          }
+        },
+        "ru": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "В свободном retired-слоте PIV на YubiKey создаётся новый ключ; нужен заводской ключ управления. Закрытый ключ никогда не покидает YubiKey."
+          }
+        },
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "将在 YubiKey 的空闲 PIV 保留槽中生成新密钥；需要出厂管理密钥。私钥永远不会离开 YubiKey。"
+          }
+        }
+      }
+    },
+    "yubikey.addTitle": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Add a YubiKey"
+          }
+        },
+        "ru": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Добавить YubiKey"
+          }
+        },
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "添加 YubiKey"
+          }
+        }
+      }
+    },
+    "yubikey.added": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "YubiKey bound"
+          }
+        },
+        "ru": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "YubiKey привязан"
+          }
+        },
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "已绑定 YubiKey"
+          }
+        }
+      }
+    },
+    "yubikey.bound": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Bound YubiKeys"
+          }
+        },
+        "ru": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Привязанные YubiKey"
+          }
+        },
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "已绑定的 YubiKey"
+          }
+        }
+      }
+    },
+    "yubikey.manageHint": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "A YubiKey bound here opens this folder too. The password and the recovery key keep working."
+          }
+        },
+        "ru": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Привязанный YubiKey тоже открывает эту папку. Пароль и ключ восстановления продолжают работать."
+          }
+        },
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "绑定的 YubiKey 也能打开此文件夹。密码和恢复密钥仍然有效。"
+          }
+        }
+      }
+    },
+    "yubikey.managementKey": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "The YubiKey's PIV management key is not the factory one. Bind it on the computer, or reset PIV in YubiKey Manager."
+          }
+        },
+        "ru": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Ключ управления PIV на YubiKey не заводской. Привяжите ключ на компьютере или сбросьте PIV в YubiKey Manager."
+          }
+        },
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "YubiKey 的 PIV 管理密钥不是出厂密钥。请在电脑上绑定，或在 YubiKey Manager 中重置 PIV。"
+          }
+        }
+      }
+    },
+    "yubikey.nfcDone": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Done. You can take the YubiKey away."
+          }
+        },
+        "ru": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Готово. Ключ можно убрать."
+          }
+        },
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "完成。可以移开 YubiKey 了。"
+          }
+        }
+      }
+    },
+    "yubikey.nfcHold": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Hold the YubiKey to the top of the iPhone."
+          }
+        },
+        "ru": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Приложите YubiKey к верхней части iPhone."
+          }
+        },
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "将 YubiKey 贴近 iPhone 顶部。"
+          }
+        }
+      }
+    },
+    "yubikey.nfcStopped": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "The NFC reading stopped before the YubiKey answered. Hold it still at the top of the iPhone and try again. If NFC never starts, this build may be signed without NFC: plug the YubiKey into USB-C instead."
+          }
+        },
+        "ru": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Чтение NFC остановилось раньше, чем YubiKey ответил. Держите ключ неподвижно у верхней части iPhone и попробуйте снова. Если NFC вообще не запускается, сборка, возможно, подписана без NFC: вставьте YubiKey в USB-C."
+          }
+        },
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "NFC 读取在 YubiKey 响应前已停止。请将其稳定贴近 iPhone 顶部后重试。如果 NFC 始终无法启动，此版本可能未带 NFC 签名：请改为将 YubiKey 插入 USB-C。"
+          }
+        }
+      }
+    },
+    "yubikey.noFreeSlot": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Every retired PIV slot on this YubiKey already holds a key."
+          }
+        },
+        "ru": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Все retired-слоты PIV на этом YubiKey уже заняты."
+          }
+        },
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "此 YubiKey 上所有 PIV 保留槽均已占用。"
+          }
+        }
+      }
+    },
+    "yubikey.notThisFolder": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "The YubiKey answered, but its key does not open this folder."
+          }
+        },
+        "ru": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "YubiKey ответил, но его ключ не открывает эту папку."
+          }
+        },
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "YubiKey 已响应，但其密钥无法打开此文件夹。"
+          }
+        }
+      }
+    },
+    "yubikey.otherCard": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "This is not the YubiKey bound to this folder."
+          }
+        },
+        "ru": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Это не тот YubiKey, что привязан к этой папке."
+          }
+        },
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "这不是绑定到此文件夹的 YubiKey。"
+          }
+        }
+      }
+    },
+    "yubikey.passwordHint": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "The folder's password is needed to bind or remove a YubiKey."
+          }
+        },
+        "ru": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Чтобы привязать или отвязать YubiKey, нужен пароль папки."
+          }
+        },
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "绑定或移除 YubiKey 需要文件夹密码。"
+          }
+        }
+      }
+    },
+    "yubikey.pin": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "YubiKey PIN"
+          }
+        },
+        "ru": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "PIN YubiKey"
+          }
+        },
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "YubiKey PIN"
+          }
+        }
+      }
+    },
+    "yubikey.pinLocked": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "The YubiKey PIN is blocked. Unblock it with the PUK in YubiKey Manager; the folder's password still opens it."
+          }
+        },
+        "ru": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "PIN YubiKey заблокирован. Разблокируйте его кодом PUK в YubiKey Manager; пароль папки по-прежнему её открывает."
+          }
+        },
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "YubiKey PIN 已锁定。请在 YubiKey Manager 中用 PUK 解锁；文件夹密码仍可打开它。"
+          }
+        }
+      }
+    },
+    "yubikey.policy": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Asks for"
+          }
+        },
+        "ru": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Спрашивает"
+          }
+        },
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "验证方式"
+          }
+        }
+      }
+    },
+    "yubikey.policy.pin": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "PIN"
+          }
+        },
+        "ru": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "PIN"
+          }
+        },
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "PIN"
+          }
+        }
+      }
+    },
+    "yubikey.policy.touch": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Touch"
+          }
+        },
+        "ru": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Касание"
+          }
+        },
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "轻触"
+          }
+        }
+      }
+    },
+    "yubikey.remove": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Remove"
+          }
+        },
+        "ru": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Отвязать"
+          }
+        },
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "移除"
+          }
+        }
+      }
+    },
+    "yubikey.title": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "YubiKey"
+          }
+        },
+        "ru": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "YubiKey"
+          }
+        },
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "YubiKey"
+          }
+        }
+      }
+    },
+    "yubikey.unlockHint": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Plug the YubiKey into the USB-C port (a 5Ci into Lightning), or hold a YubiKey NFC to the top of the iPhone when asked. Touch a plugged-in key when it blinks, or enter its PIN first."
+          }
+        },
+        "ru": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Вставьте YubiKey в разъём USB-C (5Ci — в Lightning) или, когда попросят, приложите YubiKey NFC к верхней части iPhone. Вставленного ключа коснитесь, когда он мигает, или сначала введите его PIN."
+          }
+        },
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "将 YubiKey 插入 USB-C 接口（5Ci 插入 Lightning），或在提示时将 YubiKey NFC 贴近 iPhone 顶部。插入的密钥闪烁时请轻触，或先输入其 PIN。"
+          }
+        }
+      }
+    },
+    "yubikey.unlockWith": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Unlock with YubiKey"
+          }
+        },
+        "ru": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Открыть с YubiKey"
+          }
+        },
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "使用 YubiKey 解锁"
+          }
+        }
+      }
+    },
+    "yubikey.unreadable": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "The YubiKey's answer could not be read."
+          }
+        },
+        "ru": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Не удалось прочитать ответ YubiKey."
+          }
+        },
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "无法读取 YubiKey 的响应。"
+          }
+        }
+      }
+    },
+    "yubikey.wrongPin %lld": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Wrong YubiKey PIN. Tries left: %lld."
+          }
+        },
+        "ru": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Неверный PIN YubiKey. Осталось попыток: %lld."
+          }
+        },
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "YubiKey PIN 错误。剩余次数：%lld。"
+          }
+        }
+      }
     }
   },
   "version": "1.0"
