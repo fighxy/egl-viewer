@@ -70,6 +70,9 @@ Section "Install"
     "$INSTDIR\${PRODUCT_EXE}" "" "$INSTDIR\${PRODUCT_EXE}" 0
   CreateShortCut "$SMPROGRAMS\${PRODUCT_NAME}\Uninstall.lnk" \
     "$INSTDIR\Uninstall.exe"
+  ; Current-user desktop only (`RequestExecutionLevel user` → $DESKTOP is not all-users).
+  CreateShortCut "$DESKTOP\${PRODUCT_NAME}.lnk" \
+    "$INSTDIR\${PRODUCT_EXE}" "" "$INSTDIR\${PRODUCT_EXE}" 0
 SectionEnd
 
 Section "Uninstall"
@@ -79,6 +82,7 @@ Section "Uninstall"
   Delete "$SMPROGRAMS\${PRODUCT_NAME}\${PRODUCT_NAME}.lnk"
   Delete "$SMPROGRAMS\${PRODUCT_NAME}\Uninstall.lnk"
   RMDir "$SMPROGRAMS\${PRODUCT_NAME}"
+  Delete "$DESKTOP\${PRODUCT_NAME}.lnk"
 
   DeleteRegKey HKCU "${UNINSTALL_REG}"
   DeleteRegKey HKCU "Software\${PRODUCT_DIR_NAME}"

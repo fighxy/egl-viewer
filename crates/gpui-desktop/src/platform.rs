@@ -25,12 +25,73 @@ pub fn log_dir() -> PathBuf {
     app_data_dir().join("logs")
 }
 
+/// Append target under [`log_dir`] (same idea as Tauri's D-079 `egl-viewer.log`).
+pub fn log_file_path() -> PathBuf {
+    log_dir().join("egl-viewer-gpui.log")
+}
+
+/// `MakeWriter` over a shared append-mode file (D-079; no `tracing-appender`).
+struct MutexMakeWriter(std::sync::Arc<std::sync::Mutex<std::fs::File>>);
+
+struct MutexWriter(std::sync::Arc<std::sync::Mutex<std::fs::File>>);
+
+impl std::io::Write for MutexWriter {
+    fn write(&mut self, buf: &[u8]) -> std::io::Result<usize> {
+        self.0
+            .lock()
+            .unwrap_or_else(std::sync::PoisonError::into_inner)
+            .write(buf)
+    }
+
+    fn flush(&mut self) -> std::io::Result<()> {
+        self.0
+            .lock()
+            .unwrap_or_else(std::sync::PoisonError::into_inner)
+            .flush()
+    }
+}
+
+impl<'a> tracing_subscriber::fmt::MakeWriter<'a> for MutexMakeWriter {
+    type Writer = MutexWriter;
+
+    fn make_writer(&'a self) -> Self::Writer {
+        MutexWriter(std::sync::Arc::clone(&self.0))
+    }
+}
+
 pub fn init_logging() {
+    use tracing_subscriber::layer::SubscriberExt;
+    use tracing_subscriber::util::SubscriberInitExt;
+
     let dir = log_dir();
     let _ = std::fs::create_dir_all(&dir);
     let filter = tracing_subscriber::EnvFilter::try_from_default_env()
         .unwrap_or_else(|_| tracing_subscriber::EnvFilter::new("info"));
-    let _ = tracing_subscriber::fmt().with_env_filter(filter).try_init();
+
+    // Always append to the log file. Also write stderr (useful for debug `cargo run`
+    // and when a console is already attached). Release Windows GUI subsystem has no
+    // console; we do not AllocConsole just to show logs.
+    let file_layer = std::fs::OpenOptions::new()
+        .create(true)
+        .append(true)
+        .open(log_file_path())
+        .ok()
+        .map(|file| {
+            tracing_subscriber::fmt::layer()
+                .with_ansi(false)
+                .with_writer(MutexMakeWriter(std::sync::Arc::new(std::sync::Mutex::new(
+                    file,
+                ))))
+        });
+
+    let stderr_layer = tracing_subscriber::fmt::layer().with_writer(std::io::stderr);
+    let registry = tracing_subscriber::registry()
+        .with(filter)
+        .with(stderr_layer);
+    let _ = match file_layer {
+        Some(file_layer) => registry.with(file_layer).try_init(),
+        None => registry.try_init(),
+    };
 }
 
 /// `--no-reopen` skips restoring the last library (same as Tauri).
@@ -265,6 +326,16 @@ mod tests {
     #[test]
     fn app_data_dir_is_non_empty() {
         assert!(!app_data_dir().as_os_str().is_empty());
+    }
+
+    #[test]
+    fn log_file_lives_under_log_dir() {
+        let path = log_file_path();
+        assert_eq!(
+            path.file_name().and_then(|n| n.to_str()),
+            Some("egl-viewer-gpui.log")
+        );
+        assert_eq!(path.parent().map(Path::to_path_buf), Some(log_dir()));
     }
 
     #[test]

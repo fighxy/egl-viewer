@@ -3339,8 +3339,9 @@ with the shipping Tauri app or GitHub Latest.
   same payload as the portable zip into
   `egl-viewer-gpui_<version>_windows-x64-setup.exe`. Install dir
   `%LOCALAPPDATA%\Programs\egl-viewer-gpui`, display name `egl-viewer (GPUI)`, current-user /
-  `/S`, Start Menu + HKCU uninstall. Does not touch `%LOCALAPPDATA%\egl-viewer-gpui`. No MSI /
-  Inno / Authenticode in this decision.
+  `/S`, Start Menu + current-user desktop shortcut (`$DESKTOP\egl-viewer (GPUI).lnk`, same
+  target/icon as Start Menu; removed on uninstall) + HKCU uninstall. Does not touch
+  `%LOCALAPPDATA%\egl-viewer-gpui`. No MSI / Inno / Authenticode in this decision.
 - **Release.** `gpui-v*` prereleases (`--latest=false`) attach the setup exe beside the zip.
   Dry-run (`workflow_dispatch` / PR) builds artifacts only. Rolling prerelease `gpui-latest`
   (same idea as `ios-latest`) holds `latest-gpui.json` pointing at the versioned NSIS URL;
@@ -3348,7 +3349,10 @@ with the shipping Tauri app or GitHub Latest.
 - **App.** Default endpoint
   `…/releases/download/gpui-latest/latest-gpui.json`. Windows: confirm → download setup → exit →
   silent NSIS → relaunch. macOS/Linux keep open-download. Minisign still deferred (empty
-  signature).
+  signature). Windows **release** builds use `windows_subsystem = "windows"` (no console from
+  Explorer / shortcuts / NSIS); debug keeps a console for `cargo run`. Logs append to
+  `%LOCALAPPDATA%\egl-viewer-gpui\logs\egl-viewer-gpui.log` (D-079-style `Mutex<File>` writer;
+  stderr still used when a console is attached; no `AllocConsole` in release).
 - **Verify.** `cargo test -p gpui-desktop`; Windows dry-run of `.github/workflows/gpui-release.yml`
   produces the setup exe artifact.
 
