@@ -6,6 +6,10 @@
 //! cargo run -p gpui-desktop -- --no-reopen
 //! ```
 
+// Release Windows builds are a GUI subsystem binary so Explorer / shortcuts / NSIS
+// do not open a console. Debug keeps the console for `cargo run` (D-153).
+#![cfg_attr(all(windows, not(debug_assertions)), windows_subsystem = "windows")]
+
 mod app;
 mod browse;
 mod commands;

@@ -3349,7 +3349,10 @@ with the shipping Tauri app or GitHub Latest.
 - **App.** Default endpoint
   `…/releases/download/gpui-latest/latest-gpui.json`. Windows: confirm → download setup → exit →
   silent NSIS → relaunch. macOS/Linux keep open-download. Minisign still deferred (empty
-  signature).
+  signature). Windows **release** builds use `windows_subsystem = "windows"` (no console from
+  Explorer / shortcuts / NSIS); debug keeps a console for `cargo run`. Logs append to
+  `%LOCALAPPDATA%\egl-viewer-gpui\logs\egl-viewer-gpui.log` (D-079-style `Mutex<File>` writer;
+  stderr still used when a console is attached; no `AllocConsole` in release).
 - **Verify.** `cargo test -p gpui-desktop`; Windows dry-run of `.github/workflows/gpui-release.yml`
   produces the setup exe artifact.
 
