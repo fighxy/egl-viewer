@@ -18,6 +18,9 @@ struct PreviewScreen: View {
     /// Decodes of the pages next to this one, so a swipe lands on the original (D-127).
     @State private var prefetching: [Task<Void, Never>] = []
     @State private var pixels = 0
+    /// How far a downward drag has pulled the page on iOS 17 (D-128); iOS 18 dismisses with
+    /// the zoom transition's own gesture.
+    @State private var pull: CGFloat = 0
 
     init(model: BrowseModel, start: Int) {
         self.model = model
@@ -52,6 +55,9 @@ struct PreviewScreen: View {
                 .modifier(VisiblePage(position: $position))
                 .scrollDisabled(zoomed)
                 .scrollIndicators(.hidden)
+                .offset(y: pull)
+                .scaleEffect(1 - min(pull / 1600, 0.12))
+                .simultaneousGesture(pullDown, including: Self.ownPull && !zoomed ? .all : .none)
                 .accessibilityIdentifier("preview.pager")
                 .onAppear {
                     position = start
@@ -62,7 +68,7 @@ struct PreviewScreen: View {
             .onChange(of: pixels) { _, now in self.pixels = now }
         }
         .ignoresSafeArea()
-        .background(EglTokens.previewStage.ignoresSafeArea())
+        .background(EglTokens.previewStage.opacity(1 - min(pull / 400, 0.6)).ignoresSafeArea())
         .overlay(alignment: .top) {
             if chrome { topBar }
         }
@@ -75,6 +81,11 @@ struct PreviewScreen: View {
         .onChange(of: index) { _, _ in
             // A recycled or previous page must not leave paging locked after a zoom.
             if zoomed { zoomed = false }
+        }
+        .onChange(of: ShownItem(index: index, id: cell?.id), initial: true) { _, shown in
+            // The grid follows behind, and the zoom back lands on this item's tile (D-128).
+            model.previewIndex = shown.index
+            if let id = shown.id { model.previewCellID = id }
         }
         .onChange(of: PrefetchKey(index: index, pixels: pixels, loaded: cell != nil), initial: true) {
             prefetchNeighbours()
@@ -100,6 +111,29 @@ struct PreviewScreen: View {
         } message: {
             Text("trash.noUndo")
         }
+    }
+
+    /// iOS 17 has no zoom transition and so no interactive dismissal: the preview's own pull.
+    private static var ownPull: Bool {
+        if #available(iOS 18.0, *) { return false }
+        return true
+    }
+
+    /// Dragging the page down closes the preview; a short or sideways drag springs back.
+    private var pullDown: some Gesture {
+        DragGesture(minimumDistance: 24)
+            .onChanged { value in
+                let down = value.translation.height
+                guard down > 0, abs(down) > abs(value.translation.width) else { return }
+                pull = down
+            }
+            .onEnded { value in
+                if pull > 120 || value.predictedEndTranslation.height > 320 {
+                    dismiss()
+                } else {
+                    withAnimation(.spring(duration: 0.25)) { pull = 0 }
+                }
+            }
     }
 
     /// Starts the decodes of the pages on both sides and drops the ones no longer next.
@@ -275,6 +309,12 @@ private struct PreviewPage: View {
         .accessibilityElement(children: .contain)
         .accessibilityIdentifier(cell.map { "preview.page.\($0.name)" } ?? "preview.page")
     }
+}
+
+/// The position the preview shows and its item, once its cell has arrived.
+private struct ShownItem: Equatable {
+    let index: Int
+    let id: String?
 }
 
 /// What makes the neighbours worth decoding again: another page, size or the cell arriving.

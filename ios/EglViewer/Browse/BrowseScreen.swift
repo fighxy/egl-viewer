@@ -8,6 +8,8 @@ struct BrowseScreen: View {
     @State private var filtering = false
     @State private var emptying = false
     @State private var adding: AddSource? = nil
+    /// The tiles the preview zooms out of and back into (D-128).
+    @Namespace private var zoom
 
     init(open: OpenLibrary, place: Place) {
         _model = State(initialValue: BrowseModel(open: open, place: place))
@@ -16,9 +18,9 @@ struct BrowseScreen: View {
     var body: some View {
         Group {
             switch model.settings.layout {
-            case .grid: BrowseJustifiedGrid(model: model)
-            case .square: BrowseSquareGrid(model: model)
-            case .list: BrowseList(model: model)
+            case .grid: BrowseJustifiedGrid(model: model, zoom: zoom)
+            case .square: BrowseSquareGrid(model: model, zoom: zoom)
+            case .list: BrowseList(model: model, zoom: zoom)
             }
         }
         .overlay {
@@ -48,6 +50,7 @@ struct BrowseScreen: View {
         }
         .fullScreenCover(item: $model.previewing) { start in
             PreviewScreen(model: model, start: start.index)
+                .modifier(ZoomedFrom(id: model.previewCellID, namespace: zoom))
         }
         .sheet(item: $model.details) { cell in
             DetailsSheet(open: model.open, cell: cell)
@@ -234,6 +237,7 @@ enum SortLabel {
 /// Justified rows from stored aspect ratios (D-122); borderless thumbs flush on the background.
 private struct BrowseJustifiedGrid: View {
     let model: BrowseModel
+    let zoom: Namespace.ID
     @Environment(\.displayScale) private var scale
 
     var body: some View {
@@ -248,19 +252,26 @@ private struct BrowseJustifiedGrid: View {
                 showNames: true,
                 sizeAt: model.sizeAt
             )
-            ScrollView {
-                CountLine(model: model)
-                LazyVStack(alignment: .leading, spacing: JustifiedPacking.gap) {
-                    ForEach(layout.rows, id: \.startIndex) { row in
-                        JustifiedRowView(
-                            model: model,
-                            row: row,
-                            pixels: Int(size.targetHeight * 1.6 * scale)
-                        )
+            ScrollViewReader { proxy in
+                ScrollView {
+                    CountLine(model: model)
+                    LazyVStack(alignment: .leading, spacing: JustifiedPacking.gap) {
+                        ForEach(layout.rows, id: \.startIndex) { row in
+                            JustifiedRowView(
+                                model: model,
+                                row: row,
+                                pixels: Int(size.targetHeight * 1.6 * scale),
+                                zoom: zoom
+                            )
+                            .id(row.startIndex)
+                        }
                     }
+                    .padding(.horizontal, JustifiedPacking.padding)
+                    .frame(minHeight: layout.totalHeight, alignment: .top)
                 }
-                .padding(.horizontal, JustifiedPacking.padding)
-                .frame(minHeight: layout.totalHeight, alignment: .top)
+                .followsPreview(model, proxy: proxy) { index in
+                    layout.rows.last { $0.startIndex <= index }.map { AnyHashable($0.startIndex) }
+                }
             }
         }
         .accessibilityIdentifier("browse.grid")
@@ -271,6 +282,7 @@ private struct JustifiedRowView: View {
     let model: BrowseModel
     let row: JustifiedPacking.Row
     let pixels: Int
+    let zoom: Namespace.ID
 
     var body: some View {
         HStack(alignment: .top, spacing: JustifiedPacking.gap) {
@@ -281,7 +293,8 @@ private struct JustifiedRowView: View {
                     pixels: pixels,
                     thumbWidth: cell.width,
                     thumbHeight: cell.height,
-                    fill: true
+                    fill: true,
+                    zoom: zoom
                 )
                 .frame(width: cell.width, alignment: .top)
                 .onAppear { model.need(cell.index) }
@@ -294,29 +307,35 @@ private struct JustifiedRowView: View {
 /// Uniform square cells; same borderless fill as the justified grid.
 private struct BrowseSquareGrid: View {
     let model: BrowseModel
+    let zoom: Namespace.ID
     @Environment(\.displayScale) private var scale
 
     var body: some View {
         let size = model.settings.size
-        ScrollView {
-            CountLine(model: model)
-            LazyVGrid(
-                columns: [GridItem(.adaptive(minimum: size.minimumWidth), spacing: JustifiedPacking.gap)],
-                spacing: JustifiedPacking.gap
-            ) {
-                ForEach(0..<model.total, id: \.self) { index in
-                    GridTile(
-                        model: model,
-                        index: index,
-                        pixels: Int(size.minimumWidth * 1.6 * scale),
-                        thumbWidth: nil,
-                        thumbHeight: nil,
-                        fill: true
-                    )
-                    .onAppear { model.need(index) }
+        ScrollViewReader { proxy in
+            ScrollView {
+                CountLine(model: model)
+                LazyVGrid(
+                    columns: [GridItem(.adaptive(minimum: size.minimumWidth), spacing: JustifiedPacking.gap)],
+                    spacing: JustifiedPacking.gap
+                ) {
+                    ForEach(0..<model.total, id: \.self) { index in
+                        GridTile(
+                            model: model,
+                            index: index,
+                            pixels: Int(size.minimumWidth * 1.6 * scale),
+                            thumbWidth: nil,
+                            thumbHeight: nil,
+                            fill: true,
+                            zoom: zoom
+                        )
+                        .id(index)
+                        .onAppear { model.need(index) }
+                    }
                 }
+                .padding(.horizontal, JustifiedPacking.padding)
             }
-            .padding(.horizontal, JustifiedPacking.padding)
+            .followsPreview(model, proxy: proxy) { AnyHashable($0) }
         }
         .accessibilityIdentifier("browse.square")
     }
@@ -324,18 +343,23 @@ private struct BrowseSquareGrid: View {
 
 private struct BrowseList: View {
     let model: BrowseModel
+    let zoom: Namespace.ID
     @Environment(\.displayScale) private var scale
 
     var body: some View {
-        List {
-            CountLine(model: model)
-                .listRowSeparator(.hidden)
-            ForEach(0..<model.total, id: \.self) { index in
-                ListRow(model: model, index: index, pixels: Int(48 * scale))
-                    .onAppear { model.need(index) }
+        ScrollViewReader { proxy in
+            List {
+                CountLine(model: model)
+                    .listRowSeparator(.hidden)
+                ForEach(0..<model.total, id: \.self) { index in
+                    ListRow(model: model, index: index, pixels: Int(48 * scale), zoom: zoom)
+                        .id(index)
+                        .onAppear { model.need(index) }
+                }
             }
+            .listStyle(.plain)
+            .followsPreview(model, proxy: proxy) { AnyHashable($0) }
         }
-        .listStyle(.plain)
         .accessibilityIdentifier("browse.list")
     }
 }
@@ -365,6 +389,7 @@ private struct GridTile: View {
     let thumbHeight: CGFloat?
     /// Crop to fill the box (no letterbox). Square and justified both use fill.
     let fill: Bool
+    let zoom: Namespace.ID
 
     var body: some View {
         let cell = model.cell(at: index)
@@ -422,6 +447,7 @@ private struct GridTile: View {
                 .frame(width: thumbWidth, height: thumbHeight)
                 .clipped()
                 .clipShape(RoundedRectangle(cornerRadius: 4))
+                .modifier(ZoomSource(id: cell?.id, namespace: zoom))
             } else {
                 Color.clear
                     .aspectRatio(1, contentMode: .fit)
@@ -437,6 +463,7 @@ private struct GridTile: View {
                     }
                     .clipped()
                     .clipShape(RoundedRectangle(cornerRadius: 4))
+                    .modifier(ZoomSource(id: cell?.id, namespace: zoom))
             }
         }
     }
@@ -446,6 +473,7 @@ private struct ListRow: View {
     let model: BrowseModel
     let index: Int
     let pixels: Int
+    let zoom: Namespace.ID
 
     var body: some View {
         let cell = model.cell(at: index)
@@ -469,6 +497,7 @@ private struct ListRow: View {
                     }
                 }
                 .clipShape(RoundedRectangle(cornerRadius: 4))
+                .modifier(ZoomSource(id: cell?.id, namespace: zoom))
             VStack(alignment: .leading, spacing: 2) {
                 Text(verbatim: cell?.name ?? " ")
                     .lineLimit(1)
@@ -559,5 +588,53 @@ struct ItemThumbnail: View {
     private var placeholder: Color? {
         guard cell.hasThumbnail, let rgb = cell.palette0, rgb.count >= 3 else { return nil }
         return Color(red: Double(rgb[0]) / 255, green: Double(rgb[1]) / 255, blue: Double(rgb[2]) / 255)
+    }
+}
+
+// MARK: Opening and closing the preview (D-128)
+
+/// A tile the preview zooms out of, on iOS 18 and later; earlier the preview slides up.
+private struct ZoomSource: ViewModifier {
+    let id: String?
+    let namespace: Namespace.ID
+
+    func body(content: Content) -> some View {
+        if #available(iOS 18.0, *), let id {
+            content.matchedTransitionSource(id: id, in: namespace)
+        } else {
+            content
+        }
+    }
+}
+
+/// The preview grows out of the tile it opened from and shrinks back into the tile of the item
+/// it shows when it closes; dragging down closes it interactively (iOS 18 and later).
+private struct ZoomedFrom: ViewModifier {
+    let id: String?
+    let namespace: Namespace.ID
+
+    func body(content: Content) -> some View {
+        if #available(iOS 18.0, *) {
+            content.navigationTransition(.zoom(sourceID: id ?? "", in: namespace))
+        } else {
+            content
+        }
+    }
+}
+
+private extension View {
+    /// Keeps the item the preview shows in view behind it, so closing the preview lands on its
+    /// tile. `target` turns a position into the id of the row or cell that holds it.
+    func followsPreview(
+        _ model: BrowseModel,
+        proxy: ScrollViewProxy,
+        target: @escaping (Int) -> AnyHashable?
+    ) -> some View {
+        onChange(of: model.previewIndex) { _, index in
+            guard let index, let id = target(index) else { return }
+            var transaction = Transaction()
+            transaction.disablesAnimations = true
+            withTransaction(transaction) { proxy.scrollTo(id, anchor: .center) }
+        }
     }
 }

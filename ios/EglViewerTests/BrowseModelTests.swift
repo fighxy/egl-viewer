@@ -78,6 +78,30 @@ final class BrowseModelTests: XCTestCase {
         await open.close()
     }
 
+    /// D-128: a tap opens the preview from that tile; in selection mode it selects instead.
+    func testATapOpensThePreviewFromItsTile() async throws {
+        let open = try await sample(images: 3)
+        let model = BrowseModel(open: open, place: .all)
+        await model.start()
+        try await waitUntil("the cells") { model.cell(at: 2) != nil }
+        let cell = try XCTUnwrap(model.cell(at: 2))
+
+        model.tap(cell, at: 2)
+        XCTAssertEqual(model.previewing, PreviewStart(index: 2))
+        XCTAssertEqual(model.previewIndex, 2)
+        XCTAssertEqual(model.previewCellID, cell.id, "the zoom starts from this tile")
+
+        model.previewing = nil
+        model.setSelecting(true)
+        let other = try XCTUnwrap(model.cell(at: 0))
+        model.tap(other, at: 0)
+        XCTAssertNil(model.previewing)
+        XCTAssertTrue(model.isSelected(other.id))
+        XCTAssertEqual(model.previewIndex, 2, "selecting does not move the preview's place")
+        model.stop()
+        await open.close()
+    }
+
     func testSelectAllActsOnTheWholeViewAndRefreshes() async throws {
         let open = try await sample(images: 12)
         let model = BrowseModel(open: open, place: .all)
