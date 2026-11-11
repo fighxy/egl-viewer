@@ -1,8 +1,8 @@
 import SwiftUI
 import UniformTypeIdentifiers
 
-/// Create a library in On My iPhone, open one from Files, import an Eagle library (D-116), or
-/// reopen a recent one.
+/// The libraries first: the recent ones, then the rest of On My iPhone (D-130). Below them,
+/// create a library in On My iPhone, open one from Files, or import an Eagle library (D-116).
 struct WelcomeScreen: View {
     @Environment(AppModel.self) private var model
     @State private var creating = false
@@ -13,8 +13,34 @@ struct WelcomeScreen: View {
     private enum Picking { case library, eagle }
 
     var body: some View {
+        let entries = WelcomeEntries(
+            recents: model.recents, local: model.localLibraries, locations: model.locations
+        )
         NavigationStack {
             List {
+                if entries.isEmpty {
+                    Section {
+                        NoLibraries()
+                    }
+                    .listRowBackground(Color.clear)
+                }
+
+                if !entries.recent.isEmpty {
+                    Section("welcome.recent") {
+                        ForEach(entries.recent) { entry in
+                            row(entry)
+                        }
+                    }
+                }
+
+                if !entries.local.isEmpty {
+                    Section("welcome.onThisPhone") {
+                        ForEach(entries.local) { entry in
+                            row(entry)
+                        }
+                    }
+                }
+
                 Section {
                     Button {
                         creating = true
@@ -28,58 +54,23 @@ struct WelcomeScreen: View {
                         Label("welcome.open", systemImage: "folder")
                     }
                     .accessibilityIdentifier("welcome.open")
-                } footer: {
-                    Text("welcome.hint")
-                }
-
-                Section {
                     Button {
                         picking = .eagle
                     } label: {
                         Label("welcome.importEagle", systemImage: "square.and.arrow.down.on.square")
                     }
                     .accessibilityIdentifier("welcome.importEagle")
+                } header: {
+                    if !entries.isEmpty { Text("welcome.start") }
                 } footer: {
-                    Text("welcome.importEagleHint")
-                }
-
-                if !model.recents.isEmpty {
-                    Section("welcome.recent") {
-                        ForEach(model.recents) { recent in
-                            Button {
-                                Task { await model.open(recent: recent) }
-                            } label: {
-                                LibraryRow(name: recent.name, detail: recent.path)
-                            }
-                            .accessibilityIdentifier("welcome.recent.\(recent.name)")
-                            .swipeActions {
-                                Button("welcome.forget", role: .destructive) {
-                                    model.forget(recent)
-                                }
-                            }
-                        }
-                    }
-                }
-
-                let local = model.localLibraries.filter { url in
-                    !model.recents.contains { $0.path == url.path }
-                }
-                if !local.isEmpty {
-                    Section("welcome.onThisPhone") {
-                        ForEach(local, id: \.self) { url in
-                            Button {
-                                Task { await model.openLocal(url) }
-                            } label: {
-                                LibraryRow(
-                                    name: url.deletingPathExtension().lastPathComponent,
-                                    detail: String(localized: "welcome.onThisPhone")
-                                )
-                            }
-                        }
+                    VStack(alignment: .leading, spacing: 6) {
+                        Text("welcome.hint")
+                        Text("welcome.importEagleHint")
                     }
                 }
             }
             .navigationTitle("app.name")
+            .refreshable { model.reloadLists() }
             .toolbar {
                 ToolbarItem(placement: .topBarTrailing) {
                     Button {
@@ -123,22 +114,97 @@ struct WelcomeScreen: View {
             .onAppear { model.reloadLists() }
         }
     }
+
+    @ViewBuilder
+    private func row(_ entry: WelcomeEntry) -> some View {
+        switch entry.source {
+        case let .recent(recent):
+            Button {
+                Task { await model.open(recent: recent) }
+            } label: {
+                LibraryRow(entry: entry)
+            }
+            .accessibilityIdentifier("welcome.recent.\(entry.name)")
+            .swipeActions {
+                Button("welcome.forget", role: .destructive) {
+                    model.forget(recent)
+                }
+            }
+            .contextMenu {
+                Button("welcome.forget", systemImage: "minus.circle", role: .destructive) {
+                    model.forget(recent)
+                }
+            }
+        case let .local(url):
+            Button {
+                Task { await model.openLocal(url) }
+            } label: {
+                LibraryRow(entry: entry)
+            }
+            .accessibilityIdentifier("welcome.local.\(entry.name)")
+        }
+    }
 }
 
+/// Shown instead of the library lists until there is a library.
+private struct NoLibraries: View {
+    var body: some View {
+        VStack(spacing: 10) {
+            Image(systemName: "books.vertical")
+                .font(.system(size: 44, weight: .light))
+                .foregroundStyle(EglTokens.mutedForeground)
+                .accessibilityHidden(true)
+            Text("welcome.empty.title")
+                .font(.headline)
+                .foregroundStyle(EglTokens.foreground)
+            Text("welcome.empty.hint")
+                .font(.subheadline)
+                .foregroundStyle(EglTokens.mutedForeground)
+                .multilineTextAlignment(.center)
+        }
+        .frame(maxWidth: .infinity)
+        .padding(.vertical, 24)
+        .accessibilityElement(children: .combine)
+        .accessibilityIdentifier("welcome.empty")
+    }
+}
+
+/// A library: its icon, its name, and where it lives with when it was last opened.
 private struct LibraryRow: View {
-    let name: String
-    let detail: String
+    let entry: WelcomeEntry
+
+    private var detail: String {
+        let place = entry.folder ?? String(localized: "welcome.onThisPhone")
+        guard let openedAt = entry.openedAt else { return place }
+        return place + " · " + openedAt.formatted(.relative(presentation: .named))
+    }
 
     var body: some View {
-        VStack(alignment: .leading, spacing: 2) {
-            Text(name)
+        HStack(spacing: 12) {
+            Image(systemName: entry.folder == nil ? "books.vertical.fill" : "folder.fill")
+                .font(.title3)
                 .foregroundStyle(EglTokens.foreground)
-            Text(detail)
-                .font(.caption)
-                .foregroundStyle(EglTokens.mutedForeground)
-                .lineLimit(1)
-                .truncationMode(.middle)
+                .frame(width: 40, height: 40)
+                .background(EglTokens.grid, in: RoundedRectangle(cornerRadius: 9, style: .continuous))
+                .accessibilityHidden(true)
+            VStack(alignment: .leading, spacing: 2) {
+                Text(verbatim: entry.name)
+                    .font(.body.weight(.medium))
+                    .foregroundStyle(EglTokens.foreground)
+                    .lineLimit(1)
+                Text(verbatim: detail)
+                    .font(.caption)
+                    .foregroundStyle(EglTokens.mutedForeground)
+                    .lineLimit(1)
+                    .truncationMode(.middle)
+            }
+            Spacer(minLength: 0)
+            Image(systemName: "chevron.right")
+                .font(.footnote.weight(.semibold))
+                .foregroundStyle(.tertiary)
+                .accessibilityHidden(true)
         }
+        .contentShape(Rectangle())
     }
 }
 

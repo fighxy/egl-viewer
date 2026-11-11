@@ -1,7 +1,7 @@
 import XCTest
 
 /// The app on a simulator with the real core: create a library, see it open, close it, and
-/// find it under Recent.
+/// find it under Recent, above the actions (D-130).
 final class WelcomeUITests: XCTestCase {
     override func setUp() {
         continueAfterFailure = false
@@ -12,6 +12,8 @@ final class WelcomeUITests: XCTestCase {
         app.launchArguments = ["-uiTesting", "-AppleLanguages", "(en)", "-AppleLocale", "en_US"]
         app.launch()
 
+        let empty = app.descendants(matching: .any).matching(identifier: "welcome.empty").firstMatch
+        XCTAssertTrue(empty.waitForExistence(timeout: 10))
         app.buttons["welcome.create"].tap()
         let name = app.textFields["create.name"]
         XCTAssertTrue(name.waitForExistence(timeout: 5))
@@ -25,6 +27,8 @@ final class WelcomeUITests: XCTestCase {
         app.buttons["library.close"].tap()
         let recent = app.buttons["welcome.recent.UI Library"]
         XCTAssertTrue(recent.waitForExistence(timeout: 5))
+        XCTAssertFalse(empty.exists)
+        XCTAssertLessThan(recent.frame.minY, app.buttons["welcome.create"].frame.minY)
         recent.tap()
         XCTAssertTrue(app.navigationBars["UI Library"].waitForExistence(timeout: 15))
     }

@@ -2708,3 +2708,20 @@ gap was where to look.
 - **Operator.** To publish a new mobile build: push `ios-vX.Y.Z` and/or `android-vX.Y.Z` after
   `docs/releases/X.Y.Z.md` exists (and Android release secrets are set). To find builds today:
   open the linked tags above or the Releases page and skip past the Latest badge.
+
+## D-130 iPhone Welcome: libraries first (2026-11-11)
+
+Ivan asked for small improvements to the iPhone Welcome screen, with the libraries that are
+already there at the top.
+
+- **Order.** Recent libraries (newest first) come first, then the libraries in On My iPhone the
+  app has not opened yet (by name, each library listed once). The actions follow in one
+  section: Create Library, Open from Files, Import Eagle Library, with both hints as its footer.
+- **Rows.** Each library shows an icon (On My iPhone or a Files folder), its name, and one line
+  with where it lives (On My iPhone or the folder that holds it) and when it was last opened,
+  as a relative date. A recent library is forgotten by a swipe or from its context menu.
+- **No libraries.** Until there is one, a short empty state says what the actions do; the
+  actions have no section title then.
+- **Refresh.** Pull to refresh reloads both lists, as reopening the screen does.
+- The list logic is `WelcomeEntries` in `LibraryLocations.swift`, tested without the UI; the
+  UI test checks that a recent library sits above Create Library.
