@@ -3406,3 +3406,14 @@ stayed in GPUI's asset cache for the life of the window. The grid only had the s
   only the Windows NSIS self-update; they are `#[cfg(windows)]` now (with their test), and the
   non-Windows fallback into the temp folder, which nothing used, is gone. `cargo clippy
   --workspace --all-targets -- -D warnings` passes on Linux again.
+
+## D-156 CI: retry the vcpkg libheif install (2026-11-11)
+
+- **Failure.** The `gpui-desktop` job of the merge of #93 died before building: vcpkg's curl got
+  `SSL connect error` fetching the libde265 tarball from github.com, called it not transient and
+  stopped. pwsh does not stop on a native command's exit code, so the step only failed later at
+  "heif.dll missing", which hid the cause.
+- **Change.** Every Windows `vcpkg install "libheif[core,libde265]:x64-windows"` (both `ci.yml`
+  jobs and `gpui-release.yml`) runs up to three times, 20 s and 40 s apart, and throws
+  "vcpkg install libheif failed after 3 attempts" when none succeeds. The decode-only checks
+  (no x265, `heif.dll` and `libde265.dll` present) are unchanged.
