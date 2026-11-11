@@ -45,7 +45,18 @@ jobs:
           vcpkg remove "libheif:x64-windows" --recurse 2>$null
           vcpkg remove "x265:x64-windows" --recurse 2>$null
           $ErrorActionPreference = "Stop"
-          vcpkg install "libheif[core,libde265]:x64-windows"
+          # A native command's exit code does not stop pwsh, and vcpkg gives up at once on
+          # some network errors (a TLS failure fetching a source tarball): retry, then fail here.
+          $installed = $false
+          foreach ($attempt in 1..3) {
+            vcpkg install "libheif[core,libde265]:x64-windows"
+            if ($LASTEXITCODE -eq 0) { $installed = $true; break }
+            if ($attempt -lt 3) {
+              Write-Warning "vcpkg install failed (exit $LASTEXITCODE, attempt $attempt of 3); retrying"
+              Start-Sleep -Seconds (20 * $attempt)
+            }
+          }
+          if (-not $installed) { throw "vcpkg install libheif failed after 3 attempts" }
           $root = if ($env:VCPKG_ROOT) { $env:VCPKG_ROOT } elseif ($env:VCPKG_INSTALLATION_ROOT) { $env:VCPKG_INSTALLATION_ROOT } else { "C:\vcpkg" }
           $lib = Join-Path $root "installed\x64-windows\lib"
           $bin = Join-Path $root "installed\x64-windows\bin"
@@ -106,7 +117,18 @@ jobs:
           vcpkg remove "libheif:x64-windows" --recurse 2>$null
           vcpkg remove "x265:x64-windows" --recurse 2>$null
           $ErrorActionPreference = "Stop"
-          vcpkg install "libheif[core,libde265]:x64-windows"
+          # A native command's exit code does not stop pwsh, and vcpkg gives up at once on
+          # some network errors (a TLS failure fetching a source tarball): retry, then fail here.
+          $installed = $false
+          foreach ($attempt in 1..3) {
+            vcpkg install "libheif[core,libde265]:x64-windows"
+            if ($LASTEXITCODE -eq 0) { $installed = $true; break }
+            if ($attempt -lt 3) {
+              Write-Warning "vcpkg install failed (exit $LASTEXITCODE, attempt $attempt of 3); retrying"
+              Start-Sleep -Seconds (20 * $attempt)
+            }
+          }
+          if (-not $installed) { throw "vcpkg install libheif failed after 3 attempts" }
           $root = if ($env:VCPKG_ROOT) { $env:VCPKG_ROOT } elseif ($env:VCPKG_INSTALLATION_ROOT) { $env:VCPKG_INSTALLATION_ROOT } else { "C:\vcpkg" }
           $lib = Join-Path $root "installed\x64-windows\lib"
           $bin = Join-Path $root "installed\x64-windows\bin"
