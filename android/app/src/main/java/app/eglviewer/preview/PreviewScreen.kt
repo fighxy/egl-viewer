@@ -180,6 +180,9 @@ fun PreviewScreen(
         HorizontalPager(
             state = pagerState,
             beyondViewportPageCount = 1,
+            // While zoomed a horizontal drag pans the photo. Paging returns when
+            // the zoom springs back to fit (a pan past the side), so the two
+            // gestures do not share one drag.
             userScrollEnabled = !zoomed,
             modifier = Modifier.fillMaxSize(),
         ) { page ->
@@ -189,6 +192,7 @@ fun PreviewScreen(
                 index = page,
                 pixels = pixels,
                 originals = originals,
+                current = page == index,
                 onZoomed = { zoomed = it },
                 onSingleTap = { chrome = !chrome },
             )
@@ -266,6 +270,7 @@ private fun PreviewPage(
     index: Int,
     pixels: Int,
     originals: OriginalCache,
+    current: Boolean,
     onZoomed: (Boolean) -> Unit,
     onSingleTap: () -> Unit,
 ) {
@@ -347,10 +352,29 @@ private fun PreviewPage(
         val image = original
         if (image != null) {
             // New identity resets zoom when the decoded original changes.
+            // The sharper bitmap is not part of the key: it swaps in under the same zoom.
             key(identity ?: "") {
+                val frame = remember { ZoomFrameState() }
+                val sharp = rememberSharpPicture(
+                    cellId = cell?.id,
+                    version = cell?.thumbVersion ?: 0L,
+                    base = image,
+                    pixels = pixels,
+                    current = current,
+                    frame = frame,
+                    originals = originals,
+                )
                 ZoomingImage(
                     bitmap = image,
+                    sharp = sharp?.bitmap,
+                    sharpFraction = sharp?.fraction,
+                    current = current,
                     onZoomed = onZoomed,
+                    onFrame = { scale, offset, box ->
+                        if (frame.scale != scale) frame.scale = scale
+                        if (frame.offset != offset) frame.offset = offset
+                        if (frame.box != box) frame.box = box
+                    },
                     onSingleTap = onSingleTap,
                     contentDescription = cell?.name,
                     modifier = Modifier.graphicsLayer(alpha = fade.value),

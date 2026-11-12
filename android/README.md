@@ -18,7 +18,7 @@ Stages: **A1** foundation → **A2** browsing → **A3** preview/details → **A
 | App foundation (A1) | `AppModel`, Welcome (create, SAF open, recent), open library |
 | Eagle import (D-116) | Welcome → Import Eagle Library: pick `Name.library` (All files access asked when it lies in shared storage, D-111); name, item count and size; the new library's name and Eagle's trash on or off; background copy with progress and Stop, then a report dialog. `Library.eagleLibraryInfo` / `importEagle` over JNI. The Eagle library is only read |
 | Browsing (A2) | Places, folder tree + smart folders (locked folders label-only), lazy grid/list by view id, thumbs, sort / search / filters, selection + Select All via view target, saved view per library |
-| Preview / details / actions (A3) | Full-screen pager + pinch/double-tap zoom + chrome toggle; at fit size horizontal swipes page (D-128); opens on the tapped photo and the bars follow a swipe only once it rests (D-131, D-134); originals decoded at the screen's long side inside a byte budget, neighbours prefetched and cancelled, grid thumbnail kept on screen until the original fades in (D-127, D-134); details sheet; selection / preview actions; undo snackbar; share originals as temp copies (≤100) |
+| Preview / details / actions (A3) | Full-screen pager + pinch/double-tap zoom + chrome toggle; pinch and double tap zoom where the fingers are, a pan stops at the photo's edges, and a pan past the side leaves the zoom so the next swipe pages (D-129, D-135); at fit size horizontal swipes page (D-128); opens on the tapped photo and the bars follow a swipe only once it rests (D-131, D-134); originals decoded at the screen's long side inside a byte budget, neighbours prefetched and cancelled, grid thumbnail kept on screen until the original fades in (D-127, D-134); while zoomed the page on screen decodes a sharper original (twice the screen, at most 4,096 px, or the visible region when that does not fit the budget) and drops it on zoom out (D-135); details sheet; selection / preview actions; undo snackbar; share originals as temp copies (≤100) |
 | Adding (A4) | + menu: Gallery, Files, Folder, Paste; drops onto places; Trash excluded; folder context adds into folder; Folder pick walks the whole SAF tree (nested folders; empty MIME still copied — D-121) into `egl_add_files`; temp `picked-*` copies; SAF grants held until import ends; progress + Stop; duplicate dialog; HEIC via ImageDecoder platform decoder |
 | Organizing (A5) | Folder CRUD (create / rename / move / delete); Tags screen with groups, rename / merge / delete; smart folder editor (conditions + v1 rules); Save as Smart Folder from browse |
 | Locks + app login (A6) | Locked folders (lock / unlock / recover / Lock All / label); relock on background; App Lock PIN/password (PBKDF2) + BiometricPrompt / Keystore; login overlay + Recents privacy cover |
@@ -27,7 +27,7 @@ Stages: **A1** foundation → **A2** browsing → **A3** preview/details → **A
 | Where libraries live | App-specific storage, or anywhere on the phone after **All files access** (`MANAGE_EXTERNAL_STORAGE`, asked when a library outside app storage is opened; D-111); cloud-looking path opens **read-only** (D-021) |
 | Strings | English / Russian / Simplified Chinese, every screen from the catalogs (plurals included); `StringsCatalogTest` keeps the keys in step and catches hardcoded English (D-111) |
 | Native core | Real `libegl_library.so` when built with cargo-ndk; **no mock fallback**. If it does not load, Welcome and the error show the loader's reason (D-115) |
-| Host tests | `./gradlew :eglcore:testDebugUnitTest :app:testDebugUnitTest` (BrowseModel, details/actions/share, adding / picked copies, smart rules / organize JSON, AppLock / RecoveryKey, settings / export JSON, a11y labels, release assets, 10k perf, preview byte budget and neighbour loads; no device) |
+| Host tests | `./gradlew :eglcore:testDebugUnitTest :app:testDebugUnitTest` (BrowseModel, details/actions/share, adding / picked copies, smart rules / organize JSON, AppLock / RecoveryKey, settings / export JSON, a11y labels, release assets, 10k perf, preview byte budget, neighbour loads, zoom geometry and sharper-decode selection; no device) |
 
 ## Layout
 
@@ -37,7 +37,7 @@ android/
   app/
     …/app/                     AppModel, OpenLibrary (toast / undo / imports / organize / locks / export)
     …/browse/                  BrowseModel, SelectionBar, Place, SavedViews, FilterSheet, BrowseScreen, ThumbnailCache, OriginalCache (screen-size decode, byte budget)
-    …/preview/                 PreviewScreen, ZoomingImage, neighbour loads
+    …/preview/                 PreviewScreen, ZoomingImage, sharper decode, neighbour loads
     …/details/                 DetailsSheet, ItemDetailsModel, ShareFiles
     …/adding/                  AddMenu, PickedFiles, import banner / duplicate dialog
     …/organize/                FolderEditor, TagsScreen, SmartFolderEditor, SmartRules

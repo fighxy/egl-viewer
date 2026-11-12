@@ -5,6 +5,8 @@ import android.content.Context
 import android.content.res.Configuration
 import android.graphics.Bitmap
 import android.graphics.BitmapFactory
+import android.graphics.BitmapRegionDecoder
+import android.graphics.Rect
 import android.util.LruCache
 import kotlinx.coroutines.CancellationException
 import kotlinx.coroutines.CoroutineScope
@@ -14,8 +16,26 @@ import kotlinx.coroutines.SupervisorJob
 import kotlinx.coroutines.cancel
 import kotlinx.coroutines.ensureActive
 import kotlinx.coroutines.launch
+import kotlinx.coroutines.withContext
 import java.io.File
 import kotlin.coroutines.coroutineContext
+import kotlin.math.sqrt
+
+/** A screen-size original, or one region of it. Parsed from a cache key. */
+internal sealed interface OriginalRequest {
+    val id: String
+
+    data class Full(override val id: String, val pixels: Int) : OriginalRequest
+
+    data class Region(
+        override val id: String,
+        val left: Int,
+        val top: Int,
+        val right: Int,
+        val bottom: Int,
+        val sampleSize: Int,
+    ) : OriginalRequest
+}
 
 /**
  * Decodes originals for the preview at the screen's long side (D-127, was 1.5×
@@ -25,7 +45,9 @@ import kotlin.coroutines.coroutineContext
  * The cache is a byte budget ([PreviewMemoryBudget]), cost the decoded bytes,
  * not a count of bitmaps. At most two decodes run at once. Two callers of one
  * original share one decode, and a caller that goes away cancels it only when
- * nobody else is waiting. A memory trim empties the bitmaps.
+ * nobody else is waiting. A memory trim empties the bitmaps. A zoomed page may
+ * also ask for a larger long side, or one region of the file; that shares the
+ * same budget and the same two decode slots.
  */
 class OriginalCache(
     private val session: ViewSession,
@@ -38,10 +60,15 @@ class OriginalCache(
         override fun sizeOf(key: String, value: Bitmap): Int = value.byteCount.coerceAtLeast(1)
     }
 
+    private val boundsCache = HashMap<String, Pair<Int, Int>>()
+
     private val loads = SharedDecodes<Bitmap>(scope, limit = 2) { key ->
-        val parsed = decodeKey(key) ?: return@SharedDecodes null
+        val parsed = parseKey(key) ?: return@SharedDecodes null
         coroutineContext.ensureActive()
-        val bitmap = decode(parsed.id, parsed.pixels) ?: return@SharedDecodes null
+        val bitmap = when (parsed) {
+            is OriginalRequest.Full -> decode(parsed.id, parsed.pixels)
+            is OriginalRequest.Region -> decodeRegion(parsed)
+        } ?: return@SharedDecodes null
         try {
             coroutineContext.ensureActive()
         } catch (error: CancellationException) {
@@ -93,8 +120,55 @@ class OriginalCache(
     fun prefetch(id: String, version: Long, pixels: Int): Job =
         scope.launch { image(id, version, pixels) }
 
+    /**
+     * The file's pixel size, read off the main thread. Cached; it is not a bitmap
+     * and does not spend the preview budget. Null when the file has no size.
+     */
+    suspend fun sourceBounds(id: String, version: Long): Pair<Int, Int>? {
+        val key = "$id#$version"
+        synchronized(boundsCache) { boundsCache[key] }?.let { return it }
+        return withContext(Dispatchers.IO) {
+            coroutineContext.ensureActive()
+            val size = readBounds(id) ?: return@withContext null
+            synchronized(boundsCache) { boundsCache[key] = size }
+            size
+        }
+    }
+
+    /**
+     * The visible region of an original, for a zoom past the screen-size decode.
+     * [sampleSize] is the power-of-two subsample. Null when the decoder cannot
+     * read that region. A cancelled caller is cancelled, not given null.
+     */
+    suspend fun region(
+        id: String,
+        version: Long,
+        left: Int,
+        top: Int,
+        right: Int,
+        bottom: Int,
+        sampleSize: Int,
+    ): Bitmap? {
+        val key = regionKey(id, version, left, top, right, bottom, sampleSize)
+        cache.get(key)?.let { return it }
+        return try {
+            loads.load(key)
+        } catch (error: CancellationException) {
+            throw error
+        } catch (_: Exception) {
+            null
+        }
+    }
+
+    /** Drops one decoded bitmap. The caller still holding it is responsible for not drawing a recycled one. */
+    fun drop(key: String) {
+        if (key.isEmpty()) return
+        cache.remove(key)
+    }
+
     fun removeAll() {
         loads.cancelAll()
+        synchronized(boundsCache) { boundsCache.clear() }
         cache.evictAll()
     }
 
@@ -112,6 +186,67 @@ class OriginalCache(
         watching = null
         removeAll()
         scope.cancel()
+    }
+
+    private fun readBounds(id: String): Pair<Int, Int>? {
+        val path = catchFailure { session.originalPath(id) }
+        val bytes = if (path == null) catchFailure { session.originalBytes(id) } else null
+        val bounds = BitmapFactory.Options().apply { inJustDecodeBounds = true }
+        when {
+            path != null -> BitmapFactory.decodeFile(path, bounds)
+            bytes != null -> BitmapFactory.decodeByteArray(bytes, 0, bytes.size, bounds)
+            else -> return null
+        }
+        if (bounds.outWidth <= 0 || bounds.outHeight <= 0) return null
+        return bounds.outWidth to bounds.outHeight
+    }
+
+    @Suppress("DEPRECATION")
+    private fun decodeRegion(request: OriginalRequest.Region): Bitmap? {
+        if (request.sampleSize < 1 || request.right <= request.left || request.bottom <= request.top) return null
+        val path = catchFailure { session.originalPath(id = request.id) }
+        val bytes = if (path == null) catchFailure { session.originalBytes(request.id) } else null
+        val decoder = catchFailure {
+            when {
+                path != null && File(path).isFile -> BitmapRegionDecoder.newInstance(path, false)
+                bytes != null -> BitmapRegionDecoder.newInstance(bytes, 0, bytes.size, false)
+                else -> null
+            }
+        } ?: return null
+        try {
+            val width = decoder.width
+            val height = decoder.height
+            if (width <= 0 || height <= 0) return null
+            val rect = Rect(
+                request.left.coerceIn(0, width),
+                request.top.coerceIn(0, height),
+                request.right.coerceIn(0, width),
+                request.bottom.coerceIn(0, height),
+            )
+            if (rect.width() <= 0 || rect.height() <= 0) return null
+            val opts = BitmapFactory.Options().apply {
+                inSampleSize = request.sampleSize
+                inScaled = false
+                inPreferredConfig = Bitmap.Config.ARGB_8888
+            }
+            val bitmap = catchFailure { decoder.decodeRegion(rect, opts) } ?: return null
+            return fitBytes(bitmap, budgetBytes)
+        } finally {
+            decoder.recycle()
+        }
+    }
+
+    /** A decoder that ignored the sample size must still fit the preview budget. */
+    private fun fitBytes(bitmap: Bitmap, maxBytes: Int): Bitmap {
+        val cost = bitmap.byteCount
+        if (maxBytes <= 0 || cost <= maxBytes || cost <= 0) return bitmap
+        val scale = sqrt(maxBytes.toFloat() / cost.toFloat()).coerceIn(0.01f, 1f)
+        val width = maxOf(1, (bitmap.width * scale).toInt())
+        val height = maxOf(1, (bitmap.height * scale).toInt())
+        if (width == bitmap.width && height == bitmap.height) return bitmap
+        val scaled = Bitmap.createScaledBitmap(bitmap, width, height, true)
+        if (scaled !== bitmap) bitmap.recycle()
+        return scaled
     }
 
     private fun decode(id: String, pixels: Int): Bitmap? {
@@ -155,17 +290,6 @@ class OriginalCache(
         return scaled
     }
 
-    private data class DecodedKey(val id: String, val pixels: Int)
-
-    private fun decodeKey(key: String): DecodedKey? {
-        val mark = key.lastIndexOf('#')
-        if (mark <= 0 || mark == key.lastIndex) return null
-        val pixels = key.substring(mark + 1).toIntOrNull() ?: return null
-        val rest = key.substring(0, mark)
-        val versionMark = rest.lastIndexOf('#')
-        if (versionMark <= 0) return null
-        return DecodedKey(id = rest.substring(0, versionMark), pixels = pixels)
-    }
 
     private inline fun <T> catchFailure(block: () -> T): T? =
         try {
@@ -179,6 +303,46 @@ class OriginalCache(
     companion object {
         fun cacheKey(id: String, version: Long, pixels: Int): String =
             "$id#$version#${pixels.coerceAtLeast(1)}"
+
+        fun regionKey(
+            id: String,
+            version: Long,
+            left: Int,
+            top: Int,
+            right: Int,
+            bottom: Int,
+            sampleSize: Int,
+        ): String = "$id#$version#r#$left,$top,$right,$bottom,$sampleSize"
+
+        /**
+         * [cacheKey] or [regionKey]. The version is only there so two edits of
+         * one item do not share a bitmap; the id may itself contain `#`.
+         */
+        internal fun parseKey(key: String): OriginalRequest? {
+            val last = key.lastIndexOf('#')
+            if (last <= 0 || last == key.lastIndex) return null
+            val tail = key.substring(last + 1)
+            val head = key.substring(0, last)
+            if (',' in tail) {
+                val kind = head.lastIndexOf('#')
+                if (kind <= 0 || head.substring(kind + 1) != "r") return null
+                val rest = head.substring(0, kind)
+                val versionMark = rest.lastIndexOf('#')
+                if (versionMark <= 0) return null
+                val id = rest.substring(0, versionMark)
+                if (id.isEmpty()) return null
+                val parts = tail.split(',')
+                if (parts.size != 5) return null
+                val nums = parts.map { it.toIntOrNull() ?: return null }
+                return OriginalRequest.Region(id, nums[0], nums[1], nums[2], nums[3], nums[4])
+            }
+            val pixels = tail.toIntOrNull() ?: return null
+            val versionMark = head.lastIndexOf('#')
+            if (versionMark <= 0) return null
+            val id = head.substring(0, versionMark)
+            if (id.isEmpty()) return null
+            return OriginalRequest.Full(id, pixels)
+        }
 
         /**
          * True for a real memory warning. [ComponentCallbacks2.TRIM_MEMORY_UI_HIDDEN]
