@@ -9,7 +9,15 @@ struct PreviewScreen: View {
     let start: Int
     @Environment(\.dismiss) private var dismiss
     @Environment(\.displayScale) private var scale
+    /// What `scrollPosition` reports and where it scrolls; never written from the scroll offset,
+    /// which would scroll the pager again in the middle of a swipe (D-131).
     @State private var position: Int?
+    /// The page that fills the screen: what the bars, the zoom back and the grid follow.
+    @State private var shown: Int
+    /// The open transition is over or the user has scrolled the pager: until then the offset is
+    /// the layout's, not the user's, and `shown` stays on `start` (D-131). iOS 17 follows
+    /// `scrollPosition` from the start, as before.
+    @State private var settled: Bool
     @State private var chrome = true
     @State private var zoomed = false
     @State private var deleting = false
@@ -26,9 +34,11 @@ struct PreviewScreen: View {
         self.model = model
         self.start = start
         _position = State(initialValue: start)
+        _shown = State(initialValue: start)
+        _settled = State(initialValue: !PageTracker.followsOffset)
     }
 
-    private var index: Int { min(position ?? start, max(model.total - 1, 0)) }
+    private var index: Int { min(shown, max(model.total - 1, 0)) }
     private var cell: ItemCell? { model.cell(at: index) }
 
     var body: some View {
@@ -55,7 +65,7 @@ struct PreviewScreen: View {
                 }
                 .scrollTargetBehavior(.paging)
                 .scrollPosition(id: $position)
-                .modifier(VisiblePage(position: $position))
+                .modifier(PageTracker(position: position, shown: $shown, settled: $settled))
                 .scrollDisabled(zoomed)
                 .scrollIndicators(.hidden)
                 .offset(y: pull)
@@ -65,6 +75,15 @@ struct PreviewScreen: View {
                 .onAppear {
                     position = start
                     proxy.scrollTo(start, anchor: .leading)
+                }
+                .task {
+                    // The cover's transition can lay the pager out again at its first page:
+                    // once it is over, put the pager on `start` and follow it from then on.
+                    try? await Task.sleep(for: .milliseconds(600))
+                    guard !settled else { return }
+                    position = start
+                    proxy.scrollTo(start, anchor: .leading)
+                    settled = true
                 }
             }
             .onAppear { self.pixels = pixels }
@@ -171,6 +190,7 @@ struct PreviewScreen: View {
                     .font(.headline)
                     .lineLimit(1)
                     .truncationMode(.middle)
+                    .accessibilityIdentifier("preview.title")
                 if model.total > 0 {
                     Text("preview.position \(index + 1) \(model.total)")
                         .font(.caption)
@@ -353,23 +373,51 @@ private struct PrefetchKey: Equatable {
     let loaded: Bool
 }
 
-/// The page that fills the screen on iOS 18 and later, from the scroll offset itself (one page is
-/// one container width), next to `scrollPosition`, which does not always follow a quick swipe.
-private struct VisiblePage: ViewModifier {
-    @Binding var position: Int?
+/// Follows the page that fills the screen into `shown` (D-131):
+/// - on iOS 18 and later from the scroll offset (one page is one container width), as
+///   `scrollPosition` does not always follow a quick swipe, and only once the swipe has come to
+///   rest: the bars, the grid behind and the zoom back do no work while the page glides;
+/// - on iOS 17 from `scrollPosition`.
+///
+/// Readings before `settled` are the layout during the open transition, not the user, and are
+/// dropped: they opened the first photo whatever tile was tapped.
+private struct PageTracker: ViewModifier {
+    static var followsOffset: Bool {
+        if #available(iOS 18.0, *) { return true }
+        return false
+    }
+
+    let position: Int?
+    @Binding var shown: Int
+    @Binding var settled: Bool
+    @State private var latest: Int?
+    @State private var scrolling = false
 
     func body(content: Content) -> some View {
         if #available(iOS 18.0, *) {
-            content.onScrollGeometryChange(for: Int.self) { geometry in
-                let width = max(geometry.containerSize.width, 1)
-                return max(Int((geometry.contentOffset.x / width).rounded()), 0)
-            } action: { _, page in
-                if page != position {
-                    position = page
-                }
-            }
-        } else {
             content
+                .onScrollGeometryChange(for: Int?.self) { geometry in
+                    let width = geometry.containerSize.width
+                    guard width > 1 else { return nil }
+                    return max(Int((geometry.contentOffset.x / width).rounded()), 0)
+                } action: { _, page in
+                    latest = page
+                    if let page, !scrolling { show(page) }
+                }
+                .onScrollPhaseChange { _, phase in
+                    if phase == .interacting { settled = true }
+                    scrolling = phase.isScrolling
+                    if !phase.isScrolling, let latest { show(latest) }
+                }
+        } else {
+            content.onChange(of: position) { _, page in
+                if let page { show(page) }
+            }
         }
+    }
+
+    private func show(_ page: Int) {
+        guard settled, page != shown else { return }
+        shown = page
     }
 }

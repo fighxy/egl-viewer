@@ -57,6 +57,29 @@ final class PreviewUITests: XCTestCase {
         return count
     }
 
+    /// A tile further down opens the preview on its own photo, and the preview stays there once
+    /// the open transition is over; it used to fall back to the first photo (D-131).
+    func testATapOpensThePreviewOnTheTappedPhoto() {
+        let app = launch()
+        _ = openAll(app)
+        let tile = app.descendants(matching: .any)
+            .matching(NSPredicate(format: "identifier BEGINSWITH 'item.sample-'"))
+            .element(boundBy: 4)
+        XCTAssertTrue(tile.waitForExistence(timeout: 10))
+        let name = String(tile.identifier.dropFirst("item.".count))
+        tile.tap()
+
+        let title = element("preview.title", in: app)
+        XCTAssertTrue(title.waitForExistence(timeout: 10), "the preview opens")
+        waitForLabel(name, of: title)
+        let position = element("preview.position", in: app)
+        XCTAssertNotEqual(position.label, "1 of 12")
+        // Still on it after the transition and the pager have settled.
+        _ = XCTWaiter.wait(for: [XCTestExpectation(description: "settle")], timeout: 1.5)
+        XCTAssertEqual(title.label, name)
+        XCTAssertNotEqual(position.label, "1 of 12")
+    }
+
     func testPreviewSwipesRatesAndTrashesWithUndo() {
         let app = launch()
         let count = openAll(app)
