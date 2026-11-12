@@ -7,8 +7,11 @@ import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.ExperimentalCoroutinesApi
 import kotlinx.coroutines.SupervisorJob
 import kotlinx.coroutines.runBlocking
+import kotlinx.coroutines.test.StandardTestDispatcher
 import kotlinx.coroutines.test.UnconfinedTestDispatcher
+import kotlinx.coroutines.test.advanceUntilIdle
 import kotlinx.coroutines.test.resetMain
+import kotlinx.coroutines.test.runTest
 import kotlinx.coroutines.test.setMain
 import org.junit.After
 import org.junit.Assert.assertEquals
@@ -214,5 +217,27 @@ class BrowseModelTest {
         assertTrue(model.target.ids.isEmpty())
         assertEquals(50, model.selectedCount)
         model.stop()
+    }
+
+    /**
+     * stop() used to launch closeView on the model scope and then cancel that scope, so a
+     * dispatcher that has not run the child yet never closed the view.
+     */
+    @Test
+    fun stopClosesTheViewWhenItsDispatcherHasNotRunYet() = runTest {
+        val dispatcher = StandardTestDispatcher(testScheduler)
+        val (open, session) = host(4)
+        val model = BrowseModel(
+            open = open,
+            place = Place.All,
+            scope = CoroutineScope(SupervisorJob() + dispatcher),
+            compute = dispatcher,
+        )
+        model.start()
+        advanceUntilIdle()
+        assertEquals(1, session.openViewCount())
+        model.stop()
+        advanceUntilIdle()
+        assertEquals(0, session.openViewCount())
     }
 }

@@ -58,6 +58,8 @@ class FakeViewSession(
         views.remove(viewId)
     }
 
+    fun openViewCount(): Int = views.size
+
     override fun tags(): List<Tag> {
         val counts = mutableMapOf<String, Int>()
         for (cell in live) {

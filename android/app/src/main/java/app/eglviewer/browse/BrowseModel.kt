@@ -14,12 +14,16 @@ import app.eglviewer.details.ShareFiles
 import java.io.File
 import java.util.concurrent.ConcurrentHashMap
 import java.util.concurrent.atomic.AtomicInteger
+import kotlinx.coroutines.CancellationException
 import kotlinx.coroutines.CoroutineScope
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.Job
+import kotlinx.coroutines.NonCancellable
 import kotlinx.coroutines.SupervisorJob
 import kotlinx.coroutines.cancel
 import kotlinx.coroutines.delay
+import kotlinx.coroutines.ensureActive
+import kotlinx.coroutines.isActive
 import kotlinx.coroutines.launch
 import kotlinx.coroutines.sync.Mutex
 import kotlinx.coroutines.sync.withLock
@@ -154,12 +158,24 @@ class BrowseModel(
         viewId = null
         windows.clear()
         requested.clear()
+        // Not a child of [scope]: stop() cancels that scope, which used to drop the close
+        // before it ran and leave the core view open (iOS closes with Task.detached).
         if (closing != null) {
-            scope.launch(compute) {
-                runCatching { open.session.closeView(closing) }
-            }
+            closeViewDetached(closing)
         }
         scope.cancel()
+    }
+
+    private fun closeViewDetached(viewId: Long) {
+        val session = open.session
+        val job = SupervisorJob()
+        CoroutineScope(job + compute).launch {
+            try {
+                runCatching { session.closeView(viewId) }
+            } finally {
+                job.cancel()
+            }
+        }
     }
 
     /**
@@ -198,10 +214,18 @@ class BrowseModel(
         try {
             val opened = withContext(compute) {
                 if (old != null) runCatching { session.closeView(old) }
-                session.openView(q)
+                val fresh = session.openView(q)
+                // Cancellation discards this result. Close here, or the view id is lost.
+                if (!isActive) {
+                    withContext(NonCancellable) { runCatching { session.closeView(fresh.viewId) } }
+                    ensureActive()
+                }
+                fresh
             }
             if (current != viewGeneration.get() || !active) {
-                withContext(compute) { runCatching { session.closeView(opened.viewId) } }
+                withContext(NonCancellable) {
+                    withContext(compute) { runCatching { session.closeView(opened.viewId) } }
+                }
                 return
             }
             cellGeneration.incrementAndGet()
@@ -214,6 +238,8 @@ class BrowseModel(
             loading = false
             notifyChanged()
             load(window = 0)
+        } catch (error: CancellationException) {
+            throw error
         } catch (error: Exception) {
             if (current != viewGeneration.get()) return
             viewId = null
