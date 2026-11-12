@@ -8,7 +8,7 @@ use gpui_kit::component::button::{Button, ButtonVariants as _};
 use gpui_kit::component::label::Label;
 use gpui_kit::component::menu::{DropdownMenu as _, PopupMenu, PopupMenuItem};
 use gpui_kit::component::scroll::ScrollableElement as _;
-use gpui_kit::component::{ActiveTheme as _, StyledExt as _, h_flex, v_flex};
+use gpui_kit::component::{ActiveTheme as _, Sizable as _, StyledExt as _, h_flex, v_flex};
 use gpui_kit::prelude::FluentBuilder as _;
 use gpui_kit::{
     App, Context, Entity, InteractiveElement, IntoElement, ParentElement,
@@ -17,6 +17,7 @@ use gpui_kit::{
 use library_core::{LibraryKind, SortKey};
 
 use crate::app::RootApp;
+use crate::browse::style;
 use crate::commands::*;
 use crate::i18n::{t, t_n};
 use crate::library::Place;
@@ -93,10 +94,11 @@ impl RootApp {
         h_flex()
             .id("menubar")
             .w_full()
+            .h(px(style::MENU_BAR_HEIGHT))
+            .flex_none()
             .items_center()
             .gap_1()
             .px_2()
-            .py_1()
             .border_b_1()
             .border_color(theme.border)
             .child({
@@ -267,8 +269,9 @@ impl RootApp {
     }
 }
 
+/// Small buttons keep the menu bar as tall as one line of text (D-157).
 fn menu_button(id: &'static str, label: String) -> Button {
-    Button::new(id).ghost().compact().label(label)
+    Button::new(id).ghost().small().compact().label(label)
 }
 
 fn file_menu(menu: PopupMenu, snap: &MenuSnap) -> PopupMenu {

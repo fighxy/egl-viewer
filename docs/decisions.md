@@ -3421,3 +3421,14 @@ stayed in GPUI's asset cache for the life of the window. The grid only had the s
   jobs and `gpui-release.yml`) runs up to three times, 20 s and 40 s apart, and throws
   "vcpkg install libheif failed after 3 attempts" when none succeeds. The decode-only checks
   (no x265, `heif.dll` and `libde265.dll` present) are unchanged.
+
+## D-157 GPUI: compact bars above the library (2026-11-12)
+
+- **Problem.** The menu bar (normal-size buttons with padding, 40 px), the toolbar (44 px) and
+  the filter bar (36 px) took 121 px above the grid, with wide empty bands between them.
+- **Change.** The menu bar has a fixed 30 px and small menu buttons, the toolbar 36 px, the
+  filter bar 30 px: 96 px in all. Every control in them is a 24 px small button or the small
+  search field, so nothing is cut. The heights are `style::MENU_BAR_HEIGHT`,
+  `TOOLBAR_HEIGHT` and `FILTER_BAR_HEIGHT`; a compile-time assertion keeps each above its controls
+  and the three within 96 px. The borders
+  under the menu bar and the filter bar stay; menus still open under their button.

@@ -22,6 +22,21 @@ pub const THUMB_RADIUS: f32 = 4.0;
 /// Right padding of a scrolled pane's content, the width of the overlay scrollbar and a gap.
 pub const SCROLLBAR_GUTTER: f32 = 10.0;
 
+/// The bars above a library, top to bottom (D-157): the menu bar, the toolbar (place, size
+/// slider, view switches, search) and the filter bar. Each is its 24 px controls plus a
+/// little air; together 96 px (before 121).
+pub const MENU_BAR_HEIGHT: f32 = 30.0;
+pub const TOOLBAR_HEIGHT: f32 = 36.0;
+pub const FILTER_BAR_HEIGHT: f32 = 30.0;
+
+// Each bar stays taller than its 24 px controls plus a little air, and all three stay compact.
+const _: () = assert!(
+    MENU_BAR_HEIGHT >= 28.0
+        && TOOLBAR_HEIGHT >= 28.0
+        && FILTER_BAR_HEIGHT >= 28.0
+        && MENU_BAR_HEIGHT + TOOLBAR_HEIGHT + FILTER_BAR_HEIGHT <= 96.0
+);
+
 /// The colour of a selected thumbnail's ring and caption. The kit's `accent` is a quiet grey
 /// meant for hover, so a selection drawn with it cannot be seen on a dark grid.
 pub fn selection_color(theme: &Kit) -> Hsla {
