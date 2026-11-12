@@ -128,3 +128,61 @@ struct RecentLibraries {
         }
     }
 }
+
+/// One library on Welcome: a recent one, or one in On My iPhone the app has not opened yet.
+struct WelcomeEntry: Identifiable, Equatable {
+    enum Source: Equatable {
+        case recent(RecentLibrary)
+        case local(URL)
+    }
+
+    let source: Source
+    let name: String
+    let path: String
+    /// The folder that holds it, or `nil` for On My iPhone.
+    let folder: String?
+    /// When the app last opened it; `nil` for one it has not opened.
+    let openedAt: Date?
+
+    var id: String { path }
+}
+
+/// What Welcome lists above its actions (D-130): the recent libraries, newest first, then the
+/// libraries in On My iPhone that are not among them, by name.
+struct WelcomeEntries: Equatable {
+    let recent: [WelcomeEntry]
+    let local: [WelcomeEntry]
+
+    var isEmpty: Bool { recent.isEmpty && local.isEmpty }
+
+    init(recents: [RecentLibrary], local: [URL], locations: LibraryLocations) {
+        // Paths compare with symlinks resolved: `/var` and `/private/var` are one folder.
+        let root = Self.resolved(locations.root) + "/"
+        recent = recents.map { library in
+            let url = URL(fileURLWithPath: library.path)
+            return WelcomeEntry(
+                source: .recent(library),
+                name: library.name,
+                path: library.path,
+                folder: Self.resolved(url).hasPrefix(root) ? nil : url.deletingLastPathComponent().lastPathComponent,
+                openedAt: library.openedAt
+            )
+        }
+        let seen = Set(recents.map { Self.resolved(URL(fileURLWithPath: $0.path)) })
+        self.local = local
+            .filter { !seen.contains(Self.resolved($0)) }
+            .map { url in
+                WelcomeEntry(
+                    source: .local(url),
+                    name: url.deletingPathExtension().lastPathComponent,
+                    path: url.path,
+                    folder: nil,
+                    openedAt: nil
+                )
+            }
+    }
+
+    private static func resolved(_ url: URL) -> String {
+        url.standardizedFileURL.resolvingSymlinksInPath().path
+    }
+}
