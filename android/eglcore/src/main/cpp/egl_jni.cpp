@@ -18,6 +18,7 @@
 #include <stdlib.h>
 #include <string.h>
 
+#include <limits>
 #include <string>
 
 #if defined(EGL_HAS_RUST)
@@ -26,6 +27,20 @@
 
 static JavaVM *g_vm = nullptr;
 static thread_local int g_last_status = 0;
+/** Utf8 constructions on this thread whose GetStringChars failed (an exception is pending). */
+static thread_local int g_utf8_failures = 0;
+
+/**
+ * Returns from the JNI function when a Java string could not be read. The pending
+ * exception must not be followed by another JNI call (NewString, FindClass, …).
+ * The return value is ignored while an exception is pending.
+ */
+#define EGL_RETURN_IF_UTF8_FAILED(env)                    \
+  do {                                                    \
+    if (g_utf8_failures != 0 || (env)->ExceptionCheck()) { \
+      return {};                                          \
+    }                                                     \
+  } while (0)
 
 static void set_status(int status) { g_last_status = status; }
 
@@ -64,7 +79,10 @@ class Utf8 {
     jsize len = env->GetStringLength(value);
     const jchar *chars = env->GetStringChars(value, nullptr);
     if (chars == nullptr) {
-      return; /* out of memory: an exception is pending */
+      /* Out of memory: an exception is pending. Do not call JNI again. */
+      failed_ = true;
+      g_utf8_failures++;
+      return;
     }
     present_ = true;
     text_.reserve(static_cast<size_t>(len));
@@ -86,9 +104,15 @@ class Utf8 {
   Utf8 &operator=(const Utf8 &) = delete;
 
   const char *get() const { return present_ ? text_.c_str() : nullptr; }
+  ~Utf8() {
+    if (failed_) {
+      g_utf8_failures--;
+    }
+  }
 
  private:
   bool present_ = false;
+  bool failed_ = false;
   std::string text_;
 };
 
@@ -211,6 +235,10 @@ JNIEXPORT jint JNICALL JNI_OnLoad(JavaVM *vm, void *) {
   g_decoder_class = global_class(env, "app/eglviewer/core/PlatformDecoder");
   g_decode_from_jni =
       static_method(env, g_decoder_class, "decodeFromJni", "([BLjava/lang/String;J)I");
+  if (g_library_class == nullptr || g_dispatch_event == nullptr || g_decoder_class == nullptr ||
+      g_decode_from_jni == nullptr) {
+    return JNI_ERR;
+  }
   return JNI_VERSION_1_6;
 }
 
@@ -251,10 +279,13 @@ Java_app_eglviewer_core_EglNative_createLibrary(JNIEnv *env, jclass,
                                                 jstring version) {
 #if defined(EGL_HAS_RUST)
   Utf8 parent_utf_arg(env, parent);
+  EGL_RETURN_IF_UTF8_FAILED(env);
   const char *parent_utf = parent_utf_arg.get();
   Utf8 name_utf_arg(env, name);
+  EGL_RETURN_IF_UTF8_FAILED(env);
   const char *name_utf = name_utf_arg.get();
   Utf8 ver_utf_arg(env, version);
+  EGL_RETURN_IF_UTF8_FAILED(env);
   const char *ver_utf = ver_utf_arg.get();
   char *out_path = nullptr;
   EglStatus status =
@@ -280,6 +311,7 @@ extern "C" JNIEXPORT jstring JNICALL
 Java_app_eglviewer_core_EglNative_eagleLibraryInfo(JNIEnv *env, jclass, jstring path) {
 #if defined(EGL_HAS_RUST)
   Utf8 path_arg(env, path);
+  EGL_RETURN_IF_UTF8_FAILED(env);
   char *json = nullptr;
   EglStatus status = egl_eagle_library_info(path_arg.get(), &json);
   set_status(static_cast<int>(status));
@@ -301,8 +333,11 @@ Java_app_eglviewer_core_EglNative_decryptArchive(JNIEnv *env, jclass,
                                                  jstring passphrase) {
 #if defined(EGL_HAS_RUST)
   Utf8 source_arg(env, source);
+  EGL_RETURN_IF_UTF8_FAILED(env);
   Utf8 destination_arg(env, destination);
+  EGL_RETURN_IF_UTF8_FAILED(env);
   Utf8 passphrase_arg(env, passphrase);
+  EGL_RETURN_IF_UTF8_FAILED(env);
   char *json = nullptr;
   EglStatus status = egl_decrypt_archive(source_arg.get(), destination_arg.get(),
                                          passphrase_arg.get(), &json);
@@ -326,8 +361,10 @@ Java_app_eglviewer_core_EglNative_open(JNIEnv *env, jclass, jstring path,
                                        jstring version, jboolean syncFolder) {
 #if defined(EGL_HAS_RUST)
   Utf8 path_utf_arg(env, path);
+  EGL_RETURN_IF_UTF8_FAILED(env);
   const char *path_utf = path_utf_arg.get();
   Utf8 ver_utf_arg(env, version);
+  EGL_RETURN_IF_UTF8_FAILED(env);
   const char *ver_utf = ver_utf_arg.get();
   EglLibrary *lib = egl_open(path_utf, ver_utf, syncFolder ? 1 : 0);
   set_status(lib != nullptr ? 0 : 7);
@@ -480,6 +517,7 @@ Java_app_eglviewer_core_EglNative_openView(JNIEnv *env, jclass, jlong handle,
                                            jstring queryJson) {
 #if defined(EGL_HAS_RUST)
   Utf8 query_arg(env, queryJson);
+  EGL_RETURN_IF_UTF8_FAILED(env);
   const char *query = query_arg.get();
   char *json = nullptr;
   EglStatus status =
@@ -502,6 +540,10 @@ extern "C" JNIEXPORT jstring JNICALL
 Java_app_eglviewer_core_EglNative_viewRange(JNIEnv *env, jclass, jlong handle,
                                             jlong viewId, jint start, jint len) {
 #if defined(EGL_HAS_RUST)
+  if (start < 0 || len < 0) {
+    set_status(static_cast<int>(EGL_ERR_INVALID));
+    return nullptr;
+  }
   char *json = nullptr;
   EglStatus status = egl_view_range(
       reinterpret_cast<EglLibrary *>(handle), static_cast<uint64_t>(viewId),
@@ -571,11 +613,52 @@ Java_app_eglviewer_core_EglNative_smartFolders(JNIEnv *env, jclass,
 #endif
 }
 
+#if defined(EGL_HAS_RUST)
+/** Copies a core buffer into a Java array and frees it. Null when there is nothing to copy. */
+static jbyteArray copy_out_bytes(JNIEnv *env, uint8_t *bytes, size_t len) {
+  if (bytes == nullptr || len == 0) {
+    return nullptr;
+  }
+  if (len > static_cast<size_t>(std::numeric_limits<jsize>::max())) {
+    egl_bytes_free(bytes, len);
+    return nullptr;
+  }
+  const jsize n = static_cast<jsize>(len);
+  jbyteArray out = env->NewByteArray(n);
+  if (out == nullptr || env->ExceptionCheck()) {
+    egl_bytes_free(bytes, len);
+    return nullptr;
+  }
+  env->SetByteArrayRegion(out, 0, n, reinterpret_cast<const jbyte *>(bytes));
+  egl_bytes_free(bytes, len);
+  if (env->ExceptionCheck()) {
+    return nullptr;
+  }
+  return out;
+}
+
+static jbyteArray finish_bytes(JNIEnv *env, EglStatus status, uint8_t *bytes, size_t len) {
+  set_status(static_cast<int>(status));
+  if (status != EGL_OK || bytes == nullptr || len == 0) {
+    if (bytes != nullptr && len > 0) {
+      egl_bytes_free(bytes, len);
+    }
+    return nullptr;
+  }
+  jbyteArray out = copy_out_bytes(env, bytes, len);
+  if (out == nullptr && !env->ExceptionCheck()) {
+    set_status(static_cast<int>(EGL_ERR_STORAGE));
+  }
+  return out;
+}
+#endif
+
 extern "C" JNIEXPORT jbyteArray JNICALL
 Java_app_eglviewer_core_EglNative_thumbnailBytes(JNIEnv *env, jclass,
                                                  jlong handle, jstring id) {
 #if defined(EGL_HAS_RUST)
   Utf8 id_utf_arg(env, id);
+  EGL_RETURN_IF_UTF8_FAILED(env);
   const char *id_utf = id_utf_arg.get();
   uint8_t *bytes = nullptr;
   size_t len = 0;
@@ -585,17 +668,7 @@ Java_app_eglviewer_core_EglNative_thumbnailBytes(JNIEnv *env, jclass,
   if (content_type != nullptr) {
     egl_string_free(content_type);
   }
-  set_status(static_cast<int>(status));
-  if (status != EGL_OK || bytes == nullptr || len == 0) {
-    return nullptr;
-  }
-  jbyteArray out = env->NewByteArray(static_cast<jsize>(len));
-  if (out != nullptr) {
-    env->SetByteArrayRegion(out, 0, static_cast<jsize>(len),
-                            reinterpret_cast<const jbyte *>(bytes));
-  }
-  egl_bytes_free(bytes, len);
-  return out;
+  return finish_bytes(env, status, bytes, len);
 #else
   (void)env;
   (void)handle;
@@ -611,8 +684,10 @@ Java_app_eglviewer_core_EglNative_editItems(JNIEnv *env, jclass, jlong handle,
                                             jstring editJson) {
 #if defined(EGL_HAS_RUST)
   Utf8 target_arg(env, targetJson);
+  EGL_RETURN_IF_UTF8_FAILED(env);
   const char *target = target_arg.get();
   Utf8 edit_arg(env, editJson);
+  EGL_RETURN_IF_UTF8_FAILED(env);
   const char *edit = edit_arg.get();
   uint32_t count = 0;
   EglStatus status = egl_edit_items(reinterpret_cast<EglLibrary *>(handle),
@@ -639,6 +714,7 @@ Java_app_eglviewer_core_EglNative_item(JNIEnv *env, jclass, jlong handle,
                                        jstring id) {
 #if defined(EGL_HAS_RUST)
   Utf8 id_utf_arg(env, id);
+  EGL_RETURN_IF_UTF8_FAILED(env);
   const char *id_utf = id_utf_arg.get();
   char *json = nullptr;
   EglStatus status =
@@ -662,8 +738,10 @@ Java_app_eglviewer_core_EglNative_applyItemEdit(JNIEnv *env, jclass, jlong handl
                                                 jstring id, jstring editJson) {
 #if defined(EGL_HAS_RUST)
   Utf8 id_utf_arg(env, id);
+  EGL_RETURN_IF_UTF8_FAILED(env);
   const char *id_utf = id_utf_arg.get();
   Utf8 edit_arg(env, editJson);
+  EGL_RETURN_IF_UTF8_FAILED(env);
   const char *edit = edit_arg.get();
   char *json = nullptr;
   EglStatus status = egl_apply_item_edit(reinterpret_cast<EglLibrary *>(handle),
@@ -689,6 +767,7 @@ Java_app_eglviewer_core_EglNative_viewSelectionTags(JNIEnv *env, jclass,
                                                     jstring targetJson) {
 #if defined(EGL_HAS_RUST)
   Utf8 target_arg(env, targetJson);
+  EGL_RETURN_IF_UTF8_FAILED(env);
   const char *target = target_arg.get();
   char *json = nullptr;
   EglStatus status = egl_view_selection_tags(
@@ -756,6 +835,7 @@ Java_app_eglviewer_core_EglNative_deleteItems(JNIEnv *env, jclass, jlong handle,
                                               jstring targetJson) {
 #if defined(EGL_HAS_RUST)
   Utf8 target_arg(env, targetJson);
+  EGL_RETURN_IF_UTF8_FAILED(env);
   const char *target = target_arg.get();
   uint32_t count = 0;
   EglStatus status = egl_delete_items(reinterpret_cast<EglLibrary *>(handle),
@@ -808,6 +888,10 @@ extern "C" JNIEXPORT jstring JNICALL
 Java_app_eglviewer_core_EglNative_viewIds(JNIEnv *env, jclass, jlong handle,
                                           jlong viewId, jint start, jint len) {
 #if defined(EGL_HAS_RUST)
+  if (start < 0 || len < 0) {
+    set_status(static_cast<int>(EGL_ERR_INVALID));
+    return nullptr;
+  }
   char *json = nullptr;
   EglStatus status = egl_view_ids(
       reinterpret_cast<EglLibrary *>(handle), static_cast<uint64_t>(viewId),
@@ -833,6 +917,7 @@ Java_app_eglviewer_core_EglNative_originalPath(JNIEnv *env, jclass, jlong handle
                                                jstring id) {
 #if defined(EGL_HAS_RUST)
   Utf8 id_utf_arg(env, id);
+  EGL_RETURN_IF_UTF8_FAILED(env);
   const char *id_utf = id_utf_arg.get();
   char *path = nullptr;
   EglStatus status =
@@ -856,6 +941,7 @@ Java_app_eglviewer_core_EglNative_originalBytes(JNIEnv *env, jclass, jlong handl
                                                 jstring id) {
 #if defined(EGL_HAS_RUST)
   Utf8 id_utf_arg(env, id);
+  EGL_RETURN_IF_UTF8_FAILED(env);
   const char *id_utf = id_utf_arg.get();
   uint8_t *bytes = nullptr;
   size_t len = 0;
@@ -865,17 +951,7 @@ Java_app_eglviewer_core_EglNative_originalBytes(JNIEnv *env, jclass, jlong handl
   if (content_type != nullptr) {
     egl_string_free(content_type);
   }
-  set_status(static_cast<int>(status));
-  if (status != EGL_OK || bytes == nullptr || len == 0) {
-    return nullptr;
-  }
-  jbyteArray out = env->NewByteArray(static_cast<jsize>(len));
-  if (out != nullptr) {
-    env->SetByteArrayRegion(out, 0, static_cast<jsize>(len),
-                            reinterpret_cast<const jbyte *>(bytes));
-  }
-  egl_bytes_free(bytes, len);
-  return out;
+  return finish_bytes(env, status, bytes, len);
 #else
   (void)env;
   (void)handle;
@@ -893,6 +969,7 @@ Java_app_eglviewer_core_EglNative_importEagle(JNIEnv *env, jclass, jlong handle,
                                               jstring requestJson) {
 #if defined(EGL_HAS_RUST)
   Utf8 req_arg(env, requestJson);
+  EGL_RETURN_IF_UTF8_FAILED(env);
   char *out = nullptr;
   EglStatus status =
       egl_import_eagle(reinterpret_cast<EglLibrary *>(handle), req_arg.get(), &out);
@@ -915,6 +992,7 @@ Java_app_eglviewer_core_EglNative_addFiles(JNIEnv *env, jclass, jlong handle,
                                            jstring requestJson) {
 #if defined(EGL_HAS_RUST)
   Utf8 req_arg(env, requestJson);
+  EGL_RETURN_IF_UTF8_FAILED(env);
   const char *req = req_arg.get();
   char *out = nullptr;
   EglStatus status =
@@ -938,6 +1016,7 @@ Java_app_eglviewer_core_EglNative_answerImport(JNIEnv *env, jclass, jlong handle
                                                jlong id, jstring answer) {
 #if defined(EGL_HAS_RUST)
   Utf8 ans_arg(env, answer);
+  EGL_RETURN_IF_UTF8_FAILED(env);
   const char *ans = ans_arg.get();
   EglStatus status = egl_answer_import(reinterpret_cast<EglLibrary *>(handle),
                                        static_cast<uint64_t>(id), ans);
@@ -1091,6 +1170,7 @@ Java_app_eglviewer_core_EglNative_saveFolder(JNIEnv *env, jclass, jlong handle,
                                              jstring changeJson) {
 #if defined(EGL_HAS_RUST)
   Utf8 change_arg(env, changeJson);
+  EGL_RETURN_IF_UTF8_FAILED(env);
   const char *change = change_arg.get();
   char *json = nullptr;
   EglStatus status = egl_save_folder(reinterpret_cast<EglLibrary *>(handle),
@@ -1114,6 +1194,7 @@ Java_app_eglviewer_core_EglNative_deleteFolder(JNIEnv *env, jclass, jlong handle
                                                jstring id, jboolean trashItems) {
 #if defined(EGL_HAS_RUST)
   Utf8 id_utf_arg(env, id);
+  EGL_RETURN_IF_UTF8_FAILED(env);
   const char *id_utf = id_utf_arg.get();
   char *json = nullptr;
   EglStatus status = egl_delete_folder(reinterpret_cast<EglLibrary *>(handle),
@@ -1138,8 +1219,10 @@ Java_app_eglviewer_core_EglNative_renameTag(JNIEnv *env, jclass, jlong handle,
                                             jstring from, jstring to) {
 #if defined(EGL_HAS_RUST)
   Utf8 from_utf_arg(env, from);
+  EGL_RETURN_IF_UTF8_FAILED(env);
   const char *from_utf = from_utf_arg.get();
   Utf8 to_utf_arg(env, to);
+  EGL_RETURN_IF_UTF8_FAILED(env);
   const char *to_utf = to_utf_arg.get();
   EglStatus status = egl_rename_tag(reinterpret_cast<EglLibrary *>(handle),
                                     from_utf, to_utf);
@@ -1160,8 +1243,10 @@ Java_app_eglviewer_core_EglNative_mergeTags(JNIEnv *env, jclass, jlong handle,
                                             jstring source, jstring target) {
 #if defined(EGL_HAS_RUST)
   Utf8 source_utf_arg(env, source);
+  EGL_RETURN_IF_UTF8_FAILED(env);
   const char *source_utf = source_utf_arg.get();
   Utf8 target_utf_arg(env, target);
+  EGL_RETURN_IF_UTF8_FAILED(env);
   const char *target_utf = target_utf_arg.get();
   EglStatus status = egl_merge_tags(reinterpret_cast<EglLibrary *>(handle),
                                     source_utf, target_utf);
@@ -1182,6 +1267,7 @@ Java_app_eglviewer_core_EglNative_deleteTag(JNIEnv *env, jclass, jlong handle,
                                             jstring name) {
 #if defined(EGL_HAS_RUST)
   Utf8 name_utf_arg(env, name);
+  EGL_RETURN_IF_UTF8_FAILED(env);
   const char *name_utf = name_utf_arg.get();
   EglStatus status =
       egl_delete_tag(reinterpret_cast<EglLibrary *>(handle), name_utf);
@@ -1213,6 +1299,7 @@ Java_app_eglviewer_core_EglNative_saveTagGroup(JNIEnv *env, jclass, jlong handle
                                                jstring changeJson) {
 #if defined(EGL_HAS_RUST)
   Utf8 change_arg(env, changeJson);
+  EGL_RETURN_IF_UTF8_FAILED(env);
   const char *change = change_arg.get();
   char *json = nullptr;
   EglStatus status = egl_save_tag_group(reinterpret_cast<EglLibrary *>(handle),
@@ -1236,6 +1323,7 @@ Java_app_eglviewer_core_EglNative_deleteTagGroup(JNIEnv *env, jclass,
                                                  jlong handle, jstring id) {
 #if defined(EGL_HAS_RUST)
   Utf8 id_utf_arg(env, id);
+  EGL_RETURN_IF_UTF8_FAILED(env);
   const char *id_utf = id_utf_arg.get();
   char *json = nullptr;
   EglStatus status = egl_delete_tag_group(reinterpret_cast<EglLibrary *>(handle),
@@ -1260,6 +1348,7 @@ Java_app_eglviewer_core_EglNative_saveSmartFolder(JNIEnv *env, jclass,
                                                   jstring changeJson) {
 #if defined(EGL_HAS_RUST)
   Utf8 change_arg(env, changeJson);
+  EGL_RETURN_IF_UTF8_FAILED(env);
   const char *change = change_arg.get();
   char *json = nullptr;
   EglStatus status = egl_save_smart_folder(
@@ -1283,6 +1372,7 @@ Java_app_eglviewer_core_EglNative_deleteSmartFolder(JNIEnv *env, jclass,
                                                     jlong handle, jstring id) {
 #if defined(EGL_HAS_RUST)
   Utf8 id_utf_arg(env, id);
+  EGL_RETURN_IF_UTF8_FAILED(env);
   const char *id_utf = id_utf_arg.get();
   char *json = nullptr;
   EglStatus status = egl_delete_smart_folder(
@@ -1306,6 +1396,7 @@ Java_app_eglviewer_core_EglNative_smartRules(JNIEnv *env, jclass, jlong handle,
                                              jstring queryJson) {
 #if defined(EGL_HAS_RUST)
   Utf8 query_arg(env, queryJson);
+  EGL_RETURN_IF_UTF8_FAILED(env);
   const char *query = query_arg.get();
   char *json = nullptr;
   EglStatus status = egl_smart_rules(reinterpret_cast<EglLibrary *>(handle),
@@ -1331,8 +1422,10 @@ Java_app_eglviewer_core_EglNative_lockFolder(JNIEnv *env, jclass, jlong handle,
                                              jstring id, jstring requestJson) {
 #if defined(EGL_HAS_RUST)
   Utf8 id_utf_arg(env, id);
+  EGL_RETURN_IF_UTF8_FAILED(env);
   const char *id_utf = id_utf_arg.get();
   Utf8 request_arg(env, requestJson);
+  EGL_RETURN_IF_UTF8_FAILED(env);
   const char *request = request_arg.get();
   char *json = nullptr;
   EglStatus status = egl_lock_folder(reinterpret_cast<EglLibrary *>(handle),
@@ -1357,8 +1450,10 @@ Java_app_eglviewer_core_EglNative_unlockFolder(JNIEnv *env, jclass, jlong handle
                                                jstring id, jstring password) {
 #if defined(EGL_HAS_RUST)
   Utf8 id_utf_arg(env, id);
+  EGL_RETURN_IF_UTF8_FAILED(env);
   const char *id_utf = id_utf_arg.get();
   Utf8 password_utf_arg(env, password);
+  EGL_RETURN_IF_UTF8_FAILED(env);
   const char *password_utf = password_utf_arg.get();
   EglStatus status = egl_unlock_folder(reinterpret_cast<EglLibrary *>(handle),
                                        id_utf, password_utf);
@@ -1379,6 +1474,7 @@ Java_app_eglviewer_core_EglNative_relockFolder(JNIEnv *env, jclass, jlong handle
                                                jstring id) {
 #if defined(EGL_HAS_RUST)
   Utf8 id_arg(env, id);
+  EGL_RETURN_IF_UTF8_FAILED(env);
   const char *id_utf = id_arg.get();
   EglStatus status =
       egl_relock_folder(reinterpret_cast<EglLibrary *>(handle), id_utf);
@@ -1399,10 +1495,13 @@ Java_app_eglviewer_core_EglNative_recoverFolder(JNIEnv *env, jclass, jlong handl
                                                 jstring newPassword) {
 #if defined(EGL_HAS_RUST)
   Utf8 id_utf_arg(env, id);
+  EGL_RETURN_IF_UTF8_FAILED(env);
   const char *id_utf = id_utf_arg.get();
   Utf8 recovery_utf_arg(env, recovery);
+  EGL_RETURN_IF_UTF8_FAILED(env);
   const char *recovery_utf = recovery_utf_arg.get();
   Utf8 password_utf_arg(env, newPassword);
+  EGL_RETURN_IF_UTF8_FAILED(env);
   const char *password_utf = password_utf_arg.get();
   EglStatus status = egl_recover_folder(reinterpret_cast<EglLibrary *>(handle),
                                         id_utf, recovery_utf, password_utf);
@@ -1426,10 +1525,13 @@ Java_app_eglviewer_core_EglNative_changeFolderPassword(JNIEnv *env, jclass,
                                                        jstring newPassword) {
 #if defined(EGL_HAS_RUST)
   Utf8 id_utf_arg(env, id);
+  EGL_RETURN_IF_UTF8_FAILED(env);
   const char *id_utf = id_utf_arg.get();
   Utf8 current_utf_arg(env, current);
+  EGL_RETURN_IF_UTF8_FAILED(env);
   const char *current_utf = current_utf_arg.get();
   Utf8 password_utf_arg(env, newPassword);
+  EGL_RETURN_IF_UTF8_FAILED(env);
   const char *password_utf = password_utf_arg.get();
   EglStatus status = egl_change_folder_password(
       reinterpret_cast<EglLibrary *>(handle), id_utf, current_utf, password_utf);
@@ -1452,8 +1554,10 @@ Java_app_eglviewer_core_EglNative_renewRecoveryKey(JNIEnv *env, jclass,
                                                    jstring password) {
 #if defined(EGL_HAS_RUST)
   Utf8 id_utf_arg(env, id);
+  EGL_RETURN_IF_UTF8_FAILED(env);
   const char *id_utf = id_utf_arg.get();
   Utf8 password_utf_arg(env, password);
+  EGL_RETURN_IF_UTF8_FAILED(env);
   const char *password_utf = password_utf_arg.get();
   char *json = nullptr;
   EglStatus status = egl_renew_recovery_key(
@@ -1479,8 +1583,10 @@ Java_app_eglviewer_core_EglNative_removeFolderLock(JNIEnv *env, jclass,
                                                    jstring password) {
 #if defined(EGL_HAS_RUST)
   Utf8 id_utf_arg(env, id);
+  EGL_RETURN_IF_UTF8_FAILED(env);
   const char *id_utf = id_utf_arg.get();
   Utf8 password_utf_arg(env, password);
+  EGL_RETURN_IF_UTF8_FAILED(env);
   const char *password_utf = password_utf_arg.get();
   EglStatus status = egl_remove_folder_lock(
       reinterpret_cast<EglLibrary *>(handle), id_utf, password_utf);
@@ -1502,10 +1608,13 @@ Java_app_eglviewer_core_EglNative_setLockLabel(JNIEnv *env, jclass, jlong handle
                                                jstring color) {
 #if defined(EGL_HAS_RUST)
   Utf8 id_utf_arg(env, id);
+  EGL_RETURN_IF_UTF8_FAILED(env);
   const char *id_utf = id_utf_arg.get();
   Utf8 label_arg(env, label);
+  EGL_RETURN_IF_UTF8_FAILED(env);
   const char *label_utf = label_arg.get();
   Utf8 color_arg(env, color);
+  EGL_RETURN_IF_UTF8_FAILED(env);
   const char *color_utf = color_arg.get();
   EglStatus status = egl_set_lock_label(reinterpret_cast<EglLibrary *>(handle),
                                         id_utf, label_utf, color_utf);
@@ -1529,6 +1638,7 @@ Java_app_eglviewer_core_EglNative_renameLibrary(JNIEnv *env, jclass, jlong handl
                                                 jstring name) {
 #if defined(EGL_HAS_RUST)
   Utf8 name_utf_arg(env, name);
+  EGL_RETURN_IF_UTF8_FAILED(env);
   const char *name_utf = name_utf_arg.get();
   char *json = nullptr;
   EglStatus status = egl_rename_library(reinterpret_cast<EglLibrary *>(handle),
@@ -1609,6 +1719,7 @@ Java_app_eglviewer_core_EglNative_restoreBackup(JNIEnv *env, jclass,
                                                 jlong handle, jstring name) {
 #if defined(EGL_HAS_RUST)
   Utf8 name_utf_arg(env, name);
+  EGL_RETURN_IF_UTF8_FAILED(env);
   const char *name_utf = name_utf_arg.get();
   char *json = nullptr;
   EglStatus status = egl_restore_backup(reinterpret_cast<EglLibrary *>(handle),
@@ -1653,6 +1764,7 @@ Java_app_eglviewer_core_EglNative_repairLibrary(JNIEnv *env, jclass,
                                                 jstring optionsJson) {
 #if defined(EGL_HAS_RUST)
   Utf8 options_arg(env, optionsJson);
+  EGL_RETURN_IF_UTF8_FAILED(env);
   const char *options = options_arg.get();
   char *json = nullptr;
   EglStatus status = egl_repair_library(reinterpret_cast<EglLibrary *>(handle),
@@ -1700,6 +1812,7 @@ Java_app_eglviewer_core_EglNative_exportPreview(JNIEnv *env, jclass,
                                                 jboolean includeSubfolders) {
 #if defined(EGL_HAS_RUST)
   Utf8 selection_arg(env, selectionJson);
+  EGL_RETURN_IF_UTF8_FAILED(env);
   const char *selection = selection_arg.get();
   char *json = nullptr;
   EglStatus status = egl_export_preview(
@@ -1725,6 +1838,7 @@ Java_app_eglviewer_core_EglNative_startExport(JNIEnv *env, jclass, jlong handle,
                                               jstring requestJson) {
 #if defined(EGL_HAS_RUST)
   Utf8 request_arg(env, requestJson);
+  EGL_RETURN_IF_UTF8_FAILED(env);
   const char *request = request_arg.get();
   char *json = nullptr;
   EglStatus status = egl_start_export(reinterpret_cast<EglLibrary *>(handle),
