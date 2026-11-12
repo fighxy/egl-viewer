@@ -52,6 +52,44 @@ class PickedFile(val file: File) {
             return target
         }
 
+        /**
+         * A file that does not overwrite a sibling. Two documents in one SAF folder can share
+         * a display name; writing the second used to truncate the first.
+         */
+        fun uniqueFile(folder: File, name: String?, fallback: String = "Imported"): File {
+            val safe = safeName(name, fallback)
+            val dot = safe.lastIndexOf('.')
+            var stem = if (dot > 0) safe.substring(0, dot) else safe
+            val ext = if (dot > 0) safe.substring(dot) else ""
+            var n = 1
+            while (n < 10_000) {
+                val candidate = if (n == 1) safe else "$stem ($n)$ext"
+                if (candidate.toByteArray(Charsets.UTF_8).size > 255) {
+                    if (stem.isEmpty()) break
+                    stem = stem.dropLast(1)
+                    continue
+                }
+                val file = child(folder, candidate, fallback)
+                if (!file.exists()) return file
+                n++
+            }
+            return child(folder, safe, fallback)
+        }
+
+        /** A directory under [folder]. An existing directory is reused; a file of the same name is not. */
+        fun uniqueDir(folder: File, name: String?, fallback: String = "Folder"): File {
+            val safe = safeName(name, fallback)
+            val first = child(folder, safe, fallback)
+            if (!first.exists() || first.isDirectory) return first
+            var n = 2
+            while (n < 10_000) {
+                val dir = child(folder, "$safe ($n)", fallback)
+                if (!dir.exists() || dir.isDirectory) return dir
+                n++
+            }
+            return first
+        }
+
         /** Copies [source] under its own name ([fallback] when it has none worth keeping). */
         fun copying(cacheDir: File, source: File, fallback: String? = null): PickedFile {
             val folder = newFolder(cacheDir)
@@ -225,15 +263,24 @@ object ImportPaths {
         for (child in from.listFiles()) {
             val rawName = child.name?.ifEmpty { null } ?: continue
             if (child.isDirectory) {
-                val dir = PickedFile.child(into, rawName, fallback = "Folder")
+                val dir = PickedFile.uniqueDir(into, rawName, fallback = "Folder")
                 dir.mkdirs()
                 copyDocumentTree(context, child, dir)
             } else {
                 // Not isFile(): empty MIME must still be copied (JPEG/PNG/HEIC/WebP, …).
                 val name = fileNameWithMime(rawName, child.type)
-                val target = PickedFile.child(into, name)
-                context.contentResolver.openInputStream(child.uri)?.use { input ->
-                    FileOutputStream(target).use { output -> input.copyTo(output) }
+                val target = PickedFile.uniqueFile(into, name)
+                try {
+                    val input = context.contentResolver.openInputStream(child.uri)
+                    if (input == null) {
+                        target.delete()
+                        continue
+                    }
+                    input.use { stream ->
+                        FileOutputStream(target).use { output -> stream.copyTo(output) }
+                    }
+                } catch (error: Exception) {
+                    target.delete()
                 }
             }
         }

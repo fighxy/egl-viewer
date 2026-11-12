@@ -236,7 +236,7 @@ class AppModel(application: Application) : AndroidViewModel(application) {
         val open = openLibrary ?: return
         screen = Screen.Welcome
         viewModelScope.launch {
-            withContext(Dispatchers.IO) { open.close() }
+            open.close()
             reloadLists()
         }
     }
@@ -244,13 +244,13 @@ class AppModel(application: Application) : AndroidViewModel(application) {
     private suspend fun openPath(file: File, uri: Uri?, syncFolder: Boolean) {
         openLibrary?.let { current ->
             screen = Screen.Welcome
-            withContext(Dispatchers.IO) { current.close() }
+            current.close()
         }
         val library = withContext(Dispatchers.IO) {
             Library.open(file, appVersion, syncFolder = syncFolder)
         }
         val open = OpenLibrary(library, file, savedViews)
-        withContext(Dispatchers.IO) { open.refresh() }
+        open.refresh()
         open.attachEvents(getApplication())
         screen = Screen.LibraryOpen(open)
         val hint = locations.locationHint(file, uri)

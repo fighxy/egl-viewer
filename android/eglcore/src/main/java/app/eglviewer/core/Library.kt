@@ -11,212 +11,217 @@ import java.util.concurrent.atomic.AtomicReference
  * locked folders, and settings (stats / backups / check / repair / export). Calls may block —
  * run them off the main thread.
  */
-class Library private constructor(private var handle: Long) : AutoCloseable {
-    private val eventHandler = AtomicReference<((LibraryEvent) -> Unit)?>(null)
+class Library private constructor(handle: Long) : AutoCloseable {
+    private val gate = NativeGate(handle)
 
-    /** Sets what hears the core's events (`null` clears). May run on a background thread. */
-    fun setEventHandler(handler: ((LibraryEvent) -> Unit)?) {
-        ensureOpen()
-        eventHandler.set(handler)
-        val status = EglNative.setEventCallback(handle, handler != null)
-        if (status != 0) {
-            eventHandler.set(null)
-            throw error(status)
+    /**
+     * Runs [block] with the native pointer. [close] waits for it to return before freeing
+     * the pointer; after [close], [block] is not called and this throws.
+     */
+    private inline fun <T> call(block: (handle: Long) -> T): T {
+        if (!EglNative.isAvailable) {
+            throw EglError(EglError.Code.UNSUPPORTED, notLoaded())
         }
-        if (handler != null) {
-            activeLibraries[handle] = this
-        } else {
-            activeLibraries.remove(handle)
+        return try {
+            gate.use(block)
+        } catch (closed: NativeGate.Closed) {
+            throw EglError(EglError.Code.OTHER, "library is closed")
         }
     }
 
-    fun info(): LibraryInfo {
-        ensureOpen()
+    private val eventHandler = AtomicReference<((LibraryEvent) -> Unit)?>(null)
+
+    /**
+     * Sets what hears the core's events (`null` clears). May run on a background thread.
+     * The instance is registered before the native callback is enabled, so a callback that
+     * arrives during registration is not dropped.
+     */
+    fun setEventHandler(handler: ((LibraryEvent) -> Unit)?) = call { handle ->
+        if (handler == null) {
+            val status = EglNative.setEventCallback(handle, false)
+            eventHandler.set(null)
+            activeLibraries.remove(handle)
+            if (status != 0) throw error(handle, status)
+            return
+        }
+        activeLibraries[handle] = this
+        eventHandler.set(handler)
+        val status = EglNative.setEventCallback(handle, true)
+        if (status != 0) {
+            eventHandler.set(null)
+            activeLibraries.remove(handle)
+            throw error(handle, status)
+        }
+    }
+
+    fun info(): LibraryInfo = call { handle ->
         val json = EglNative.libraryInfo(handle)
         val status = EglNative.lastStatus()
-        if (json.isNullOrEmpty()) throw error(status)
+        if (json.isNullOrEmpty()) throw error(handle, status)
         return LibraryInfo.fromJson(json)
     }
 
-    fun counts(): LibraryCounts {
-        ensureOpen()
+    fun counts(): LibraryCounts = call { handle ->
         val json = EglNative.counts(handle)
         val status = EglNative.lastStatus()
-        if (json.isNullOrEmpty()) throw error(status)
+        if (json.isNullOrEmpty()) throw error(handle, status)
         return LibraryCounts.fromJson(json)
     }
 
     /** Folder tree as the core's JSON array. */
-    fun folderTreeJson(): String {
-        ensureOpen()
+    fun folderTreeJson(): String = call { handle ->
         val json = EglNative.folderTree(handle)
         val status = EglNative.lastStatus()
-        if (json.isNullOrEmpty()) throw error(status)
+        if (json.isNullOrEmpty()) throw error(handle, status)
         return json
     }
 
     fun folders(): List<Folder> = Folder.listFromJson(folderTreeJson())
 
-    fun smartFolders(): List<SmartFolder> {
-        ensureOpen()
+    fun smartFolders(): List<SmartFolder> = call { handle ->
         val json = EglNative.smartFolders(handle)
         val status = EglNative.lastStatus()
-        if (json.isNullOrEmpty()) throw error(status)
+        if (json.isNullOrEmpty()) throw error(handle, status)
         return SmartFolder.listFromJson(json)
     }
 
-    fun tags(): List<Tag> {
-        ensureOpen()
+    fun tags(): List<Tag> = call { handle ->
         val json = EglNative.tags(handle)
         val status = EglNative.lastStatus()
-        if (json.isNullOrEmpty()) throw error(status)
+        if (json.isNullOrEmpty()) throw error(handle, status)
         return Tag.listFromJson(json)
     }
 
-    fun extensions(): List<ExtensionCount> {
-        ensureOpen()
+    fun extensions(): List<ExtensionCount> = call { handle ->
         val json = EglNative.extensions(handle)
         val status = EglNative.lastStatus()
-        if (json.isNullOrEmpty()) throw error(status)
+        if (json.isNullOrEmpty()) throw error(handle, status)
         return ExtensionCount.listFromJson(json)
     }
 
     /** Opens a view of [query]; the item list stays in Rust (D-094). */
-    fun openView(query: LibraryQuery = LibraryQuery()): ViewOpened {
-        ensureOpen()
+    fun openView(query: LibraryQuery = LibraryQuery()): ViewOpened = call { handle ->
         val json = EglNative.openView(handle, query.toJson().toString())
         val status = EglNative.lastStatus()
-        if (json.isNullOrEmpty()) throw error(status)
+        if (json.isNullOrEmpty()) throw error(handle, status)
         return ViewOpened.fromJson(org.json.JSONObject(json))
     }
 
-    fun range(viewId: Long, start: Int, count: Int): List<ItemCell> {
-        ensureOpen()
+    fun range(viewId: Long, start: Int, count: Int): List<ItemCell> = call { handle ->
+        requireViewWindow(start, count)
         val json = EglNative.viewRange(handle, viewId, start, count)
         val status = EglNative.lastStatus()
-        if (json.isNullOrEmpty()) throw error(status)
+        if (json.isNullOrEmpty()) throw error(handle, status)
         val arr = org.json.JSONArray(json)
         return (0 until arr.length()).map { ItemCell.fromJson(arr.getJSONObject(it)) }
     }
 
     fun closeView(viewId: Long) {
-        if (handle == 0L) return
-        EglNative.closeView(handle, viewId)
+        gate.tryUse { handle -> EglNative.closeView(handle, viewId) }
     }
 
-    fun thumbnailBytes(id: String): ByteArray? {
-        ensureOpen()
-        return EglNative.thumbnailBytes(handle, id)
+    fun thumbnailBytes(id: String): ByteArray? = call { handle ->
+        val bytes = EglNative.thumbnailBytes(handle, id)
+        readBytes(handle, bytes)
     }
 
-    fun item(id: String): Item {
-        ensureOpen()
+    fun item(id: String): Item = call { handle ->
         val json = EglNative.item(handle, id)
         val status = EglNative.lastStatus()
-        if (json.isNullOrEmpty()) throw error(status)
+        if (json.isNullOrEmpty()) throw error(handle, status)
         return Item.fromJson(json)
     }
 
-    fun applyItemEdit(id: String, edit: ItemEdit): Item {
-        ensureOpen()
+    fun applyItemEdit(id: String, edit: ItemEdit): Item = call { handle ->
         val json = EglNative.applyItemEdit(handle, id, edit.toJson().toString())
         val status = EglNative.lastStatus()
-        if (json.isNullOrEmpty()) throw error(status)
+        if (json.isNullOrEmpty()) throw error(handle, status)
         return Item.fromJson(json)
     }
 
-    fun editItems(target: ItemsTarget, edit: ItemEdit): Int {
-        ensureOpen()
+    fun editItems(target: ItemsTarget, edit: ItemEdit): Int = call { handle ->
         val count = EglNative.editItems(
             handle,
             target.toJson().toString(),
             edit.toJson().toString(),
         )
-        if (count < 0) throw error(EglNative.lastStatus())
+        if (count < 0) throw error(handle, EglNative.lastStatus())
         return count
     }
 
-    fun selectionTags(target: ItemsTarget): SelectionTags {
-        ensureOpen()
+    fun selectionTags(target: ItemsTarget): SelectionTags = call { handle ->
         val json = EglNative.viewSelectionTags(handle, target.toJson().toString())
         val status = EglNative.lastStatus()
-        if (json.isNullOrEmpty()) throw error(status)
+        if (json.isNullOrEmpty()) throw error(handle, status)
         return SelectionTags.fromJson(json)
     }
 
-    fun undo(): UndoStatus? {
-        ensureOpen()
+    fun undo(): UndoStatus? = call { handle ->
         val json = EglNative.undo(handle)
         val status = EglNative.lastStatus()
-        if (status != 0) throw error(status)
+        if (status != 0) throw error(handle, status)
         return UndoStatus.fromJson(json)
     }
 
-    fun undoStatus(): UndoStatus? {
-        ensureOpen()
+    fun undoStatus(): UndoStatus? = call { handle ->
         val json = EglNative.undoStatus(handle)
         val status = EglNative.lastStatus()
-        if (status != 0) throw error(status)
+        if (status != 0) throw error(handle, status)
         return UndoStatus.fromJson(json)
     }
 
-    fun deleteItems(target: ItemsTarget): Int {
-        ensureOpen()
+    fun deleteItems(target: ItemsTarget): Int = call { handle ->
         val count = EglNative.deleteItems(handle, target.toJson().toString())
-        if (count < 0) throw error(EglNative.lastStatus())
+        if (count < 0) throw error(handle, EglNative.lastStatus())
         return count
     }
 
-    fun emptyTrash(): Int {
-        ensureOpen()
+    fun emptyTrash(): Int = call { handle ->
         val count = EglNative.emptyTrash(handle)
-        if (count < 0) throw error(EglNative.lastStatus())
+        if (count < 0) throw error(handle, EglNative.lastStatus())
         return count
     }
 
-    fun trashInfo(): TrashInfo {
-        ensureOpen()
+    fun trashInfo(): TrashInfo = call { handle ->
         val json = EglNative.trashInfo(handle)
         val status = EglNative.lastStatus()
-        if (json.isNullOrEmpty()) throw error(status)
+        if (json.isNullOrEmpty()) throw error(handle, status)
         return TrashInfo.fromJson(json)
     }
 
-    fun viewIds(viewId: Long, start: Int, count: Int): List<String> {
-        ensureOpen()
+    fun viewIds(viewId: Long, start: Int, count: Int): List<String> = call { handle ->
+        requireViewWindow(start, count)
         val json = EglNative.viewIds(handle, viewId, start, count)
         val status = EglNative.lastStatus()
-        if (json.isNullOrEmpty()) throw error(status)
+        if (json.isNullOrEmpty()) throw error(handle, status)
         val arr = org.json.JSONArray(json)
         return (0 until arr.length()).map { arr.getString(it) }
     }
 
-    fun originalPath(id: String): String? {
-        ensureOpen()
+    fun originalPath(id: String): String? = call { handle ->
         val path = EglNative.originalPath(handle, id)
         val status = EglNative.lastStatus()
         if (path.isNullOrEmpty()) {
             if (status == 0 || status == EglError.Code.NOT_FOUND.raw) return null
-            throw error(status)
+            throw error(handle, status)
         }
         return path
     }
 
-    fun originalBytes(id: String): ByteArray? {
-        ensureOpen()
-        return EglNative.originalBytes(handle, id)
+    fun originalBytes(id: String): ByteArray? = call { handle ->
+        val bytes = EglNative.originalBytes(handle, id)
+        readBytes(handle, bytes)
     }
 
     /** Starts adding files and folders in the background; progress comes as events. */
-    fun addFiles(paths: List<String>, folder: String? = null): ImportTicket {
-        ensureOpen()
+    fun addFiles(paths: List<String>, folder: String? = null): ImportTicket = call { handle ->
         require(paths.isNotEmpty()) { "paths must not be empty" }
         val request = org.json.JSONObject()
             .put("paths", org.json.JSONArray(paths))
             .put("folder", folder ?: org.json.JSONObject.NULL)
         val json = EglNative.addFiles(handle, request.toString())
         val status = EglNative.lastStatus()
-        if (json.isNullOrEmpty()) throw error(status)
+        if (json.isNullOrEmpty()) throw error(handle, status)
         return ImportTicket.fromJson(json)
     }
 
@@ -226,120 +231,105 @@ class Library private constructor(private var handle: Long) : AutoCloseable {
      * [ImportProgress.report]. [underRootFolder] puts the Eagle folders under a new folder
      * named after the Eagle library. The Eagle folder is only read.
      */
-    fun importEagle(eagle: File, importTrash: Boolean = false, underRootFolder: Boolean = false): ImportTicket {
-        ensureOpen()
+    fun importEagle(eagle: File, importTrash: Boolean = false, underRootFolder: Boolean = false): ImportTicket = call { handle ->
         val request = org.json.JSONObject()
             .put("path", eagle.absolutePath)
             .put("importTrash", importTrash)
             .put("underRootFolder", underRootFolder)
         val json = EglNative.importEagle(handle, request.toString())
         val status = EglNative.lastStatus()
-        if (json.isNullOrEmpty()) throw error(status)
+        if (json.isNullOrEmpty()) throw error(handle, status)
         return ImportTicket.fromJson(json)
     }
 
-    fun importStatus(id: Long): ImportProgress? {
-        ensureOpen()
+    fun importStatus(id: Long): ImportProgress? = call { handle ->
         val json = EglNative.importStatus(handle, id)
         val status = EglNative.lastStatus()
-        if (status != 0) throw error(status)
+        if (status != 0) throw error(handle, status)
         if (json.isNullOrEmpty() || json == "null") return null
         return ImportProgress.fromJson(json)
     }
 
-    fun answerImport(id: Long, answer: DuplicateAnswer) {
-        ensureOpen()
+    fun answerImport(id: Long, answer: DuplicateAnswer) = call { handle ->
         val status = EglNative.answerImport(handle, id, answer.wire)
-        if (status != 0) throw error(status)
+        if (status != 0) throw error(handle, status)
     }
 
-    fun cancelImport(id: Long) {
-        ensureOpen()
+    fun cancelImport(id: Long) = call { handle ->
         val status = EglNative.cancelImport(handle, id)
-        if (status != 0) throw error(status)
+        if (status != 0) throw error(handle, status)
     }
 
     // --- Folders and tags (Android A5 ≈ D-097) --------------------------------
 
-    fun saveFolder(change: FolderChange): List<Folder> {
-        ensureOpen()
+    fun saveFolder(change: FolderChange): List<Folder> = call { handle ->
         val json = EglNative.saveFolder(handle, change.toJson().toString())
         val status = EglNative.lastStatus()
-        if (json.isNullOrEmpty()) throw error(status)
+        if (json.isNullOrEmpty()) throw error(handle, status)
         return Folder.listFromJson(json)
     }
 
-    fun deleteFolder(id: String, trashItems: Boolean): List<Folder> {
-        ensureOpen()
+    fun deleteFolder(id: String, trashItems: Boolean): List<Folder> = call { handle ->
         val json = EglNative.deleteFolder(handle, id, trashItems)
         val status = EglNative.lastStatus()
-        if (json.isNullOrEmpty()) throw error(status)
+        if (json.isNullOrEmpty()) throw error(handle, status)
         return Folder.listFromJson(json)
     }
 
-    fun renameTag(from: String, to: String) {
-        ensureOpen()
+    fun renameTag(from: String, to: String) = call { handle ->
         val status = EglNative.renameTag(handle, from, to)
-        if (status != 0) throw error(status)
+        if (status != 0) throw error(handle, status)
     }
 
-    fun mergeTags(source: String, target: String) {
-        ensureOpen()
+    fun mergeTags(source: String, target: String) = call { handle ->
         val status = EglNative.mergeTags(handle, source, target)
-        if (status != 0) throw error(status)
+        if (status != 0) throw error(handle, status)
     }
 
-    fun deleteTag(name: String) {
-        ensureOpen()
+    fun deleteTag(name: String) = call { handle ->
         val status = EglNative.deleteTag(handle, name)
-        if (status != 0) throw error(status)
+        if (status != 0) throw error(handle, status)
     }
 
-    fun tagGroups(): List<TagGroup> {
-        ensureOpen()
+    fun tagGroups(): List<TagGroup> = call { handle ->
         val json = EglNative.tagGroups(handle)
         val status = EglNative.lastStatus()
-        if (json.isNullOrEmpty()) throw error(status)
+        if (json.isNullOrEmpty()) throw error(handle, status)
         return TagGroup.listFromJson(json)
     }
 
-    fun saveTagGroup(change: TagGroupChange): List<TagGroup> {
-        ensureOpen()
+    fun saveTagGroup(change: TagGroupChange): List<TagGroup> = call { handle ->
         val json = EglNative.saveTagGroup(handle, change.toJson().toString())
         val status = EglNative.lastStatus()
-        if (json.isNullOrEmpty()) throw error(status)
+        if (json.isNullOrEmpty()) throw error(handle, status)
         return TagGroup.listFromJson(json)
     }
 
-    fun deleteTagGroup(id: String): List<TagGroup> {
-        ensureOpen()
+    fun deleteTagGroup(id: String): List<TagGroup> = call { handle ->
         val json = EglNative.deleteTagGroup(handle, id)
         val status = EglNative.lastStatus()
-        if (json.isNullOrEmpty()) throw error(status)
+        if (json.isNullOrEmpty()) throw error(handle, status)
         return TagGroup.listFromJson(json)
     }
 
-    fun saveSmartFolder(change: SmartFolderChange): List<SmartFolder> {
-        ensureOpen()
+    fun saveSmartFolder(change: SmartFolderChange): List<SmartFolder> = call { handle ->
         val json = EglNative.saveSmartFolder(handle, change.toJson().toString())
         val status = EglNative.lastStatus()
-        if (json.isNullOrEmpty()) throw error(status)
+        if (json.isNullOrEmpty()) throw error(handle, status)
         return SmartFolder.listFromJson(json)
     }
 
-    fun deleteSmartFolder(id: String): List<SmartFolder> {
-        ensureOpen()
+    fun deleteSmartFolder(id: String): List<SmartFolder> = call { handle ->
         val json = EglNative.deleteSmartFolder(handle, id)
         val status = EglNative.lastStatus()
-        if (json.isNullOrEmpty()) throw error(status)
+        if (json.isNullOrEmpty()) throw error(handle, status)
         return SmartFolder.listFromJson(json)
     }
 
-    fun smartRules(query: LibraryQuery): SmartRulesDraft {
-        ensureOpen()
+    fun smartRules(query: LibraryQuery): SmartRulesDraft = call { handle ->
         val json = EglNative.smartRules(handle, query.toJson().toString())
         val status = EglNative.lastStatus()
-        if (json.isNullOrEmpty()) throw error(status)
+        if (json.isNullOrEmpty()) throw error(handle, status)
         return SmartRulesDraft.fromJson(json)
     }
 
@@ -354,100 +344,88 @@ class Library private constructor(private var handle: Long) : AutoCloseable {
         password: String,
         label: String? = null,
         labelColor: String? = null,
-    ): RecoveryKey {
-        ensureOpen()
+    ): RecoveryKey = call { handle ->
         val request = org.json.JSONObject()
             .put("password", password)
             .put("label", label ?: org.json.JSONObject.NULL)
             .put("labelColor", labelColor ?: org.json.JSONObject.NULL)
         val json = EglNative.lockFolder(handle, id, request.toString())
         val status = EglNative.lastStatus()
-        if (json.isNullOrEmpty()) throw error(status)
+        if (json.isNullOrEmpty()) throw error(handle, status)
         return RecoveryKey.fromJson(json)
     }
 
-    fun unlockFolder(id: String, password: String) {
-        ensureOpen()
+    fun unlockFolder(id: String, password: String) = call { handle ->
         val status = EglNative.unlockFolder(handle, id, password)
-        if (status != 0) throw error(status)
+        if (status != 0) throw error(handle, status)
     }
 
     /** Locks an open folder again; [id] null locks every open folder. */
-    fun relock(id: String? = null) {
-        ensureOpen()
+    fun relock(id: String? = null) = call { handle ->
         val status = EglNative.relockFolder(handle, id)
-        if (status != 0) throw error(status)
+        if (status != 0) throw error(handle, status)
     }
 
     /** Opens a folder with its recovery key or phrase and sets a new password. */
-    fun recoverFolder(id: String, recovery: String, newPassword: String) {
-        ensureOpen()
+    fun recoverFolder(id: String, recovery: String, newPassword: String) = call { handle ->
         val status = EglNative.recoverFolder(handle, id, recovery, newPassword)
-        if (status != 0) throw error(status)
+        if (status != 0) throw error(handle, status)
     }
 
-    fun changeFolderPassword(id: String, current: String, newPassword: String) {
-        ensureOpen()
+    fun changeFolderPassword(id: String, current: String, newPassword: String) = call { handle ->
         val status = EglNative.changeFolderPassword(handle, id, current, newPassword)
-        if (status != 0) throw error(status)
+        if (status != 0) throw error(handle, status)
     }
 
     /** A new recovery key; the old one stops working. */
-    fun renewRecoveryKey(id: String, password: String): RecoveryKey {
-        ensureOpen()
+    fun renewRecoveryKey(id: String, password: String): RecoveryKey = call { handle ->
         val json = EglNative.renewRecoveryKey(handle, id, password)
         val status = EglNative.lastStatus()
-        if (json.isNullOrEmpty()) throw error(status)
+        if (json.isNullOrEmpty()) throw error(handle, status)
         return RecoveryKey.fromJson(json)
     }
 
     /** Decrypts the folder and takes the lock off ("" for a lock imported without password). */
-    fun removeFolderLock(id: String, password: String) {
-        ensureOpen()
+    fun removeFolderLock(id: String, password: String) = call { handle ->
         val status = EglNative.removeFolderLock(handle, id, password)
-        if (status != 0) throw error(status)
+        if (status != 0) throw error(handle, status)
     }
 
     /** The plaintext label of a locked folder; null clears a part. */
-    fun setLockLabel(id: String, label: String?, color: String?) {
-        ensureOpen()
+    fun setLockLabel(id: String, label: String?, color: String?) = call { handle ->
         val status = EglNative.setLockLabel(handle, id, label, color)
-        if (status != 0) throw error(status)
+        if (status != 0) throw error(handle, status)
     }
 
     // --- Settings / maintenance / export (Android A7 ≈ D-099) ---------------
 
     /** Renames the library; its folder keeps its name. */
-    fun rename(to: String): LibraryInfo {
-        ensureOpen()
+    fun rename(to: String): LibraryInfo = call { handle ->
         val json = EglNative.renameLibrary(handle, to)
         val status = EglNative.lastStatus()
-        if (json.isNullOrEmpty()) throw error(status)
+        if (json.isNullOrEmpty()) throw error(handle, status)
         return LibraryInfo.fromJson(json)
     }
 
-    fun stats(): LibraryStats {
-        ensureOpen()
+    fun stats(): LibraryStats = call { handle ->
         val json = EglNative.libraryStats(handle)
         val status = EglNative.lastStatus()
-        if (json.isNullOrEmpty()) throw error(status)
+        if (json.isNullOrEmpty()) throw error(handle, status)
         return LibraryStats.fromJson(json)
     }
 
     /** Newest first. */
-    fun backups(): List<Backup> {
-        ensureOpen()
+    fun backups(): List<Backup> = call { handle ->
         val json = EglNative.backups(handle)
         val status = EglNative.lastStatus()
-        if (json.isNullOrEmpty()) throw error(status)
+        if (json.isNullOrEmpty()) throw error(handle, status)
         return Backup.listFromJson(json)
     }
 
-    fun backUpNow(): Backup {
-        ensureOpen()
+    fun backUpNow(): Backup = call { handle ->
         val json = EglNative.backUpNow(handle)
         val status = EglNative.lastStatus()
-        if (json.isNullOrEmpty()) throw error(status)
+        if (json.isNullOrEmpty()) throw error(handle, status)
         return Backup.fromJson(org.json.JSONObject(json))
     }
 
@@ -455,100 +433,95 @@ class Library private constructor(private var handle: Long) : AutoCloseable {
      * Puts a backup's database back (the current one is kept as a backup first). Views and
      * undo start over.
      */
-    fun restoreBackup(name: String): LibraryInfo {
-        ensureOpen()
+    fun restoreBackup(name: String): LibraryInfo = call { handle ->
         val json = EglNative.restoreBackup(handle, name)
         val status = EglNative.lastStatus()
-        if (json.isNullOrEmpty()) throw error(status)
+        if (json.isNullOrEmpty()) throw error(handle, status)
         return LibraryInfo.fromJson(json)
     }
 
     /** Reads only. */
-    fun check(): LibraryCheck {
-        ensureOpen()
+    fun check(): LibraryCheck = call { handle ->
         val json = EglNative.checkLibrary(handle)
         val status = EglNative.lastStatus()
-        if (json.isNullOrEmpty()) throw error(status)
+        if (json.isNullOrEmpty()) throw error(handle, status)
         return LibraryCheck.fromJson(json)
     }
 
-    fun repair(options: RepairOptions): LibraryCheck {
-        ensureOpen()
+    fun repair(options: RepairOptions): LibraryCheck = call { handle ->
         val json = EglNative.repairLibrary(handle, options.toJson().toString())
         val status = EglNative.lastStatus()
-        if (json.isNullOrEmpty()) throw error(status)
+        if (json.isNullOrEmpty()) throw error(handle, status)
         return LibraryCheck.fromJson(json)
     }
 
     /** Makes missing thumbnails in the background; [rebuild] makes all of them again. */
-    fun generatePreviews(rebuild: Boolean): PreviewsTicket {
-        ensureOpen()
+    fun generatePreviews(rebuild: Boolean): PreviewsTicket = call { handle ->
         val json = EglNative.generatePreviews(handle, rebuild)
         val status = EglNative.lastStatus()
-        if (json.isNullOrEmpty()) throw error(status)
+        if (json.isNullOrEmpty()) throw error(handle, status)
         return PreviewsTicket.fromJson(json)
     }
 
-    fun exportPreview(selection: ExportSelection, includeSubfolders: Boolean): ExportPreview {
-        ensureOpen()
+    fun exportPreview(selection: ExportSelection, includeSubfolders: Boolean): ExportPreview = call { handle ->
         val json = EglNative.exportPreview(
             handle,
             selection.toJson().toString(),
             includeSubfolders,
         )
         val status = EglNative.lastStatus()
-        if (json.isNullOrEmpty()) throw error(status)
+        if (json.isNullOrEmpty()) throw error(handle, status)
         return ExportPreview.fromJson(json)
     }
 
     /** Starts an export in the background; progress comes as events. */
-    fun startExport(request: ExportRequest): ExportProgress {
-        ensureOpen()
+    fun startExport(request: ExportRequest): ExportProgress = call { handle ->
         val json = EglNative.startExport(handle, request.toJson().toString())
         val status = EglNative.lastStatus()
-        if (json.isNullOrEmpty()) throw error(status)
+        if (json.isNullOrEmpty()) throw error(handle, status)
         return ExportProgress.fromJson(json)
     }
 
-    fun exports(): List<ExportProgress> {
-        ensureOpen()
+    fun exports(): List<ExportProgress> = call { handle ->
         val json = EglNative.exports(handle)
         val status = EglNative.lastStatus()
-        if (json.isNullOrEmpty()) throw error(status)
+        if (json.isNullOrEmpty()) throw error(handle, status)
         return ExportProgress.listFromJson(json)
     }
 
-    fun cancelExport(id: Long) {
-        ensureOpen()
+    fun cancelExport(id: Long) = call { handle ->
         val status = EglNative.cancelExport(handle, id)
-        if (status != 0) throw error(status)
+        if (status != 0) throw error(handle, status)
     }
 
     override fun close() {
-        val closing = handle
-        if (closing == 0L) return
-        handle = 0L
+        close {}
+    }
+
+    /**
+     * Closes the native library, then runs [after]. A second close returns without [after]:
+     * the first caller is the one that waited out in-flight calls and joined imports.
+     */
+    fun close(after: () -> Unit) {
+        val closing = gate.retire() ?: return
         activeLibraries.remove(closing)
         eventHandler.set(null)
         runCatching { EglNative.setEventCallback(closing, false) }
         EglNative.close(closing)
+        after()
     }
 
-    private fun ensureOpen() {
-        if (handle == 0L) {
-            throw EglError(EglError.Code.OTHER, "library is closed")
-        }
-        if (!EglNative.isAvailable) {
-            throw EglError(EglError.Code.UNSUPPORTED, notLoaded())
+    private fun readBytes(handle: Long, bytes: ByteArray?): ByteArray? {
+        val status = EglNative.lastStatus()
+        return when (bytePayload(status)) {
+            BytePayload.Present -> bytes
+            BytePayload.Missing -> null
+            BytePayload.Error -> throw error(handle, status)
         }
     }
 
-    private fun error(status: Int): EglError {
-        val message = if (handle != 0L) {
-            EglNative.lastError(handle)
-        } else {
-            EglNative.lastErrorGlobal()
-        }
+    private fun error(handle: Long, status: Int): EglError {
+        val message = EglNative.lastError(handle).ifEmpty { EglNative.lastErrorGlobal() }
         return EglError.of(if (status == 0) EglError.Code.OTHER.raw else status, message)
     }
 

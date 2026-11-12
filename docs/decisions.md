@@ -2893,3 +2893,36 @@ the app, and nothing an app does can keep it.
   the app's folder, iCloud refused), a move out of the app's folder (the copy opens, the original
   goes, Recent follows, a second move into the same folder is refused and loses nothing), and the
   question for a library picked in a provider folder.
+
+## D-133 Android: close, views and library state stay on the right thread (2026-11-12)
+
+A pass over the Android client after iOS D-122–D-129. No new screens. The C ABI is unchanged.
+
+- **The native pointer.** `Library` borrowed its handle without waiting for calls already inside
+  the core, so `close` could free it under `addFiles` or a thumbnail read. `NativeGate` rejects
+  new calls, waits until the in-flight ones return (without holding the lock, so a callback can
+  re-enter and see a closed library), then `egl_close` runs. A second close does not run the
+  post-close cleanup.
+- **Bytes and windows.** A missing thumbnail stays `null`. `LOCKED`, `READ_ONLY` and `STORAGE`
+  throw, as on iOS. A buffer that does not fit a Java array is freed and reported as storage,
+  not returned truncated. A negative view window is rejected before it becomes a huge
+  `uint32`. `GetStringChars` failing (out of memory) returns while the exception is pending
+  instead of calling JNI again.
+- **Views.** Leaving a place cancelled the coroutine that was about to call `closeView`, so the
+  core view stayed open. The close is scheduled off that scope. A view opened by a reload that
+  is then cancelled is closed before the result is discarded.
+- **Compose state.** `refresh` and import progress used to write snapshot state on the core's
+  thread or on `Dispatchers.IO`. The read stays off the main thread; the snapshot is applied on
+  it. Errors reported from a background call are posted to the main thread too.
+- **Import sources.** Closing the library deleted gallery copies and dropped SAF grants before
+  the core had finished reading them, and a cancelled add swallowed `CancellationException` and
+  deleted them even sooner. The core is joined first; cleanups run after. Two documents with the
+  same display name in one picked folder no longer overwrite each other.
+- **Location hints.** Recent libraries stored "App storage", "Cloud", "Internal storage",
+  "Files" and "Storage" in English in every locale. They now come from the en/ru/zh catalogs.
+  A hint already saved stays as it was written.
+- **Callbacks.** The library is registered for events before the native callback is turned on.
+  `JNI_OnLoad` fails if it cannot see `Library.dispatchEventFromJni` or
+  `PlatformDecoder.decodeFromJni`, and the consumer rules keep those two methods.
+- Tests: the gate, byte status, view windows, a browse `stop` on a dispatcher that has not run
+  yet, import-source ownership, and duplicate display names.

@@ -78,7 +78,7 @@ fun TagsScreen(
     var deletingGroup by remember { mutableStateOf<TagGroup?>(null) }
 
     suspend fun reload() {
-        withContext(Dispatchers.IO) { open.refresh() }
+        open.refresh()
         tags = withContext(Dispatchers.IO) {
             runCatching { open.library.tags() }.getOrDefault(emptyList())
                 .sortedBy { it.name.lowercase() }

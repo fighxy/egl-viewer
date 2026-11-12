@@ -31,6 +31,10 @@
     <string name="welcome_missing">Нет</string>
     <string name="welcome_footer">Только native .eglib · тот же продукт, что и на компьютере</string>
     <string name="hint_app_storage">Хранилище приложения</string>
+    <string name="hint_cloud">Облако</string>
+    <string name="hint_internal">Внутренняя память</string>
+    <string name="hint_files">Файлы</string>
+    <string name="hint_storage">Хранилище</string>
 
     <string name="create_title">Новая библиотека</string>
     <string name="create_name">Имя</string>
