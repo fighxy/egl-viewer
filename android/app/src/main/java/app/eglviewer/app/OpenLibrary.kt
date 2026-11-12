@@ -5,6 +5,7 @@ import androidx.compose.runtime.getValue
 import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.setValue
 import app.eglviewer.R
+import app.eglviewer.adding.ImportSources
 import app.eglviewer.adding.PickedFile
 import app.eglviewer.adding.importSummary
 import app.eglviewer.browse.ActionPhrase
@@ -43,10 +44,12 @@ import app.eglviewer.core.SmartRulesDraft
 import app.eglviewer.core.TagGroup
 import app.eglviewer.core.TagGroupChange
 import app.eglviewer.core.ViewOpened
+import kotlinx.coroutines.CancellationException
 import kotlinx.coroutines.CoroutineScope
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.Job
 import kotlinx.coroutines.SupervisorJob
+import kotlinx.coroutines.cancel
 import kotlinx.coroutines.delay
 import kotlinx.coroutines.launch
 import kotlinx.coroutines.withContext
@@ -54,6 +57,7 @@ import java.io.File
 import java.lang.ref.WeakReference
 import java.util.concurrent.ConcurrentHashMap
 import java.util.concurrent.CopyOnWriteArrayList
+import java.util.concurrent.atomic.AtomicLong
 
 /**
  * One open library: core handle, places/counts/folders, saved view, toast / undo,
@@ -128,7 +132,8 @@ class OpenLibrary(
     private var hidingToast: Job? = null
 
     private val browsers = CopyOnWriteArrayList<WeakReference<BrowseModel>>()
-    private val afterImport = ConcurrentHashMap<Long, () -> Unit>()
+    private val sources = ImportSources()
+    private val earlyImport = AtomicLong(0)
     private val answered = ConcurrentHashMap.newKeySet<Long>()
     private var appContext: Context? = null
 
@@ -156,18 +161,22 @@ class OpenLibrary(
                 is LibraryEvent.ViewsInvalidated -> {
                     scope.launch(Dispatchers.Main.immediate) {
                         notifyViewsInvalidated(event.views)
-                        withContext(Dispatchers.IO) { runCatching { refresh() } }
+                        runCatching { refresh() }
                     }
                 }
                 is LibraryEvent.ImportProgress -> {
+                    // The core calls this on its own thread, sometimes while it still holds
+                    // the import's bookkeeping. Hop off that thread before reading the library
+                    // again or writing Compose state.
                     scope.launch(Dispatchers.Main.immediate) {
+                        val terminal = event.progress.isFinished
                         progressed(event.progress)
-                    }
-                    if (event.progress.isFinished ||
-                        event.progress.state == ImportState.ADDING ||
-                        event.progress.state == ImportState.PREVIEWS
-                    ) {
-                        runCatching { refresh() }
+                        if (!terminal &&
+                            (event.progress.state == ImportState.ADDING ||
+                                event.progress.state == ImportState.PREVIEWS)
+                        ) {
+                            runCatching { refresh() }
+                        }
                     }
                 }
                 is LibraryEvent.ExportProgress -> {
@@ -211,7 +220,7 @@ class OpenLibrary(
         }
         thumbnails.removeAll()
         originals.removeAll()
-        withContext(Dispatchers.IO) { runCatching { refresh() } }
+        runCatching { refresh() }
         val ctx = appContext
         show(ctx?.getString(R.string.toast_restored) ?: "Backup restored", undoable = false)
         return true
@@ -254,14 +263,27 @@ class OpenLibrary(
             return
         }
         scope.launch {
-            val ticket = try {
-                withContext(Dispatchers.IO) { library.addFiles(paths, into) }
-            } catch (error: Exception) {
-                report(error.message ?: error.toString())
+            // Track the cleanup before addFiles returns. Close joins the import and only
+            // then runs what is tracked; deleting in the cancellation handler races that join.
+            val reserved = earlyImport.decrementAndGet()
+            if (!sources.track(reserved, cleanup)) {
                 cleanup()
                 return@launch
             }
-            afterImport[ticket.id] = cleanup
+            val ticket = try {
+                withContext(Dispatchers.IO) { library.addFiles(paths, into) }
+            } catch (error: CancellationException) {
+                throw error
+            } catch (error: Exception) {
+                report(error.message ?: error.toString())
+                sources.remove(reserved)?.invoke()
+                return@launch
+            }
+            val pending = sources.remove(reserved)
+            if (pending == null || !sources.track(ticket.id, pending)) {
+                pending?.invoke()
+                return@launch
+            }
             val progress = withContext(Dispatchers.IO) {
                 runCatching { library.importStatus(ticket.id) }.getOrNull()
             }
@@ -282,11 +304,13 @@ class OpenLibrary(
         scope.launch {
             val ticket = try {
                 withContext(Dispatchers.IO) { library.importEagle(eagle, importTrash) }
+            } catch (error: CancellationException) {
+                throw error
             } catch (error: Exception) {
                 report(error.message ?: error.toString())
                 return@launch
             }
-            afterImport[ticket.id] = {}
+            sources.track(ticket.id) {}
             val progress = withContext(Dispatchers.IO) {
                 runCatching { library.importStatus(ticket.id) }.getOrNull()
             }
@@ -323,7 +347,7 @@ class OpenLibrary(
         show(message, undoable = false)
     }
 
-    private fun progressed(progress: ImportProgress) {
+    private suspend fun progressed(progress: ImportProgress) {
         if (progress.isFinished) {
             finished(progress)
             return
@@ -338,13 +362,13 @@ class OpenLibrary(
         }
     }
 
-    private fun finished(progress: ImportProgress) {
+    private suspend fun finished(progress: ImportProgress) {
         if (duplicateQuestion?.id == progress.id) {
             duplicateQuestion = null
         }
         answered.remove(progress.id)
         imports = imports - progress.id
-        val cleanup = afterImport.remove(progress.id) ?: return
+        val cleanup = sources.remove(progress.id) ?: return
         cleanup()
         val report = progress.report
         if (progress.kind == ImportKind.EAGLE && report != null) {
@@ -377,12 +401,27 @@ class OpenLibrary(
         }
     }
 
-    fun refresh() {
-        info = library.info()
-        counts = library.counts()
-        folders = runCatching { library.folders() }.getOrDefault(emptyList())
-        smartFolders = runCatching { library.smartFolders() }.getOrDefault(emptyList())
-        tagGroups = runCatching { library.tagGroups() }.getOrDefault(emptyList())
+    /**
+     * Reads the library off the main thread and publishes the snapshot on it.
+     * Compose state written from a core or IO thread crashes the snapshot runtime.
+     */
+    suspend fun refresh() {
+        val snapshot = withContext(Dispatchers.IO) {
+            LibrarySnapshot(
+                info = library.info(),
+                counts = library.counts(),
+                folders = runCatching { library.folders() }.getOrDefault(emptyList()),
+                smartFolders = runCatching { library.smartFolders() }.getOrDefault(emptyList()),
+                tagGroups = runCatching { library.tagGroups() }.getOrDefault(emptyList()),
+            )
+        }
+        withContext(Dispatchers.Main.immediate) {
+            info = snapshot.info
+            counts = snapshot.counts
+            folders = snapshot.folders
+            smartFolders = snapshot.smartFolders
+            tagGroups = snapshot.tagGroups
+        }
     }
 
     /** One edit of the folder tree; false when the core refused it. */
@@ -404,7 +443,7 @@ class OpenLibrary(
         } ?: return
         folders = tree
         forgetIfSaved(Place.Folder(id = id, name = ""))
-        withContext(Dispatchers.IO) { runCatching { refresh() } }
+        runCatching { refresh() }
         val ctx = appContext
         show(ctx?.getString(R.string.toast_folder_deleted) ?: "Folder deleted", undoable = false)
     }
@@ -447,7 +486,7 @@ class OpenLibrary(
             }.isSuccess
         }
         if (!ok) return false
-        withContext(Dispatchers.IO) { runCatching { refresh() } }
+        runCatching { refresh() }
         return true
     }
 
@@ -459,7 +498,7 @@ class OpenLibrary(
             }.isSuccess
         }
         if (!ok) return false
-        withContext(Dispatchers.IO) { runCatching { refresh() } }
+        runCatching { refresh() }
         return true
     }
 
@@ -470,7 +509,7 @@ class OpenLibrary(
             }.isSuccess
         }
         if (!ok) return
-        withContext(Dispatchers.IO) { runCatching { refresh() } }
+        runCatching { refresh() }
         val ctx = appContext
         show(ctx?.getString(R.string.toast_tag_deleted) ?: "Tag removed from every item", undoable = false)
     }
@@ -540,7 +579,7 @@ class OpenLibrary(
         val result = withContext(Dispatchers.IO) {
             runCatching { work(library) }
         }
-        withContext(Dispatchers.IO) { runCatching { refresh() } }
+        runCatching { refresh() }
         return result.fold(
             onSuccess = { Result.success(it) },
             onFailure = { error ->
@@ -602,7 +641,12 @@ class OpenLibrary(
     }
 
     override fun report(message: String) {
-        lastError = message
+        val main = android.os.Looper.getMainLooper()
+        if (main != null && android.os.Looper.myLooper() != main) {
+            scope.launch(Dispatchers.Main.immediate) { lastError = message }
+        } else {
+            lastError = message
+        }
     }
 
     override fun register(browser: BrowseModel) {
@@ -669,7 +713,17 @@ class OpenLibrary(
         is Place.Smart -> findSmart(place.id, smartFolders) != null
     }
 
-    fun close() {
+    /**
+     * Drops UI state on the caller, then closes the native library and only afterwards
+     * deletes import sources. The core is still reading those paths until [Library.close]
+     * joins the import.
+     */
+    suspend fun close() {
+        detachUi()
+        withContext(Dispatchers.IO) { releaseNative() }
+    }
+
+    private fun detachUi() {
         browsers.clear()
         thumbnails.removeAll()
         originals.removeAll()
@@ -677,11 +731,14 @@ class OpenLibrary(
         duplicateQuestion = null
         imports = emptyMap()
         exports = emptyMap()
-        val cleanups = afterImport.values.toList()
-        afterImport.clear()
-        cleanups.forEach { runCatching { it() } }
+        scope.cancel()
+    }
+
+    private fun releaseNative() {
         runCatching { library.setEventHandler(null) }
-        library.close()
+        library.close {
+            sources.seal().forEach { runCatching { it() } }
+        }
     }
 
     companion object {
@@ -710,3 +767,12 @@ class OpenLibrary(
 
 /** How an Eagle import ended, shown once (D-116). */
 data class EagleOutcome(val id: Long, val report: EagleImportReport, val cancelled: Boolean)
+
+/** One consistent read of the library, applied on the main thread. */
+private data class LibrarySnapshot(
+    val info: LibraryInfo,
+    val counts: LibraryCounts,
+    val folders: List<Folder>,
+    val smartFolders: List<SmartFolder>,
+    val tagGroups: List<TagGroup>,
+)

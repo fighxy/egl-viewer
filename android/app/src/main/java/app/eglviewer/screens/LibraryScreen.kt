@@ -71,9 +71,7 @@ import app.eglviewer.organize.TagsScreen
 import app.eglviewer.organize.labelColor
 import app.eglviewer.settings.SettingsScreen
 import app.eglviewer.theme.EglTokens
-import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.launch
-import kotlinx.coroutines.withContext
 
 /**
  * Open library: places with counts, folder tree and smart folders. A place opens
@@ -98,7 +96,7 @@ fun LibraryScreen(
     val scope = rememberCoroutineScope()
 
     LaunchedEffect(open) {
-        withContext(Dispatchers.IO) { open.refresh() }
+        open.refresh()
         if (!restored) {
             restored = true
             val saved = open.savedView.place

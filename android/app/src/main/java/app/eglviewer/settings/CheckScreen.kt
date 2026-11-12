@@ -57,7 +57,7 @@ fun CheckScreen(
                 }.getOrNull()
             }
             working = false
-            withContext(Dispatchers.IO) { runCatching { open.refresh() } }
+            runCatching { open.refresh() }
         }
     }
 
