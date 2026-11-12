@@ -279,8 +279,13 @@ fun BrowseScreen(
     }
 
     model.previewing?.let { start ->
-        val originals = (open as? OpenLibrary)?.originals
-            ?: OriginalCache(open.session)
+        val shared = (open as? OpenLibrary)?.originals
+        val originals = shared ?: remember(open.session) { OriginalCache(open.session) }
+        if (shared == null) {
+            DisposableEffect(originals) {
+                onDispose { originals.shutdown() }
+            }
+        }
         PreviewScreen(
             model = model,
             start = start,
