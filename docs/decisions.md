@@ -2841,3 +2841,22 @@ already there at the top.
 - **Refresh.** Pull to refresh reloads both lists, as reopening the screen does.
 - The list logic is `WelcomeEntries` in `LibraryLocations.swift`, tested without the UI; the
   UI test checks that a recent library sits above Create Library.
+
+## D-131 iPhone preview: opens on the tapped photo, swipes glide to rest (2026-11-12)
+
+Ivan found that a tap on any tile but the first opened the preview on the first photo, and that
+the end of a swipe looked wrong.
+
+- **Cause.** On iOS 18 the page was read from the scroll offset (D-099) and written back into
+  the `scrollPosition` binding. While the cover opened, the pager was laid out with an offset
+  of 0 before it reached the tapped page; that reading set the position to 0, and the binding
+  then scrolled the pager there. The same write-back, at the middle of every swipe, asked the
+  scroll view to scroll to a page while it was still gliding.
+- **Fix.** The page shown (`shown`) is separate from the `scrollPosition` binding, which the
+  offset never writes. Until the open transition is over (600 ms) or the user touches the
+  pager, offset readings are dropped and the preview stays on the tapped photo; then it is put
+  on that photo once more and followed from there. On iOS 18 the page is taken when a swipe
+  comes to rest (`onScrollPhaseChange`), so the bars, the grid behind and the zoom back do no
+  work during the glide. iOS 17 follows `scrollPosition`, as before.
+- **Test.** A UI test taps the fifth tile and checks that the preview shows its photo, also
+  after the transition has settled; the earlier tests only ever opened the first tile.
