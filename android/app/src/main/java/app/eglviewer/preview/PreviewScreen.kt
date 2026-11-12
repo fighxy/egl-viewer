@@ -1,9 +1,12 @@
 package app.eglviewer.preview
 
-import android.graphics.Bitmap
 import androidx.activity.compose.BackHandler
+import androidx.compose.animation.core.Animatable
+import androidx.compose.animation.core.tween
 import androidx.compose.foundation.ExperimentalFoundationApi
+import androidx.compose.foundation.Image
 import androidx.compose.foundation.background
+import androidx.compose.foundation.gestures.detectTapGestures
 import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Box
 import androidx.compose.foundation.layout.Column
@@ -27,9 +30,11 @@ import androidx.compose.material3.IconButton
 import androidx.compose.material3.Text
 import androidx.compose.material3.TextButton
 import androidx.compose.runtime.Composable
+import androidx.compose.runtime.DisposableEffect
 import androidx.compose.runtime.LaunchedEffect
 import androidx.compose.runtime.getValue
 import androidx.compose.runtime.key
+import androidx.compose.runtime.mutableIntStateOf
 import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.remember
 import androidx.compose.runtime.rememberCoroutineScope
@@ -38,8 +43,11 @@ import androidx.compose.runtime.snapshotFlow
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.graphics.Color
+import androidx.compose.ui.graphics.asImageBitmap
+import androidx.compose.ui.graphics.graphicsLayer
+import androidx.compose.ui.input.pointer.pointerInput
+import androidx.compose.ui.layout.ContentScale
 import androidx.compose.ui.platform.LocalContext
-import androidx.compose.ui.platform.LocalDensity
 import androidx.compose.ui.platform.testTag
 import androidx.compose.ui.res.stringResource
 import androidx.compose.ui.text.font.FontWeight
@@ -58,6 +66,7 @@ import app.eglviewer.details.DetailsSheet
 import app.eglviewer.details.ShareFiles
 import app.eglviewer.theme.EglTokens
 import kotlinx.coroutines.flow.distinctUntilChanged
+import kotlinx.coroutines.isActive
 import kotlinx.coroutines.launch
 
 /** Full-screen preview pager over the same core view as the grid (A3 ≈ D-095). */
@@ -72,24 +81,49 @@ fun PreviewScreen(
 ) {
     val scope = rememberCoroutineScope()
     val context = LocalContext.current
-    val density = LocalDensity.current
     val total = model.total.coerceAtLeast(1)
-    val pagerState = rememberPagerState(initialPage = start.coerceIn(0, total - 1)) { model.total }
+    val initial = start.coerceIn(0, total - 1)
+    // initialPage is the tapped photo. The scroll offset is never written back
+    // while a swipe is gliding (D-131): that write is what jumps the page.
+    val pagerState = rememberPagerState(initialPage = initial) { model.total.coerceAtLeast(1) }
     var chrome by remember { mutableStateOf(true) }
     var zoomed by remember { mutableStateOf(false) }
     var deleting by remember { mutableStateOf(false) }
     var details by remember { mutableStateOf<ItemCell?>(null) }
+    var follow by remember(initial) { mutableStateOf(PreviewFollowState(shown = initial)) }
+    var shown by remember(initial) { mutableIntStateOf(initial) }
+    var snaps by remember(initial) { mutableIntStateOf(0) }
 
     LaunchedEffect(model.total) {
         if (model.total == 0) onClose()
     }
-    LaunchedEffect(pagerState) {
-        snapshotFlow { pagerState.currentPage }
+    LaunchedEffect(pagerState, initial) {
+        snapshotFlow { pagerState.currentPage to pagerState.isScrollInProgress }
             .distinctUntilChanged()
-            .collect { page ->
-                // A recycled or previous page must not leave paging locked after a zoom (D-128).
-                zoomed = false
-                model.need(page)
+            .collect { (page, scrolling) ->
+                val (next, effect) = followPreview(follow, initial, page, scrolling)
+                follow = next
+                when (effect) {
+                    PreviewFollowEffect.None -> Unit
+                    PreviewFollowEffect.SnapToStart -> {
+                        if (snaps < 2) {
+                            snaps += 1
+                            pagerState.scrollToPage(initial)
+                        } else if (!follow.userMoved) {
+                            // The pager would not stay on the tapped photo. Follow it
+                            // so the bars match the page on screen.
+                            follow = PreviewFollowState(shown = page, userMoved = true)
+                            shown = page
+                            model.need(page)
+                        }
+                    }
+                    is PreviewFollowEffect.Show -> {
+                        // A recycled or previous page must not leave paging locked (D-128).
+                        zoomed = false
+                        shown = effect.page
+                        model.need(effect.page)
+                    }
+                }
             }
     }
 
@@ -102,15 +136,39 @@ fun PreviewScreen(
         }
     }
 
-    val index = pagerState.currentPage.coerceIn(0, (model.total - 1).coerceAtLeast(0))
+    val index = shown.coerceIn(0, (model.total - 1).coerceAtLeast(0))
     val cell = model.cell(at = index)
-    // Decode at least 1px so a transient zero density/edge never skips the original (D-123/D-128).
-    val pixels = with(density) {
-        val edge = maxOf(
-            context.resources.displayMetrics.widthPixels,
-            context.resources.displayMetrics.heightPixels,
-        )
-        maxOf((edge * 1.5f).toInt(), 1)
+    // The screen's long side, not 1.5× it (D-127). At least 1px so a transient
+    // zero edge still decodes once the size is real.
+    val pixels = maxOf(
+        context.resources.displayMetrics.widthPixels,
+        context.resources.displayMetrics.heightPixels,
+        1,
+    )
+    val left = model.cell(at = index - 1)
+    val right = model.cell(at = index + 1)
+    val neighbors = remember { NeighborLoads() }
+    DisposableEffect(neighbors) {
+        onDispose { neighbors.cancelAll() }
+    }
+    LaunchedEffect(index, pixels, model.total, left?.id, left?.thumbVersion, right?.id, right?.thumbVersion) {
+        // The page on screen takes a decode slot before its neighbours do. This
+        // effect runs before the pager's pages, so a prefetch started here
+        // would otherwise fill both slots and the photo in front would wait.
+        val current = model.cell(at = index)
+        if (current != null && pixels > 0) {
+            originals.image(current.id, current.thumbVersion, pixels)
+        }
+        if (!isActive) return@LaunchedEffect
+        neighbors.update(index, model.total, pixels) { page ->
+            val neighbour = model.cell(at = page)
+            if (neighbour == null) {
+                model.need(page.coerceAtLeast(0))
+                null
+            } else {
+                originals.prefetch(neighbour.id, neighbour.thumbVersion, pixels)
+            }
+        }
     }
 
     Box(
@@ -121,6 +179,7 @@ fun PreviewScreen(
     ) {
         HorizontalPager(
             state = pagerState,
+            beyondViewportPageCount = 1,
             userScrollEnabled = !zoomed,
             modifier = Modifier.fillMaxSize(),
         ) { page ->
@@ -211,35 +270,72 @@ private fun PreviewPage(
     onSingleTap: () -> Unit,
 ) {
     val cell = model.cell(at = index)
-    var bitmap by remember(cell?.id, cell?.thumbVersion) { mutableStateOf<Bitmap?>(null) }
+    val identity = cell?.let { "${it.id}#${it.thumbVersion}#$pixels" }
+    var original by remember(identity) {
+        mutableStateOf(
+            cell?.let { originals.cached(it.id, it.thumbVersion, pixels) },
+        )
+    }
     var failed by remember(cell?.id) { mutableStateOf(false) }
+    var thumb by remember(cell?.id, cell?.thumbVersion) {
+        mutableStateOf(cell?.let { model.open.thumbnails.cached(it.id, it.thumbVersion) })
+    }
+    // A neighbour decoded ahead is already in memory: show it at once. Otherwise
+    // the original fades in over the grid thumbnail (D-127).
+    val fade = remember(identity) { Animatable(if (original != null) 1f else 0f) }
 
-    LaunchedEffect(cell?.id, cell?.thumbVersion, pixels) {
-        val c = cell ?: return@LaunchedEffect
+    LaunchedEffect(cell?.id, cell?.thumbVersion) {
+        val current = cell ?: return@LaunchedEffect
+        if (thumb != null || !current.hasThumbnail) return@LaunchedEffect
+        thumb = model.open.thumbnails.image(forCell = current, pixels = THUMB_PLACEHOLDER_PX)
+    }
+    LaunchedEffect(identity) {
+        val current = cell ?: return@LaunchedEffect
         if (pixels <= 0) return@LaunchedEffect
-        bitmap = originals.image(forId = c.id, version = c.thumbVersion, pixels = pixels)
-        failed = bitmap == null
+        if (original != null) return@LaunchedEffect
+        val decoded = originals.image(current.id, current.thumbVersion, pixels)
+        original = decoded
+        failed = decoded == null
+    }
+    LaunchedEffect(original) {
+        if (original != null) fade.animateTo(1f, tween(durationMillis = ORIGINAL_FADE_MS))
     }
 
     Box(
         modifier = Modifier
             .fillMaxSize()
-            .background(EglTokens.PreviewStage),
+            .background(EglTokens.PreviewStage)
+            .then(
+                if (original == null) {
+                    Modifier.pointerInput(onSingleTap) {
+                        detectTapGestures(onTap = { onSingleTap() })
+                    }
+                } else {
+                    Modifier
+                },
+            ),
         contentAlignment = Alignment.Center,
     ) {
-        val image = bitmap
+        val placeholder = thumb
+        val palette = cell?.palette0
         when {
-            image != null -> {
-                // New identity resets zoom @State when the decoded original changes.
-                key("${cell?.id.orEmpty()}#${cell?.thumbVersion ?: 0}#$pixels") {
-                    ZoomingImage(
-                        bitmap = image,
-                        onZoomed = onZoomed,
-                        onSingleTap = onSingleTap,
-                        contentDescription = cell?.name,
-                    )
-                }
-            }
+            placeholder != null -> Image(
+                bitmap = placeholder.asImageBitmap(),
+                contentDescription = if (original == null) cell?.name else null,
+                contentScale = ContentScale.Fit,
+                modifier = Modifier.fillMaxSize(),
+            )
+            palette != null && palette.size >= 3 -> Box(
+                modifier = Modifier
+                    .fillMaxSize()
+                    .background(
+                        Color(
+                            red = palette[0] / 255f,
+                            green = palette[1] / 255f,
+                            blue = palette[2] / 255f,
+                        ).copy(alpha = 0.35f),
+                    ),
+            )
             failed && cell != null -> Text(
                 text = cell.ext.uppercase().ifEmpty { "?" },
                 color = Color.White.copy(alpha = 0.6f),
@@ -248,8 +344,35 @@ private fun PreviewPage(
             )
             else -> CircularProgressIndicator(color = Color.White.copy(alpha = 0.5f))
         }
+        val image = original
+        if (image != null) {
+            // New identity resets zoom when the decoded original changes.
+            key(identity ?: "") {
+                ZoomingImage(
+                    bitmap = image,
+                    onZoomed = onZoomed,
+                    onSingleTap = onSingleTap,
+                    contentDescription = cell?.name,
+                    modifier = Modifier.graphicsLayer(alpha = fade.value),
+                )
+            }
+        }
+        if (failed && cell != null && (placeholder != null || (palette != null && palette.size >= 3))) {
+            Text(
+                text = cell.ext.uppercase().ifEmpty { "?" },
+                color = Color.White.copy(alpha = 0.6f),
+                fontSize = 13.sp,
+                fontWeight = FontWeight.SemiBold,
+                modifier = Modifier
+                    .align(Alignment.BottomCenter)
+                    .padding(bottom = 120.dp),
+            )
+        }
     }
 }
+
+private const val THUMB_PLACEHOLDER_PX = 512
+private const val ORIGINAL_FADE_MS = 180
 
 @Composable
 private fun PreviewTopBar(

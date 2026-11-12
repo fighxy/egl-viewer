@@ -2926,3 +2926,42 @@ A pass over the Android client after iOS D-122–D-129. No new screens. The C AB
   `PlatformDecoder.decodeFromJni`, and the consumer rules keep those two methods.
 - Tests: the gate, byte status, view windows, a browse `stop` on a dispatcher that has not run
   yet, import-source ownership, and duplicate display names.
+
+## D-134 Android preview: screen size, a byte budget, neighbours, the tapped photo (2026-11-12)
+
+The preview still decoded at 1.5× the screen and kept six bitmaps by count (D-103), and the
+bars followed the pager's closest page in the middle of a swipe. This is the preview half of
+the parity table in D-133 (iOS D-127 and D-131). The C ABI is unchanged. A sharper decode while
+zoomed, and zooming from the point under the fingers (D-129), stay out.
+
+- **Screen size.** The long side of the display, not 1.5× it. `inSampleSize` is the power of
+  two that brings the long side under twice the screen; if it is still larger, the bitmap is
+  scaled to the screen. A photo already smaller than the screen is not enlarged.
+- **Budget.** The cache costs decoded bytes. The limit is an eighth of the heap the process
+  may use, at least 8 MB when the heap allows, and never more than the 96 MB from D-127. A
+  running-low, running-critical or background trim empties it. Another activity merely covering
+  the app does not.
+- **Two at a time, shared, cancelled.** At most two decodes run. Two callers of one original
+  share one. A caller that leaves cancels the decode only when nobody else is waiting, and
+  `CancellationException` is rethrown. The page on screen takes a slot before its neighbours
+  are prefetched.
+- **Neighbours.** The pages on both sides are decoded ahead. A page that is no longer next is
+  cancelled; the one the swipe lands on keeps the decode that warmed it. A neighbour whose
+  cell has not loaded yet is asked for again when it arrives. Leaving the preview cancels
+  what is still running.
+- **No blank frame.** Until the original is ready the page shows the grid thumbnail already in
+  memory, or else the 512 px thumbnail or the palette colour. One decoded ahead shows at once;
+  otherwise the original fades in over 180 ms. A file the phone cannot draw keeps the
+  thumbnail and the type.
+- **The tapped photo, then a glide.** The pager opens on the tapped index. The bars and the
+  neighbour loads follow a separate page, updated only when the scroll rests, and that page is
+  not written back into the pager while it is gliding. A resting page other than the tap,
+  before the user has scrolled, is put back on the tap.
+- **Not in this change.** Sharper decode while zoomed, zoom anchored at the fingers, drag down
+  to close, zoom out of the tile (D-128, D-129). YubiKey and where libraries live stay as in
+  D-133.
+- **Tests.** JVM only: the budget at 768 MB, 256 MB, 128 MB and a heap smaller than the floor;
+  subsample and target size; thumbnail keys; trim levels; neighbour start, cancel and keep, a
+  fast swipe, a missing cell, a pixel-size change; two asks sharing a decode, one waiter
+  leaving, the last waiter leaving nothing running, a gate of two; the tapped page, a spurious
+  first page, and a swipe that publishes only when it rests.

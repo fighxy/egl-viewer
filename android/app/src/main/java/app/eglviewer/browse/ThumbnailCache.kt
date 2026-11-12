@@ -19,12 +19,36 @@ class ThumbnailCache(
         override fun sizeOf(key: String, value: Bitmap): Int = value.byteCount
     }
 
+    /**
+     * A thumbnail of this item already decoded for the grid, at whatever cell
+     * size is in memory. The preview shows it while the original loads, so the
+     * page is not blank (D-127). Null when the grid has not decoded it yet.
+     */
+    fun cached(id: String, version: Long): Bitmap? {
+        var best: Bitmap? = null
+        var bestPixels = -1
+        for ((key, bitmap) in cache.snapshot()) {
+            val pixels = cachedThumbnailPixels(key, id, version) ?: continue
+            if (pixels > bestPixels) {
+                best = bitmap
+                bestPixels = pixels
+            }
+        }
+        return best
+    }
+
     suspend fun image(forCell: ItemCell, pixels: Int): Bitmap? {
         if (!forCell.hasThumbnail) return null
-        val key = "${forCell.id}#${forCell.thumbVersion}#$pixels"
+        val key = thumbnailCacheKey(forCell.id, forCell.thumbVersion, pixels)
         cache.get(key)?.let { return it }
         val bitmap = withContext(Dispatchers.IO) {
-            val data = runCatching { session.thumbnailBytes(forCell.id) }.getOrNull() ?: return@withContext null
+            val data = try {
+                session.thumbnailBytes(forCell.id)
+            } catch (error: kotlinx.coroutines.CancellationException) {
+                throw error
+            } catch (_: Exception) {
+                null
+            } ?: return@withContext null
             decode(data, pixels)
         } ?: return null
         cache.put(key, bitmap)
@@ -45,4 +69,14 @@ class ThumbnailCache(
             return BitmapFactory.decodeByteArray(data, 0, data.size, opts)
         }
     }
+}
+
+internal fun thumbnailCacheKey(id: String, version: Long, pixels: Int): String =
+    "$id#$version#$pixels"
+
+/** The pixel size stored in [thumbnailCacheKey], or null when [key] is another item. */
+internal fun cachedThumbnailPixels(key: String, id: String, version: Long): Int? {
+    val prefix = "$id#$version#"
+    if (!key.startsWith(prefix)) return null
+    return key.substring(prefix.length).toIntOrNull()
 }

@@ -153,7 +153,10 @@ class OpenLibrary(
         }
 
     fun attachEvents(context: Context? = null) {
-        if (context != null) appContext = context.applicationContext
+        if (context != null) {
+            appContext = context.applicationContext
+            originals.watchMemory(context)
+        }
         // Events arrive on the core's threads (imports, exports) or on the thread of the call
         // that wrote (D-109): the browse models change on the main thread.
         library.setEventHandler { event ->
@@ -726,7 +729,7 @@ class OpenLibrary(
     private fun detachUi() {
         browsers.clear()
         thumbnails.removeAll()
-        originals.removeAll()
+        originals.shutdown()
         dismissToast()
         duplicateQuestion = null
         imports = emptyMap()
