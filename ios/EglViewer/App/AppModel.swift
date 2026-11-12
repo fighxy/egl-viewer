@@ -20,6 +20,8 @@ final class AppModel {
     private(set) var busy = false
     /// An Eagle library picked for import, read and waiting for the user's go (D-116).
     var eagleImport: EaglePlan?
+    /// A library picked in a File Provider folder: is that folder on this iPhone or synced? (D-132)
+    var askingWhere: PickedLibrary?
 
     let locations: LibraryLocations
     private let recentStore: RecentLibraries
@@ -64,33 +66,99 @@ final class AppModel {
 
     // MARK: Create and open
 
-    /// Creates `name.eglib` in On My iPhone and opens it.
-    func create(named name: String) async {
+    /// Creates `name.eglib` and opens it: in the app's folder, or in `folder`, a folder picked in
+    /// Files that outlives the app (D-132). The user picked that folder as one on this iPhone or
+    /// a drive; iCloud Drive is refused, as no library is created in a synced folder.
+    func create(named name: String, in folder: URL? = nil) async {
         let name = name.trimmingCharacters(in: .whitespacesAndNewlines)
         guard !name.isEmpty else {
             error = String(localized: "error.nameRequired")
             return
         }
         await run {
-            try self.locations.ensureRoot()
-            let root = self.locations.root
             let version = self.appVersion
+            guard let folder, self.locations.storage(of: folder) != .app else {
+                try self.locations.ensureRoot()
+                let root = self.locations.root
+                let path = try await Task.detached {
+                    try Library.create(in: root, name: name, appVersion: version)
+                }.value
+                try await self.open(url: path, scoped: false, bookmark: nil, onDevice: nil)
+                return
+            }
+            guard self.locations.storage(of: folder) != .cloud else { throw LocationRefused.cloud }
+            let scoped = folder.startAccessingSecurityScopedResource()
+            defer { if scoped { folder.stopAccessingSecurityScopedResource() } }
             let path = try await Task.detached {
-                try Library.create(in: root, name: name, appVersion: version)
+                try Library.create(in: folder, name: name, appVersion: version)
             }.value
-            try await self.open(url: path, scoped: false, bookmark: nil)
+            try await self.open(kept: path, onDevice: true)
+        }
+    }
+
+    /// Moves a library out of the app's folder into `folder`, picked in Files, so that it
+    /// outlives the app (D-132): a copy first, opened once to check it, then the original goes.
+    func move(_ library: URL, to folder: URL) async {
+        await run {
+            guard self.locations.isLocal(library) else { return }
+            switch self.locations.storage(of: folder) {
+            case .app: return
+            case .cloud: throw LocationRefused.cloud
+            case .provider, .device: break
+            }
+            let scoped = folder.startAccessingSecurityScopedResource()
+            defer { if scoped { folder.stopAccessingSecurityScopedResource() } }
+            let target = folder.appendingPathComponent(library.lastPathComponent, isDirectory: true)
+            guard !FileManager.default.fileExists(atPath: target.path) else { throw LocationRefused.exists }
+            let version = self.appVersion
+            try await Task.detached {
+                do {
+                    try FileManager.default.copyItem(at: library, to: target)
+                    try Library.open(at: target, appVersion: version).close()
+                } catch {
+                    try? FileManager.default.removeItem(at: target)
+                    throw error
+                }
+                try FileManager.default.removeItem(at: library)
+            }.value
+            let same = LibraryLocations.resolvedPath(library)
+            let previous = self.recents.filter {
+                LibraryLocations.resolvedPath(URL(fileURLWithPath: $0.path)) == same
+            }
+            let before = previous.first
+            for recent in previous { self.recents = self.recentStore.forget(path: recent.path) }
+            let name = before?.name ?? library.deletingPathExtension().lastPathComponent
+            self.recents = self.recentStore.remember(RecentLibrary(
+                name: name,
+                path: target.path,
+                bookmark: try target.bookmarkData(),
+                openedAt: before?.openedAt ?? Date(),
+                onDevice: true
+            ))
+            self.reloadLists()
         }
     }
 
     /// Opens a library the Files picker handed over; outside the app's container it is kept
-    /// through a security-scoped bookmark.
+    /// through a security-scoped bookmark. In a File Provider folder the user is asked first
+    /// whether that folder is on this iPhone (read-write) or synced (read-only) (D-132).
     func open(picked url: URL) async {
+        if locations.storage(of: url) == .provider {
+            askingWhere = PickedLibrary(url: url)
+            return
+        }
+        await open(picked: url, onDevice: nil)
+    }
+
+    /// The answer to `askingWhere`.
+    func open(picked url: URL, onDevice: Bool?) async {
+        askingWhere = nil
         await run {
             let local = self.locations.isLocal(url)
             let scoped = !local && url.startAccessingSecurityScopedResource()
             let bookmark = local ? nil : try? url.bookmarkData()
             do {
-                try await self.open(url: url, scoped: scoped, bookmark: bookmark)
+                try await self.open(url: url, scoped: scoped, bookmark: bookmark, onDevice: onDevice)
             } catch {
                 if scoped { url.stopAccessingSecurityScopedResource() }
                 throw error
@@ -105,14 +173,34 @@ final class AppModel {
             if let bookmark = recent.bookmark {
                 var stale = false
                 url = try URL(resolvingBookmarkData: bookmark, bookmarkDataIsStale: &stale)
+                if recent.onDevice == nil, self.locations.storage(of: url) == .provider {
+                    // Opened read-only before anyone asked (D-132): ask now.
+                    self.askingWhere = PickedLibrary(url: url)
+                    return
+                }
                 scoped = url.startAccessingSecurityScopedResource()
             }
             do {
-                try await self.open(url: url, scoped: scoped, bookmark: recent.bookmark)
+                try await self.open(url: url, scoped: scoped, bookmark: recent.bookmark, onDevice: recent.onDevice)
             } catch {
                 if scoped { url.stopAccessingSecurityScopedResource() }
                 throw error
             }
+        }
+    }
+
+    /// Opens a library the app just created or moved outside its folder, through a bookmark
+    /// taken now, while the folder's scope is held.
+    private func open(kept url: URL, onDevice: Bool) async throws {
+        let bookmark = try url.bookmarkData()
+        var stale = false
+        let resolved = try URL(resolvingBookmarkData: bookmark, bookmarkDataIsStale: &stale)
+        let scoped = resolved.startAccessingSecurityScopedResource()
+        do {
+            try await open(url: resolved, scoped: scoped, bookmark: bookmark, onDevice: onDevice)
+        } catch {
+            if scoped { resolved.stopAccessingSecurityScopedResource() }
+            throw error
         }
     }
 
@@ -159,7 +247,7 @@ final class AppModel {
             let path = try await Task.detached {
                 try Library.create(in: root, name: unique, appVersion: version)
             }.value
-            try await self.open(url: path, scoped: false, bookmark: nil)
+            try await self.open(url: path, scoped: false, bookmark: nil, onDevice: nil)
             guard let open = self.openLibrary else { return }
             started = true
             await open.importEagle(from: plan.url, importTrash: importTrash, cleanup: release)
@@ -175,7 +263,7 @@ final class AppModel {
     }
 
     func openLocal(_ url: URL) async {
-        await run { try await self.open(url: url, scoped: false, bookmark: nil) }
+        await run { try await self.open(url: url, scoped: false, bookmark: nil, onDevice: nil) }
     }
 
     func forget(_ recent: RecentLibrary) {
@@ -192,12 +280,12 @@ final class AppModel {
 
     // MARK: Plumbing
 
-    private func open(url: URL, scoped: Bool, bookmark: Data?) async throws {
+    private func open(url: URL, scoped: Bool, bookmark: Data?, onDevice: Bool?) async throws {
         if let current = openLibrary {
             screen = .welcome
             await current.close()
         }
-        let synced = !locations.isLocal(url) && LibraryLocations.isSynced(url)
+        let synced = locations.opensReadOnly(url, onDevice: onDevice)
         let version = appVersion
         let library = try await Task.detached {
             try Library.open(at: url, appVersion: version, syncFolder: synced)
@@ -205,7 +293,9 @@ final class AppModel {
         let open = try await OpenLibrary(library: library, url: url, scoped: scoped, savedViews: savedViews)
         screen = .library(open)
         recents = recentStore.remember(
-            RecentLibrary(name: open.info.name, path: url.path, bookmark: bookmark, openedAt: Date())
+            RecentLibrary(
+                name: open.info.name, path: url.path, bookmark: bookmark, openedAt: Date(), onDevice: onDevice
+            )
         )
     }
 
@@ -233,6 +323,12 @@ final class AppModel {
     }
 
     static func describe(_ error: Error) -> String {
+        if let error = error as? LocationRefused {
+            switch error {
+            case .cloud: return String(localized: "error.cloudFolder")
+            case .exists: return String(localized: "error.libraryExists")
+            }
+        }
         if let error = error as? EglError {
             switch error.code {
             case .notALibrary: return String(localized: "error.notALibrary")
@@ -798,4 +894,18 @@ struct Toast: Equatable, Identifiable {
 
 private struct WeakBrowser {
     weak var model: BrowseModel?
+}
+
+/// A library picked in a File Provider folder, waiting for the user to say where that folder is.
+struct PickedLibrary: Identifiable, Equatable {
+    let url: URL
+    var id: String { url.path }
+}
+
+/// Why a library is not created or moved where the user picked (D-132).
+enum LocationRefused: Error {
+    /// iCloud Drive: no library is created in a synced folder.
+    case cloud
+    /// That folder already holds a library of this name.
+    case exists
 }
