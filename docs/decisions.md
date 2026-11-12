@@ -2841,3 +2841,36 @@ already there at the top.
 - **Refresh.** Pull to refresh reloads both lists, as reopening the screen does.
 - The list logic is `WelcomeEntries` in `LibraryLocations.swift`, tested without the UI; the
   UI test checks that a recent library sits above Create Library.
+
+## D-132 iPhone: libraries that outlive the app (2026-11-12)
+
+Ivan deleted the app and lost its libraries. New libraries went to the app's own Documents
+folder (D-093), shown in Files as On My iPhone → EglViewer; iOS deletes an app's container with
+the app, and nothing an app does can keep it.
+
+- **Choose the folder when creating.** The create sheet offers *In the App* (the default; its
+  footer says iOS deletes it with the app) or *Choose Folder…*: a folder picked in Files, such as
+  one in On My iPhone outside EglViewer or on a connected drive. The library is created there
+  under the folder's security scope and kept with a bookmark. iCloud Drive is refused: no library
+  is created in a synced folder.
+- **Move an existing one.** A library in the app's folder has *Move to Folder…* in its
+  long-press menu on Welcome. The library is closed there; it is copied into the picked folder,
+  the copy is opened once by the core to check it, and only then is the original removed. A
+  failed copy is removed and the original stays; a folder that already holds a library of that
+  name is refused. Recent then points at the new place.
+- **Telling On My iPhone from a cloud folder.** Folders in On My iPhone outside the app and the
+  folders of providers such as Dropbox or Google Drive share the same kind of path (`File
+  Provider Storage`), and iOS gives an app no public way to tell them apart. D-093 opened every
+  such library read-only, which would make a moved library read-only too. Now the user is asked
+  once per library (*On This iPhone or a Drive* or *In a Cloud Folder (Read-Only)*), and the
+  answer is kept with the recent library. A library the app itself created or moved there counts
+  as on the device. iCloud Drive stays read-only whatever the answer; a connected drive is
+  read-write without asking.
+- **Not done.** No automatic copy elsewhere and no backup to iCloud: the app's own export and
+  backups (D-099) remain the way to keep a second copy. The Eagle import still creates its
+  library in the app's folder; it can be moved afterwards.
+- **Tests.** Unit tests: the storage kinds and the read-only rule, recent lists saved before
+  without the answer, a library created in a picked folder (read-write, bookmarked, nothing in
+  the app's folder, iCloud refused), a move out of the app's folder (the copy opens, the original
+  goes, Recent follows, a second move into the same folder is refused and loses nothing), and the
+  question for a library picked in a provider folder.

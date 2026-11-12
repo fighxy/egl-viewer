@@ -1,12 +1,13 @@
 import Foundation
 import UniformTypeIdentifiers
 
-/// Where libraries live on the phone (D-093):
-/// - **On My iPhone** (`Documents/Libraries`, shown in the Files app): the default for new
-///   libraries, read-write;
-/// - **anywhere the user picks in Files**, kept through a security-scoped bookmark; a library
-///   in iCloud Drive or another synced provider opens read-only, like a synced folder on the
-///   desktop (D-021).
+/// Where libraries live on the phone (D-093, D-132):
+/// - **the app's folder** (`Documents/Libraries`, shown in Files under On My iPhone → EglViewer):
+///   the default for new libraries, read-write, but iOS removes it with the app;
+/// - **a folder the user picks in Files** (On My iPhone outside the app, a connected drive),
+///   kept through a security-scoped bookmark; it outlives the app;
+/// - a library in iCloud Drive, or in a provider folder the user has not said is on the device,
+///   opens read-only, like a synced folder on the desktop (D-021).
 struct LibraryLocations {
     /// The folder new libraries go to.
     let root: URL
@@ -53,18 +54,53 @@ struct LibraryLocations {
 
     /// Inside the app's own container: no bookmark needed, and never synced.
     func isLocal(_ url: URL) -> Bool {
-        url.standardizedFileURL.path.hasPrefix(root.standardizedFileURL.path)
+        let path = Self.resolvedPath(url)
+        let root = Self.resolvedPath(root)
+        return path == root || path.hasPrefix(root + "/")
     }
 
-    /// A library somewhere a sync provider manages: iCloud Drive, or a File Provider folder
-    /// whose path says so. Such a library opens read-only (D-021, D-093).
-    static func isSynced(_ url: URL) -> Bool {
+    /// The path with symlinks resolved: `/var` and `/private/var` are one folder.
+    static func resolvedPath(_ url: URL) -> String {
+        url.standardizedFileURL.resolvingSymlinksInPath().path
+    }
+
+    /// Where a library or folder is, as far as the app can tell (D-132).
+    enum Storage: Equatable {
+        /// The app's own folder: removed with the app.
+        case app
+        /// iCloud Drive: synced; never written.
+        case cloud
+        /// A File Provider folder: On My iPhone outside the app and the folders of Dropbox,
+        /// Google Drive and the like share this kind of path, so only the user can say which.
+        case provider
+        /// Elsewhere on the device, such as a connected drive.
+        case device
+    }
+
+    func storage(of url: URL) -> Storage {
+        if isLocal(url) { return .app }
+        if Self.isICloud(url) { return .cloud }
+        if url.standardizedFileURL.path.contains("/File Provider Storage/") { return .provider }
+        return .device
+    }
+
+    /// iCloud Drive, by its resource value or its path.
+    static func isICloud(_ url: URL) -> Bool {
         if let values = try? url.resourceValues(forKeys: [.isUbiquitousItemKey]),
            values.isUbiquitousItem == true {
             return true
         }
-        let path = url.standardizedFileURL.path
-        return path.contains("/Mobile Documents/") || path.contains("/File Provider Storage/")
+        return url.standardizedFileURL.path.contains("/Mobile Documents/")
+    }
+
+    /// Opens read-only, as a synced folder does (D-021): iCloud always, a provider folder unless
+    /// the user said it is on this iPhone or a drive (`onDevice`).
+    func opensReadOnly(_ url: URL, onDevice: Bool?) -> Bool {
+        switch storage(of: url) {
+        case .app, .device: false
+        case .cloud: true
+        case .provider: onDevice != true
+        }
     }
 
     /// What the Files picker may hand over: a `.eglib` package or a folder.
@@ -80,6 +116,9 @@ struct RecentLibrary: Codable, Equatable, Identifiable {
     /// A security-scoped bookmark for a library outside the app's container.
     var bookmark: Data?
     var openedAt: Date
+    /// The user said its folder is on this iPhone or a drive, not synced (D-132); `nil` when
+    /// nobody asked. Absent in lists saved before.
+    var onDevice: Bool? = nil
 
     var id: String { path }
 }

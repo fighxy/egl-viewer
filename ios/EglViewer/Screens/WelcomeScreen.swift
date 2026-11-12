@@ -9,8 +9,12 @@ struct WelcomeScreen: View {
     @State private var picking: Picking?
     @State private var settings = false
 
-    /// What the Files picker is open for: one picker serves both, as SwiftUI allows one.
-    private enum Picking { case library, eagle }
+    /// What the Files picker is open for: one picker serves them all, as SwiftUI allows one.
+    private enum Picking: Equatable {
+        case library, eagle
+        /// A folder to move this library from the app's folder into (D-132).
+        case move(URL)
+    }
 
     var body: some View {
         let entries = WelcomeEntries(
@@ -96,22 +100,44 @@ struct WelcomeScreen: View {
             }
             .fileImporter(
                 isPresented: Binding(get: { picking != nil }, set: { if !$0 { picking = nil } }),
-                allowedContentTypes: picking == .eagle ? [.folder] : LibraryLocations.openTypes,
+                allowedContentTypes: picking == .library ? LibraryLocations.openTypes : [.folder],
                 allowsMultipleSelection: false
             ) { [picking] result in
                 switch result {
                 case let .success(urls):
                     guard let url = urls.first else { return }
-                    if picking == .eagle {
-                        Task { await model.pickEagle(url) }
-                    } else {
-                        Task { await model.open(picked: url) }
+                    switch picking {
+                    case .eagle: Task { await model.pickEagle(url) }
+                    case let .move(library): Task { await model.move(library, to: url) }
+                    case .library, nil: Task { await model.open(picked: url) }
                     }
                 case let .failure(error):
                     model.error = AppModel.describe(error)
                 }
             }
+            .confirmationDialog(
+                "where.title",
+                isPresented: Binding(get: { model.askingWhere != nil }, set: { if !$0 { model.askingWhere = nil } }),
+                titleVisibility: .visible,
+                presenting: model.askingWhere
+            ) { picked in
+                Button("where.onDevice") { Task { await model.open(picked: picked.url, onDevice: true) } }
+                    .accessibilityIdentifier("where.onDevice")
+                Button("where.synced") { Task { await model.open(picked: picked.url, onDevice: false) } }
+                    .accessibilityIdentifier("where.synced")
+                Button("common.cancel", role: .cancel) { model.askingWhere = nil }
+            } message: { _ in
+                Text("where.message")
+            }
             .onAppear { model.reloadLists() }
+        }
+    }
+
+    /// Libraries in the app's folder go with the app: these can move to a folder picked in Files.
+    @ViewBuilder
+    private func moveButton(_ library: URL) -> some View {
+        Button("welcome.moveToFolder", systemImage: "folder.badge.plus") {
+            picking = .move(library)
         }
     }
 
@@ -131,6 +157,9 @@ struct WelcomeScreen: View {
                 }
             }
             .contextMenu {
+                if entry.folder == nil {
+                    moveButton(URL(fileURLWithPath: recent.path))
+                }
                 Button("welcome.forget", systemImage: "minus.circle", role: .destructive) {
                     model.forget(recent)
                 }
@@ -142,6 +171,9 @@ struct WelcomeScreen: View {
                 LibraryRow(entry: entry)
             }
             .accessibilityIdentifier("welcome.local.\(entry.name)")
+            .contextMenu {
+                moveButton(url)
+            }
         }
     }
 }
@@ -208,11 +240,14 @@ private struct LibraryRow: View {
     }
 }
 
-/// The name of a new library; it goes to On My iPhone.
+/// The name of a new library and where it goes: the app's folder, which iOS removes with the
+/// app, or a folder picked in Files that outlives it (D-132).
 struct CreateLibrarySheet: View {
     @Environment(AppModel.self) private var model
     @Environment(\.dismiss) private var dismiss
     @State private var name = ""
+    @State private var folder: URL?
+    @State private var choosing = false
     @FocusState private var focused: Bool
 
     var body: some View {
@@ -227,6 +262,43 @@ struct CreateLibrarySheet: View {
                         .accessibilityIdentifier("create.name")
                 } footer: {
                     Text("create.hint")
+                }
+                Section {
+                    Button {
+                        folder = nil
+                    } label: {
+                        PlaceRow(title: "create.inApp", systemImage: "iphone", detail: nil, chosen: folder == nil)
+                    }
+                    .accessibilityIdentifier("create.inApp")
+                    Button {
+                        choosing = true
+                    } label: {
+                        PlaceRow(
+                            title: "create.inFolder", systemImage: "folder",
+                            detail: folder?.lastPathComponent, chosen: folder != nil
+                        )
+                    }
+                    .accessibilityIdentifier("create.inFolder")
+                } header: {
+                    Text("create.where")
+                } footer: {
+                    if folder == nil {
+                        Text("create.inAppHint")
+                    } else {
+                        Text("create.inFolderHint")
+                    }
+                }
+            }
+            .fileImporter(isPresented: $choosing, allowedContentTypes: [.folder]) { result in
+                switch result {
+                case let .success(url):
+                    if LibraryLocations.isICloud(url) {
+                        model.error = String(localized: "error.cloudFolder")
+                    } else {
+                        folder = url
+                    }
+                case let .failure(error):
+                    model.error = AppModel.describe(error)
                 }
             }
             .navigationTitle("create.title")
@@ -243,13 +315,42 @@ struct CreateLibrarySheet: View {
             }
             .onAppear { focused = true }
         }
-        .presentationDetents([.medium])
+        .presentationDetents([.medium, .large])
     }
 
     private func create() {
-        let name = name
+        let (name, folder) = (name, folder)
         dismiss()
-        Task { await model.create(named: name) }
+        Task { await model.create(named: name, in: folder) }
+    }
+}
+
+/// One place a new library can go, with a check mark on the chosen one.
+private struct PlaceRow: View {
+    let title: LocalizedStringKey
+    let systemImage: String
+    let detail: String?
+    let chosen: Bool
+
+    var body: some View {
+        HStack {
+            Label(title, systemImage: systemImage)
+                .foregroundStyle(EglTokens.foreground)
+            Spacer()
+            if let detail {
+                Text(verbatim: detail)
+                    .foregroundStyle(EglTokens.mutedForeground)
+                    .lineLimit(1)
+                    .truncationMode(.middle)
+            }
+            if chosen {
+                Image(systemName: "checkmark")
+                    .foregroundStyle(EglTokens.foreground)
+                    .accessibilityHidden(true)
+            }
+        }
+        .contentShape(Rectangle())
+        .accessibilityAddTraits(chosen ? .isSelected : [])
     }
 }
 

@@ -2674,19 +2674,111 @@
         "en": {
           "stringUnit": {
             "state": "translated",
-            "value": "The library is a folder named after it, in On My iPhone."
+            "value": "The library is a folder named after it."
           }
         },
         "ru": {
           "stringUnit": {
             "state": "translated",
-            "value": "Библиотека — это папка с таким именем в «На iPhone»."
+            "value": "Библиотека — это папка с таким именем."
           }
         },
         "zh-Hans": {
           "stringUnit": {
             "state": "translated",
-            "value": "资料库是“我的 iPhone”中以此命名的文件夹。"
+            "value": "资料库是以此命名的文件夹。"
+          }
+        }
+      }
+    },
+    "create.inApp": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "In the App"
+          }
+        },
+        "ru": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "В приложении"
+          }
+        },
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "在应用中"
+          }
+        }
+      }
+    },
+    "create.inAppHint": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "On My iPhone → EglViewer. iOS deletes this folder with the app, and the library with it."
+          }
+        },
+        "ru": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "«На iPhone» → EglViewer. iOS удаляет эту папку вместе с приложением, а с ней и библиотеку."
+          }
+        },
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "“我的 iPhone” → EglViewer。iOS 会在删除应用时删除此文件夹及其中的资料库。"
+          }
+        }
+      }
+    },
+    "create.inFolder": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Choose Folder…"
+          }
+        },
+        "ru": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Выбрать папку…"
+          }
+        },
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "选择文件夹…"
+          }
+        }
+      }
+    },
+    "create.inFolderHint": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "A folder in On My iPhone outside EglViewer, or on a connected drive, keeps the library when the app is deleted. Not a cloud folder (iCloud Drive, Dropbox, Google Drive): a library there is read-only."
+          }
+        },
+        "ru": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Папка в «На iPhone» вне EglViewer или на подключённом диске сохранит библиотеку при удалении приложения. Не облачная папка (iCloud Drive, Dropbox, Google Диск): там библиотека только для чтения."
+          }
+        },
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "“我的 iPhone”中 EglViewer 以外的文件夹或外接驱动器中的资料库，在删除应用后仍会保留。不要选择云端文件夹（iCloud 云盘、Dropbox、Google 云端硬盘）：其中的资料库为只读。"
           }
         }
       }
@@ -2733,6 +2825,29 @@
           "stringUnit": {
             "state": "translated",
             "value": "新资料库"
+          }
+        }
+      }
+    },
+    "create.where": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Where"
+          }
+        },
+        "ru": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Где"
+          }
+        },
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "位置"
           }
         }
       }
@@ -3860,6 +3975,29 @@
         }
       }
     },
+    "error.cloudFolder": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "A library is not created in iCloud Drive: syncing would damage it. Choose a folder on this iPhone or a drive."
+          }
+        },
+        "ru": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "В iCloud Drive библиотека не создаётся: синхронизация её повредит. Выберите папку на этом iPhone или диске."
+          }
+        },
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "不会在 iCloud 云盘中创建资料库：同步会损坏它。请选择此 iPhone 或驱动器上的文件夹。"
+          }
+        }
+      }
+    },
     "error.generic": {
       "extractionState": "manual",
       "localizations": {
@@ -3879,6 +4017,29 @@
           "stringUnit": {
             "state": "translated",
             "value": "资料库无法完成该操作。"
+          }
+        }
+      }
+    },
+    "error.libraryExists": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "That folder already holds a library with this name."
+          }
+        },
+        "ru": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "В этой папке уже есть библиотека с таким именем."
+          }
+        },
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "该文件夹中已有同名资料库。"
           }
         }
       }
@@ -11128,19 +11289,19 @@
         "en": {
           "stringUnit": {
             "state": "translated",
-            "value": "New libraries go to On My iPhone. A library in iCloud Drive opens read-only."
+            "value": "Libraries in the app's folder are deleted with the app. To keep one, create it in a folder you choose, or move it there: touch and hold it."
           }
         },
         "ru": {
           "stringUnit": {
             "state": "translated",
-            "value": "Новые библиотеки создаются в «На iPhone». Библиотека в iCloud Drive открывается только для чтения."
+            "value": "Библиотеки в папке приложения удаляются вместе с ним. Чтобы сохранить библиотеку, создайте её в выбранной папке или перенесите туда долгим нажатием."
           }
         },
         "zh-Hans": {
           "stringUnit": {
             "state": "translated",
-            "value": "新资料库位于“我的 iPhone”。iCloud 云盘中的资料库以只读方式打开。"
+            "value": "应用文件夹中的资料库会随应用一起删除。若要保留，请在所选文件夹中创建，或长按将其移到那里。"
           }
         }
       }
@@ -11187,6 +11348,29 @@
           "stringUnit": {
             "state": "translated",
             "value": "在“文件”中选择 Name.library 文件夹。它会被复制到此 iPhone 上的新资源库中；Eagle 资源库本身不会被更改。"
+          }
+        }
+      }
+    },
+    "welcome.moveToFolder": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Move to Folder…"
+          }
+        },
+        "ru": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Перенести в папку…"
+          }
+        },
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "移到文件夹…"
           }
         }
       }
@@ -11279,6 +11463,98 @@
           "stringUnit": {
             "state": "translated",
             "value": "开始"
+          }
+        }
+      }
+    },
+    "where.message": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Only you can tell a folder on this iPhone from a cloud one. A library in a cloud folder opens read-only, so that syncing does not damage it."
+          }
+        },
+        "ru": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Отличить папку на этом iPhone от облачной можете только вы. Библиотека в облачной папке открывается только для чтения, чтобы синхронизация её не повредила."
+          }
+        },
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "只有您能分辨此 iPhone 上的文件夹和云端文件夹。云端文件夹中的资料库以只读方式打开，以免同步损坏它。"
+          }
+        }
+      }
+    },
+    "where.onDevice": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "On This iPhone or a Drive"
+          }
+        },
+        "ru": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "На этом iPhone или диске"
+          }
+        },
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "在此 iPhone 或驱动器上"
+          }
+        }
+      }
+    },
+    "where.synced": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "In a Cloud Folder (Read-Only)"
+          }
+        },
+        "ru": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "В облачной папке (только чтение)"
+          }
+        },
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "在云端文件夹中（只读）"
+          }
+        }
+      }
+    },
+    "where.title": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Where is this library?"
+          }
+        },
+        "ru": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Где эта библиотека?"
+          }
+        },
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "此资料库在哪里？"
           }
         }
       }
