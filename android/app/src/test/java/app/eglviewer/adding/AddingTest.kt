@@ -51,6 +51,26 @@ class AddingTest {
     }
 
     @Test
+    fun twoCopiesWithTheSameNameDoNotOverwrite() {
+        val folder = tmp.newFolder("tree")
+        val first = PickedFile.uniqueFile(folder, "photo.jpg")
+        first.writeBytes(byteArrayOf(1))
+        val second = PickedFile.uniqueFile(folder, "photo.jpg")
+        second.writeBytes(byteArrayOf(2))
+        assertEquals("photo.jpg", first.name)
+        assertEquals("photo (2).jpg", second.name)
+        assertEquals(listOf(1.toByte()), first.readBytes().toList())
+        assertEquals(listOf(2.toByte()), second.readBytes().toList())
+
+        val dir = PickedFile.uniqueDir(folder, "Album")
+        dir.mkdirs()
+        File(dir, "a.txt").writeText("kept")
+        val again = PickedFile.uniqueDir(folder, "Album")
+        assertEquals(dir.canonicalFile, again.canonicalFile)
+        assertTrue(File(dir, "a.txt").exists())
+    }
+
+    @Test
     fun leftoversAreRemovedAtLaunch() {
         val cache = tmp.newFolder("cache")
         File(cache, "${PickedFile.FOLDER_PREFIX}dead").mkdirs()
