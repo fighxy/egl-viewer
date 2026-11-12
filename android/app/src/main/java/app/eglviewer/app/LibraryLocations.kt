@@ -10,6 +10,7 @@ import android.os.Build
 import android.os.Environment
 import android.provider.DocumentsContract
 import androidx.core.content.ContextCompat
+import app.eglviewer.R
 import org.json.JSONArray
 import org.json.JSONObject
 import java.io.File
@@ -67,13 +68,14 @@ class LibraryLocations(context: Context) {
     }
 
     fun locationHint(path: File?, uri: Uri?): String {
-        if (path != null && isLocal(path)) return "App storage"
-        if (isSynced(path, uri)) return "Cloud"
+        if (path != null && isLocal(path)) return appContext.getString(R.string.hint_app_storage)
+        if (isSynced(path, uri)) return appContext.getString(R.string.hint_cloud)
         val probe = (path?.absolutePath ?: uri?.toString().orEmpty()).lowercase()
         return when {
-            probe.contains("emulated/0") || probe.startsWith("/storage/") -> "Internal storage"
-            uri != null -> "Files"
-            else -> "Storage"
+            probe.contains("emulated/0") || probe.startsWith("/storage/") ->
+                appContext.getString(R.string.hint_internal)
+            uri != null -> appContext.getString(R.string.hint_files)
+            else -> appContext.getString(R.string.hint_storage)
         }
     }
 
@@ -170,8 +172,9 @@ data class RecentLibrary(
 
 /** Recent libraries, newest first, in SharedPreferences (last 10). */
 class RecentLibraries(context: Context) {
+    private val appContext = context.applicationContext
     private val prefs: SharedPreferences =
-        context.applicationContext.getSharedPreferences(PREFS, Context.MODE_PRIVATE)
+        appContext.getSharedPreferences(PREFS, Context.MODE_PRIVATE)
 
     fun load(): List<RecentLibrary> {
         val raw = prefs.getString(KEY, null) ?: return emptyList()
@@ -188,7 +191,7 @@ class RecentLibraries(context: Context) {
                 RecentLibrary(
                     name = o.getString("name"),
                     path = path,
-                    locationHint = o.optString("locationHint", "Storage"),
+                    locationHint = o.optString("locationHint", appContext.getString(R.string.hint_storage)),
                     uri = uri,
                     missing = missing,
                 )

@@ -2849,6 +2849,9 @@ A pass over the Android client after iOS D-122–D-129. No new screens. The C AB
   the core had finished reading them, and a cancelled add swallowed `CancellationException` and
   deleted them even sooner. The core is joined first; cleanups run after. Two documents with the
   same display name in one picked folder no longer overwrite each other.
+- **Location hints.** Recent libraries stored "App storage", "Cloud", "Internal storage",
+  "Files" and "Storage" in English in every locale. They now come from the en/ru/zh catalogs.
+  A hint already saved stays as it was written.
 - **Callbacks.** The library is registered for events before the native callback is turned on.
   `JNI_OnLoad` fails if it cannot see `Library.dispatchEventFromJni` or
   `PlatformDecoder.decodeFromJni`, and the consumer rules keep those two methods.

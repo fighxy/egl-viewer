@@ -31,6 +31,10 @@
     <string name="welcome_missing">缺失</string>
     <string name="welcome_footer">仅原生 .eglib · 与桌面版同一产品</string>
     <string name="hint_app_storage">应用存储</string>
+    <string name="hint_cloud">云端</string>
+    <string name="hint_internal">内部存储</string>
+    <string name="hint_files">文件</string>
+    <string name="hint_storage">存储</string>
 
     <string name="create_title">新建资源库</string>
     <string name="create_name">名称</string>

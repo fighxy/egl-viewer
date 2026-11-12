@@ -31,6 +31,10 @@
     <string name="welcome_missing">Missing</string>
     <string name="welcome_footer">Native .eglib only · same product as desktop</string>
     <string name="hint_app_storage">App storage</string>
+    <string name="hint_cloud">Cloud</string>
+    <string name="hint_internal">Internal storage</string>
+    <string name="hint_files">Files</string>
+    <string name="hint_storage">Storage</string>
 
     <string name="create_title">New library</string>
     <string name="create_name">Name</string>
