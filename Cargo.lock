@@ -298,7 +298,7 @@ checksum = "330a5ed07fa54e4702c9d6c4174f74427fc0ef6e214bbd677ae50a5099946470"
 
 [[package]]
 name = "app-service"
-version = "0.2.78"
+version = "0.2.88"
 dependencies = [
  "eagle-folder",
  "library-core",
@@ -312,7 +312,7 @@ dependencies = [
 
 [[package]]
 name = "app-store"
-version = "0.2.78"
+version = "0.2.88"
 dependencies = [
  "argon2",
  "base64 0.22.1",
@@ -672,7 +672,7 @@ checksum = "f2032f911046de80f0a198e0901378627c33f59ea0ac00e363d481118bd70a53"
 
 [[package]]
 name = "av"
-version = "0.2.78"
+version = "0.2.88"
 dependencies = [
  "cpal",
  "ffmpeg-next",
@@ -1785,7 +1785,7 @@ dependencies = [
 
 [[package]]
 name = "desktop-session"
-version = "0.2.78"
+version = "0.2.88"
 dependencies = [
  "app-service",
  "app-store",
@@ -1967,7 +1967,7 @@ checksum = "d0881ea181b1df73ff77ffaaf9c7544ecc11e82fba9b5f27b262a3c73a332555"
 
 [[package]]
 name = "eagle-api"
-version = "0.2.78"
+version = "0.2.88"
 dependencies = [
  "async-trait",
  "base64 0.22.1",
@@ -1988,7 +1988,7 @@ dependencies = [
 
 [[package]]
 name = "eagle-folder"
-version = "0.2.78"
+version = "0.2.88"
 dependencies = [
  "serde",
  "serde_json",
@@ -2948,7 +2948,7 @@ dependencies = [
 
 [[package]]
 name = "gpui-desktop"
-version = "0.2.78"
+version = "0.2.88"
 dependencies = [
  "app-store",
  "arboard",
@@ -4626,7 +4626,7 @@ checksum = "b6d2cec3eae94f9f509c767b45932f1ada8350c4bdb85af2fcab4a3c14807981"
 
 [[package]]
 name = "library-core"
-version = "0.2.78"
+version = "0.2.88"
 dependencies = [
  "async-trait",
  "icu_collator",
@@ -4638,7 +4638,7 @@ dependencies = [
 
 [[package]]
 name = "library-ffi"
-version = "0.2.78"
+version = "0.2.88"
 dependencies = [
  "app-service",
  "image",
@@ -4652,7 +4652,7 @@ dependencies = [
 
 [[package]]
 name = "library-native"
-version = "0.2.78"
+version = "0.2.88"
 dependencies = [
  "age",
  "age-core",
@@ -4967,7 +4967,7 @@ dependencies = [
 
 [[package]]
 name = "media"
-version = "0.2.78"
+version = "0.2.88"
 dependencies = [
  "av",
  "base64 0.22.1",
