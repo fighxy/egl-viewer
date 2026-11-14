@@ -15,8 +15,8 @@ use gpui_kit::component::scroll::ScrollableElement as _;
 use gpui_kit::component::{Icon, Sizable as _, StyledExt as _, h_flex, v_flex};
 use gpui_kit::prelude::FluentBuilder as _;
 use gpui_kit::{
-    AnyElement, ClickEvent, Context, InteractiveElement, IntoElement, ParentElement, SharedString,
-    StatefulInteractiveElement as _, Styled, Window, div, px,
+    AnyElement, ClickEvent, Context, InteractiveElement, IntoElement, MouseButton, ParentElement,
+    SharedString, StatefulInteractiveElement as _, Styled, Window, div, px,
 };
 
 use crate::app::RootApp;
@@ -303,8 +303,13 @@ impl RootApp {
                 // The × shows on the row under the pointer only.
                 .child(
                     div()
+                        .id(SharedString::from(format!("forget-wrap-{}", lib.path)))
                         .invisible()
                         .group_hover("recent-row", |style| style.visible())
+                        // The row opens the library on click: a press on × must not reach it,
+                        // or the library opens and goes straight back into the list.
+                        .on_mouse_down(MouseButton::Left, |_, _, cx| cx.stop_propagation())
+                        .on_click(|_, _, cx| cx.stop_propagation())
                         .child(
                             Button::new(SharedString::from(format!("forget-{}", lib.path)))
                                 .ghost()
@@ -312,7 +317,11 @@ impl RootApp {
                                 .icon(IconName::X)
                                 .tooltip(t(locale, "welcome.removeRecentTitle"))
                                 .on_click(cx.listener(move |this, _, _, cx| {
-                                    let _ = this.session.forget_recent_library(&forget);
+                                    cx.stop_propagation();
+                                    if let Err(error) = this.session.forget_recent_library(&forget)
+                                    {
+                                        tracing::warn!("cannot remove a recent library: {error}");
+                                    }
                                     cx.notify();
                                 })),
                         ),

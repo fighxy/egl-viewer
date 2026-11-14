@@ -514,12 +514,17 @@ impl RootApp {
 
     /// The names of the selected items with their extensions, one per line, in view order.
     pub(crate) fn copy_names(&mut self, cx: &mut Context<Self>) {
+        // The selection may reach pages that are not here (or be a Select All): the names
+        // need every cell of the view, cells only, for this one command (D-167).
+        let total = self.library.as_ref().map_or(0, |lib| lib.cells.len());
+        self.fill_cells(0..total);
         let Some(lib) = self.library.as_ref() else {
             return;
         };
         let names: Vec<String> = lib
             .cells
-            .iter()
+            .loaded()
+            .map(|(_, cell)| cell)
             .filter(|cell| lib.selection.contains(&cell.id))
             .map(|cell| file_name(&cell.name, &cell.ext))
             .collect();

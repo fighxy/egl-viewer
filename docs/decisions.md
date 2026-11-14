@@ -3433,6 +3433,15 @@ stayed in GPUI's asset cache for the life of the window. The grid only had the s
   and the three within 96 px. The borders
   under the menu bar and the filter bar stay; menus still open under their button.
 
+## D-158 GPUI: Include Subfolders by the folders header (2026-11-14)
+
+- **Problem.** The Include Subfolders switch sat in the toolbar among the view buttons, far
+  from the tree whose counts it changes; the spec (§ left bar) puts it next to the tree.
+- **Change.** The switch is an extra-small button with the folder-tree icon in the Folders header
+  of the left bar, left of ⊕ New Folder, and is gone from the toolbar. It only changes the
+  view, so a read-only library shows it too (⊕ stays hidden there). The View menu entry and
+  the `RootApp::toggle_include_subfolders` behind both are unchanged.
+
 ## D-159 Any colour for folders and tag groups (2026-11-14)
 
 - **Problem.** Folders and tag groups could only take Eagle's eight colours.
@@ -3453,6 +3462,108 @@ stayed in GPUI's asset cache for the life of the window. The grid only had the s
   The GPUI shell has no tag-group colour editor yet.
 - **Older clients.** An app version from before this change, and the iOS / Android apps until
   they parse hex, draw a `#rrggbb` folder without a colour; nothing fails.
+
+## D-160 GPUI: left-bar ⋯ menus open under their button (2026-11-14)
+
+- **Problem.** The ⋯ of the Tags header (tag groups and tag tools) and the ⋯ of a locked folder
+  (Manage lock) opened centred dialogs of buttons, far from where the user clicked, unlike the
+  Filter and Sort menus (D-146).
+- **Change.** Both are dropdown menus anchored at their button's top-left corner. Tags: each
+  tag group as a submenu with Apply and Delete ("No tag groups" when there are none), then New
+  Tag Group, Rename Tag…, Merge Tags…, Delete Tag…. Locked folder: Change Password…, Recover
+  with Key…, Renew Recovery Key…, Lock Label…, Remove Lock…, then the YubiKey entries for a
+  plugged-in key and one Remove YubiKey per bound card. The builders read the library when the
+  menu opens. A wrapper stops the click on a locked folder's ⋯ from also opening or unlocking
+  the folder. The dialogs these entries open are unchanged.
+
+## D-161 GPUI: New Folder from ⊕ is a popover under the button (2026-11-14)
+
+- **Problem.** ⊕ in the Folders header opened a dialog at the top of the window, away from
+  the button.
+- **Change.** ⊕ opens a small popover anchored under it: the name field (filled with "New
+  folder", selected, so typing replaces it), Cancel and Save. Enter saves; Escape or a click
+  outside closes it. The folder goes inside the open folder, or at the root, as before. File →
+  New Folder keeps the dialog, since the left bar may be hidden.
+
+## D-162 GPUI: tag groups in the left bar, as Eagle shows them (2026-11-14)
+
+- **Problem.** Tag groups were only reachable from the Tags header's ⋯ menu; the left bar
+  listed every tag flat.
+- **Change.** With at least one group, the Tags section lists each group as a row (chevron,
+  tags icon in the group's colour, name, number of tags). A click folds or unfolds it; its tags
+  follow, indented and tinted with the group's colour, each with its item count. The tags no
+  group holds follow under **Ungrouped** (open by default). Without groups the tags are listed
+  as before. A group's context menu: Filter by Group, Rename Group…, Colour ▸ (no colour or one
+  of the eight), Delete Group. A tag's context menu: Add to Group ▸, Remove from Group (in a
+  group), New Group with This Tag…. A tag may sit in several groups. The ⋯ menu keeps New Tag
+  Group and the tag tools. Folded state lasts for the session. Every group edit is a full
+  `TagGroupChange::Update` built from the group as it is now.
+- **Not yet.** Dragging tags into groups and reordering groups; a custom colour for groups (the
+  core accepts it, D-159).
+
+## D-163 GPUI: Save Smart Folder from ⊕ is a popover too (2026-11-14)
+
+- **Problem.** ⊕ in the Smart folders header opened a dialog at the top of the window.
+- **Change.** It opens the same name popover as New Folder (D-161), anchored under it, with
+  "Smart folder" selected. Both ⊕ share one popover state (`NamePrompt`) and one name field, so
+  only one is open at a time. The rules are taken from the view when the popover opens; a view
+  the rules cannot express is refused then, with the reason in the status bar, and the popover
+  stays closed. File → Save as Smart Folder keeps the dialog, since the left bar may be hidden;
+  both paths save through the same code.
+
+## D-164 GPUI: the Trash row's context menu (2026-11-14)
+
+- **Problem.** The spec (§3 Trash) gives the Trash row a right-click menu with its size, Restore
+  All and Empty Trash; the GPUI shell had none.
+- **Change.** Right-clicking Trash shows "N items · size" (read from `trash_info` when the menu
+  opens), then Restore All (`Ctrl+Z` takes it back) and Empty Trash…. Both are disabled for an
+  empty trash or a read-only library; an Eagle library shows why there is no trash info. Empty
+  Trash's confirmation now names the item count and the size and says the files leave the disk
+  for good, with no undo. The trash strings are in Russian too.
+
+## D-165 GPUI: Empty Trash from the Trash menu confirms in a popover at the row (2026-11-14)
+
+- **Problem.** Empty Trash… of the Trash row's menu (D-164) confirmed in a dialog at the top of
+  the window, away from the row.
+- **Change.** The confirmation opens as a popover under the Trash row: a warning icon, the title,
+  what goes and its size, that the files leave the disk for good; Cancel and a red Empty Trash.
+  Escape or a click outside cancels. The row is the popover's trigger through `RowTrigger`, a
+  wrapper that is never drawn selected; the popover listens to the middle button only and
+  ignores open requests, so a left click still opens the Trash and only the menu opens the
+  confirmation. File → Empty Trash keeps the dialog, since the left bar may be hidden.
+
+## D-166 GPUI: About names the real gpui-kit version; licenses wrap and scroll (2026-11-14)
+
+- **Problem.** Help → About said "gpui-kit 0.9.0" while the app is built with 0.9.1 (D-155), and
+  the Third-party licenses dialog drew the notices as one label: lines ran past the right edge
+  and the text did not scroll. The notices still spoke of the retired Tauri host.
+- **Change.** `about::gpui_kit_version` reads the exact pin (`gpui-kit = "=x.y.z"`) from the
+  workspace `Cargo.toml` at build time, so About follows the dependency. The licenses dialog is
+  600 px wide; the notices are parsed into headings (lines underlined with `---`) and paragraphs
+  (hard-wrapped lines joined), which wrap to the dialog in a 420 px scrolling column. The notices
+  name gpui-kit =0.9.1 and the vendored Windows backend (D-148), and no longer mention Tauri.
+  Packaging copies the same file next to the exe, so it keeps the version literally; a test
+  fails when it differs from the pin.
+
+## D-167 GPUI: views of any size, fetched a page at a time (2026-11-14)
+
+- **Problem.** The grid loaded the first 500 cells of a view and stopped (D-129, D-141): a
+  folder of 2227 items showed 500, All of 13 228 showed 500. Select All picked those 500 only.
+- **Change.** The grid is laid out for the view's whole `total` (the view's dimensions already
+  covered every position). `view_window::Paged` holds the cells (and, separately, the thumbnails)
+  in pages of 200. Each frame the grid or list reports the positions it draws; the missing pages
+  around them are fetched in the background (`view_range` plus the thumbnail files), and a page
+  that lands after the view changed is dropped (`view_generation`). Until then the position is
+  an empty tile of its final size. Pages far from the screen are let go: 12 pages of thumbnails,
+  48 of cells. Opening, refreshing and live updates load the first page and the pages on screen
+  at once, so nothing flashes. What needs ids beyond the screen fetches the cells of exactly that
+  range, without thumbnails: a shift-click run, a rubber band (the list computes its rows from
+  the band, not by walking the view), the keyboard (End, Page Down), the preview and its
+  neighbours, Copy Names.
+- **Select All** is a flag: `Selection` keeps `all` plus the items taken out again, its count
+  follows the view's total, and commands and drags send `ItemsTarget { all: true, .. }`, which
+  Rust resolves (docs/architecture.md §8). It is saved and restored as such. Dragging a Select
+  All onto folders, tags or the trash works; it cannot be dropped to reorder.
 
 ## D-168 Audio and video engine: FFmpeg (LGPL) plus the Scrobb audio path (2026-11-14)
 
@@ -3529,6 +3640,105 @@ stayed in GPUI's asset cache for the life of the window. The grid only had the s
 - **Verify.** `cargo test -p media videos_get_a_poster`, `cargo test -p library-native
   videos_get_a_poster_and_their_duration`.
 
+## D-170 GPUI: video and audio in the preview, frames under the pointer in the grid (2026-11-14)
+
+- **Preview.** Opening a video or audio item (`av::is_video` / `is_audio`) starts an
+  `av::Player` on the original's path (`Session::original_paths`, read in Rust) in the
+  background; it plays at once. The poster stays until the first frame arrives. A video is drawn
+  like a GIF frame (`canvas` + `paint_image`), zoomable and pannable; the rotate button does not
+  turn video frames. Audio shows a card with a note, the name and the length. Stepping to another
+  item or closing stops the player (its threads end on their own) and frees the frame.
+- **The bar** (`browse/media_bar.rs`, the look of the GIF bar of D-154): previous frame, play /
+  pause, next frame (video only), a seek track of 240 segments (a click seeks exactly; dragging
+  seeks to key frames and to the exact frame when the button comes up, also off the track), the
+  time `m:ss / m:ss` (`h:mm:ss` from an hour), mute, a volume of ten steps, the speed (0.25×,
+  0.5×, 1×, 1.5×, 2×; `atempo` keeps the pitch). At the end it pauses; play starts over. Volume
+  and mute carry over from item to item for the session.
+- **Keys.** `P` and `K` play / pause, `,` / `.` step a frame back / forward (pausing), `J` / `L`
+  jump 5 s, `M` mutes. Listed in Help → Keyboard Shortcuts.
+- **One ticker** (`ops_media.rs`): takes the due frame from the player, uploads it as a
+  `RenderImage` and frees the previous one with `App::drop_image`, refreshes the bar when the
+  shown time or the track changes, sleeps until the next frame (200 ms for audio), keeps looking
+  for 1.5 s after a command while paused, and ends once nothing plays or is awaited.
+- **Grid.** A video cell with a poster is split into 24 invisible strips; the strip under the
+  pointer asks a reader on its own thread (FFmpeg's scaler cannot change threads) for the key
+  frame there, the newest request first, at twice the cell size. The frame covers the cell with a
+  thin progress line at the bottom; leaving the cell frees it. Strips need no cell bounds and
+  leave clicks, drags and the context menu to the cell.
+- **Not done here.** Cover art for audio, waveforms, subtitles, hardware decoding, choosing an
+  audio track, looping, remembering the position per item, hover in the list view. Audio gets a
+  workspace of its own later (D-171).
+- **Verified by hand** on Windows (2026-11-14) with a demo library made by `EGL_DEMO_SOURCE`
+  (720p H.264, VP9 WebM, a vertical and a rotated clip, MP3, FLAC): posters and length badges,
+  scrubbing under the pointer, playback with sound, the bar and its keys, the audio card, the
+  toolbar modes.
+
+## D-171 GPUI: media modes in the toolbar (2026-11-14)
+
+- **Where.** The user chose the toolbar (rather than the top of the left bar or extra places in
+  it): All · Photo · Video · Audio as one segmented control in the middle of the row, a muted
+  track with the current mode raised on it. Plain ghost buttons next to the size slider looked
+  cramped, so the slider moved to the right group, before the view buttons; the place title
+  and the right group share the rest of the width equally, which keeps the modes centred
+  (the slider was centred by D-142).
+- **What.** A mode is the Type filter set to a bucket (`image`, `video`, `audio`; none for All),
+  so it narrows any place (a folder, a tag, a smart folder, the trash), is saved with the
+  filters, and the Type menu shows the same value. An extension picked in the Type menu selects
+  no mode.
+- **Later.** Audio is to get its own layout with panels; until then every mode shows the grid.
+
+## D-172 GPUI: Empty Trash shows its progress and result in a window (2026-11-14)
+
+- **Problem.** Once Empty Trash was confirmed (D-165), the only sign of it was a thin strip at
+  the bottom of the window ("Emptying Trash… — 12/122") and a line in the status bar at the end:
+  easy to miss, and nothing said how much disk was freed.
+- **Change.** A modal window over the library (`browse/empty_trash_dialog.rs`): an icon and a
+  title, a progress bar with the share done (the steps are the rows, then the files), what goes
+  and its size, and Cancel. When it ends the same window says the result: "Trash emptied" with
+  the items deleted for good and the space freed; "Empty Trash cancelled" with how many went
+  before it stopped; or the error. Close dismisses it (only once it finished). Both ways in use
+  it: the popover at the Trash row and File → Empty Trash. The bottom strip is gone; the status
+  bar line stays.
+
+## D-173 GPUI: Add Files is a labelled button; × in Recent libraries removes the row (2026-11-14)
+
+- **Add Files.** With the size slider moved to the right group (D-171), its + stood next to the
+  + of Add Files and the two read as one control. Add Files is now an outline button with the
+  file-plus icon and a label ("Add" / "Добавить"), and a thin rule separates the slider from the
+  actions.
+- **Recent libraries.** The × of a row on the start screen removed the entry, but the same click
+  reached the row, which opened the library and so put it straight back at the top of the list.
+  The × stops the press and the click from reaching the row; a failed removal is logged instead
+  of ignored.
+
+## D-174 GPUI: dates in the computer's time zone (2026-11-14)
+
+- **Problem.** `format_date` turned stored epoch milliseconds into `YYYY-MM-DD HH:MM` by hand,
+  in UTC: a library opened at 10:09 in Krasnoyarsk showed 03:09 on the start screen, and the
+  dates in the right bar (added, created, modified, deleted) were off by the zone too.
+- **Change.** `format_date` uses `chrono::Local` (the zone's rules for that date, daylight saving
+  included); the format stays `YYYY-MM-DD HH:MM`. Times are still stored in UTC; only the display
+  changed. `chrono` =0.4.45 with `clock` and `std` was already in the lock through other crates,
+  so nothing new is downloaded. Tests format one instant in fixed zones (UTC, UTC+7, UTC−5) and
+  check that the app's own call matches the machine's local time.
+
+## D-175 GPUI: the Imports button shows only when it has something (2026-11-14)
+
+- **Problem.** The Imports button sat in the toolbar all the time, though the panel opens by
+  itself when an import starts, and the panel spoke in debug text (`#3 Previews 12/40`, a close
+  button labelled Cancel).
+- **Button.** It shows only while something is imported, with the steps done and in all
+  (`12/40`: files while copying, thumbnails after, summed over the runs), or while a finished run
+  has a report nobody opened (skipped duplicates, failures, an Eagle report), with a dot. Opening
+  or closing the panel counts as reading those reports. Otherwise there is no button.
+- **View → Imports** (with a check while open) opens the panel at any time; the action existed
+  but had no menu item or key.
+- **Panel.** Newest run first; each names its kind (Adding files, Thumbnails, Import from Eagle)
+  and stage (Looking for files, Copying, Waiting for your choice, Making thumbnails, Done,
+  Cancelled), the counts that are not zero (added, duplicates skipped, failed — in red), a bar
+  while it runs and Cancel only then. The panel closes with Close. The status bar uses the same
+  words instead of `Import 12/40 (+3 dup=0 fail=0)`.
+
 ## D-176 Colour filter, with a Documents preset (2026-11-14)
 
 - **Problem.** Photographed and scanned papers (forms, receipts, notes) are ordinary JPGs: no
@@ -3552,3 +3762,44 @@ stayed in GPUI's asset cache for the life of the window. The grid only had the s
 - **UI.** A Colour button in the filter bar opens a popover: Any colour, Documents, 16 swatches
   and, once a colour is picked, how much of the image it must cover. The filter is saved with the
   other filters per library (`SavedFilters.color`, absent in older files).
+
+## D-177 GPUI: the first toolbar row fits narrow windows (2026-11-14)
+
+- **Problem.** With the modes in the middle (D-171) and the size slider in the right group, the
+  row needs about 1150 px; the window may be 960 px wide (D-138). The right group could shrink
+  below its controls, which then slid over the Audio segment.
+- **Change.** The right group never shrinks below its controls (the place title truncates
+  instead). `modes::toolbar_fit(window width)`: from 1240 px everything shows; narrower, the modes
+  show their icons only; below 1100 px the size slider hides too (`Ctrl+=` / `Ctrl+-` and View →
+  Larger / Smaller Thumbnails stay) and the search field narrows from 220 to 170 px.
+
+## D-178 Colour filter: any colour of your own (2026-11-14)
+
+- **Problem.** The Colour filter (D-176) offered 16 swatches only.
+- **Change.** Under the swatches the popover has "Any colour of your own": a preview, a hex
+  field and hue, saturation and lightness sliders over tracks that show what each does. They
+  live in the popover itself, not in a second popup, so picking never closes the filter. A drag
+  previews its colour and updates the hex field as it goes and filters once, on release; the hex
+  field filters on Enter (`#rrggbb` or `#rgb`); a swatch moves the sliders to it. The share
+  chosen for the colour is kept. Opening the popover puts the controls on the colour filtered by.
+
+## D-179 GPUI: text fields keep their editing keys; search as you type (2026-11-14)
+
+- **Problem.** Backspace in the search field did not delete text: it moved the selection to the
+  Trash. GPUI ranks a key binding without a context as deep as the focused field's own `Input`
+  bindings and lets the one registered later win, and the app's shortcuts are registered after
+  gpui-kit's. The same held for Delete, Shift+Delete, the arrows, Home / End, Page Up / Down,
+  Enter, Escape and Ctrl+A / C / V / Z (Ctrl+C copied files, Ctrl+Z undid an edit) — in every
+  text field, the right bar's name and note too. Keys that type a character were never affected:
+  GPUI prefers character input for them.
+- **Change.** Those shortcuts are bound under the predicate `!Input` (`commands::NOT_IN_TEXT`):
+  off while a text field has focus, on everywhere else. The app's root element now has the key
+  context `RootApp`, so a predicate always has a context to match. A test evaluates each of them
+  in the library and in a text field.
+- **Search as you type.** The field searched only on Enter or when it lost focus, so a typed
+  term seemed to do nothing. It now searches 250 ms after the last key (a generation counter
+  drops older pending searches; Enter or leaving the field searches at once, and the same text
+  is not searched twice), and an × in the field empties it.
+- **The search itself** was right and stays: every term is a case-insensitive part of a name,
+  note, link, tag or folder name (Cyrillic folds too), terms of three or more characters use the
+  trigram index and shorter ones read the folded rows (D-047).

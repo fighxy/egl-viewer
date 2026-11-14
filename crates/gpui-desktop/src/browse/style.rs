@@ -84,19 +84,9 @@ pub fn folder_icon(color: Option<&str>, open: bool, theme: &Kit) -> impl IntoEle
     .text_color(tint)
 }
 
-/// The eight folder colours, the same values as `FOLDER_COLORS` of the React UI.
-pub fn folder_color(name: &str) -> Option<u32> {
-    Some(match name {
-        "red" => 0xef4444,
-        "orange" => 0xf97316,
-        "yellow" => 0xeab308,
-        "green" => 0x22c55e,
-        "aqua" => 0x06b6d4,
-        "blue" => 0x3b82f6,
-        "purple" => 0xa855f7,
-        "pink" => 0xec4899,
-        _ => return None,
-    })
+/// A folder colour as `0xrrggbb`: one of the eight names or a custom `#rrggbb` (D-159).
+pub fn folder_color(color: &str) -> Option<u32> {
+    library_core::color_rgb(color)
 }
 
 /// The name of a row: takes the free width and ends in an ellipsis.
@@ -260,5 +250,6 @@ mod tests {
         assert_eq!(folder_color("red"), Some(0xef4444));
         assert_eq!(folder_color("aqua"), Some(0x06b6d4));
         assert_eq!(folder_color("teal"), None);
+        assert_eq!(folder_color("#0f766e"), Some(0x0f766e));
     }
 }
