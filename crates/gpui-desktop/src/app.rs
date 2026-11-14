@@ -507,6 +507,7 @@ impl RootApp {
             entity.update(cx, |this, cx| this.request_quit(window, cx))
         });
         app.start_poll_loop(cx);
+        app.start_theme_poll_loop(cx);
         if app.loose.is_none() {
             window.set_window_title(&window_title(None));
         }
@@ -557,6 +558,29 @@ impl RootApp {
                         this.poll_decrypt(cx);
                         this.poll_update_check(cx);
                         this.poll_apply_update(cx);
+                    })
+                    .is_err()
+                {
+                    break;
+                }
+            }
+        })
+        .detach();
+    }
+
+    fn start_theme_poll_loop(&mut self, cx: &mut Context<Self>) {
+        let mut state = theme::system_state(cx);
+        cx.spawn(async move |this, cx| {
+            loop {
+                cx.background_executor().timer(Duration::from_secs(2)).await;
+                if this
+                    .update(cx, |this, cx| {
+                        let current = theme::system_state(cx);
+                        if current != state {
+                            state = current;
+                            theme::apply_theme(&this.session.preferences(), cx);
+                            cx.notify();
+                        }
                     })
                     .is_err()
                 {
@@ -2758,7 +2782,7 @@ impl RootApp {
         _cx: &mut Context<Self>,
     ) -> gpui_kit::AnyElement {
         let mut grid_theme = theme.clone();
-        if self.preview_background_on_grid {
+        if self.preview_background_on_grid && !theme::is_high_contrast(theme) {
             let (background, foreground) = theme::preview_colors(self.preview_background, theme);
             grid_theme.colors.background = background;
             grid_theme.colors.foreground = foreground;

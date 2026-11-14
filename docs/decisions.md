@@ -3915,3 +3915,27 @@ stayed in GPUI's asset cache for the life of the window. The grid only had the s
 - **Compatibility and tests.** Missing `palette` means Default. Tests cover every palette/mode
   combination, loading every JSON via the registry, recognising and parsing every declared
   colour, all app-read tokens, opaque OLED black, readable canvas text and translations.
+
+## D-185 GPUI: automatic Windows High Contrast and semantic colours (2026-11-15)
+
+- **Detection.** The safe WinRT `AccessibilitySettings::HighContrast` API reads Windows' active
+  state; no new `unsafe` is needed. An unavailable API and non-Windows hosts mean off.
+  It is checked before first paint and every two seconds while a root entity exists. The same
+  poll also reapplies System appearance and Windows accent changes; it never changes OS settings.
+- **Priority.** While High Contrast is on, an embedded black/white contrast pair overrides the
+  user's palette, accent and preview/grid background, with visible borders, readable selection
+  and no shadows. The chosen appearance mode selects its light/dark variant. Saved preferences
+  are untouched, so switching it off restores them, including changes saved while it was on.
+  The pair guarantees contrast rather than copying a user's custom Windows contrast scheme.
+  General explains why the chosen colours are temporarily not displayed.
+- **Semantic tokens.** Rating stars read `base.yellow` (dark gold, darker light gold, black or
+  yellow in contrast mode), no fixed `rgb(0xf5b301)`. Theme swatches already moved to palette
+  background tokens in D-184. Palette/accent/folder colour swatches represent actual chosen
+  colours, not interface chrome. Black/white on self-contained media transport bars, video
+  letterboxing and duration badges remains intentional: its contrast does not depend on theme.
+- **Tests.** Every embedded contrast JSON is included in the schema/token checks; both variants
+  meet 7:1 for text on canvas, sidebar, popover and selected/hover rows, primary text and rating
+  stars. Tests exercise override/release for every palette, keep preferences unchanged and
+  ignore preview overrides during contrast mode; Windows API availability is checked separately.
+- **Left for later.** User theme folders (`watch_dir`), interface density, Windows 11 Mica /
+  transparency, per-library accent and mobile apps remain outside this change (D-182).

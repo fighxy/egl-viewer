@@ -34,6 +34,7 @@ tracing-subscriber.workspace = true
 winreg.workspace = true
 # Same pin as desktop-session WebAuthn (D-032 / D-134); shell reveal only.
 windows = { version = "0.62.2", features = [
+    "UI_ViewManagement",
     "Win32_Foundation",
     "Win32_System_Com",
     "Win32_System_Registry",

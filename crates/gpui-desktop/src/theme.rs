@@ -16,10 +16,11 @@ use gpui_kit::{Hsla, rgb, white};
 /// the default Windows blue.
 pub const FALLBACK_ACCENT: [u8; 3] = [0x00, 0x78, 0xd4];
 
-const BUILTIN_JSON: [&str; 3] = [
+const BUILTIN_JSON: [&str; 4] = [
     include_str!("../assets/themes/graphite.json"),
     include_str!("../assets/themes/oled-black.json"),
     include_str!("../assets/themes/warm.json"),
+    include_str!("../assets/themes/high-contrast.json"),
 ];
 
 // Keep embedded themes off the kit registry's observer, which would reload over the accent.
@@ -49,30 +50,32 @@ pub fn palette_label_key(palette: Palette) -> &'static str {
     }
 }
 
-fn palette_names(palette: Palette) -> (&'static str, &'static str) {
+fn palette_names(palette: Palette, contrast: bool) -> Option<(&'static str, &'static str)> {
+    if contrast {
+        return Some(("High Contrast Light", "High Contrast Dark"));
+    }
     match palette {
-        Palette::Default => unreachable!("the kit owns the default themes"),
-        Palette::Graphite => ("Graphite Light", "Graphite Dark"),
-        Palette::OledBlack => ("OLED Black Light", "OLED Black Dark"),
-        Palette::Warm => ("Warm Light", "Warm Dark"),
+        Palette::Default => None,
+        Palette::Graphite => Some(("Graphite Light", "Graphite Dark")),
+        Palette::OledBlack => Some(("OLED Black Light", "OLED Black Dark")),
+        Palette::Warm => Some(("Warm Light", "Warm Dark")),
     }
 }
 
-fn palette_pair(palette: Palette, cx: &App) -> (Rc<ThemeConfig>, Rc<ThemeConfig>) {
-    if palette == Palette::Default {
+fn palette_pair(palette: Palette, contrast: bool, cx: &App) -> (Rc<ThemeConfig>, Rc<ThemeConfig>) {
+    let Some((light, dark)) = palette_names(palette, contrast) else {
         let registry = ThemeRegistry::global(cx);
         return (
             registry.default_light_theme().clone(),
             registry.default_dark_theme().clone(),
         );
-    }
-    let (light, dark) = palette_names(palette);
+    };
     let themes = cx.global::<BuiltinThemes>().0.themes();
     (themes[light].clone(), themes[dark].clone())
 }
 
 pub fn palette_background(palette: Palette, dark: bool, cx: &App) -> Hsla {
-    let (light, night) = palette_pair(palette, cx);
+    let (light, night) = palette_pair(palette, false, cx);
     let config = if dark { night } else { light };
     gpui_kit::component::theme::try_parse_color(
         config
@@ -84,9 +87,49 @@ pub fn palette_background(palette: Palette, dark: bool, cx: &App) -> Hsla {
     .expect("valid theme background")
 }
 
+#[cfg(windows)]
+fn high_contrast_setting() -> windows::core::Result<bool> {
+    windows::UI::ViewManagement::AccessibilitySettings::new()?.HighContrast()
+}
+
+pub fn high_contrast_enabled() -> bool {
+    #[cfg(windows)]
+    {
+        high_contrast_setting().unwrap_or(false)
+    }
+    #[cfg(not(windows))]
+    {
+        false
+    }
+}
+
+pub fn system_state(cx: &App) -> (bool, ThemeMode, [u8; 3]) {
+    (
+        high_contrast_enabled(),
+        cx.window_appearance().into(),
+        accent_rgb(Accent::Windows),
+    )
+}
+
+pub fn is_high_contrast(theme: &KitTheme) -> bool {
+    let config = if theme.is_dark() {
+        &theme.dark_theme
+    } else {
+        &theme.light_theme
+    };
+    matches!(
+        config.name.as_ref(),
+        "High Contrast Light" | "High Contrast Dark"
+    )
+}
+
 /// Applies the stored preferences. `System` follows the OS appearance.
 pub fn apply_theme(prefs: &Preferences, cx: &mut App) {
-    let (light, dark) = palette_pair(prefs.palette, cx);
+    apply_theme_with_contrast(prefs, high_contrast_enabled(), cx);
+}
+
+fn apply_theme_with_contrast(prefs: &Preferences, contrast: bool, cx: &mut App) {
+    let (light, dark) = palette_pair(prefs.palette, contrast, cx);
     KitTheme::update(cx, |theme| {
         theme.light_theme = light;
         theme.dark_theme = dark;
@@ -98,7 +141,12 @@ pub fn apply_theme(prefs: &Preferences, cx: &mut App) {
     }
     let dark = KitTheme::global(cx).is_dark();
     let accent = accent_rgb(prefs.accent.clone());
-    KitTheme::update(cx, |theme| apply_accent(&mut theme.colors, accent, dark));
+    KitTheme::update(cx, |theme| {
+        theme.shadow = !contrast;
+        if !contrast {
+            apply_accent(&mut theme.colors, accent, dark);
+        }
+    });
 }
 
 /// The accent's colour: Windows' own when asked and available, the preset or custom colour
@@ -207,6 +255,9 @@ pub fn hsla_of(channels: [u8; 3]) -> Hsla {
 }
 
 pub fn preview_colors(background: PreviewBackground, theme: &KitTheme) -> (Hsla, Hsla) {
+    if is_high_contrast(theme) {
+        return (theme.background, theme.foreground);
+    }
     match background.rgb() {
         Some(rgb) => (hsla_of(rgb), hsla_of(contrast_foreground(rgb))),
         None => (theme.background, theme.foreground),
@@ -259,7 +310,7 @@ mod tests {
             "success.background",
         ];
         let registry = builtin_registry();
-        assert_eq!(registry.themes().len(), 6);
+        assert_eq!(registry.themes().len(), 8);
         for json in BUILTIN_JSON {
             let raw: serde_json::Value = serde_json::from_str(json).unwrap();
             let set: ThemeSet = serde_json::from_str(json).unwrap();
@@ -299,6 +350,56 @@ mod tests {
         theme.apply_config(oled);
         assert_eq!(theme.background, gpui_kit::black());
         assert_eq!(theme.sidebar, gpui_kit::black());
+    }
+
+    #[test]
+    fn contrast_overrides_every_palette_and_releases_it_without_changing_preferences() {
+        let registry = builtin_registry();
+        for palette in Palette::ALL {
+            let prefs = Preferences {
+                palette,
+                accent: Accent::Custom("#123456".into()),
+                preview_background: PreviewBackground::White,
+                ..Default::default()
+            };
+            let original = prefs.clone();
+            let normal = palette_names(prefs.palette, false);
+            assert_eq!(
+                palette_names(prefs.palette, true),
+                Some(("High Contrast Light", "High Contrast Dark"))
+            );
+            for name in ["High Contrast Light", "High Contrast Dark"] {
+                let mut theme = KitTheme::default();
+                theme.apply_config(&registry.themes()[name]);
+                assert!(is_high_contrast(&theme));
+                for background in PreviewBackground::ALL {
+                    assert_eq!(
+                        preview_colors(background, &theme),
+                        (theme.background, theme.foreground)
+                    );
+                }
+                let rgb = crate::ops_colour::rgb_of;
+                for surface in [
+                    theme.background,
+                    theme.sidebar,
+                    theme.popover,
+                    theme.list_active,
+                    theme.list_hover,
+                ] {
+                    assert!(contrast_ratio(rgb(surface), rgb(theme.foreground)) >= 7.0);
+                }
+                assert!(contrast_ratio(rgb(theme.primary), rgb(theme.primary_foreground)) >= 7.0);
+                assert!(contrast_ratio(rgb(theme.yellow), rgb(theme.background)) >= 7.0);
+            }
+            assert_eq!(palette_names(prefs.palette, false), normal);
+            assert_eq!(prefs, original);
+        }
+    }
+
+    #[cfg(windows)]
+    #[test]
+    fn windows_contrast_api_is_available_without_unsafe() {
+        assert!(high_contrast_setting().is_ok());
     }
 
     #[test]

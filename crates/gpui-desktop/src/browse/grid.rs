@@ -181,8 +181,8 @@ fn rubber_overlay(
             .w(px((rect.right - rect.left).max(1.0)))
             .h(px((rect.bottom - rect.top).max(1.0)))
             .border_1()
-            .border_color(theme.accent)
-            .bg(theme.accent.opacity(0.18))
+            .border_color(style::selection_color(theme))
+            .bg(style::selection_color(theme).opacity(0.18))
             .into_any_element(),
     )
 }
@@ -639,7 +639,9 @@ fn render_wrap_grid(
                 .gap_1()
                 .rounded(theme.radius)
                 .aria_label(title.clone())
-                .when(selected, |el| el.border_2().border_color(theme.accent))
+                .when(selected, |el| {
+                    el.border_2().border_color(style::selection_color(theme))
+                })
                 .cursor_pointer()
                 .on_click(move |event, _, cx| {
                     let mods = event.modifiers();

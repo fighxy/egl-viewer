@@ -354,6 +354,9 @@ impl RootApp {
         let dark = theme::palette_background(draft.palette, true, cx);
         v_flex()
             .gap_3()
+            .when(theme::is_high_contrast(theme), |el| {
+                el.child(Label::new(t(locale, "settings.highContrast")).text_sm())
+            })
             .child(Label::new(t(locale, "settings.palette")).text_sm())
             .child(
                 h_flex()

@@ -530,6 +530,10 @@ fn en() -> Catalog {
         ("settings.general", "General"),
         ("settings.theme", "Theme"),
         ("settings.palette", "Palette"),
+        (
+            "settings.highContrast",
+            "Windows High Contrast is active; your choices resume when it is off.",
+        ),
         ("palette.default", "Default"),
         ("palette.graphite", "Graphite"),
         ("palette.oledBlack", "OLED Black"),
@@ -913,6 +917,10 @@ fn ru() -> Catalog {
         ("settings.general", "Общие"),
         ("settings.theme", "Тема"),
         ("settings.palette", "Палитра"),
+        (
+            "settings.highContrast",
+            "В Windows включена высокая контрастность; ваши цвета вернутся после её отключения.",
+        ),
         ("palette.default", "Стандартная"),
         ("palette.graphite", "Graphite"),
         ("palette.oledBlack", "OLED Black"),
@@ -1227,6 +1235,10 @@ fn zh_cn() -> Catalog {
         ("settings.general", "常规"),
         ("settings.theme", "主题"),
         ("settings.palette", "配色"),
+        (
+            "settings.highContrast",
+            "Windows 高对比度已开启；关闭后将恢复您的配色。",
+        ),
         ("palette.default", "默认"),
         ("palette.graphite", "Graphite"),
         ("palette.oledBlack", "OLED Black"),
@@ -1395,6 +1407,7 @@ mod tests {
     fn theme_settings_are_translated() {
         for catalog in [en(), ru(), zh_cn()] {
             for key in [
+                "settings.highContrast",
                 "settings.palette",
                 "palette.default",
                 "palette.graphite",

@@ -253,6 +253,17 @@ mod tests {
     }
 
     #[test]
+    fn selection_uses_the_ring_and_its_readable_foreground_not_the_hover_tint() {
+        let mut theme = Kit::default();
+        theme.colors.ring = rgb(0xffff00).into();
+        theme.colors.accent = rgb(0x222222).into();
+        theme.colors.primary_foreground = gpui_kit::black();
+        assert_eq!(selection_color(&theme), theme.ring);
+        assert_ne!(selection_color(&theme), theme.accent);
+        assert_eq!(selection_foreground(&theme), gpui_kit::black());
+    }
+
+    #[test]
     fn folder_colours_match_the_react_palette() {
         assert_eq!(folder_color("red"), Some(0xef4444));
         assert_eq!(folder_color("aqua"), Some(0x06b6d4));
