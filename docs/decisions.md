@@ -3433,6 +3433,27 @@ stayed in GPUI's asset cache for the life of the window. The grid only had the s
   and the three within 96 px. The borders
   under the menu bar and the filter bar stay; menus still open under their button.
 
+## D-159 Any colour for folders and tag groups (2026-11-14)
+
+- **Problem.** Folders and tag groups could only take Eagle's eight colours.
+- **Change.** A native library also stores any colour as `#rrggbb` (lowercase hex) in
+  `folder.icon_color` and `tag_group.color`; the eight names stay valid and stay names.
+  `library_core::is_valid_color` checks both forms, `color_rgb` gives the RGB, `hex_color`
+  writes the stored form. No schema change or migration: the columns are `TEXT` and the list
+  was already checked in Rust (docs/library-format.md §4). Lock label colours stay on the eight.
+- **Eagle.** Eagle knows only its eight names, so every `iconColor` sent to Eagle (live
+  `folder/create` and `folder/update`, the Eagle export) goes through `eagle_color`: a name as
+  it is, a hex the nearest name by the "redmean" weighted RGB distance. The GPUI folder
+  properties show the picker only for a native library.
+- **GPUI.** The folder properties keep the eight dots; a custom colour gets its own ringed dot
+  after them, and a palette button opens gpui-component's `ColorPicker`, starting from the
+  folder's colour. A palette pick or a typed hex closes the picker and is written at once; a
+  slider drag is kept while the picker is open and written once when it closes, so one choice is
+  one write and one undo step. A pick that is exactly one of the eight is stored as its name.
+  The GPUI shell has no tag-group colour editor yet.
+- **Older clients.** An app version from before this change, and the iOS / Android apps until
+  they parse hex, draw a `#rrggbb` folder without a colour; nothing fails.
+
 ## D-168 Audio and video engine: FFmpeg (LGPL) plus the Scrobb audio path (2026-11-14)
 
 - **Choice.** The user chose FFmpeg's libraries for decoding and the audio path of their own

@@ -23,7 +23,10 @@ pub use export::{
     ExportProgress, ExportRequest, ExportSelection, ExportState, ExportSummary,
     MIN_PASSPHRASE_CHARS, ZipEncryption,
 };
-pub use folder::{FOLDER_COLORS, FolderChange, order_key_between};
+pub use folder::{
+    FOLDER_COLORS, FolderChange, color_rgb, eagle_color, hex_color, is_valid_color,
+    order_key_between,
+};
 pub use maintenance::{
     Backup, BackupKind, LibraryCheck, LibraryStats, MissingOriginal, RepairOptions,
 };
