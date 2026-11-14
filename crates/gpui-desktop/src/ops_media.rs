@@ -190,12 +190,20 @@ impl RootApp {
         self.media = Some(media);
         let session = self.session.clone();
         let id = ItemId(cell.id.0.clone());
+        // A loose file is opened by its own path (D-180).
+        let loose_path = self
+            .loose
+            .is_some()
+            .then(|| crate::file_viewer::cell_path(cell));
         let (volume, muted) = (self.media_volume, self.media_muted);
         cx.spawn(async move |this, cx| {
             let opened = cx
                 .background_executor()
                 .spawn(async move {
-                    let path = session.original_paths(&[id]).ok()?.into_iter().next()?;
+                    let path = match loose_path {
+                        Some(path) => path,
+                        None => session.original_paths(&[id]).ok()?.into_iter().next()?,
+                    };
                     let options = av::PlayerOptions {
                         max_edge: PREVIEW_EDGE,
                         volume,

@@ -105,6 +105,10 @@ pub struct RootApp {
     show_create: bool,
     pub(crate) details: DetailsModel,
     pub(crate) preview: Option<PreviewState>,
+    /// Loose files opened from Explorer: the window only views them, no library (D-180).
+    pub(crate) loose: Option<crate::file_viewer::LooseFiles>,
+    /// The window title last set while viewing loose files.
+    pub(crate) viewer_title: Option<String>,
     /// Decoded previews of the open item and its neighbours (D-143).
     pub(crate) preview_cache: PreviewCache,
     /// The open item drawn at a rotation, owned apart from the cache (D-058).
@@ -315,6 +319,8 @@ impl RootApp {
                 stack_thumbs: Vec::new(),
             },
             preview: None,
+            loose: None,
+            viewer_title: None,
             preview_cache: PreviewCache::default(),
             preview_rotated: None,
             gif_ticking: false,
@@ -461,7 +467,35 @@ impl RootApp {
             },
         ));
 
-        app.ensure_login_gate();
+        let target = crate::file_viewer::startup_target(std::env::args_os().skip(1));
+        if let Some(crate::file_viewer::StartupTarget::File(path)) = target {
+            // Viewing a file opens no library and takes no lock; nothing else starts (D-180).
+            app.startup_done = true;
+            app.open_loose(path, window, cx);
+        } else {
+            app.ensure_login_gate();
+            app.startup(target, window, cx);
+        }
+
+        let entity = cx.entity();
+        window.on_window_should_close(cx, move |window, cx| {
+            entity.update(cx, |this, cx| this.request_quit(window, cx))
+        });
+        app.start_poll_loop(cx);
+        if app.loose.is_none() {
+            window.set_window_title(&window_title(None));
+        }
+        app
+    }
+
+    /// The usual start: reopen the last library, or the one named on the command line.
+    fn startup(
+        &mut self,
+        target: Option<crate::file_viewer::StartupTarget>,
+        window: &mut Window,
+        cx: &mut Context<Self>,
+    ) {
+        let app = self;
         // Drop Spike/Fixture (and other) rows whose folders were deleted after tests or moves.
         let _ = app.session.prune_missing_recent();
         let startup = app.session.startup(platform::skip_reopen());
@@ -473,22 +507,17 @@ impl RootApp {
             if let Some(info) = startup.library {
                 app.adopt_library(info, window, cx);
             }
-            if let Some(arg) = std::env::args().nth(1).map(PathBuf::from)
-                && arg.is_dir()
-            {
-                app.open_path(arg, window, cx);
+            if let Some(crate::file_viewer::StartupTarget::Library(path)) = target {
+                app.open_path(path, window, cx);
             }
             app.schedule_silent_update_check(cx);
         } else {
             app.pending_startup_library = startup.library;
             app.pending_startup_notice = startup.notice;
         }
+    }
 
-        let entity = cx.entity();
-        window.on_window_should_close(cx, move |window, cx| {
-            entity.update(cx, |this, cx| this.request_quit(window, cx))
-        });
-
+    fn start_poll_loop(&mut self, cx: &mut Context<Self>) {
         // Poll Session Emit mailbox → Entity notify (views-invalidated / import).
         cx.spawn(async move |this, cx| {
             loop {
@@ -511,9 +540,6 @@ impl RootApp {
             }
         })
         .detach();
-
-        window.set_window_title(&window_title(None));
-        app
     }
 
     pub(crate) fn schedule_silent_update_check(&mut self, cx: &mut Context<Self>) {
@@ -1245,7 +1271,8 @@ impl RootApp {
     }
 
     fn request_quit(&mut self, window: &mut Window, cx: &mut Context<Self>) -> bool {
-        if self.quit_pending {
+        // Viewing loose files leaves nothing open to confirm (D-180).
+        if self.quit_pending || self.loose.is_some() {
             self.shutdown();
             return true;
         }
@@ -1719,6 +1746,10 @@ impl Render for RootApp {
         let locale = self.locale;
         let focus = self.focus.clone();
 
+        // Viewing loose files opens no library, so the app login does not stand before it.
+        if self.loose.is_some() {
+            return self.render_viewer(window, cx).into_any_element();
+        }
         if !self.login_gate.is_open() {
             return v_flex()
                 .id("root")
