@@ -2965,3 +2965,38 @@ zoomed, and zooming from the point under the fingers (D-129), stay out.
   fast swipe, a missing cell, a pixel-size change; two asks sharing a decode, one waiter
   leaving, the last waiter leaving nothing running, a gate of two; the tapped page, a spurious
   first page, and a swipe that publishes only when it rests.
+
+## D-135 Android preview: zoom where the fingers are, within the edges (2026-11-12)
+
+The Android preview zoomed about the centre of the photo, and once zoomed it ignored swipes
+until the user zoomed back out (D-103, D-134). iOS already zooms at the fingers and stays
+inside the photo (D-129). This is that behaviour on Android. The C ABI is unchanged. Drag down
+to close and the zoom out of the tile stay out, as in D-134.
+
+- **Where the fingers are.** A pinch keeps the image point under the fingers, and a double tap
+  zooms to 2.5× at the tap. The arithmetic is the same as iOS `ZoomGeometry`: scale about the
+  centre, then the offset. Past 6× a pinch may reach 6 × 1.15 and settles at 6×; below fit it
+  settles at fit.
+- **Within the edges.** A pan stops at the photo's edges. Past an edge it moves at 0.35 of the
+  finger's speed and springs back on release. An axis the photo does not fill stays centred.
+- **Paging from a zoom.** While zoomed, a horizontal drag pans the photo and the pager does not
+  take it, including when the photo is already against an edge. A pan more than 60 dp past the
+  left or right edge springs back to fit, so the next swipe pages. One extra swipe compared
+  with a pager that hands off mid-gesture, which is what iOS does.
+- **Sharper while zoomed.** Only the page on screen, and only while it is zoomed. The target is
+  twice the screen's long side and at most 4,096 px, the same cap as D-129. The decoded bytes
+  have to fit in the preview budget (D-134) beside the screen-size bitmap already on screen.
+  When the whole photo fits, it is decoded at that size and swapped in without moving the zoom.
+  When it does not, `BitmapRegionDecoder` decodes the visible area plus a margin, at the finest
+  power-of-two sample that fits and is actually sharper than the screen decode. A small pan
+  stays inside that region and does not decode again. Zooming out or leaving the page drops the
+  bitmap and cancels a decode that is still running. A newer request cancels the one it
+  replaces. `CancellationException` is rethrown, and the bitmap is published on the main thread.
+- **Not in this change.** Drag down to close, zoom out of the tile. YubiKey and where libraries
+  live stay as in D-133.
+- **Tests.** JVM only: the focal point, a pinch that follows the fingers, the settle at fit and
+  at 6×, the double tap, the edge clamp and the pull past it, the pan that leaves the zoom so
+  the next swipe can page, a vertical pull that does not; the sharp target at twice the screen,
+  the 4,096 cap, a file that is already sharp, zoomed-out and off-screen, a budget that forces
+  a smaller full photo, a visible region when the whole photo does not fit, a covered region
+  that is kept, and a stale sharper decode that is cancelled.

@@ -74,6 +74,14 @@ class PreviewCacheTest {
     }
 
     @Test
+    fun aCacheKeyRoundTripsForAFullPhotoAndARegionAndAnIdThatContainsAHash() {
+        assertEquals(OriginalRequest.Full("a#b", 1080), OriginalCache.parseKey("a#b#7#1080"))
+        val region = OriginalCache.regionKey("a#b", 7, 10, 20, 110, 220, 2)
+        assertEquals(OriginalRequest.Region("a#b", 10, 20, 110, 220, 2), OriginalCache.parseKey(region))
+        assertNull(OriginalCache.parseKey("nope"))
+    }
+
+    @Test
     fun memoryTrimClearsOnPressureButNotWhenAnotherActivityCoversTheApp() {
         assertFalse(OriginalCache.clearOnMemoryTrim(ComponentCallbacks2.TRIM_MEMORY_UI_HIDDEN))
         assertFalse(OriginalCache.clearOnMemoryTrim(ComponentCallbacks2.TRIM_MEMORY_RUNNING_MODERATE))
