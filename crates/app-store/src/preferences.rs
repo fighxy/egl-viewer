@@ -80,6 +80,20 @@ impl Accent {
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Default, Serialize, Deserialize)]
 #[serde(rename_all = "camelCase")]
+pub enum Palette {
+    #[default]
+    Default,
+    Graphite,
+    OledBlack,
+    Warm,
+}
+
+impl Palette {
+    pub const ALL: [Self; 4] = [Self::Default, Self::Graphite, Self::OledBlack, Self::Warm];
+}
+
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Default, Serialize, Deserialize)]
+#[serde(rename_all = "camelCase")]
 pub enum PreviewBackground {
     #[default]
     Theme,
@@ -201,6 +215,7 @@ impl Default for BrowsePreferences {
 #[serde(rename_all = "camelCase", default)]
 pub struct Preferences {
     pub theme: Theme,
+    pub palette: Palette,
     /// The accent colour of primary controls and the selection (D-182).
     pub accent: Accent,
     pub preview_background: PreviewBackground,
@@ -223,6 +238,7 @@ impl Default for Preferences {
     fn default() -> Self {
         Self {
             theme: Theme::System,
+            palette: Palette::Default,
             accent: Accent::Windows,
             preview_background: PreviewBackground::Theme,
             preview_background_on_grid: false,
@@ -302,6 +318,7 @@ mod tests {
         let store = AppStore::new(dir.path());
         let preferences = Preferences {
             theme: Theme::Dark,
+            palette: Palette::Warm,
             accent: Accent::Custom("#7c3aed".into()),
             preview_background: PreviewBackground::Gray18,
             preview_background_on_grid: true,
@@ -426,6 +443,26 @@ mod tests {
             };
             store.save_preferences(&prefs).unwrap();
             assert_eq!(store.preferences(), prefs);
+        }
+    }
+
+    #[test]
+    fn palettes_round_trip_independently_of_the_mode() {
+        let old: Preferences = serde_json::from_str(r#"{"theme":"dark"}"#).unwrap();
+        assert_eq!(old.palette, Palette::Default);
+        for palette in Palette::ALL {
+            for theme in [Theme::System, Theme::Light, Theme::Dark] {
+                let preferences = Preferences {
+                    palette,
+                    theme,
+                    ..old.clone()
+                };
+                let json = serde_json::to_string(&preferences).unwrap();
+                assert_eq!(
+                    serde_json::from_str::<Preferences>(&json).unwrap(),
+                    preferences
+                );
+            }
         }
     }
 

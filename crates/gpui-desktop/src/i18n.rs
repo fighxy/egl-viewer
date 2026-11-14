@@ -529,6 +529,11 @@ fn en() -> Catalog {
         ("settings.title", "Settings"),
         ("settings.general", "General"),
         ("settings.theme", "Theme"),
+        ("settings.palette", "Palette"),
+        ("palette.default", "Default"),
+        ("palette.graphite", "Graphite"),
+        ("palette.oledBlack", "OLED Black"),
+        ("palette.warm", "Warm"),
         ("settings.accent", "Accent colour"),
         ("settings.previewBackground", "Preview background"),
         (
@@ -907,6 +912,11 @@ fn ru() -> Catalog {
         ("settings.title", "Параметры"),
         ("settings.general", "Общие"),
         ("settings.theme", "Тема"),
+        ("settings.palette", "Палитра"),
+        ("palette.default", "Стандартная"),
+        ("palette.graphite", "Graphite"),
+        ("palette.oledBlack", "OLED Black"),
+        ("palette.warm", "Warm"),
         ("settings.accent", "Акцентный цвет"),
         ("settings.previewBackground", "Фон просмотра"),
         (
@@ -1216,6 +1226,11 @@ fn zh_cn() -> Catalog {
         ("settings.title", "设置"),
         ("settings.general", "常规"),
         ("settings.theme", "主题"),
+        ("settings.palette", "配色"),
+        ("palette.default", "默认"),
+        ("palette.graphite", "Graphite"),
+        ("palette.oledBlack", "OLED Black"),
+        ("palette.warm", "Warm"),
         ("settings.accent", "强调色"),
         ("settings.previewBackground", "预览背景"),
         ("settings.previewBackgroundGrid", "在网格中也使用此背景"),
@@ -1377,9 +1392,14 @@ mod tests {
     }
 
     #[test]
-    fn preview_background_settings_are_translated() {
+    fn theme_settings_are_translated() {
         for catalog in [en(), ru(), zh_cn()] {
             for key in [
+                "settings.palette",
+                "palette.default",
+                "palette.graphite",
+                "palette.oledBlack",
+                "palette.warm",
                 "settings.previewBackground",
                 "settings.previewBackgroundGrid",
                 "previewBg.theme",

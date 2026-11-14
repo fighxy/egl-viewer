@@ -2,18 +2,95 @@
 //! accent over the loaded palette. The accent reaches every copy of the theme through
 //! [`KitTheme::update`], so buttons, rings and the selection stay in step.
 
-use app_store::{Accent, Preferences, PreviewBackground, Theme};
+use std::rc::Rc;
+
+use app_store::{Accent, Palette, Preferences, PreviewBackground, Theme};
 use gpui_kit::App;
 use gpui_kit::component::Colorize as _;
-use gpui_kit::component::theme::{Theme as KitTheme, ThemeColor, ThemeMode};
+use gpui_kit::component::theme::{
+    Theme as KitTheme, ThemeColor, ThemeConfig, ThemeMode, ThemeRegistry,
+};
 use gpui_kit::{Hsla, rgb, white};
 
 /// The accent when Windows has none to offer (other platforms, a missing registry value):
 /// the default Windows blue.
 pub const FALLBACK_ACCENT: [u8; 3] = [0x00, 0x78, 0xd4];
 
+const BUILTIN_JSON: [&str; 3] = [
+    include_str!("../assets/themes/graphite.json"),
+    include_str!("../assets/themes/oled-black.json"),
+    include_str!("../assets/themes/warm.json"),
+];
+
+// Keep embedded themes off the kit registry's observer, which would reload over the accent.
+struct BuiltinThemes(ThemeRegistry);
+impl gpui_kit::Global for BuiltinThemes {}
+
+fn builtin_registry() -> ThemeRegistry {
+    let mut registry = ThemeRegistry::default();
+    for json in BUILTIN_JSON {
+        registry
+            .load_themes_from_str(json)
+            .expect("valid embedded theme");
+    }
+    registry
+}
+
+pub fn init_themes(cx: &mut App) {
+    cx.set_global(BuiltinThemes(builtin_registry()));
+}
+
+pub fn palette_label_key(palette: Palette) -> &'static str {
+    match palette {
+        Palette::Default => "palette.default",
+        Palette::Graphite => "palette.graphite",
+        Palette::OledBlack => "palette.oledBlack",
+        Palette::Warm => "palette.warm",
+    }
+}
+
+fn palette_names(palette: Palette) -> (&'static str, &'static str) {
+    match palette {
+        Palette::Default => unreachable!("the kit owns the default themes"),
+        Palette::Graphite => ("Graphite Light", "Graphite Dark"),
+        Palette::OledBlack => ("OLED Black Light", "OLED Black Dark"),
+        Palette::Warm => ("Warm Light", "Warm Dark"),
+    }
+}
+
+fn palette_pair(palette: Palette, cx: &App) -> (Rc<ThemeConfig>, Rc<ThemeConfig>) {
+    if palette == Palette::Default {
+        let registry = ThemeRegistry::global(cx);
+        return (
+            registry.default_light_theme().clone(),
+            registry.default_dark_theme().clone(),
+        );
+    }
+    let (light, dark) = palette_names(palette);
+    let themes = cx.global::<BuiltinThemes>().0.themes();
+    (themes[light].clone(), themes[dark].clone())
+}
+
+pub fn palette_background(palette: Palette, dark: bool, cx: &App) -> Hsla {
+    let (light, night) = palette_pair(palette, cx);
+    let config = if dark { night } else { light };
+    gpui_kit::component::theme::try_parse_color(
+        config
+            .colors
+            .background
+            .as_deref()
+            .expect("theme background"),
+    )
+    .expect("valid theme background")
+}
+
 /// Applies the stored preferences. `System` follows the OS appearance.
 pub fn apply_theme(prefs: &Preferences, cx: &mut App) {
+    let (light, dark) = palette_pair(prefs.palette, cx);
+    KitTheme::update(cx, |theme| {
+        theme.light_theme = light;
+        theme.dark_theme = dark;
+    });
     match prefs.theme {
         Theme::System => KitTheme::sync_system_appearance(None, cx),
         Theme::Light => KitTheme::change(ThemeMode::Light, None, cx),
@@ -156,6 +233,73 @@ pub fn theme_label_key(theme: Theme) -> &'static str {
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    #[test]
+    fn embedded_pairs_parse_and_define_every_colour_read_by_the_app() {
+        use gpui_kit::component::theme::{ThemeSet, try_parse_color};
+        let required = [
+            "accent.background",
+            "background",
+            "base.blue",
+            "base.yellow",
+            "border",
+            "danger.background",
+            "foreground",
+            "list.active.background",
+            "list.hover.background",
+            "muted.background",
+            "muted.foreground",
+            "popover.background",
+            "primary.background",
+            "primary.foreground",
+            "primary.hover.background",
+            "ring",
+            "secondary.background",
+            "sidebar.background",
+            "success.background",
+        ];
+        let registry = builtin_registry();
+        assert_eq!(registry.themes().len(), 6);
+        for json in BUILTIN_JSON {
+            let raw: serde_json::Value = serde_json::from_str(json).unwrap();
+            let set: ThemeSet = serde_json::from_str(json).unwrap();
+            assert_eq!(set.themes.len(), 2);
+            assert_eq!(set.themes[0].mode, ThemeMode::Light);
+            assert_eq!(set.themes[1].mode, ThemeMode::Dark);
+            for (index, config) in set.themes.into_iter().enumerate() {
+                let colors = serde_json::to_value(&config.colors).unwrap();
+                for key in required {
+                    assert!(colors[key].is_string(), "{}: missing {key}", config.name);
+                }
+                for (key, value) in raw["themes"][index]["colors"].as_object().unwrap() {
+                    assert_eq!(&colors[key], value, "{}: unrecognised {key}", config.name);
+                    assert!(try_parse_color(value.as_str().unwrap()).is_ok(), "{key}");
+                }
+                let config = registry.themes()[config.name.as_ref()].clone();
+                let mut theme = KitTheme::default();
+                theme.apply_config(&config);
+                assert_eq!(
+                    theme.background,
+                    try_parse_color(colors["background"].as_str().unwrap()).unwrap()
+                );
+                assert_eq!(
+                    theme.foreground,
+                    try_parse_color(colors["foreground"].as_str().unwrap()).unwrap()
+                );
+                assert!(
+                    contrast_ratio(
+                        crate::ops_colour::rgb_of(theme.background),
+                        crate::ops_colour::rgb_of(theme.foreground)
+                    ) >= 4.5
+                );
+            }
+        }
+        let oled = &registry.themes()["OLED Black Dark"];
+        let mut theme = KitTheme::default();
+        theme.apply_config(oled);
+        assert_eq!(theme.background, gpui_kit::black());
+        assert_eq!(theme.sidebar, gpui_kit::black());
+    }
 
     #[test]
     fn the_dwm_dword_is_abgr() {

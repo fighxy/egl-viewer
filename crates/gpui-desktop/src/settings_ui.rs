@@ -4,8 +4,8 @@
 //! which is the grid zoom the app stores.
 
 use app_store::{
-    ACCENT_PRESETS, Accent, BrowsePreferences, Locale, LoginMethod, Preferences, PreviewBackground,
-    Theme,
+    ACCENT_PRESETS, Accent, BrowsePreferences, Locale, LoginMethod, Palette, Preferences,
+    PreviewBackground, Theme,
 };
 use gpui_kit::component::button::{Button, ButtonVariants as _};
 use gpui_kit::component::color_picker::ColorPicker;
@@ -16,7 +16,7 @@ use gpui_kit::component::{StyledExt as _, h_flex, v_flex};
 use gpui_kit::prelude::FluentBuilder as _;
 use gpui_kit::{
     Context, InteractiveElement, IntoElement, ParentElement, PathPromptOptions, SharedString,
-    StatefulInteractiveElement, Styled, Window, div, px, rgb,
+    StatefulInteractiveElement, Styled, Window, div, px,
 };
 
 use crate::app::RootApp;
@@ -59,6 +59,10 @@ fn section_haystack(locale: Locale, section: SettingsSection) -> String {
         SettingsSection::General => &[
             "settings.general",
             "settings.theme",
+            "settings.palette",
+            "palette.graphite",
+            "palette.oledBlack",
+            "palette.warm",
             "settings.accent",
             "accent.windows",
             "settings.previewBackground",
@@ -346,8 +350,26 @@ impl RootApp {
         cx: &mut Context<Self>,
     ) -> gpui_kit::AnyElement {
         let draft = &self.settings_draft;
+        let light = theme::palette_background(draft.palette, false, cx);
+        let dark = theme::palette_background(draft.palette, true, cx);
         v_flex()
             .gap_3()
+            .child(Label::new(t(locale, "settings.palette")).text_sm())
+            .child(
+                h_flex()
+                    .gap_2()
+                    .children(Palette::ALL.into_iter().map(|palette| {
+                        let key = theme::palette_label_key(palette);
+                        Button::new(SharedString::from(key))
+                            .when(draft.palette == palette, |button| button.primary())
+                            .when(draft.palette != palette, |button| button.outline())
+                            .label(t(locale, key))
+                            .on_click(cx.listener(move |this, _, _, cx| {
+                                this.settings_draft.palette = palette;
+                                cx.notify();
+                            }))
+                    })),
+            )
             .child(Label::new(t(locale, "settings.theme")).text_sm())
             .child(
                 h_flex()
@@ -357,7 +379,7 @@ impl RootApp {
                         t(locale, theme::theme_label_key(Theme::System)),
                         draft.theme == Theme::System,
                         theme,
-                        swatch_fill_system(),
+                        swatch_fill_system(light, dark),
                         cx,
                         |draft| draft.theme = Theme::System,
                     ))
@@ -366,7 +388,7 @@ impl RootApp {
                         t(locale, theme::theme_label_key(Theme::Light)),
                         draft.theme == Theme::Light,
                         theme,
-                        swatch_fill_solid(rgb(0xf4f4f5)),
+                        swatch_fill_solid(light),
                         cx,
                         |draft| draft.theme = Theme::Light,
                     ))
@@ -375,7 +397,7 @@ impl RootApp {
                         t(locale, theme::theme_label_key(Theme::Dark)),
                         draft.theme == Theme::Dark,
                         theme,
-                        swatch_fill_solid(rgb(0x27272a)),
+                        swatch_fill_solid(dark),
                         cx,
                         |draft| draft.theme = Theme::Dark,
                     )),
@@ -703,11 +725,11 @@ fn theme_swatch(
         .child(Label::new(label).text_xs())
 }
 
-fn swatch_fill_system() -> impl IntoElement {
+fn swatch_fill_system(light: gpui_kit::Hsla, dark: gpui_kit::Hsla) -> impl IntoElement {
     h_flex()
         .size_full()
-        .child(div().flex_1().h_full().bg(rgb(0xf4f4f5)))
-        .child(div().flex_1().h_full().bg(rgb(0x18181b)))
+        .child(div().flex_1().h_full().bg(light))
+        .child(div().flex_1().h_full().bg(dark))
 }
 
 fn swatch_fill_solid(color: impl Into<gpui_kit::Hsla>) -> impl IntoElement {

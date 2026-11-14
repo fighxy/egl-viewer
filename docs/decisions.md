@@ -3898,3 +3898,20 @@ stayed in GPUI's asset cache for the life of the window. The grid only had the s
   Apply / Save updates both live. Missing preference fields mean theme and checkbox off.
 - **Tests.** Preference round trips for every background and a pre-background file; both light
   and dark theme colours, foreground contrast and the grey's linear luminance; all translations.
+
+## D-184 GPUI: embedded light/dark palette pairs (2026-11-15)
+
+- **Change.** Settings → General gains a `palette` preference, separate from System/Light/Dark:
+  Default (kit), Graphite (Eagle-like grey), OLED Black (true black dark canvas and sidebar),
+  Warm (warm light and a matching dark variant). The three JSON resources live under
+  `crates/gpui-desktop/assets/themes` and are embedded with `include_str!`.
+- **Loading.** `ThemeRegistry::load_themes_from_str` loads them into an embedded registry before
+  the first paint. It is kept separate from the kit's observed global registry: its reload
+  observer would otherwise repaint over our accent. Choosing a pair replaces both mode
+  configs, loads the current mode, then applies the accent through `Theme::update`.
+- **Tokens.** Each pair explicitly defines every colour the app reads, plus coherent control,
+  input, popover and chrome colours. Other kit components use their documented fallbacks.
+  Theme swatches now read the selected pair's background tokens, removing their fixed RGBs.
+- **Compatibility and tests.** Missing `palette` means Default. Tests cover every palette/mode
+  combination, loading every JSON via the registry, recognising and parsing every declared
+  colour, all app-read tokens, opaque OLED black, readable canvas text and translations.

@@ -74,6 +74,7 @@ fn main() {
     app.run(move |cx| {
         gpui_kit::init(cx);
         bind_keymap(cx);
+        theme::init_themes(cx);
 
         // Theme before first paint (prefs applied again inside RootApp::new).
         let prefs = app_store::AppStore::new(platform::app_data_dir().join("data")).preferences();
