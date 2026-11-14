@@ -3833,3 +3833,18 @@ stayed in GPUI's asset cache for the life of the window. The grid only had the s
   equal to `file_viewer::extensions`.
 - **Left for later.** One window per file opened (no single-instance hand-over); the portable zip
   registers nothing; macOS and Linux file types are not declared.
+
+## D-181 FFmpeg behind `media`'s `video` feature: the mobile core builds without it (2026-11-14)
+
+- **Problem.** `media` pulled in `av` (FFmpeg and `cpal`) on every target but iOS and Android.
+  `library-ffi` is also built and tested on the host (the Linux `library-ffi` gate, the macOS
+  host build before the iOS slices), so those jobs needed FFmpeg and ALSA for a core that never
+  plays a video, and they failed without them.
+- **Change.** `av` is an optional dependency of `media`, turned on by its `video` feature.
+  `desktop-session` and `gpui-desktop` enable it; `library-native` enables it for its tests.
+  Without it `media` behaves as on iOS and Android: videos and audio have no preview and no
+  length (`Kind::Other`), and nothing links FFmpeg. `cargo test --workspace` unifies features,
+  so the workspace runs keep testing video; `cargo test -p library-ffi` and the mobile host
+  builds need only libheif, as before D-168.
+- **Kept.** Which files get a poster is still decided in one place (`media::kind`); the gate is
+  the feature, not the target, so a host build of the mobile core and a phone build agree.

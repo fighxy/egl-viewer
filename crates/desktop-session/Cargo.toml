@@ -15,7 +15,8 @@ eagle-api.workspace = true
 eagle-folder.workspace = true
 library-core.workspace = true
 library-native.workspace = true
-media.workspace = true
+# Video posters and audio lengths (D-181).
+media = { workspace = true, features = ["video"] }
 p256.workspace = true
 secrecy.workspace = true
 serde.workspace = true

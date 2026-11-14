@@ -44,10 +44,10 @@ const RASTER: &[&str] = &[
 const SVG: &[&str] = &["svg", "svgz"];
 const PSD: &[&str] = &["psd"];
 const HEIC: &[&str] = &["heic", "heif", "hif"];
-/// Video files with a poster frame: desktop builds have FFmpeg, iOS and Android do not.
-#[cfg(not(any(target_os = "ios", target_os = "android")))]
+/// Video files with a poster frame: with the `video` feature (the desktop app), none without.
+#[cfg(feature = "video")]
 const VIDEO: &[&str] = av::VIDEO;
-#[cfg(any(target_os = "ios", target_os = "android"))]
+#[cfg(not(feature = "video"))]
 const VIDEO: &[&str] = &[];
 
 /// Every lowercase extension that gets a preview.
@@ -79,10 +79,10 @@ pub fn kind(ext: &str) -> Kind {
     }
 }
 
-/// Audio files whose length is read when they are added (D-169); none on iOS and Android.
-#[cfg(not(any(target_os = "ios", target_os = "android")))]
+/// Audio files whose length is read when they are added (D-169); none without `video`.
+#[cfg(feature = "video")]
 const AUDIO: &[&str] = av::AUDIO;
-#[cfg(any(target_os = "ios", target_os = "android"))]
+#[cfg(not(feature = "video"))]
 const AUDIO: &[&str] = &[];
 
 /// Every lowercase extension whose length is read without a thumbnail (audio).
@@ -97,7 +97,7 @@ pub fn has_duration_only(ext: &str) -> bool {
 }
 
 /// The length in seconds of an audio file, from its headers; `None` when it cannot be read.
-#[cfg(not(any(target_os = "ios", target_os = "android")))]
+#[cfg(feature = "video")]
 pub fn duration(path: &Path) -> Option<f64> {
     av::probe(path)
         .ok()?
@@ -105,7 +105,7 @@ pub fn duration(path: &Path) -> Option<f64> {
         .filter(|seconds| seconds.is_finite() && *seconds > 0.0)
 }
 
-#[cfg(any(target_os = "ios", target_os = "android"))]
+#[cfg(not(feature = "video"))]
 pub fn duration(_: &Path) -> Option<f64> {
     None
 }
@@ -270,7 +270,7 @@ fn render_heic(bytes: &[u8]) -> Result<Rendered, MediaError> {
 
 /// A video: the poster frame (a tenth in, at most 10 s) as the thumbnail and palette source, the
 /// displayed size (rotation applied) and the duration.
-#[cfg(not(any(target_os = "ios", target_os = "android")))]
+#[cfg(feature = "video")]
 fn render_video(path: &Path) -> Result<Rendered, MediaError> {
     // Every failure is a decode error, an audio-only MP4 too: the item is marked and the
     // pending pass moves on (an `Unsupported` item would stay pending).
@@ -290,7 +290,7 @@ fn render_video(path: &Path) -> Result<Rendered, MediaError> {
     })
 }
 
-#[cfg(any(target_os = "ios", target_os = "android"))]
+#[cfg(not(feature = "video"))]
 fn render_video(_: &Path) -> Result<Rendered, MediaError> {
     Err(MediaError::Unsupported)
 }

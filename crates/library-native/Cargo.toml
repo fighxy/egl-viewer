@@ -37,7 +37,7 @@ zip.workspace = true
 
 [dev-dependencies]
 image.workspace = true
-media = { workspace = true, features = ["fixtures"] }
+media = { workspace = true, features = ["fixtures", "video"] }
 tempfile.workspace = true
 tokio.workspace = true
 

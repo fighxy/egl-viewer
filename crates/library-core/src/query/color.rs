@@ -90,20 +90,22 @@ pub fn hex(rgb: [u8; 3]) -> String {
     format!("#{:02x}{:02x}{:02x}", rgb[0], rgb[1], rgb[2])
 }
 
-/// A colour from `#rrggbb` or `#rgb` (any case), as Eagle's rules write them.
+/// A colour from `#rrggbb` or `#rgb` (any case), as Eagle's rules write them. Anything else,
+/// typed text or a rule from another app, is `None`: only hex digits are read, byte by byte.
 pub fn parse_hex(text: &str) -> Option<[u8; 3]> {
-    let digits = text.trim().strip_prefix('#')?;
-    let channel = |s: &str| u8::from_str_radix(s, 16).ok();
-    match digits.len() {
-        6 => Some([
-            channel(&digits[0..2])?,
-            channel(&digits[2..4])?,
-            channel(&digits[4..6])?,
-        ]),
-        3 => {
-            let short = |i: usize| channel(&digits[i..=i]).map(|v| v * 17);
-            Some([short(0)?, short(1)?, short(2)?])
-        }
+    let digits = text.trim().strip_prefix('#')?.as_bytes();
+    let nibble = |b: u8| {
+        char::from(b)
+            .to_digit(16)
+            .and_then(|v| u8::try_from(v).ok())
+    };
+    let nibbles = digits
+        .iter()
+        .map(|&b| nibble(b))
+        .collect::<Option<Vec<u8>>>()?;
+    match nibbles.as_slice() {
+        [r1, r2, g1, g2, b1, b2] => Some([r1 << 4 | r2, g1 << 4 | g2, b1 << 4 | b2]),
+        [r, g, b] => Some([r * 17, g * 17, b * 17]),
         _ => None,
     }
 }
@@ -169,6 +171,13 @@ mod tests {
         assert_eq!(parse_hex("#0F0"), Some([0, 255, 0]));
         assert_eq!(parse_hex("red"), None);
         assert_eq!(parse_hex("#12345"), None);
+        // Typed or pasted text never panics and only hex digits count.
+        for bad in [
+            "#a€bc", "#€", "#é a", "#ééé", "#+f+f+f", "#-1-1-1", "# ff00", "#ff 000",
+        ] {
+            assert_eq!(parse_hex(bad), None, "{bad}");
+        }
+        assert_eq!(parse_hex("  #AbC  "), Some([170, 187, 204]));
         assert_eq!(hex([1, 171, 255]), "#01abff");
         let filter = ColorFilter::paper();
         let json = serde_json::to_value(filter).unwrap();

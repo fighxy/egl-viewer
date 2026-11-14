@@ -21,7 +21,8 @@ gpui-kit.workspace = true
 image.workspace = true
 library-core.workspace = true
 library-native.workspace = true
-media.workspace = true
+# Video posters and audio lengths (D-181).
+media = { workspace = true, features = ["video"] }
 av.workspace = true
 reqwest = { workspace = true, features = ["blocking"] }
 serde_json.workspace = true

@@ -468,6 +468,9 @@ fn color_similar_keeps_items_where_the_colour_covers_enough() {
     assert!(!hits(&red, &item("no palette")));
     let odd = one(json!([{ "property": "color", "method": "accuracy", "value": "#ff0000" }]));
     assert_eq!(odd.unsupported(), ["color accuracy"]);
+    // A colour that is not hex, non-ASCII text included, is a rule we cannot evaluate.
+    let garbled = one(json!([{ "property": "color", "method": "similar", "value": "#a€bc" }]));
+    assert_eq!(garbled.unsupported(), ["color similar"]);
 }
 
 #[test]
