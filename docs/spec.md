@@ -454,6 +454,19 @@ Link     https://…  ↗
 10. **Check for Updates…** (Help menu, D-062 / D-153). Asks the rolling `gpui-latest` prerelease for `latest-gpui.json` (not GitHub Latest). If a newer build exists, confirms with the user. On Windows: downloads the NSIS setup, exits, installs silently, and relaunches. On macOS/Linux: opens the download URL. Authenticode / minisign remain deferred. A silent check after launch uses the same flow; skip with `EGL_SKIP_UPDATE_CHECK`.
 11. **Eagle screens:** the import wizard (section 8.2), Connect (section 8.3), export (section 8.4).
 12. **Backup** (Library menu, D-064) and **Export** (context menus of folders and tags): one dialog. It picks what to export (the whole library, chosen folders with or without subfolders, chosen tags), shows the item count and bytes from the database, the format (a folder tree, a ZIP or a 7z archive with a compression level), an optional passphrase for the archive (at least 8 characters): for a ZIP either an age file `name.zip.age`, encrypted while it is written so no plaintext copy touches the disk (D-110), or a standard ZIP with AES-256 entries that 7-Zip, WinRAR and Keka open, its names visible (D-112); a 7z is AES-256 encrypted with its names hidden (D-113), and the destination folder (the last one is remembered). While it runs, a progress bar; afterwards, the result: what was written where, skipped missing files, **Show in Explorer**. The export runs in the background and can be cancelled; the partial output is removed, after a failure too. A destination inside an Eagle or egl-viewer library is refused (D-088). It reads only, so a read-only library exports too; items of locked folders stay home and are counted as hidden. `egl-export.json` at the export root carries the exported items' metadata. Distinct from Back Up Now, which copies the database (§7.4 item 6). **File → Decrypt Archive…** opens such a `name.zip.age` with its passphrase into `name.zip`, next to it by default (D-110); the iPhone app has it in Settings.
+13. **Viewing a file on its own** (D-180). Opening a photo or video from Explorer
+    (`gpui-desktop.exe "<file>"`: "Open with", or the app chosen as the default for the type)
+    shows the full-size preview of item 1 over the whole window, with its title the file name.
+    It opens no library and takes no lock; the app login does not stand before
+    it, because no library is reachable from it. Left / Right, Page Up / Down, Home / End step
+    through the photos and videos of the file's folder in Explorer's name order (listed in the
+    background; the file shows first). Zoom, rotate, the GIF and media players and their keys
+    work as in item 1; `Space` plays and pauses. `Esc`, the × or closing the window ends it, with
+    no quit question. The viewed extensions are those with a preview (§4) but `.ts`. The NSIS
+    setup registers them per user (`HKCU\Software\Classes`: a ProgID, `OpenWithProgids`,
+    `Capabilities` and `RegisteredApplications`), so the app is offered in "Open with" and in
+    Settings → Default apps; Windows lets only the user make it the default. The portable zip
+    registers nothing. Each file opened from Explorer starts its own window.
 
 ### 7.5 Look and motion
 

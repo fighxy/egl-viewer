@@ -4,6 +4,7 @@
 //! cargo run -p gpui-desktop
 //! cargo run -p gpui-desktop -- path\to\Library.eglib
 //! cargo run -p gpui-desktop -- --no-reopen
+//! cargo run -p gpui-desktop -- path\to\photo.jpg   # view a file on its own (D-180)
 //! ```
 
 // Release Windows builds are a GUI subsystem binary so Explorer / shortcuts / NSIS
@@ -17,6 +18,7 @@ mod commands;
 mod dialogs;
 mod dnd;
 mod export_rules;
+mod file_viewer;
 mod i18n;
 mod justified;
 mod library;
@@ -25,6 +27,7 @@ mod ops_colour;
 mod ops_details;
 mod ops_dnd;
 mod ops_export;
+mod ops_file_viewer;
 mod ops_items;
 mod ops_media;
 mod ops_mutations;

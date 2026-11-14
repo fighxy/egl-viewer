@@ -58,21 +58,45 @@ impl RootApp {
         self.open_preview_at(index, cx);
     }
 
+    /// The cell at `index` of what the preview steps through: the open view, or the loose
+    /// files being viewed (D-180).
+    fn preview_cell(&self, index: usize) -> Option<ItemCell> {
+        match self.loose.as_ref() {
+            Some(loose) => loose.cell(index),
+            None => self.library.as_ref()?.cells.get(index).cloned(),
+        }
+    }
+
+    /// How many positions the preview steps through.
+    fn preview_len(&self) -> usize {
+        match self.loose.as_ref() {
+            Some(loose) => loose.len(),
+            None => self.library.as_ref().map_or(0, |lib| lib.cells.len()),
+        }
+    }
+
     pub(crate) fn open_preview_at(&mut self, index: usize, cx: &mut Context<Self>) {
-        // The item and its neighbours, which the preview preloads, may be on pages not here
-        // yet: stepping through the preview walks the whole view (D-167).
-        self.fill_cells(index.saturating_sub(1)..index + 2);
-        let Some(lib) = self.library.as_mut() else {
+        let loose = self.loose.is_some();
+        let total = if let Some(files) = self.loose.as_ref() {
+            files.len() as u32
+        } else {
+            // The item and its neighbours, which the preview preloads, may be on pages not
+            // here yet: stepping through the preview walks the whole view (D-167).
+            self.fill_cells(index.saturating_sub(1)..index + 2);
+            let Some(lib) = self.library.as_ref() else {
+                return;
+            };
+            lib.total.max(lib.cells.len() as u32)
+        };
+        let Some(cell) = self.preview_cell(index) else {
             return;
         };
-        let Some(cell) = lib.cells.get(index).cloned() else {
-            return;
-        };
-        let total = lib.total.max(lib.cells.len() as u32);
-        lib.selection.select_only(&cell.id.0, index);
-        lib.persist_session(&self.session);
-        // The right bar loads the thumbnail; the preview borrows it as its first frame.
-        self.refresh_details(cx);
+        if let Some(lib) = self.library.as_mut().filter(|_| !loose) {
+            lib.selection.select_only(&cell.id.0, index);
+            lib.persist_session(&self.session);
+            // The right bar loads the thumbnail; the preview borrows it as its first frame.
+            self.refresh_details(cx);
+        }
 
         let key = key_of(&cell);
         let (ready, loading) = match self.preview_cache.get(&key) {
@@ -80,7 +104,9 @@ impl RootApp {
             Some(Slot::Loading) => (None, true),
             None => (None, true),
         };
-        let placeholder = self.details.thumb.clone().map(Shown::Encoded);
+        let placeholder = (!loose)
+            .then(|| self.details.thumb.clone().map(Shown::Encoded))
+            .flatten();
         let was_open = self.preview.as_ref().map(|p| p.appear);
         let mut state = PreviewState::new(
             index,
@@ -94,9 +120,13 @@ impl RootApp {
             .width
             .zip(cell.height)
             .map(|(w, h)| (w as f32, h as f32));
-        // Stepping inside an open preview does not fade in again.
+        // Stepping inside an open preview does not fade in again. Viewing a file, the
+        // preview is the whole window: it is there at once.
         if let Some(appear) = was_open {
             state.appear = appear;
+        }
+        if loose {
+            state.appear = 1.0;
         }
         self.drop_rotated(cx);
         self.preview = Some(state);
@@ -108,16 +138,14 @@ impl RootApp {
     }
 
     /// Decodes the open item and its neighbours; forgets everything else.
-    fn load_preview_window(&mut self, index: usize, cx: &mut Context<Self>) {
-        let Some(lib) = self.library.as_ref() else {
-            return;
-        };
+    pub(crate) fn load_preview_window(&mut self, index: usize, cx: &mut Context<Self>) {
         // The open item first: it is what the user waits for.
         let cells: Vec<ItemCell> = [Some(index), index.checked_add(1), index.checked_sub(1)]
             .into_iter()
             .flatten()
-            .filter_map(|i| lib.cells.get(i).cloned())
+            .filter_map(|i| self.preview_cell(i))
             .collect();
+        let loose = self.loose.is_some();
         let keep: Vec<PreviewKey> = cells.iter().map(key_of).collect();
         for image in self.preview_cache.retain(&keep) {
             cx.drop_image(image, None);
@@ -132,7 +160,12 @@ impl RootApp {
                 let (payload, shown) = cx
                     .background_executor()
                     .spawn(async move {
-                        let payload = preview_image::preview_payload(&session, &cell);
+                        let payload = if loose {
+                            let path = crate::file_viewer::cell_path(&cell);
+                            preview_image::file_payload(&path, &cell.ext)
+                        } else {
+                            preview_image::preview_payload(&session, &cell)
+                        };
                         let shown = payload
                             .as_ref()
                             .and_then(|p| preview_image::decode_payload(p, 0));
@@ -212,6 +245,11 @@ impl RootApp {
 
     pub(crate) fn close_preview(&mut self, cx: &mut Context<Self>) {
         self.release_preview(cx);
+        if self.loose.is_some() {
+            // The window only viewed the file: closing the preview closes it (D-180).
+            cx.quit();
+            return;
+        }
         // The grid shows the item the preview ended on; stepping selected it (D-145).
         self.reveal_focus();
         cx.notify();
@@ -221,7 +259,7 @@ impl RootApp {
         let Some(preview) = self.preview.as_ref() else {
             return;
         };
-        let total = self.library.as_ref().map_or(0, |lib| lib.cells.len());
+        let total = self.preview_len();
         let Some(next) = preview.index.checked_add_signed(step as isize) else {
             return;
         };
@@ -233,7 +271,7 @@ impl RootApp {
 
     /// First (`Home`) or last (`End`) item of the view.
     pub(crate) fn preview_jump(&mut self, last: bool, cx: &mut Context<Self>) {
-        let total = self.library.as_ref().map_or(0, |lib| lib.cells.len());
+        let total = self.preview_len();
         if total == 0 {
             return;
         }

@@ -3803,3 +3803,33 @@ stayed in GPUI's asset cache for the life of the window. The grid only had the s
 - **The search itself** was right and stays: every term is a case-insensitive part of a name,
   note, link, tag or folder name (Cyrillic folds too), terms of three or more characters use the
   trigram index and shorter ones read the folded rows (D-047).
+
+## D-180 GPUI: viewing a photo or video on its own, the app as a default viewer (2026-11-14)
+
+- **Problem.** Photos and videos outside a library could not be opened from Explorer: the app
+  took only a library folder on its command line, and the installer registered no file types.
+- **Change.** `gpui-desktop.exe "<file>"` with a viewable extension opens a viewer window: the
+  full-size preview over the whole window, on that file, stepping through the photos and videos
+  of its folder in Explorer's name order (case-insensitive, digit runs as numbers). The folder is
+  listed in the background, so the file shows at once. `file_viewer` holds the pure part
+  (arguments, listing, order); in this mode the preview's cells are made up from paths, a cell's
+  id being its path, and `ops_preview` / `ops_media` read loose files by path, in Rust
+  (`preview_image::file_payload`, `av::Player::open`). The viewer window has a root of its own
+  that binds only the preview's keys, so no library shortcut can act from it; `Space` plays and
+  pauses; `Esc`, × or closing the window quits without the quit question.
+- **No library, no login.** Viewing a file opens no library, takes no `library.lock`, reopens
+  no library, leaves the recent list alone and skips the update check. The app
+  login (D-056) guards libraries, and none is reachable from the viewer, so it does not stand
+  before a file the user already opened in Explorer.
+- **Extensions.** Those with a preview (`media::preview_extensions`) but `.ts`, which is far more
+  often TypeScript than MPEG-TS and would put source files among a folder's videos.
+- **Registration.** The NSIS setup writes per-user keys only: the ProgID `egl-viewer-gpui.media`
+  with `open` = `"<exe>" "%1"`, each extension's `OpenWithProgids`, `Applications\gpui-desktop.exe`
+  with `SupportedTypes`, and `Capabilities` under `Software\egl-viewer-gpui` listed in
+  `RegisteredApplications`, then `SHChangeNotify(SHCNE_ASSOCCHANGED)`. Uninstall removes them.
+  Windows 10 and 11 refuse programmatic defaults (the `UserChoice` hash), so the app is offered
+  in "Open with" and Settings → Default apps and the user picks it. Thumbnails in Explorer stay:
+  they come from the system's handlers for the perceived types. A test keeps the installer's list
+  equal to `file_viewer::extensions`.
+- **Left for later.** One window per file opened (no single-instance hand-over); the portable zip
+  registers nothing; macOS and Linux file types are not declared.
