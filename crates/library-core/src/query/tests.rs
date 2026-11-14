@@ -792,3 +792,41 @@ fn selection_tags_count_each_tag_over_the_selected_items() {
             .all(|cell| cell.id != ItemId::from("0001"))
     );
 }
+
+#[test]
+fn the_colour_filter_keeps_documents_or_a_picked_colour() {
+    use crate::model::Palette;
+    let paint = |id: &str, entries: &[([u8; 3], f64)]| ItemLite {
+        palette: entries
+            .iter()
+            .map(|&(color, ratio)| Palette { color, ratio })
+            .collect(),
+        ..item(id)
+    };
+    let items = [
+        paint("receipt", &[([238, 236, 230], 70.0), ([30, 30, 30], 30.0)]),
+        paint("sunset", &[([240, 120, 40], 60.0), ([60, 30, 80], 40.0)]),
+        item("no palette yet"),
+    ];
+    let index = FolderIndex::default();
+    let only = |color| {
+        kept(
+            &items,
+            &LibraryQuery {
+                color: Some(color),
+                ..LibraryQuery::default()
+            },
+            &index,
+        )
+    };
+    assert_eq!(only(crate::ColorFilter::paper()), ["receipt"]);
+    assert_eq!(
+        only(crate::ColorFilter::similar([250, 130, 50])),
+        ["sunset"]
+    );
+    assert_eq!(
+        kept(&items, &LibraryQuery::default(), &index).len(),
+        3,
+        "no colour filter keeps everything"
+    );
+}

@@ -259,7 +259,8 @@ fn rules_outside_the_subset_are_listed_and_never_match() {
         { "property": "color", "method": "similar", "value": "#00ff00" },
         { "property": "tags", "method": "not-empty", "value": [] }
     ]}]));
-    assert_eq!(parsed.unsupported(), ["color similar", "name regex"]);
+    // `color similar` is evaluated since D-176; its other methods are not.
+    assert_eq!(parsed.unsupported(), ["name regex"]);
     assert!(hits(&parsed, &tagged("t", &["a"])));
     assert!(!hits(&parsed, &tagged("u", &[])));
     assert!(SmartRules::parse(&json!({ "rules": [] })).is_err());
@@ -444,4 +445,53 @@ fn changes_need_a_name_and_one_to_thirty_rules() {
             .is_err()
     );
     assert_eq!(serde_json::to_value(&ok).unwrap()["type"], json!("create"));
+}
+
+#[test]
+fn color_similar_keeps_items_where_the_colour_covers_enough() {
+    let red = one(json!([{ "property": "color", "method": "similar", "value": "#DD2222" }]));
+    assert!(red.unsupported().is_empty());
+    let poster = ItemLite {
+        palette: vec![
+            crate::model::Palette {
+                color: [210, 30, 35],
+                ratio: 40.0,
+            },
+            crate::model::Palette {
+                color: [20, 20, 20],
+                ratio: 60.0,
+            },
+        ],
+        ..item("poster")
+    };
+    assert!(hits(&red, &poster));
+    assert!(!hits(&red, &item("no palette")));
+    let odd = one(json!([{ "property": "color", "method": "accuracy", "value": "#ff0000" }]));
+    assert_eq!(odd.unsupported(), ["color accuracy"]);
+}
+
+#[test]
+fn a_colour_filter_becomes_a_rule_and_documents_are_refused() {
+    let index = tree();
+    let (_, conditions) = rules_from_query(
+        &LibraryQuery {
+            color: Some(crate::ColorFilter::similar([255, 0, 0])),
+            ..LibraryQuery::default()
+        },
+        &index,
+    )
+    .unwrap();
+    assert_eq!(
+        conditions[0]["rules"][0],
+        json!({ "property": "color", "method": "similar", "value": "#ff0000" })
+    );
+    let refused = rules_from_query(
+        &LibraryQuery {
+            color: Some(crate::ColorFilter::paper()),
+            ..LibraryQuery::default()
+        },
+        &index,
+    )
+    .unwrap_err();
+    assert!(matches!(refused, SourceError::Invalid(m) if m.contains("Documents")));
 }

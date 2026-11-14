@@ -3528,3 +3528,27 @@ stayed in GPUI's asset cache for the life of the window. The grid only had the s
   decrypted to a temporary file). Audio keeps its placeholder; cover art comes later.
 - **Verify.** `cargo test -p media videos_get_a_poster`, `cargo test -p library-native
   videos_get_a_poster_and_their_duration`.
+
+## D-176 Colour filter, with a Documents preset (2026-11-14)
+
+- **Problem.** Photographed and scanned papers (forms, receipts, notes) are ordinary JPGs: no
+  type, name or shape tells them apart, so there was no way to find "all documents". The spec
+  planned a colour filter (§ filter bar) and Eagle's `color similar` smart rule was read but not
+  evaluated.
+- **Change.** `LibraryQuery.color: Option<ColorFilter>`; `ItemLite` now carries the whole
+  palette (up to 8 colours with their share of the image, already stored per item), read with
+  the snapshot (native: the `palette` column; encrypted items: from their opened fields; Eagle:
+  `palettes`). The filter adds up the shares of the palette colours that qualify:
+  - **Similar** `{ rgb, min_share }`: colours within a redmean distance of 45 (in plain RGB
+    units) of the picked one cover at least `min_share` percent (default 15; 5, 15, 30, 50 to
+    choose).
+  - **Paper** `{ min_share: 55 }`: light (lightness ≥ 120 of 255), nearly colourless (chroma ≤ 52)
+    colours cover at least 55 percent: white or tinted paper with grey shadows and dark text.
+    Light phone screenshots match too; Shape (portrait 3:4 vs a phone's 9:19.5) tells them apart.
+  An item without a palette (not made yet, or none) never matches a colour filter.
+- **Smart folders.** `color similar` with `#rrggbb` / `#rgb` is evaluated with the default share;
+  Save as Smart Folder writes a picked colour as that rule and refuses Documents (Eagle has no
+  such rule), like search text.
+- **UI.** A Colour button in the filter bar opens a popover: Any colour, Documents, 16 swatches
+  and, once a colour is picked, how much of the image it must cover. The filter is saved with the
+  other filters per library (`SavedFilters.color`, absent in older files).

@@ -20,7 +20,7 @@ use crate::recover::library_file;
 const LITE_COLUMNS: &str = "id, name, ext, width, height, size, star, \
      json_extract(palette, '$[0].color[0]'), json_extract(palette, '$[0].color[1]'), \
      json_extract(palette, '$[0].color[2]'), \
-     added_at, file_created_at, file_modified_at, duration, thumb_version, deleted_at";
+     added_at, file_created_at, file_modified_at, duration, thumb_version, deleted_at, palette";
 
 impl Library {
     /// The light items of one scope (docs/architecture.md §15.3). A folder scope also gives
@@ -104,8 +104,8 @@ impl Library {
         .context("load a scope")?;
         while let Some(row) = rows.next().context("load a scope")? {
             let item = lite_from_row(row).context("read an item")?;
-            if row.get::<_, bool>(16).context("read an item")? {
-                let blob: Option<Vec<u8>> = row.get(17).context("read an item")?;
+            if row.get::<_, bool>(17).context("read an item")? {
+                let blob: Option<Vec<u8>> = row.get(18).context("read an item")?;
                 sealed.push((items.len(), blob.unwrap_or_default()));
             }
             positions.insert(item.id.0.clone(), items.len());
@@ -120,7 +120,8 @@ impl Library {
             let id = items[*at].id.0.clone();
             match self.open_fields(&conn, &id, blob) {
                 Ok(fields) => {
-                    items[*at].palette0 = first_colour(fields.palette.as_deref());
+                    items[*at].palette = palette_of(fields.palette.as_deref());
+                    items[*at].palette0 = items[*at].palette.first().map(|entry| entry.color);
                     items[*at].name = fields.name;
                 }
                 Err(error) => {
@@ -414,6 +415,7 @@ fn lite_from_row(row: &Row<'_>) -> rusqlite::Result<ItemLite> {
         _ => None,
     };
     let thumb_version: i64 = row.get(14)?;
+    let palette = palette_of(row.get::<_, Option<String>>(16)?.as_deref());
     Ok(ItemLite {
         id: ItemId(row.get(0)?),
         name: row.get(1)?,
@@ -426,6 +428,7 @@ fn lite_from_row(row: &Row<'_>) -> rusqlite::Result<ItemLite> {
         // A native item always has a folder list, perhaps empty; only Eagle can lack the key.
         folders: Some(Vec::new()),
         palette0,
+        palette,
         added_at: row.get(10)?,
         file_created_at: row.get(11)?,
         file_modified_at: row.get(12)?,
@@ -437,10 +440,11 @@ fn lite_from_row(row: &Row<'_>) -> rusqlite::Result<ItemLite> {
     })
 }
 
-/// The first colour of a palette stored as JSON.
-fn first_colour(palette: Option<&str>) -> Option<[u8; 3]> {
-    let palettes: Vec<Palette> = serde_json::from_str(palette?).ok()?;
-    palettes.first().map(|entry| entry.color)
+/// A palette stored as JSON; empty when there is none or it cannot be read.
+fn palette_of(palette: Option<&str>) -> Vec<Palette> {
+    palette
+        .and_then(|json| serde_json::from_str(json).ok())
+        .unwrap_or_default()
 }
 
 /// What the WebView is told an original is.

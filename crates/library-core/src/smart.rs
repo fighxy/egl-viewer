@@ -136,6 +136,10 @@ enum Rule {
         equal: bool,
         value: String,
     },
+    /// Eagle's `color similar`: the colour covers a share of the image (D-176).
+    Color {
+        rgb: [u8; 3],
+    },
     /// `value` is folded: names, notes and links compare without case.
     Text {
         field: TextField,
@@ -300,6 +304,15 @@ fn parse_rule(rule: &serde_json::Map<String, Value>) -> Rule {
                 values: strings(value),
             }
         }
+        "color" => match (
+            method,
+            strings(value)
+                .first()
+                .and_then(|v| crate::query::color::parse_hex(v)),
+        ) {
+            ("similar", Some(rgb)) => Rule::Color { rgb },
+            _ => unsupported(),
+        },
         "type" | "shape" => {
             let equal = match method {
                 "equal" => true,
@@ -450,6 +463,9 @@ impl Rule {
                         value.contains("none") || (item.star > 0 && value.contains(&own))
                     }
                 }
+            }
+            Self::Color { rgb } => {
+                crate::query::color::ColorFilter::similar(*rgb).matches(&item.palette)
             }
             Self::Shape { equal, value } => {
                 let shape = shape_of(item.width, item.height);
@@ -624,6 +640,23 @@ pub fn rules_from_query(
     }
     if let Some(shape) = &query.shape {
         rules.push(json!({ "property": "shape", "method": "equal", "value": shape }));
+    }
+    match query.color {
+        Some(crate::query::color::ColorFilter::Similar { rgb, .. }) => {
+            rules.push(json!({
+                "property": "color",
+                "method": "similar",
+                "value": crate::query::color::hex(rgb),
+            }));
+        }
+        Some(crate::query::color::ColorFilter::Paper { .. }) => {
+            return Err(SourceError::Invalid(
+                "The Documents colour filter cannot go into a smart folder: Eagle's rules have \
+                 no such colour. Pick a colour instead, or clear the colour filter."
+                    .into(),
+            ));
+        }
+        None => {}
     }
     if rules.is_empty() {
         return Err(SourceError::Invalid(
