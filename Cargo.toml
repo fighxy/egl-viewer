@@ -17,6 +17,7 @@ publish = false
 library-core = { path = "crates/library-core" }
 library-native = { path = "crates/library-native" }
 media = { path = "crates/media" }
+av = { path = "crates/av" }
 eagle-api = { path = "crates/eagle-api" }
 eagle-folder = { path = "crates/eagle-folder" }
 app-store = { path = "crates/app-store" }
@@ -32,9 +33,15 @@ bech32 = "0.11.1"
 async-trait = "0.1.92"
 bip39 = { version = "3.0.0", default-features = false, features = ["std"] }
 blake3 = "1.8.7"
+# Local time for dates shown in the UI (D-174); already in the lock through other crates.
+chrono = { version = "=0.4.45", default-features = false, features = ["clock", "std"] }
 chacha20poly1305 = "0.10.1"
 drag = "2.1.1"
 fast_image_resize = "6.1.0"
+# FFmpeg (LGPL build, DLLs beside the exe like libheif) and audio output (D-168).
+ffmpeg-next = { version = "=9.0.0", default-features = false, features = ["codec", "format", "filter", "software-resampling", "software-scaling"] }
+cpal = "=0.18.2"
+rtrb = "=0.4.1"
 device_query = "=4.0.1"
 getrandom = "0.4.3"
 gpui-kit = "=0.9.1"

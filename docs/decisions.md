@@ -3432,3 +3432,55 @@ stayed in GPUI's asset cache for the life of the window. The grid only had the s
   `TOOLBAR_HEIGHT` and `FILTER_BAR_HEIGHT`; a compile-time assertion keeps each above its controls
   and the three within 96 px. The borders
   under the menu bar and the filter bar stay; menus still open under their button.
+
+## D-168 Audio and video engine: FFmpeg (LGPL) plus the Scrobb audio path (2026-11-14)
+
+- **Choice.** The user chose FFmpeg's libraries for decoding and the audio path of their own
+  player (`fighxy/scrobb`, `player/core/crates/player-engine`) for output. Compared: ffmpeg.exe
+  as a separate process (`ffmpeg-sidecar`: every seek restarts a process, 100–300 ms; sync across
+  two processes), libmpv (GPL by default, a large DLL, only a software render into GPUI, and the
+  grid would still need FFmpeg for frames), Media Foundation (Windows only, weak WebM / MKV /
+  VP9 / AV1, needs `unsafe`, other engines for macOS and Linux), GStreamer (a heavy runtime).
+  Scrobb alone plays audio only (Symphonia, rubato, cpal); its engine depends on its own ports
+  and Scrobb client, so the pieces are carried over rather than linked.
+- **Crate `av`** (desktop only; `media` uses it outside iOS and Android, like libheif):
+  `probe` (duration, displayed size with the display matrix and sample aspect, audio format;
+  cover art in an audio file is not video), `poster`, `FrameReader` (key seek, the frame at a
+  time, frames in order, RGBA or BGRA, scaled to a long edge, turned upright) and `Player`. The
+  player has a video thread (a `FrameReader` and a queue of 6 frames), an audio thread with its
+  own demuxer (two readers of one local file instead of sharing packets), FFmpeg's filter graph
+  (`atempo` for the speed, then the device's rate, layout and packed `f32`) and Scrobb's
+  lock-free ring buffer (`rt.rs`: chunk headers with a generation and a segment, a 5 ms ramp for
+  pause and seeks, the playhead in one atomic) feeding `cpal` in the device's own format
+  (`output.rs`). The clock runs on wall time and follows the audio playhead (it jumps past
+  150 ms, else closes 5 % of the gap per reading); without sound it is the wall clock. Seeks
+  raise a generation; stale frames and sound are dropped, never awaited. Exact seeks decode from
+  the key frame before the time; key seeks are for dragging and silence the sound until the
+  next exact seek or play.
+- **Fixed on the way.** In Scrobb's `rt.rs` a volume of zero acts like a pause (the buffer stops
+  draining, the playhead freezes): here only a pause holds the buffer, and mute plays on silently
+  (test `mute_plays_on_silently`). Worth porting back to Scrobb.
+- **Dependencies** (D-003 age rule): `ffmpeg-next` =9.0.0 with `ffmpeg-sys-next` 9.0.1 (9.1.x was
+  three days old), `cpal` =0.18.2, `rtrb` =0.4.1. `ffmpeg-sys-next` runs bindgen, so a build needs
+  libclang through `LIBCLANG_PATH` (LLVM from `winget install LLVM.LLVM` on this PC; the Windows
+  runners have it; `libclang-dev` on Linux, Xcode on macOS). `scripts/run-gpui-desktop.ps1` sets
+  it when LLVM is in its default folder.
+- **Windows build and packaging.** `vcpkg install
+  "ffmpeg[core,avcodec,avformat,avfilter,swresample,swscale,dav1d,zlib]:x64-windows"` (FFmpeg
+  9.0.2): native decoders for H.264, HEVC, VP8/9, ProRes, MPEG-4 and AV1 through dav1d; AAC, MP3,
+  FLAC, Opus, Vorbis, ALAC, PCM; MP4/MOV, MKV/WebM, AVI, MPEG-TS, FLV, Ogg, WAV. No `gpl` or
+  `nonfree` (no x264, x265, fdk-aac). `scripts/bundle-ffmpeg-dlls.ps1` stages the 8 DLLs (about
+  24 MB) with their notices, refuses a GPL or non-free install and checks the imports with
+  dumpbin; `package-gpui-desktop.ps1` calls it and `package-gpui-nsis.ps1` requires the DLLs. A
+  test (`the_windows_build_links_an_lgpl_ffmpeg`) fails if the linked FFmpeg is not LGPL.
+- **CI.** `.github/actions/ffmpeg-windows` installs that FFmpeg with three tries, keeps vcpkg's
+  binary cache between runs (only the first run builds it, about 8 minutes locally) and sets
+  `LIBCLANG_PATH`. Linux installs `libav*-dev` and `libasound2-dev`; macOS `brew install ffmpeg`.
+  Those system builds are GPL: fine to compile and test against, not to ship. **Open:** the
+  Linux tarball links the system FFmpeg (not bundled), and the macOS package script would bundle
+  Homebrew's GPL FFmpeg; both need an LGPL build before a release plays video there.
+- **By ear.** `cargo run -p av --example play -- <file> [seconds]` plays on the default device
+  and prints position, frames shown and a seek; checked on this PC (H.264 720p at 30 fps, MP3).
+- **Verify.** `cargo test -p av` (30 tests on the fixtures in `crates/av/fixtures`, made with
+  FFmpeg's `lavfi` sources: H.264 + AAC, VP9 + Opus, a rotated clip, a silent clip, MP3, FLAC,
+  WAV, Ogg Vorbis); `powershell -File scripts/bundle-ffmpeg-dlls.ps1`.

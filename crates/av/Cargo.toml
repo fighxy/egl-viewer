@@ -1,0 +1,18 @@
+[package]
+name = "av"
+description = "Video and audio on FFmpeg: probe, poster frames, frames at a time, and the player engine"
+version.workspace = true
+edition.workspace = true
+rust-version.workspace = true
+license.workspace = true
+publish.workspace = true
+
+[dependencies]
+ffmpeg-next.workspace = true
+cpal.workspace = true
+image.workspace = true
+rtrb.workspace = true
+thiserror.workspace = true
+
+[lints]
+workspace = true
