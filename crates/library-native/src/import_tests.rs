@@ -350,6 +350,17 @@ fn demo_library() {
     let parent = std::path::PathBuf::from(parent);
     let root = new_library(&parent, "Demo");
     let library = open(&root);
+    // `EGL_DEMO_SOURCE=<folder>` imports that folder instead (videos and audio to try, D-170).
+    if let Some(source) = std::env::var_os("EGL_DEMO_SOURCE") {
+        let done = import(
+            &library,
+            &[std::path::PathBuf::from(source)],
+            &Script::answering(DuplicateChoice::Skip),
+        );
+        library.close().unwrap();
+        eprintln!("{} items in {}", done.added, root.display());
+        return;
+    }
     let source = tempfile::tempdir().unwrap();
     mixed_files(source.path(), count);
     let done = import(
@@ -381,4 +392,82 @@ fn files_for_a_running_eagle_skip_what_an_import_skips() {
         files,
         [drop.join("a.png"), drop.join("nested/b.jpg"), single]
     );
+}
+
+#[test]
+fn videos_get_a_poster_and_their_duration() {
+    let dir = tempfile::tempdir().unwrap();
+    let root = new_library(dir.path(), "Clips");
+    let library = open(&root);
+    let fixtures = Path::new(env!("CARGO_MANIFEST_DIR")).join("../av/fixtures");
+    let clip = write_file(
+        dir.path(),
+        "clip.mp4",
+        &fs::read(fixtures.join("clip.mp4")).unwrap(),
+    );
+    let song = write_file(
+        dir.path(),
+        "tone.mp3",
+        &fs::read(fixtures.join("tone.mp3")).unwrap(),
+    );
+    let broken = write_file(dir.path(), "broken.webm", b"not a video");
+
+    let observer = Script::answering(DuplicateChoice::Skip);
+    let done = import(&library, &[clip, song, broken], &observer);
+
+    assert_eq!(done.added, 3);
+    assert_eq!(done.previews_total, 2, "audio keeps its placeholder");
+    assert_eq!(done.failed, 1);
+    assert!(done.failures[0].path.ends_with("broken.webm"));
+    let (width, height, duration): (i64, i64, f64) = library
+        .conn()
+        .query_row(
+            "SELECT width, height, duration FROM item WHERE ext = 'mp4' AND thumb_version = 1",
+            [],
+            |row| Ok((row.get(0)?, row.get(1)?, row.get(2)?)),
+        )
+        .unwrap();
+    assert_eq!((width, height), (64, 36));
+    assert!((duration - 2.0).abs() < 0.05, "{duration}");
+    assert_eq!(files_under(&root.join("thumbs")).len(), 1);
+    assert!(library.pending_previews(10).unwrap().is_empty());
+
+    // Audio: no thumbnail, but its length (D-169).
+    let song_length = || -> Option<f64> {
+        library
+            .conn()
+            .query_row("SELECT duration FROM item WHERE ext = 'mp3'", [], |row| {
+                row.get(0)
+            })
+            .unwrap()
+    };
+    assert!((song_length().unwrap() - 1.5).abs() < 0.1);
+    assert!(library.pending_durations(10).unwrap().is_empty());
+    // Added before lengths were read: the background pass on opening fills it in.
+    library
+        .conn()
+        .execute("UPDATE item SET duration = NULL WHERE ext = 'mp3'", [])
+        .unwrap();
+    assert_eq!(library.pending_durations(10).unwrap().len(), 1);
+    make_pending_previews(
+        &library,
+        2,
+        &Script::answering(DuplicateChoice::Skip),
+        &AtomicBool::new(false),
+    );
+    assert!((song_length().unwrap() - 1.5).abs() < 0.1);
+    // An unreadable audio file gets 0 and is not asked again.
+    library
+        .conn()
+        .execute("UPDATE item SET duration = NULL WHERE ext = 'mp3'", [])
+        .unwrap();
+    let id: String = library
+        .conn()
+        .query_row("SELECT id FROM item WHERE ext = 'mp3'", [], |row| {
+            row.get(0)
+        })
+        .unwrap();
+    library.store_duration(&id, None).unwrap();
+    assert_eq!(song_length(), Some(0.0));
+    assert!(library.pending_durations(10).unwrap().is_empty());
 }
