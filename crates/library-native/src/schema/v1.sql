@@ -45,7 +45,7 @@ CREATE TABLE folder (
   parent_id        TEXT REFERENCES folder(id) ON DELETE CASCADE,
   name             TEXT NOT NULL,
   description      TEXT NOT NULL DEFAULT '',
-  icon_color       TEXT,                            -- red, orange, yellow, green, aqua, blue, purple, pink or NULL
+  icon_color       TEXT,                            -- red, orange, yellow, green, aqua, blue, purple, pink, #rrggbb or NULL
   sort_key         TEXT NOT NULL,                   -- fractional index among siblings
   order_by         TEXT,                            -- sort override
   sort_ascending   INTEGER CHECK (sort_ascending IN (0, 1)),
@@ -90,7 +90,7 @@ CREATE TABLE folder_tag (
 CREATE TABLE tag_group (
   id          TEXT PRIMARY KEY,
   name        TEXT NOT NULL,
-  color       TEXT,
+  color       TEXT,                    -- a folder colour (name or #rrggbb) or NULL
   description TEXT NOT NULL DEFAULT '',
   sort_key    TEXT NOT NULL,
   eagle_id    TEXT UNIQUE

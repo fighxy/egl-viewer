@@ -23,7 +23,10 @@ pub use export::{
     ExportProgress, ExportRequest, ExportSelection, ExportState, ExportSummary,
     MIN_PASSPHRASE_CHARS, ZipEncryption,
 };
-pub use folder::{FOLDER_COLORS, FolderChange, order_key_between};
+pub use folder::{
+    FOLDER_COLORS, FolderChange, color_rgb, eagle_color, hex_color, is_valid_color,
+    order_key_between,
+};
 pub use maintenance::{
     Backup, BackupKind, LibraryCheck, LibraryStats, MissingOriginal, RepairOptions,
 };
@@ -34,6 +37,7 @@ pub use model::{
     PivPolicy, PivPrompt, PivWrap, PreviewEntry, ReadOnlyReason, RecoveryKey, SmartFolder, Tag,
     TagGroup, Thumbnail, TrashInfo,
 };
+pub use query::color::ColorFilter;
 pub use query::filter::{FolderIndex, matches_tags, shape_of, type_matches};
 pub use query::search::{SearchExpr, SearchMatch, fold, parse_search};
 pub use query::sort::{compare_names, compare_tags};

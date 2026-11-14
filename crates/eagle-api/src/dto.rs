@@ -81,6 +81,19 @@ pub struct ItemDto {
 }
 
 impl ItemDto {
+    /// The palette entries with a readable colour.
+    fn palette(&self) -> Vec<Palette> {
+        self.palettes
+            .iter()
+            .filter_map(|palette| {
+                palette.color().map(|color| Palette {
+                    color,
+                    ratio: palette.ratio,
+                })
+            })
+            .collect()
+    }
+
     pub fn to_lite(&self) -> ItemLite {
         ItemLite {
             id: ItemId(self.id.clone()),
@@ -97,6 +110,7 @@ impl ItemDto {
                 .collect(),
             folders: self.folders.clone(),
             palette0: self.palettes.first().and_then(|palette| palette.color()),
+            palette: self.palette(),
             added_at: self.modification_time,
             file_created_at: self.btime.or(self.modification_time),
             file_modified_at: self.mtime.or(self.modification_time),
@@ -121,16 +135,7 @@ impl ItemDto {
             folders: self.folders.clone().unwrap_or_default(),
             annotation: self.annotation.clone().unwrap_or_default(),
             url: self.url.clone().unwrap_or_default(),
-            palettes: self
-                .palettes
-                .iter()
-                .filter_map(|palette| {
-                    palette.color().map(|color| Palette {
-                        color,
-                        ratio: palette.ratio,
-                    })
-                })
-                .collect(),
+            palettes: self.palette(),
             added_at: self.modification_time,
             file_created_at: self.btime.or(self.modification_time),
             file_modified_at: self.mtime.or(self.modification_time),

@@ -4,28 +4,35 @@
 //! cargo run -p gpui-desktop
 //! cargo run -p gpui-desktop -- path\to\Library.eglib
 //! cargo run -p gpui-desktop -- --no-reopen
+//! cargo run -p gpui-desktop -- path\to\photo.jpg   # view a file on its own (D-180)
 //! ```
 
 // Release Windows builds are a GUI subsystem binary so Explorer / shortcuts / NSIS
 // do not open a console. Debug keeps the console for `cargo run` (D-153).
 #![cfg_attr(all(windows, not(debug_assertions)), windows_subsystem = "windows")]
 
+mod about;
 mod app;
 mod browse;
 mod commands;
 mod dialogs;
 mod dnd;
 mod export_rules;
+mod file_viewer;
 mod i18n;
 mod justified;
 mod library;
 mod menus;
+mod ops_colour;
 mod ops_details;
 mod ops_dnd;
 mod ops_export;
+mod ops_file_viewer;
 mod ops_items;
+mod ops_media;
 mod ops_mutations;
 mod ops_organize;
+mod ops_pages;
 mod ops_preview;
 mod ops_scroll;
 mod platform;
@@ -35,6 +42,7 @@ mod screens;
 mod settings_ui;
 mod theme;
 mod updater;
+mod view_window;
 
 use gpui_kit::assets::AllAssets;
 use gpui_kit::{AppContext as _, Pixels, Size, WindowBounds, WindowOptions, px, size};

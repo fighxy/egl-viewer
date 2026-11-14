@@ -116,6 +116,8 @@ jobs:
           if (-not (Test-Path -LiteralPath (Join-Path $bin "heif.dll"))) { throw "heif.dll missing under $bin" }
           if (-not (Test-Path -LiteralPath (Join-Path $bin "libde265.dll"))) { throw "libde265.dll missing under $bin" }
 
+      - uses: ./.github/actions/ffmpeg-windows
+
       - name: vcpkg env for libheif-sys
         shell: bash
         run: |
@@ -195,6 +197,13 @@ jobs:
             libclang-dev \
             libheif-dev \
             libheif-plugin-libde265 \
+            libavcodec-dev \
+            libavformat-dev \
+            libavfilter-dev \
+            libavutil-dev \
+            libswscale-dev \
+            libswresample-dev \
+            libasound2-dev \
             libpcsclite-dev \
             libwayland-dev \
             libxkbcommon-dev \
@@ -261,7 +270,7 @@ jobs:
           HOMEBREW_NO_INSTALL_UPGRADE: 1
         run: |
           set -euo pipefail
-          brew install pkg-config libheif
+          brew install pkg-config libheif ffmpeg
           prefix="$(brew --prefix libheif)"
           echo "PKG_CONFIG_PATH=$prefix/lib/pkgconfig${PKG_CONFIG_PATH:+:$PKG_CONFIG_PATH}" >> "$GITHUB_ENV"
           PKG_CONFIG_PATH="$prefix/lib/pkgconfig${PKG_CONFIG_PATH:+:$PKG_CONFIG_PATH}" pkg-config --exists libheif

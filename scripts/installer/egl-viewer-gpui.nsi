@@ -27,6 +27,59 @@
 !define PRODUCT_PUBLISHER "egl-viewer"
 !define UNINSTALL_REG "Software\Microsoft\Windows\CurrentVersion\Uninstall\${PRODUCT_DIR_NAME}"
 
+; Photos and videos the app views on their own (D-180). Per user, under HKCU\Software\Classes:
+; the app shows up in Explorer's "Open with" and in Settings > Default apps. Windows lets only
+; the user make it the default, so nothing here takes a type over.
+!define VIEWER_PROGID "egl-viewer-gpui.media"
+!define VIEWER_CAPABILITIES "Software\${PRODUCT_DIR_NAME}\Capabilities"
+!define VIEWER_APP_KEY "Software\Classes\Applications\${PRODUCT_EXE}"
+
+; The same list as `file_viewer::extensions` in crates/gpui-desktop (a test keeps them equal).
+!macro ForEachViewerExtension MACRO
+  !insertmacro ${MACRO} "jpg"
+  !insertmacro ${MACRO} "jpeg"
+  !insertmacro ${MACRO} "jpe"
+  !insertmacro ${MACRO} "jfif"
+  !insertmacro ${MACRO} "png"
+  !insertmacro ${MACRO} "gif"
+  !insertmacro ${MACRO} "webp"
+  !insertmacro ${MACRO} "tif"
+  !insertmacro ${MACRO} "tiff"
+  !insertmacro ${MACRO} "bmp"
+  !insertmacro ${MACRO} "dib"
+  !insertmacro ${MACRO} "svg"
+  !insertmacro ${MACRO} "svgz"
+  !insertmacro ${MACRO} "psd"
+  !insertmacro ${MACRO} "heic"
+  !insertmacro ${MACRO} "heif"
+  !insertmacro ${MACRO} "hif"
+  !insertmacro ${MACRO} "mp4"
+  !insertmacro ${MACRO} "m4v"
+  !insertmacro ${MACRO} "mov"
+  !insertmacro ${MACRO} "webm"
+  !insertmacro ${MACRO} "mkv"
+  !insertmacro ${MACRO} "avi"
+  !insertmacro ${MACRO} "wmv"
+  !insertmacro ${MACRO} "mpg"
+  !insertmacro ${MACRO} "mpeg"
+  !insertmacro ${MACRO} "mts"
+  !insertmacro ${MACRO} "m2ts"
+  !insertmacro ${MACRO} "flv"
+  !insertmacro ${MACRO} "f4v"
+  !insertmacro ${MACRO} "3gp"
+  !insertmacro ${MACRO} "ogv"
+!macroend
+
+!macro RegisterViewerExtension EXT
+  WriteRegStr HKCU "Software\Classes\.${EXT}\OpenWithProgids" "${VIEWER_PROGID}" ""
+  WriteRegStr HKCU "${VIEWER_APP_KEY}\SupportedTypes" ".${EXT}" ""
+  WriteRegStr HKCU "${VIEWER_CAPABILITIES}\FileAssociations" ".${EXT}" "${VIEWER_PROGID}"
+!macroend
+
+!macro UnregisterViewerExtension EXT
+  DeleteRegValue HKCU "Software\Classes\.${EXT}\OpenWithProgids" "${VIEWER_PROGID}"
+!macroend
+
 Unicode true
 ManifestDPIAware true
 RequestExecutionLevel user
@@ -65,6 +118,21 @@ Section "Install"
 
   WriteUninstaller "$INSTDIR\Uninstall.exe"
 
+  ; Opening a photo or video from Explorer runs `gpui-desktop.exe "<file>"` (D-180).
+  WriteRegStr HKCU "Software\Classes\${VIEWER_PROGID}" "" "egl-viewer photo or video"
+  WriteRegStr HKCU "Software\Classes\${VIEWER_PROGID}\DefaultIcon" "" "$INSTDIR\${PRODUCT_EXE},0"
+  WriteRegStr HKCU "Software\Classes\${VIEWER_PROGID}\shell\open\command" "" \
+    '"$INSTDIR\${PRODUCT_EXE}" "%1"'
+  WriteRegStr HKCU "${VIEWER_APP_KEY}" "FriendlyAppName" "${PRODUCT_NAME}"
+  WriteRegStr HKCU "${VIEWER_APP_KEY}\shell\open\command" "" '"$INSTDIR\${PRODUCT_EXE}" "%1"'
+  WriteRegStr HKCU "${VIEWER_CAPABILITIES}" "ApplicationName" "${PRODUCT_NAME}"
+  WriteRegStr HKCU "${VIEWER_CAPABILITIES}" "ApplicationDescription" \
+    "View photos and videos, and keep them in libraries."
+  !insertmacro ForEachViewerExtension RegisterViewerExtension
+  WriteRegStr HKCU "Software\RegisteredApplications" "${PRODUCT_NAME}" "${VIEWER_CAPABILITIES}"
+  ; SHCNE_ASSOCCHANGED: Explorer picks the new handler up without a sign-out.
+  System::Call "shell32::SHChangeNotify(i 0x08000000, i 0, p 0, p 0)"
+
   CreateDirectory "$SMPROGRAMS\${PRODUCT_NAME}"
   CreateShortCut "$SMPROGRAMS\${PRODUCT_NAME}\${PRODUCT_NAME}.lnk" \
     "$INSTDIR\${PRODUCT_EXE}" "" "$INSTDIR\${PRODUCT_EXE}" 0
@@ -83,6 +151,12 @@ Section "Uninstall"
   Delete "$SMPROGRAMS\${PRODUCT_NAME}\Uninstall.lnk"
   RMDir "$SMPROGRAMS\${PRODUCT_NAME}"
   Delete "$DESKTOP\${PRODUCT_NAME}.lnk"
+
+  !insertmacro ForEachViewerExtension UnregisterViewerExtension
+  DeleteRegKey HKCU "Software\Classes\${VIEWER_PROGID}"
+  DeleteRegKey HKCU "${VIEWER_APP_KEY}"
+  DeleteRegValue HKCU "Software\RegisteredApplications" "${PRODUCT_NAME}"
+  System::Call "shell32::SHChangeNotify(i 0x08000000, i 0, p 0, p 0)"
 
   DeleteRegKey HKCU "${UNINSTALL_REG}"
   DeleteRegKey HKCU "Software\${PRODUCT_DIR_NAME}"

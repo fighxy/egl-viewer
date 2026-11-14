@@ -6,7 +6,8 @@ use image::ImageFormat;
 
 use crate::fixtures::{self, every_format};
 use crate::{
-    Kind, MediaError, THUMBNAIL_SIZE, decode_full, has_preview, kind, render, render_bytes,
+    Kind, MediaError, THUMBNAIL_SIZE, decode_full, has_duration_only, has_preview, kind, render,
+    render_bytes,
 };
 
 fn write(dir: &std::path::Path, name: &str, bytes: &[u8]) -> std::path::PathBuf {
@@ -174,11 +175,21 @@ fn heic_extensions_are_previewed_and_broken_files_fail_cleanly() {
 #[test]
 fn other_formats_have_no_preview_and_broken_files_fail_cleanly() {
     let dir = tempfile::tempdir().unwrap();
-    for ext in ["avif", "mp4", "pdf", "txt", ""] {
+    for ext in ["avif", "mp3", "pdf", "txt", ""] {
         assert_eq!(kind(ext), Kind::Other, "{ext}");
     }
+    // A broken video is a decode error with FFmpeg (D-168), a file without a preview without.
     let clip = write(dir.path(), "clip.mp4", b"not decoded");
-    assert!(matches!(render(&clip, "mp4"), Err(MediaError::Unsupported)));
+    let expected = |result: Result<_, MediaError>| {
+        if cfg!(feature = "video") {
+            matches!(result, Err(MediaError::Decode(_)))
+        } else {
+            matches!(result, Err(MediaError::Unsupported))
+        }
+    };
+    assert!(expected(render(&clip, "mp4")));
+    let song = write(dir.path(), "song.mp3", b"not decoded");
+    assert!(matches!(render(&song, "mp3"), Err(MediaError::Unsupported)));
 
     let broken = write(dir.path(), "broken.jpg", b"\xFF\xD8\xFF garbage");
     assert!(matches!(render(&broken, "jpg"), Err(MediaError::Decode(_))));
@@ -255,4 +266,75 @@ fn decode_full_refuses_svg_and_junk() {
         Err(MediaError::Unsupported)
     ));
     assert!(decode_full(b"not a heic", "heic").is_err());
+}
+
+/// A clip from the `av` fixtures (H.264 + AAC, 64×36, red then blue).
+#[cfg(feature = "video")]
+fn av_fixture(name: &str) -> std::path::PathBuf {
+    std::path::Path::new(env!("CARGO_MANIFEST_DIR"))
+        .join("../av/fixtures")
+        .join(name)
+}
+
+#[cfg(feature = "video")]
+#[test]
+fn videos_get_a_poster_frame_and_duration() {
+    for ext in ["mp4", "MOV", "webm", "mkv"] {
+        assert_eq!(kind(ext), Kind::Video, "{ext}");
+        assert!(has_preview(ext), "{ext}");
+    }
+    assert!(crate::preview_extensions().any(|ext| ext == "webm"));
+    let rendered = render(&av_fixture("clip.mp4"), "mp4").unwrap();
+    assert_eq!((rendered.width, rendered.height), (64, 36));
+    assert!((rendered.duration.unwrap() - 2.0).abs() < 0.05);
+    assert!(rendered.thumbnail.webp.starts_with(b"RIFF"));
+    // The poster is red: the palette leads with it.
+    let first = &rendered.palette[0];
+    assert!(
+        first.color[0] > 180 && first.color[2] < 80,
+        "{:?}",
+        first.color
+    );
+    assert!(rendered.exif.is_none());
+    // Turned by its display matrix.
+    let turned = render(&av_fixture("rotated.mp4"), "mp4").unwrap();
+    assert_eq!((turned.width, turned.height), (36, 64));
+    // Locked originals are only in memory: no preview, and an error marks the item.
+    assert!(matches!(
+        render_bytes(b"whatever", "mp4"),
+        Err(MediaError::Decode(_))
+    ));
+    // Images have no duration.
+    let dir = tempfile::tempdir().unwrap();
+    let png = write(
+        dir.path(),
+        "a.png",
+        &fixtures::raster(image::ImageFormat::Png, 4, 4, 1),
+    );
+    assert_eq!(render(&png, "png").unwrap().duration, None);
+}
+
+#[cfg(feature = "video")]
+#[test]
+fn audio_files_have_a_length_and_no_thumbnail() {
+    for ext in ["mp3", "FLAC", "wav", "ogg", "m4a"] {
+        assert!(has_duration_only(ext), "{ext}");
+        assert!(!has_preview(ext), "{ext}");
+    }
+    assert!(!has_duration_only("mp4") && !has_duration_only("png"));
+    assert!(crate::duration_extensions().any(|ext| ext == "opus"));
+    let seconds = crate::duration(&av_fixture("tone.mp3")).unwrap();
+    assert!((seconds - 1.5).abs() < 0.1, "{seconds}");
+    assert_eq!(crate::duration(&av_fixture("README.md")), None);
+}
+
+/// Without FFmpeg (the iOS and Android core) videos and audio are plain files (D-181).
+#[cfg(not(feature = "video"))]
+#[test]
+fn without_video_videos_and_audio_have_no_preview() {
+    for ext in ["mp4", "webm", "mp3"] {
+        assert_eq!(kind(ext), Kind::Other, "{ext}");
+        assert!(!has_preview(ext) && !has_duration_only(ext), "{ext}");
+    }
+    assert_eq!(crate::duration_extensions().count(), 0);
 }

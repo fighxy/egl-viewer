@@ -50,7 +50,8 @@ fn smart_folders_form_their_own_tree() {
         &library,
         "Colours",
         None,
-        json!([{ "match": "AND", "rules": [{ "property": "color", "method": "similar", "value": "#f00" }] }]),
+        // `color similar` is evaluated since D-176; a regex on names still is not.
+        json!([{ "match": "AND", "rules": [{ "property": "name", "method": "regex", "value": "^a" }] }]),
     );
     let tree = library.smart_folders().unwrap();
     assert_eq!(
@@ -63,7 +64,7 @@ fn smart_folders_form_their_own_tree() {
     assert_eq!(tree[0].children[0].name, "Swiss");
     assert_eq!(tree[0].conditions, tagged_rule("Poster"));
     assert!(tree[0].unsupported.is_empty());
-    assert_eq!(tree[2].unsupported, ["color similar"]);
+    assert_eq!(tree[2].unsupported, ["name regex"]);
 
     library
         .save_smart_folder(&SmartFolderChange::Update {

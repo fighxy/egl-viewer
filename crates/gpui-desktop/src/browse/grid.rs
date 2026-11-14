@@ -25,12 +25,32 @@ use crate::justified::{self, CellDimensions, JustifiedLayout, PADDING, pack_just
 use crate::library::{OpenLibraryState, Place, Selection, cell_thumbnail};
 use crate::ops_dnd::DropIntent;
 use crate::ops_items;
+use crate::ops_media::{SCRUB_STRIPS, scrubs_on_hover};
 use crate::ops_preview::plays_on_hover;
 
 #[derive(Clone)]
 pub struct ListedItem {
     pub cell: ItemCell,
     pub thumb: Option<Arc<Image>>,
+}
+
+/// The thumbnails of the view's pages that are loaded (D-167).
+pub type ListedPages = crate::view_window::Paged<ListedItem>;
+
+/// A placeholder row of the list for a position whose page is not here yet.
+fn placeholder_row(
+    index: usize,
+    height: Pixels,
+    theme: &gpui_kit::component::theme::Theme,
+) -> gpui_kit::AnyElement {
+    h_flex()
+        .id(SharedString::from(format!("list-{index}")))
+        .w_full()
+        .h(height)
+        .px_2()
+        .py_1()
+        .child(div().size(px(40.)).rounded(theme.radius).bg(theme.muted))
+        .into_any_element()
 }
 
 pub fn load_listed(session: &Session, cells: &[ItemCell]) -> Vec<ListedItem> {
@@ -77,7 +97,7 @@ pub fn build_justified(state: &OpenLibraryState, container_width: f32) -> Justif
 #[allow(clippy::too_many_arguments)]
 pub fn render_items(
     state: &OpenLibraryState,
-    items: &[ListedItem],
+    items: &ListedPages,
     locale: Locale,
     theme: &gpui_kit::component::theme::Theme,
     entity: Entity<RootApp>,
@@ -86,7 +106,7 @@ pub fn render_items(
     container_width: f32,
     scroll: &VirtualListScrollHandle,
 ) -> gpui_kit::AnyElement {
-    if items.is_empty() {
+    if state.cells.is_empty() {
         return div()
             .id("items-empty")
             .size_full()
@@ -103,7 +123,7 @@ pub fn render_items(
     let folder_id = state.place.open_folder_id().map(str::to_owned);
     match state.browse.view_mode {
         ViewMode::List => render_virtual_list(
-            items,
+            state.cells.len(),
             &state.selection,
             theme,
             entity,
@@ -116,7 +136,7 @@ pub fn render_items(
         ViewMode::Grid => {
             if let Some(layout) = layout {
                 render_justified_virtual(
-                    items,
+                    state.cells.len(),
                     &state.selection,
                     state.browse.show_names,
                     theme,
@@ -204,7 +224,7 @@ fn attach_rubber_handlers(
 
 #[allow(clippy::too_many_arguments)]
 fn render_virtual_list(
-    items: &[ListedItem],
+    total: usize,
     selection: &Selection,
     theme: &gpui_kit::component::theme::Theme,
     entity: Entity<RootApp>,
@@ -215,18 +235,22 @@ fn render_virtual_list(
     scroll: &VirtualListScrollHandle,
 ) -> gpui_kit::AnyElement {
     let row_h = px(48.);
-    let sizes = Rc::new(vec![size(px(100.), row_h); items.len()]);
+    let sizes = Rc::new(vec![size(px(100.), row_h); total]);
     let overlay = rubber_overlay(rubber, theme, (-scroll.offset().y.as_f32()).max(0.0));
     let list_entity = entity.clone();
     let list = v_virtual_list(entity.clone(), "item-list-virtual", sizes, {
-        let items = items.to_vec();
         let selection = selection.clone();
         let theme = theme.clone();
         let folder_id = folder_id.clone();
-        move |this, range, _, _| {
+        move |this, range, _, cx| {
+            // These rows are on screen: fetch their pages if they are not here yet (D-167).
+            this.show_range(range.clone(), cx);
             range
                 .map(|index| {
-                    let item = &items[index];
+                    let Some(item) = this.items.get(index).cloned() else {
+                        return placeholder_row(index, row_h, &theme);
+                    };
+                    let item = &item;
                     let selected = selection.contains(&item.cell.id);
                     let focused = selection.focus == Some(index);
                     let entity = list_entity.clone();
@@ -322,7 +346,7 @@ fn render_virtual_list(
 
 #[allow(clippy::too_many_arguments)]
 fn render_justified_virtual(
-    items: &[ListedItem],
+    _total: usize,
     selection: &Selection,
     show_names: bool,
     theme: &gpui_kit::component::theme::Theme,
@@ -346,11 +370,24 @@ fn render_justified_virtual(
     let rows = layout.rows.clone();
     let list_entity = entity.clone();
     let list = v_virtual_list(entity.clone(), "justified-rows", sizes, {
-        let items = items.to_vec();
         let selection = selection.clone();
         let theme = theme.clone();
         let folder_id = folder_id.clone();
-        move |this, range, _, _| {
+        move |this, range, _, cx| {
+            // The rows on screen hold these positions: fetch their pages if needed (D-167).
+            let first = rows
+                .get(range.start)
+                .and_then(|row| row.cells.first())
+                .map(|cell| cell.index);
+            let last = range
+                .end
+                .checked_sub(1)
+                .and_then(|row_ix| rows.get(row_ix))
+                .and_then(|row| row.cells.last())
+                .map(|cell| cell.index + 1);
+            if let (Some(first), Some(last)) = (first, last) {
+                this.show_range(first..last, cx);
+            }
             range
                 .filter_map(|row_ix| {
                     let row = rows.get(row_ix)?;
@@ -362,13 +399,41 @@ fn render_justified_virtual(
                         .h(px(row.stride))
                         .children(row.cells.iter().map(|cell| {
                             let index = cell.index;
-                            let item = &items[index];
+                            let Some(item) = this.items.get(index).cloned() else {
+                                // Not fetched yet: an empty tile of the final size.
+                                return div()
+                                    .id(SharedString::from(format!("grid-{index}")))
+                                    .absolute()
+                                    .left(px(PADDING + cell.left))
+                                    .top(px(0.))
+                                    .w(px(cell.width))
+                                    .h(px(cell.height))
+                                    .rounded(px(style::THUMB_RADIUS))
+                                    .bg(theme.muted)
+                                    .into_any_element();
+                            };
+                            let item = &item;
                             let selected = selection.contains(&item.cell.id);
                             let focused = selection.focus == Some(index);
                             let entity = entity.clone();
                             let title = format!("{}.{}", item.cell.name, item.cell.ext);
+                            // A video under the pointer shows the frame there (D-170).
+                            let scrub = this.scrub_frame(&item.cell);
+                            let scrub_frame = scrub.as_ref().and_then(|(frame, _)| frame.clone());
                             // A GIF under the pointer plays in its cell (D-154).
                             let preview = match this.hover_frames(&item.cell) {
+                                _ if scrub_frame.is_some() => div()
+                                    .w(px(cell.width))
+                                    .h(px(cell.height))
+                                    .children(scrub_frame.clone().map(|frame| {
+                                        animation_frame(
+                                            frame,
+                                            0,
+                                            gpui_kit::ObjectFit::Cover,
+                                            style::THUMB_RADIUS,
+                                        )
+                                    }))
+                                    .into_any_element(),
                                 Some((frames, frame)) => div()
                                     .w(px(cell.width))
                                     .h(px(cell.height))
@@ -423,6 +488,27 @@ fn render_justified_virtual(
                                     });
                                 });
                             }
+                            let scrubs = scrubs_on_hover(&item.cell);
+                            if scrubs {
+                                let hover = list_entity.clone();
+                                let hovered_cell = item.cell.clone();
+                                cell_el = cell_el.on_hover(move |hovered, _, cx| {
+                                    if !*hovered {
+                                        hover.update(cx, |this, cx| {
+                                            this.hover_scrub(&hovered_cell, None, 0.0, cx);
+                                        });
+                                    }
+                                });
+                            }
+                            let strips = scrubs.then(|| {
+                                scrub_strips(
+                                    &item.cell,
+                                    cell.width.max(cell.height),
+                                    list_entity.clone(),
+                                )
+                            });
+                            let badge = item.cell.duration_ms.map(duration_badge);
+                            let progress = scrub.map(|(_, fraction)| fraction);
                             if reorderable && let Some(folder_id) = folder_id.clone() {
                                 cell_el = attach_cell_drop(
                                     cell_el,
@@ -441,6 +527,11 @@ fn render_justified_virtual(
                                         .h(px(cell.height))
                                         .overflow_hidden()
                                         .child(preview)
+                                        .children(badge)
+                                        .when_some(progress, |el, fraction| {
+                                            el.child(scrub_progress(fraction))
+                                        })
+                                        .children(strips)
                                         .when(selected || focused, |el| {
                                             el.child(
                                                 div()
@@ -508,7 +599,7 @@ fn render_justified_virtual(
 
 fn render_wrap_grid(
     state: &OpenLibraryState,
-    items: &[ListedItem],
+    items: &ListedPages,
     selection: &Selection,
     theme: &gpui_kit::component::theme::Theme,
     entity: Entity<RootApp>,
@@ -525,20 +616,21 @@ fn render_wrap_grid(
         .flex_wrap()
         .gap_2()
         .p_2()
-        .children(items.iter().enumerate().map(|(index, item)| {
+        .children(items.loaded().map(|(index, item)| {
             let selected = selection.contains(&item.cell.id);
             let entity_click = entity.clone();
             let entity_drag = entity.clone();
             let entity_drop = entity.clone();
             let title = format!("{}.{}", item.cell.name, item.cell.ext);
             let preview = thumb_or_palette(item, size, theme.muted, theme.muted_foreground);
-            let ids = if selected && selection.count() > 1 {
-                selection.ids.iter().cloned().map(ItemId).collect()
-            } else {
-                vec![item.cell.id.clone()]
-            };
-            let payload =
-                DragPayload::items(view_id, ids, title.clone()).with_thumb(item.thumb.clone());
+            // A cell of a larger selection drags the selection (a Select All as a flag, D-167).
+            let payload = match selection.target(view_id) {
+                Some(target) if selected && selection.count() > 1 => {
+                    DragPayload::selection(target, selection.count(), title.clone())
+                }
+                _ => DragPayload::items(view_id, vec![item.cell.id.clone()], title.clone()),
+            }
+            .with_thumb(item.thumb.clone());
             let mut cell = v_flex()
                 .id(SharedString::from(format!("grid-{index}")))
                 .w(px(size + 8.0))
@@ -645,6 +737,59 @@ where
             this.handle_drop(payload, intent, cx);
         });
     })
+}
+
+/// The length of a video or audio item in the bottom right corner
+/// of its cell (D-169).
+fn duration_badge(ms: u64) -> gpui_kit::AnyElement {
+    div()
+        .absolute()
+        .right(px(4.))
+        .bottom(px(4.))
+        .px(px(4.))
+        .rounded(px(3.))
+        .bg(gpui_kit::black().opacity(0.6))
+        .text_color(gpui_kit::white())
+        .text_size(px(10.))
+        .line_height(px(14.))
+        .child(crate::browse::media_bar::format_time(ms as f64 / 1000.0))
+        .into_any_element()
+}
+
+/// How far the pointer is along a scrubbed video: a thin line at the bottom of the cell.
+fn scrub_progress(fraction: f32) -> gpui_kit::AnyElement {
+    div()
+        .absolute()
+        .left_0()
+        .bottom_0()
+        .h(px(2.))
+        .w(gpui_kit::relative(fraction.clamp(0.0, 1.0)))
+        .bg(gpui_kit::white().opacity(0.9))
+        .into_any_element()
+}
+
+/// Invisible strips over a video's cell: the one under the pointer picks the frame shown
+/// (D-170). Strips need no bounds or layout maths and leave clicks to the cell.
+fn scrub_strips(cell: &ItemCell, edge: f32, entity: Entity<RootApp>) -> gpui_kit::AnyElement {
+    h_flex()
+        .absolute()
+        .inset_0()
+        .children((0..SCRUB_STRIPS).map(|strip| {
+            let entity = entity.clone();
+            let cell = cell.clone();
+            div()
+                .id(("scrub-strip", strip))
+                .flex_1()
+                .h_full()
+                .on_hover(move |hovered, _, cx| {
+                    if *hovered {
+                        entity.update(cx, |this, cx| {
+                            this.hover_scrub(&cell, Some(strip), edge, cx);
+                        });
+                    }
+                })
+        }))
+        .into_any_element()
 }
 
 /// A thumbnail that covers its whole cell. The justified layout gives every cell the

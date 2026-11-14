@@ -27,7 +27,7 @@ use library_native::DuplicateChoice;
 
 use crate::browse::details::{self, DetailsModel};
 use crate::browse::filter_menus;
-use crate::browse::grid::{self, ListedItem};
+use crate::browse::grid;
 use crate::browse::picker::{Picker, PickerKind};
 use crate::browse::preview::{self, PreviewState, SpaceGesture};
 use crate::browse::preview_cache::PreviewCache;
@@ -75,7 +75,12 @@ pub struct RootApp {
     pub(crate) theme_pref: Theme,
     pub(crate) status: SharedString,
     pub(crate) library: Option<OpenLibraryState>,
-    pub(crate) items: Vec<ListedItem>,
+    /// The thumbnails of the view's pages on screen (D-167).
+    pub(crate) items: crate::browse::grid::ListedPages,
+    /// Bumped whenever the view's pages are reset, so a page fetched before is dropped.
+    pub(crate) view_generation: u64,
+    /// Pages being fetched, by generation.
+    pub(crate) loading_pages: std::collections::HashSet<(u64, usize)>,
     pub(crate) justified: Option<JustifiedLayout>,
     grid_width: f32,
     grid_origin: (f32, f32),
@@ -100,6 +105,10 @@ pub struct RootApp {
     show_create: bool,
     pub(crate) details: DetailsModel,
     pub(crate) preview: Option<PreviewState>,
+    /// Loose files opened from Explorer: the window only views them, no library (D-180).
+    pub(crate) loose: Option<crate::file_viewer::LooseFiles>,
+    /// The window title last set while viewing loose files.
+    pub(crate) viewer_title: Option<String>,
     /// Decoded previews of the open item and its neighbours (D-143).
     pub(crate) preview_cache: PreviewCache,
     /// The open item drawn at a rotation, owned apart from the cache (D-058).
@@ -108,17 +117,33 @@ pub struct RootApp {
     pub(crate) gif_ticking: bool,
     /// The animated GIF playing under the pointer in the grid (D-154).
     pub(crate) hover_gif: Option<crate::ops_preview::HoverGif>,
+    /// The video or audio item playing in the preview (D-170).
+    pub(crate) media: Option<crate::ops_media::MediaPreview>,
+    /// A task shows due video frames while something plays (D-170).
+    pub(crate) media_ticking: bool,
+    /// Volume and mute of the player, kept from item to item for the session.
+    pub(crate) media_volume: f32,
+    pub(crate) media_muted: bool,
+    /// The video scrubbed under the pointer in the grid (D-170).
+    pub(crate) hover_scrub: Option<crate::ops_media::HoverScrub>,
     /// Scroll position of the items view (grid rows or list rows) (D-145).
     pub(crate) grid_scroll: VirtualListScrollHandle,
     /// The view the scroll position belongs to; another view starts at the top.
     pub(crate) scrolled_view: Option<ViewKey>,
     space_gesture: Option<SpaceGesture>,
     pub(crate) search_input: Entity<InputState>,
+    /// Raised by every edit of the search field; a delayed search runs only if still current
+    /// (D-179).
+    pub(crate) search_generation: u64,
     pub(crate) imports_open: bool,
+    /// Finished imports whose report was shown; the button stops asking for them (D-175).
+    pub(crate) imports_seen: std::collections::HashSet<u64>,
     pub(crate) pending_duplicate: Option<(u64, DuplicateNotice)>,
     pub(crate) emptying_trash: bool,
     pub(crate) empty_trash_progress: (u32, u32),
     pub(crate) empty_trash_result: Option<EmptyTrashResult>,
+    /// The progress and result window of Empty Trash (D-172).
+    pub(crate) empty_trash_dialog: Option<crate::browse::empty_trash_dialog::EmptyTrashDialog>,
     pub(crate) tag_vocabulary: Vec<library_core::Tag>,
     pub(crate) tag_groups: Vec<library_core::TagGroup>,
     pub(crate) extensions: Vec<library_core::ExtensionCount>,
@@ -176,6 +201,22 @@ pub struct RootApp {
     /// The toolbar's thumbnail size slider (D-141).
     thumb_slider: Entity<SliderState>,
     _thumb_slider_sub: Option<Subscription>,
+    /// Any colour for the open folder, behind the palette dots (D-159).
+    /// Hue, saturation, lightness and hex of the Colour filter (D-178).
+    pub(crate) custom_colour: crate::ops_colour::CustomColour,
+    pub(crate) folder_color_picker: Entity<gpui_kit::component::color_picker::ColorPickerState>,
+    /// A colour dragged in the open picker, written once it closes: (folder id, colour).
+    pub(crate) pending_folder_color: Option<(String, String)>,
+    pub(crate) folder_color_picker_open: bool,
+    _folder_color_subs: Vec<Subscription>,
+    /// The name popover under a left-bar ⊕: New Folder or Save Smart Folder (D-161, D-163).
+    pub(crate) name_prompt: Option<crate::ops_mutations::NamePrompt>,
+    pub(crate) name_input: Entity<InputState>,
+    _name_input_sub: Option<Subscription>,
+    /// The Empty Trash confirmation open at the Trash row, with what it would delete (D-165).
+    pub(crate) trash_confirm: Option<library_core::TrashInfo>,
+    /// Tag groups unfolded in the left bar, by id; `UNGROUPED` is the ungrouped tags (D-162).
+    pub(crate) expanded_tag_groups: std::collections::HashSet<String>,
 }
 
 /// One step of Larger / Smaller Thumbnails, kept inside the allowed sizes.
@@ -247,7 +288,9 @@ impl RootApp {
             theme_pref: prefs.theme,
             status: SharedString::from(""),
             library: None,
-            items: Vec::new(),
+            items: Default::default(),
+            view_generation: 0,
+            loading_pages: Default::default(),
             justified: None,
             grid_width: 800.0,
             grid_origin: (0.0, 0.0),
@@ -276,19 +319,29 @@ impl RootApp {
                 stack_thumbs: Vec::new(),
             },
             preview: None,
+            loose: None,
+            viewer_title: None,
             preview_cache: PreviewCache::default(),
             preview_rotated: None,
             gif_ticking: false,
             hover_gif: None,
+            media: None,
+            media_ticking: false,
+            media_volume: 1.0,
+            media_muted: false,
+            hover_scrub: None,
             grid_scroll: VirtualListScrollHandle::new(),
             scrolled_view: None,
             space_gesture: None,
             search_input: search_input.clone(),
+            search_generation: 0,
             imports_open: false,
+            imports_seen: std::collections::HashSet::new(),
             pending_duplicate: None,
             emptying_trash: false,
             empty_trash_progress: (0, 0),
             empty_trash_result: None,
+            empty_trash_dialog: None,
             tag_vocabulary: Vec::new(),
             tag_groups: Vec::new(),
             extensions: Vec::new(),
@@ -337,7 +390,29 @@ impl RootApp {
             tag_clipboard: Vec::new(),
             thumb_slider: thumb_slider.clone(),
             _thumb_slider_sub: None,
+            custom_colour: crate::ops_colour::CustomColour::new(window, cx),
+            folder_color_picker: cx
+                .new(|cx| gpui_kit::component::color_picker::ColorPickerState::new(window, cx)),
+            pending_folder_color: None,
+            folder_color_picker_open: false,
+            _folder_color_subs: Vec::new(),
+            name_prompt: None,
+            name_input: cx.new(|cx| InputState::new(window, cx)),
+            _name_input_sub: None,
+            trash_confirm: None,
+            expanded_tag_groups: std::iter::once(crate::browse::sidebar::UNGROUPED.to_owned())
+                .collect(),
         };
+        app._folder_color_subs = app.subscribe_folder_color_picker(window, cx);
+        app._name_input_sub = Some(cx.subscribe_in(
+            &app.name_input.clone(),
+            window,
+            |this, _, event: &InputEvent, window, cx| {
+                if let InputEvent::PressEnter { .. } = event {
+                    this.confirm_name_prompt(window, cx);
+                }
+            },
+        ));
         app._thumb_slider_sub = Some(cx.subscribe(
             &thumb_slider,
             |this, _, event: &SliderEvent, cx| match event {
@@ -363,9 +438,15 @@ impl RootApp {
         app._search_sub = Some(cx.subscribe(
             &search_input,
             |this, input, event: &InputEvent, cx| {
-                if matches!(event, InputEvent::PressEnter { .. } | InputEvent::Blur) {
-                    let text = input.read(cx).value().to_string();
-                    this.apply_search(text, cx);
+                let text = input.read(cx).value().to_string();
+                match event {
+                    // Enter, leaving the field: at once.
+                    InputEvent::PressEnter { .. } | InputEvent::Blur => {
+                        this.apply_search_if_changed(text, cx);
+                    }
+                    // Typing (and the clear button): once the keys pause (D-179).
+                    InputEvent::Change => this.schedule_search(text, cx),
+                    _ => {}
                 }
             },
         ));
@@ -386,7 +467,35 @@ impl RootApp {
             },
         ));
 
-        app.ensure_login_gate();
+        let target = crate::file_viewer::startup_target(std::env::args_os().skip(1));
+        if let Some(crate::file_viewer::StartupTarget::File(path)) = target {
+            // Viewing a file opens no library and takes no lock; nothing else starts (D-180).
+            app.startup_done = true;
+            app.open_loose(path, window, cx);
+        } else {
+            app.ensure_login_gate();
+            app.startup(target, window, cx);
+        }
+
+        let entity = cx.entity();
+        window.on_window_should_close(cx, move |window, cx| {
+            entity.update(cx, |this, cx| this.request_quit(window, cx))
+        });
+        app.start_poll_loop(cx);
+        if app.loose.is_none() {
+            window.set_window_title(&window_title(None));
+        }
+        app
+    }
+
+    /// The usual start: reopen the last library, or the one named on the command line.
+    fn startup(
+        &mut self,
+        target: Option<crate::file_viewer::StartupTarget>,
+        window: &mut Window,
+        cx: &mut Context<Self>,
+    ) {
+        let app = self;
         // Drop Spike/Fixture (and other) rows whose folders were deleted after tests or moves.
         let _ = app.session.prune_missing_recent();
         let startup = app.session.startup(platform::skip_reopen());
@@ -398,22 +507,17 @@ impl RootApp {
             if let Some(info) = startup.library {
                 app.adopt_library(info, window, cx);
             }
-            if let Some(arg) = std::env::args().nth(1).map(PathBuf::from)
-                && arg.is_dir()
-            {
-                app.open_path(arg, window, cx);
+            if let Some(crate::file_viewer::StartupTarget::Library(path)) = target {
+                app.open_path(path, window, cx);
             }
             app.schedule_silent_update_check(cx);
         } else {
             app.pending_startup_library = startup.library;
             app.pending_startup_notice = startup.notice;
         }
+    }
 
-        let entity = cx.entity();
-        window.on_window_should_close(cx, move |window, cx| {
-            entity.update(cx, |this, cx| this.request_quit(window, cx))
-        });
-
+    fn start_poll_loop(&mut self, cx: &mut Context<Self>) {
         // Poll Session Emit mailbox → Entity notify (views-invalidated / import).
         cx.spawn(async move |this, cx| {
             loop {
@@ -436,12 +540,7 @@ impl RootApp {
             }
         })
         .detach();
-
-        window.set_window_title(&window_title(None));
-        app
     }
-
-    const LICENSES: &'static str = include_str!("../assets/THIRD_PARTY_LICENSES.txt");
 
     pub(crate) fn schedule_silent_update_check(&mut self, cx: &mut Context<Self>) {
         if self.update_check_started {
@@ -570,6 +669,18 @@ impl RootApp {
         }
     }
 
+    /// Opens or closes the Imports panel. Opening or closing it counts as reading the reports of
+    /// the runs that have finished, so the toolbar stops pointing at them (D-175).
+    pub(crate) fn set_imports_open(&mut self, open: bool, cx: &mut Context<Self>) {
+        for progress in self.session.imports() {
+            if !crate::browse::imports::is_running(&progress) {
+                self.imports_seen.insert(progress.id);
+            }
+        }
+        self.imports_open = open;
+        cx.notify();
+    }
+
     fn poll_empty_trash(&mut self, cx: &mut Context<Self>) {
         let Some(result) = self.empty_trash_result.clone() else {
             return;
@@ -578,6 +689,9 @@ impl RootApp {
         if let Some(finished) = finished {
             self.emptying_trash = false;
             self.empty_trash_result = None;
+            if let Some(dialog) = self.empty_trash_dialog.as_mut() {
+                dialog.outcome = Some(finished.clone());
+            }
             match finished {
                 Ok(n) => {
                     self.status = SharedString::from(t_n(self.locale, "trash.emptied", n));
@@ -644,14 +758,12 @@ impl RootApp {
                     }
                 }
                 Event::ImportProgress(progress) => {
+                    // The same words as the Imports panel (D-175).
                     self.status = SharedString::from(format!(
-                        "{} {}/{} (+{} dup={} fail={})",
-                        t(self.locale, "import.progress"),
-                        progress.processed,
-                        progress.total,
-                        progress.added,
-                        progress.duplicates,
-                        progress.failed
+                        "{} · {} · {}",
+                        crate::browse::imports::kind_label(self.locale, progress.kind),
+                        crate::browse::imports::state_label(self.locale, progress.state),
+                        crate::browse::imports::summary(self.locale, &progress)
                     ));
                     if progress.state == ImportState::WaitingForDecision
                         && let Some(dup) = progress.duplicate.clone()
@@ -677,14 +789,11 @@ impl RootApp {
         let Some(lib) = self.library.as_mut() else {
             return;
         };
-        match self.session.view_range(lib.view_id, 0, 500) {
-            Ok(cells) => {
-                lib.cells = cells;
-                lib.dimensions = self
-                    .session
-                    .view_dimensions(lib.view_id)
-                    .unwrap_or_default();
-                self.items = grid::load_listed(&self.session, &lib.cells);
+        // The same view with new contents: its total may have changed (D-167).
+        let total = lib.total as usize;
+        match lib.reload_cells(&self.session, total) {
+            Ok(()) => {
+                self.reset_pages();
                 self.recompute_justified();
                 cx.notify();
             }
@@ -718,9 +827,9 @@ impl RootApp {
             Ok(state) => {
                 window.set_window_title(&window_title(Some(&state.info)));
                 let search = state.filters.search_text.clone();
-                self.items = grid::load_listed(&self.session, &state.cells);
                 self.status = SharedString::from("");
                 self.library = Some(state);
+                self.reset_pages();
                 self.release_preview(cx);
                 self.space_gesture = None;
                 self.pending_duplicate = None;
@@ -765,7 +874,7 @@ impl RootApp {
             Err(error) => {
                 self.status = SharedString::from(format!("Open failed: {error}"));
                 self.library = None;
-                self.items.clear();
+                self.reset_pages();
                 window.set_window_title(&window_title(None));
                 cx.notify();
             }
@@ -779,7 +888,7 @@ impl RootApp {
             self.session.close_view(lib.view_id);
         }
         let _ = self.session.close_library();
-        self.items.clear();
+        self.reset_pages();
         self.justified = None;
         self.rubber = None;
         self.release_preview(cx);
@@ -797,14 +906,28 @@ impl RootApp {
         cx.notify();
     }
 
-    pub(crate) fn refresh_view(&mut self, cx: &mut Context<Self>) {
+    /// Include Subfolders: the View menu, its shortcut and the button by the folders
+    /// header in the left bar (D-158).
+    pub(crate) fn toggle_include_subfolders(&mut self, cx: &mut Context<Self>) {
         if let Some(lib) = self.library.as_mut() {
+            lib.browse.include_subfolders = !lib.browse.include_subfolders;
+        }
+        self.refresh_view(cx);
+    }
+
+    pub(crate) fn refresh_view(&mut self, cx: &mut Context<Self>) {
+        // A different view starts at the top: its first page is what will be on screen.
+        let new_view = self.view_key() != self.scrolled_view;
+        if let Some(lib) = self.library.as_mut() {
+            if new_view {
+                lib.visible = 0..0;
+            }
             if let Err(error) = lib.refresh_view(&self.session) {
                 self.status = SharedString::from(format!("View failed: {error}"));
             } else {
-                self.items = grid::load_listed(&self.session, &lib.cells);
                 lib.persist_session(&self.session);
                 lib.persist_browse_prefs(&self.session);
+                self.reset_pages();
                 self.recompute_justified();
                 self.sync_scroll_to_view();
             }
@@ -928,8 +1051,9 @@ impl RootApp {
                         t(locale, "about.commit")
                     )))
                     .child(Label::new(format!(
-                        "{}: gpui-kit 0.9.0",
-                        t(locale, "about.toolkit")
+                        "{}: gpui-kit {}",
+                        t(locale, "about.toolkit"),
+                        crate::about::gpui_kit_version()
                     )))
                     .child(Label::new(format!("{}: {os}", t(locale, "about.os"))))
                     .child(
@@ -948,18 +1072,42 @@ impl RootApp {
         });
     }
 
+    /// The notices as headings and paragraphs that wrap to the dialog, in a scrolling column
+    /// (D-166).
     fn open_licenses(&mut self, window: &mut Window, cx: &mut Context<Self>) {
+        use crate::about::LicenseBlock;
         let locale = self.locale;
-        let text = SharedString::from(Self::LICENSES);
+        let blocks = crate::about::license_blocks();
+        let muted = cx.theme().muted_foreground;
         window.open_dialog(cx, move |dialog, _, _| {
-            dialog.title(t(locale, "about.licensesTitle")).child(
-                v_flex()
-                    .gap_2()
-                    .p_2()
-                    .w(px(520.))
-                    .max_h(px(360.))
-                    .child(Label::new(text.clone()).text_xs()),
-            )
+            dialog
+                .w(px(600.))
+                .title(t(locale, "about.licensesTitle"))
+                .child(
+                    v_flex()
+                        .id("licenses-text")
+                        .w_full()
+                        .h(px(420.))
+                        .gap_2()
+                        .pr(px(12.))
+                        .overflow_y_scrollbar()
+                        .children(blocks.iter().map(|block| {
+                            match block {
+                                LicenseBlock::Heading(text) => div()
+                                    .pt_2()
+                                    .text_sm()
+                                    .font_semibold()
+                                    .child(text.clone())
+                                    .into_any_element(),
+                                LicenseBlock::Paragraph(text) => div()
+                                    .w_full()
+                                    .text_xs()
+                                    .text_color(muted)
+                                    .child(text.clone())
+                                    .into_any_element(),
+                            }
+                        })),
+                )
         });
     }
 
@@ -1123,7 +1271,8 @@ impl RootApp {
     }
 
     fn request_quit(&mut self, window: &mut Window, cx: &mut Context<Self>) -> bool {
-        if self.quit_pending {
+        // Viewing loose files leaves nothing open to confirm (D-180).
+        if self.quit_pending || self.loose.is_some() {
             self.shutdown();
             return true;
         }
@@ -1198,6 +1347,10 @@ impl RootApp {
         shift: bool,
         cx: &mut Context<Self>,
     ) {
+        // A shift-click run may cross pages that are not here: fetch its cells (D-167).
+        if shift && let Some(anchor) = self.library.as_ref().and_then(|lib| lib.selection.anchor) {
+            self.fill_cells(anchor.min(index)..anchor.max(index) + 1);
+        }
         let Some(lib) = self.library.as_mut() else {
             return;
         };
@@ -1251,23 +1404,22 @@ impl RootApp {
             cx.notify();
             return;
         }
-        let Some(lib) = self.library.as_mut() else {
+        let Some(total) = self.library.as_ref().map(|lib| lib.cells.len()) else {
             cx.notify();
             return;
         };
         let indices = if let Some(layout) = self.justified.as_ref() {
-            justified::indices_in_rect(layout, lib.cells.len(), rect)
+            justified::indices_in_rect(layout, total, rect)
         } else {
-            // List mode: one row ≈ 48px with 8px padding.
-            let mut found = Vec::new();
-            for index in 0..lib.cells.len() {
-                let top = 8.0 + index as f32 * 48.0;
-                let bottom = top + 48.0;
-                if bottom >= rect.top && top <= rect.bottom {
-                    found.push(index);
-                }
-            }
-            found
+            justified::list_rows_in_band(rect.top, rect.bottom, total)
+        };
+        // The band may reach past the pages on screen (D-167).
+        if let (Some(&lo), Some(&hi)) = (indices.iter().min(), indices.iter().max()) {
+            self.fill_cells(lo..hi + 1);
+        }
+        let Some(lib) = self.library.as_mut() else {
+            cx.notify();
+            return;
         };
         if let Some(&focus) = indices.last() {
             lib.selection.select_indices(&lib.cells, &indices, focus);
@@ -1307,6 +1459,11 @@ impl RootApp {
             justified::move_focus_list(key, lib.selection.focus, total, columns, page_rows)
         };
         let Some(index) = next else {
+            return;
+        };
+        // End, Page Down and the arrows can land on a page that is not here (D-167).
+        self.fill_cells(index..index + 1);
+        let Some(lib) = self.library.as_mut() else {
             return;
         };
         if let Some(cell) = lib.cells.get(index).cloned() {
@@ -1351,11 +1508,16 @@ impl RootApp {
             return;
         }
         if count == 1 {
-            let id = lib.selection.ids.iter().next().cloned().or_else(|| {
-                lib.selection
-                    .focus
-                    .and_then(|i| lib.cells.get(i).map(|c| c.id.0.clone()))
-            });
+            // One item: listed, or the one left of a Select All, which Rust resolves (D-167).
+            let id = match lib.selection.listed_ids() {
+                Some(ids) => ids.into_iter().next(),
+                None => lib
+                    .selection
+                    .target(lib.view_id)
+                    .and_then(|target| self.session.selected_ids(target).ok())
+                    .and_then(|ids| ids.into_iter().next()),
+            }
+            .map(|id| id.0);
             let Some(id) = id else {
                 self.details.count = 1;
                 cx.notify();
@@ -1364,8 +1526,8 @@ impl RootApp {
             let item = self.session.item_detail(&id).ok().flatten();
             let thumb = lib
                 .cells
-                .iter()
-                .find(|c| c.id.0 == id)
+                .position(&ItemId(id.clone()))
+                .and_then(|index| lib.cells.get(index))
                 .and_then(|cell| preview_image::thumb_image(&self.session, cell))
                 .or_else(|| {
                     item.as_ref().and_then(|item| {
@@ -1393,13 +1555,10 @@ impl RootApp {
             cx.notify();
             return;
         }
-        let ids: Vec<ItemId> = lib.selection.ids.iter().cloned().map(ItemId).collect();
-        let target = ItemsTarget {
-            view_id: Some(lib.view_id),
-            all: false,
-            ids,
-        };
-        let selection = self.session.selection_tags(target).ok();
+        let selection = lib
+            .selection
+            .target(lib.view_id)
+            .and_then(|target| self.session.selection_tags(target).ok());
         let stack_thumbs = selection
             .as_ref()
             .map(|sel| {
@@ -1421,15 +1580,7 @@ impl RootApp {
 
     pub(crate) fn selection_target(&self) -> Option<ItemsTarget> {
         let lib = self.library.as_ref()?;
-        let ids: Vec<ItemId> = lib.selection.ids.iter().cloned().map(ItemId).collect();
-        if ids.is_empty() {
-            return None;
-        }
-        Some(ItemsTarget {
-            view_id: Some(lib.view_id),
-            all: false,
-            ids,
-        })
+        lib.selection.target(lib.view_id)
     }
 
     fn space_preview_down(&mut self, cx: &mut Context<Self>) {
@@ -1457,7 +1608,7 @@ impl RootApp {
             .selection
             .focus
             .and_then(|i| lib.cells.get(i).map(|c| c.id.clone()))
-            .or_else(|| lib.selection.ids.iter().next().map(|id| ItemId(id.clone())));
+            .or_else(|| lib.selection.listed_ids()?.into_iter().next());
         let Some(id) = id else {
             return;
         };
@@ -1595,6 +1746,10 @@ impl Render for RootApp {
         let locale = self.locale;
         let focus = self.focus.clone();
 
+        // Viewing loose files opens no library, so the app login does not stand before it.
+        if self.loose.is_some() {
+            return self.render_viewer(window, cx).into_any_element();
+        }
         if !self.login_gate.is_open() {
             return v_flex()
                 .id("root")
@@ -1607,6 +1762,8 @@ impl Render for RootApp {
 
         v_flex()
             .id("root")
+            // The shortcuts scoped away from text fields need a context to match (D-179).
+            .key_context(crate::commands::ROOT_CONTEXT)
             .size_full()
             .bg(theme.background)
             .text_color(theme.foreground)
@@ -1690,14 +1847,11 @@ impl Render for RootApp {
                 this.update_browse(|b| b.show_names = !b.show_names, cx);
             }))
             .on_action(cx.listener(|this, _: &ToggleIncludeSubfolders, _, cx| {
-                if let Some(lib) = this.library.as_mut() {
-                    lib.browse.include_subfolders = !lib.browse.include_subfolders;
-                }
-                this.refresh_view(cx);
+                this.toggle_include_subfolders(cx);
             }))
             .on_action(cx.listener(|this, _: &SelectAll, _, cx| {
                 if let Some(lib) = this.library.as_mut() {
-                    lib.selection.select_all(&lib.cells);
+                    lib.selection.select_all(lib.cells.len());
                     lib.persist_session(&this.session);
                     this.refresh_details(cx);
                 }
@@ -1789,6 +1943,17 @@ impl Render for RootApp {
             .on_action(cx.listener(|this, _: &PreviewGifNextFrame, _, cx| {
                 this.preview_gif_step(1, cx);
             }))
+            .on_action(cx.listener(|this, _: &MediaSkipBack, _, cx| {
+                this.media_skip(-crate::ops_media::SKIP_SECONDS, cx);
+            }))
+            .on_action(cx.listener(|this, _: &MediaSkipForward, _, cx| {
+                this.media_skip(crate::ops_media::SKIP_SECONDS, cx);
+            }))
+            .on_action(cx.listener(|this, _: &MediaToggleMute, _, cx| {
+                if this.media.is_some() {
+                    this.media_toggle_mute(cx);
+                }
+            }))
             .on_action(cx.listener(|this, _: &SpacePreviewDown, _, cx| {
                 this.space_preview_down(cx);
             }))
@@ -1870,8 +2035,7 @@ impl Render for RootApp {
                 this.save_as_smart_folder(window, cx);
             }))
             .on_action(cx.listener(|this, _: &ToggleImportsPanel, _, cx| {
-                this.imports_open = !this.imports_open;
-                cx.notify();
+                this.set_imports_open(!this.imports_open, cx);
             }))
             .on_action(cx.listener(|this, _: &BackupExport, window, cx| {
                 this.open_backup_export(window, cx);
@@ -1963,14 +2127,28 @@ impl Render for RootApp {
                 |el| el.child(library_ui::render_read_only_banner(locale)),
             )
             .child(if self.library.is_some() {
-                self.render_library(&theme, locale, cx)
+                self.render_library(&theme, locale, window.viewport_size().width.as_f32(), cx)
             } else {
                 self.render_welcome(&theme, locale, cx).into_any_element()
+            })
+            .when_some(self.empty_trash_dialog.as_ref(), |el, dialog| {
+                el.child(crate::browse::empty_trash_dialog::render(
+                    dialog,
+                    locale,
+                    &theme,
+                    cx.entity(),
+                ))
             })
             .when_some(self.preview.as_ref(), |el, preview| {
                 let size = window.viewport_size();
                 let size = (size.width.as_f32(), size.height.as_f32());
-                el.child(preview::render_preview(preview, locale, size, cx.entity()))
+                el.child(preview::render_preview(
+                    preview,
+                    self.media.as_ref(),
+                    locale,
+                    size,
+                    cx.entity(),
+                ))
             })
             .when(self.export_ui.is_some(), |el| {
                 el.child(self.render_export_overlay(&theme, locale, cx))
@@ -2065,6 +2243,7 @@ impl RootApp {
         &self,
         theme: &gpui_kit::component::theme::Theme,
         locale: Locale,
+        window_width: f32,
         cx: &mut Context<Self>,
     ) -> gpui_kit::AnyElement {
         let lib = self.library.as_ref().unwrap();
@@ -2076,7 +2255,7 @@ impl RootApp {
         let right_open = lib.right_open;
         // Split + type-erase: one nested `impl IntoElement` for the whole shell overflows
         // the main thread stack on Windows debug builds when opening a library.
-        let toolbar = self.render_library_toolbar(lib, theme, locale, mode, cx);
+        let toolbar = self.render_library_toolbar(lib, theme, locale, mode, window_width, cx);
         let body = self.render_library_body(
             lib,
             theme,
@@ -2118,33 +2297,7 @@ impl RootApp {
             .when_some(self.pending_duplicate.clone(), |el, (id, notice)| {
                 el.child(self.render_duplicate_banner(id, &notice, locale, cx))
             })
-            .when(self.emptying_trash, |el| {
-                let (done, total) = self.empty_trash_progress;
-                el.child(
-                    h_flex()
-                        .id("empty-trash-chrome")
-                        .w_full()
-                        .items_center()
-                        .gap_3()
-                        .px_3()
-                        .py_2()
-                        .border_t_1()
-                        .border_color(theme.border)
-                        .child(
-                            Label::new(format!("{} — {done}/{total}", t(locale, "trash.emptying")))
-                                .text_sm()
-                                .flex_1(),
-                        )
-                        .child(
-                            Button::new("empty-trash-cancel")
-                                .outline()
-                                .label(t(locale, "trash.cancelEmpty"))
-                                .on_click(cx.listener(|this, _, _, cx| {
-                                    this.cancel_empty_trash(cx);
-                                })),
-                        ),
-                )
-            })
+            // Empty Trash shows its progress in a window of its own (D-172).
             .into_any_element()
     }
 
@@ -2155,12 +2308,15 @@ impl RootApp {
         theme: &gpui_kit::component::theme::Theme,
         locale: Locale,
         mode: ViewMode,
+        window_width: f32,
         cx: &mut Context<Self>,
     ) -> gpui_kit::AnyElement {
         let title = style::place_title(&lib.place, &lib.folders, &lib.smart_folders, locale);
+        // A narrow window drops the mode names, then the size slider (D-177).
+        let fit = crate::browse::modes::toolbar_fit(window_width);
 
-        // Row 1: where you are, the thumbnail size, the view switches, search. The two sides
-        // share the free width equally, so the size slider sits in the middle of the row.
+        // Row 1: where you are, the media modes, the thumbnail size, the view switches, search.
+        // The two sides share the free width equally, so the modes sit in the middle (D-171).
         let left = h_flex()
             .id("toolbar-place")
             .flex_1()
@@ -2216,31 +2372,66 @@ impl RootApp {
         let right = h_flex()
             .id("toolbar-actions")
             .flex_1()
+            // Never narrower than its controls, so they cannot slide over the modes (D-177).
+            .flex_shrink_0()
             .justify_end()
             .items_center()
             .gap_2()
+            // The size slider joins the view controls; the middle is the modes' (D-171).
+            .when(fit.slider, |el| {
+                el.child(slider)
+                    // A rule keeps the slider's − / + apart from the actions.
+                    .child(div().w(px(1.)).h(px(18.)).bg(theme.border))
+            })
+            // Add Files has a label and its own icon, so it never reads as the slider's +.
             .child(
                 Button::new("tb-add")
-                    .ghost()
+                    .outline()
                     .small()
-                    .icon(IconName::Plus)
+                    .icon(IconName::FilePlus)
+                    .label(t(locale, "toolbar.addFiles"))
                     .tooltip(t(locale, "commands.file.addFiles"))
                     .on_click(cx.listener(|this, _, window, cx| {
                         this.pick_add_files(window, cx);
                     })),
             )
-            .child(
-                Button::new("tb-imports")
-                    .ghost()
-                    .small()
-                    .icon(IconName::Download)
-                    .tooltip(t(locale, "import.panel"))
-                    .selected(self.imports_open)
-                    .on_click(cx.listener(|this, _, _, cx| {
-                        this.imports_open = !this.imports_open;
-                        cx.notify();
-                    })),
-            )
+            // Imports: only while something runs (with the count) or a report waits (with a
+            // dot); View → Imports opens the panel at any time (D-175).
+            .children({
+                use crate::browse::imports::{ImportsBadge, badge};
+                let state = badge(&self.session.imports(), &self.imports_seen);
+                (state != ImportsBadge::Hidden || self.imports_open).then(|| {
+                    let button = Button::new("tb-imports")
+                        .ghost()
+                        .small()
+                        .icon(IconName::Download)
+                        .tooltip(t(locale, "import.panel"))
+                        .selected(self.imports_open)
+                        .on_click(cx.listener(|this, _, _, cx| {
+                            this.set_imports_open(!this.imports_open, cx);
+                        }));
+                    let button = match state {
+                        ImportsBadge::Running { done, total } if total > 0 => {
+                            button.label(format!("{done}/{total}"))
+                        }
+                        _ => button,
+                    };
+                    div()
+                        .relative()
+                        .child(button)
+                        .when(state == ImportsBadge::Report, |el| {
+                            el.child(
+                                div()
+                                    .absolute()
+                                    .top(px(2.))
+                                    .right(px(2.))
+                                    .size(px(7.))
+                                    .rounded_full()
+                                    .bg(theme.primary),
+                            )
+                        })
+                })
+            })
             .child(
                 Button::new("tb-sort")
                     .ghost()
@@ -2252,20 +2443,6 @@ impl RootApp {
                         gpui_kit::Anchor::TopRight,
                         filter_menus::sort_menu(cx.entity()),
                     ),
-            )
-            .child(
-                Button::new("tb-sub")
-                    .ghost()
-                    .small()
-                    .icon(IconName::FolderTree)
-                    .tooltip(t(locale, "commands.view.includeSubfolders"))
-                    .selected(lib.browse.include_subfolders)
-                    .on_click(cx.listener(|this, _, _, cx| {
-                        if let Some(lib) = this.library.as_mut() {
-                            lib.browse.include_subfolders = !lib.browse.include_subfolders;
-                        }
-                        this.refresh_view(cx);
-                    })),
             )
             .child(
                 Button::new("tb-names")
@@ -2308,8 +2485,9 @@ impl RootApp {
             .child(
                 div()
                     .id("search-field")
-                    .w(px(220.))
-                    .child(Input::new(&self.search_input).small()),
+                    .w(px(fit.search_width))
+                    // An × empties the field; the search follows as with typing (D-179).
+                    .child(Input::new(&self.search_input).small().cleanable(true)),
             );
         let top = h_flex()
             .id("toolbar")
@@ -2320,7 +2498,14 @@ impl RootApp {
             .gap_4()
             .px_3()
             .child(left)
-            .child(slider)
+            // All · Photo · Video · Audio in the middle of the row (D-171).
+            .child(crate::browse::modes::mode_buttons(
+                lib.filters.ext.as_deref(),
+                locale,
+                theme,
+                fit.mode_labels,
+                cx.entity(),
+            ))
             .child(right);
 
         // Row 2: the filter bar.
@@ -2403,6 +2588,31 @@ impl RootApp {
                 )
                 .dropdown_menu(filter_menus::shape_menu(cx.entity())),
             )
+            .child({
+                // Colour: a swatch and its share, or Documents (D-176).
+                let entity = cx.entity();
+                let color = lib.filters.color;
+                let opened = cx.entity();
+                Popover::new("tb-filter-colour-popover")
+                    .anchor(gpui_kit::Anchor::TopLeft)
+                    // The custom colour controls start from the colour filtered by (D-178).
+                    .on_open_change(move |open, window, cx| {
+                        if *open {
+                            opened.update(cx, |this, cx| this.sync_custom_colour(window, cx));
+                        }
+                    })
+                    .trigger(filter_button(
+                        "tb-filter-colour",
+                        if matches!(color, Some(library_core::ColorFilter::Paper { .. })) {
+                            IconName::FileText
+                        } else {
+                            IconName::Palette
+                        },
+                        filter_menus::color_filter_label(color, locale),
+                        color.is_some(),
+                    ))
+                    .content(move |_, _, cx| filter_menus::color_filter_content(&entity, cx))
+            })
             .child(
                 filter_button(
                     "tb-filter-rating",
@@ -2537,7 +2747,17 @@ impl RootApp {
                                 locale,
                                 theme,
                                 entity.clone(),
-                                &self.tag_vocabulary,
+                                sidebar::SidebarExtras {
+                                    tags: &self.tag_vocabulary,
+                                    tag_groups: &self.tag_groups,
+                                    expanded_tag_groups: &self.expanded_tag_groups,
+                                    name_input: self.name_input.clone(),
+                                    name_prompt: self
+                                        .name_prompt
+                                        .as_ref()
+                                        .map(crate::ops_mutations::NamePrompt::kind),
+                                    trash_confirm: self.trash_confirm,
+                                },
                             )),
                     ),
             )
@@ -2660,10 +2880,10 @@ impl RootApp {
                     .child(
                         Button::new("imports-close")
                             .ghost()
-                            .label(t(locale, "common.cancel"))
+                            .small()
+                            .label(t(locale, "common.close"))
                             .on_click(cx.listener(|this, _, _, cx| {
-                                this.imports_open = false;
-                                cx.notify();
+                                this.set_imports_open(false, cx);
                             })),
                     ),
             )
@@ -2674,29 +2894,74 @@ impl RootApp {
                         .text_color(theme.muted_foreground),
                 )
             })
-            .children(imports.into_iter().map(|progress| {
+            // Newest first: what just started is on top (D-175).
+            .children(imports.into_iter().rev().map(|progress| {
+                use crate::browse::imports;
                 let id = progress.id;
                 let entity = cx.entity();
+                let running = imports::is_running(&progress);
+                let failed = progress.failed > 0;
                 h_flex()
                     .id(SharedString::from(format!("import-{id}")))
-                    .gap_2()
+                    .gap_3()
                     .items_center()
+                    .py_0p5()
                     .child(
-                        Label::new(format!(
-                            "#{} {:?} {}/{}",
-                            id, progress.state, progress.processed, progress.total
-                        ))
-                        .text_xs()
-                        .flex_1(),
-                    )
-                    .child(
-                        Button::new(SharedString::from(format!("cancel-import-{id}")))
-                            .ghost()
-                            .label(t(locale, "import.cancel"))
-                            .on_click(move |_, _, cx| {
-                                entity.update(cx, |this, cx| this.cancel_import(id, cx));
+                        v_flex()
+                            .flex_1()
+                            .min_w_0()
+                            .gap_1()
+                            .child(
+                                h_flex()
+                                    .gap_2()
+                                    .child(
+                                        Label::new(imports::kind_label(locale, progress.kind))
+                                            .text_xs()
+                                            .font_semibold(),
+                                    )
+                                    .child(
+                                        Label::new(imports::state_label(locale, progress.state))
+                                            .text_xs()
+                                            .text_color(theme.muted_foreground),
+                                    )
+                                    .child(
+                                        Label::new(imports::summary(locale, &progress))
+                                            .text_xs()
+                                            .text_color(if failed {
+                                                theme.danger
+                                            } else {
+                                                theme.muted_foreground
+                                            }),
+                                    ),
+                            )
+                            .when(running, |el| {
+                                el.child(
+                                    div()
+                                        .w_full()
+                                        .h(px(4.))
+                                        .rounded(px(2.))
+                                        .bg(theme.muted)
+                                        .child(
+                                            div()
+                                                .h_full()
+                                                .w(gpui_kit::relative(imports::fraction(&progress)))
+                                                .rounded(px(2.))
+                                                .bg(theme.primary),
+                                        ),
+                                )
                             }),
                     )
+                    .when(running, |el| {
+                        el.child(
+                            Button::new(SharedString::from(format!("cancel-import-{id}")))
+                                .ghost()
+                                .small()
+                                .label(t(locale, "import.cancel"))
+                                .on_click(move |_, _, cx| {
+                                    entity.update(cx, |this, cx| this.cancel_import(id, cx));
+                                }),
+                        )
+                    })
             }))
     }
 

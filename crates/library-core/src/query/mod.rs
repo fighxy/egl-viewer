@@ -2,6 +2,7 @@
 
 use serde::{Deserialize, Serialize};
 
+pub mod color;
 pub mod filter;
 pub mod search;
 pub mod sort;
@@ -93,6 +94,8 @@ pub struct LibraryQuery {
     /// `None` means no rating filter; `Some(0)` means unrated.
     pub rating: Option<u8>,
     pub shape: Option<String>,
+    /// The colour filter (D-176).
+    pub color: Option<color::ColorFilter>,
     /// The top search field.
     pub text: Option<String>,
     pub sort: SortKey,
@@ -111,6 +114,7 @@ impl Default for LibraryQuery {
             ext: None,
             rating: None,
             shape: None,
+            color: None,
             text: None,
             sort: SortKey::DateAdded,
             ascending: false,

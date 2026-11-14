@@ -1,0 +1,43 @@
+name: FFmpeg (LGPL, vcpkg)
+description: >
+  Installs the LGPL FFmpeg that the av crate links and the Windows packages ship (D-168):
+  avcodec, avformat, avfilter, swresample, swscale, dav1d and zlib, never the gpl or nonfree
+  features. vcpkg's binary cache is kept between runs, so only the first run builds FFmpeg.
+  Also points bindgen (ffmpeg-sys-next) at the runner's LLVM.
+runs:
+  using: composite
+  steps:
+    - name: vcpkg binary cache
+      uses: actions/cache@v4
+      with:
+        path: ~\AppData\Local\vcpkg\archives
+        key: vcpkg-ffmpeg-lgpl-${{ runner.os }}-v1-${{ hashFiles('.github/actions/ffmpeg-windows/action.yml') }}
+        restore-keys: vcpkg-ffmpeg-lgpl-${{ runner.os }}-v1-
+
+    - name: Install FFmpeg
+      shell: pwsh
+      run: |
+        $ErrorActionPreference = "Stop"
+        $spec = "ffmpeg[core,avcodec,avformat,avfilter,swresample,swscale,dav1d,zlib]:x64-windows"
+        $installed = $false
+        foreach ($attempt in 1..3) {
+          vcpkg install $spec
+          if ($LASTEXITCODE -eq 0) { $installed = $true; break }
+          if ($attempt -lt 3) {
+            Write-Warning "vcpkg install failed (exit $LASTEXITCODE, attempt $attempt of 3); retrying"
+            Start-Sleep -Seconds (20 * $attempt)
+          }
+        }
+        if (-not $installed) { throw "vcpkg install ffmpeg failed after 3 attempts" }
+        $root = if ($env:VCPKG_ROOT) { $env:VCPKG_ROOT } elseif ($env:VCPKG_INSTALLATION_ROOT) { $env:VCPKG_INSTALLATION_ROOT } else { "C:\vcpkg" }
+        $bin = Join-Path $root "installed\x64-windows\bin"
+        if (-not (Get-ChildItem -LiteralPath $bin -Filter "avcodec-*.dll")) { throw "avcodec DLL missing under $bin" }
+        foreach ($pattern in @("*x264*", "*x265*", "*fdk-aac*", "postproc-*")) {
+          if (Get-ChildItem -LiteralPath $bin -Filter "$pattern.dll" -ErrorAction SilentlyContinue) {
+            throw "GPL or non-free DLL $pattern under $bin"
+          }
+        }
+
+    - name: libclang for bindgen
+      shell: bash
+      run: echo "LIBCLANG_PATH=C:/Program Files/LLVM/bin" >> "$GITHUB_ENV"

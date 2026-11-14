@@ -131,6 +131,7 @@ pub fn filter(items: &[ItemLite], query: &LibraryQuery, context: Context<'_>) ->
                 .shape
                 .as_deref()
                 .is_none_or(|shape| shape_of(item.width, item.height) == Some(shape))
+            && query.color.is_none_or(|color| color.matches(&item.palette))
             && context.text.is_none_or(|text| text.contains(&item.id))
     };
     items

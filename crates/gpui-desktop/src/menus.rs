@@ -31,6 +31,7 @@ struct MenuSnap {
     fullscreen: bool,
     left_open: bool,
     right_open: bool,
+    imports_open: bool,
     view_mode: ViewMode,
     show_names: bool,
     include_subfolders: bool,
@@ -62,6 +63,7 @@ impl RootApp {
             fullscreen: self.fullscreen,
             left_open: lib.is_some_and(|lib| lib.left_open),
             right_open: lib.is_none_or(|lib| lib.right_open),
+            imports_open: self.imports_open,
             view_mode: lib
                 .map(|lib| lib.browse.view_mode)
                 .unwrap_or(prefs.browse.view_mode),
@@ -386,6 +388,13 @@ fn view_menu(
         t(locale, "commands.view.details"),
         snap.right_open,
         Box::new(ToggleDetails),
+        closed,
+    )
+    // The Imports panel: the toolbar shows its button only while it has something (D-175).
+    .menu_with_check_and_disabled(
+        t(locale, "commands.view.imports"),
+        snap.imports_open,
+        Box::new(ToggleImportsPanel),
         closed,
     )
     .separator()
