@@ -1,8 +1,12 @@
 pub mod details;
+pub mod empty_trash_dialog;
 pub mod filter_menus;
 pub mod format;
 pub mod gif_player;
 pub mod grid;
+pub mod imports;
+pub mod media_bar;
+pub mod modes;
 pub mod picker;
 pub mod preview;
 pub mod preview_cache;

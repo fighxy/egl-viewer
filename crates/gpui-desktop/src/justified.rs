@@ -163,6 +163,21 @@ pub fn cell_rect(layout: &JustifiedLayout, index: usize) -> Option<Rect> {
     })
 }
 
+/// List mode: the rows (48 px each, under 8 px of padding) a rubber band from `top` to `bottom`
+/// touches, computed from the band alone, not by walking every row of the view (D-167).
+pub fn list_rows_in_band(top: f32, bottom: f32, total: usize) -> Vec<usize> {
+    const PAD: f32 = 8.0;
+    const ROW: f32 = 48.0;
+    if total == 0 || bottom < PAD {
+        return Vec::new();
+    }
+    // Row i spans PAD + i·ROW .. PAD + (i + 1)·ROW; it is touched when it ends at or below `top`
+    // and starts at or above `bottom`.
+    let first = ((top - PAD - ROW) / ROW).ceil().max(0.0) as usize;
+    let last = ((bottom - PAD) / ROW).floor() as usize;
+    (first..=last.min(total - 1)).collect()
+}
+
 pub fn indices_in_rect(layout: &JustifiedLayout, total: usize, rect: Rect) -> Vec<usize> {
     let mut found = Vec::new();
     for row in &layout.rows {
@@ -306,6 +321,19 @@ pub fn first_index_at_offset(layout: &JustifiedLayout, scroll_y: f32) -> Option<
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    #[test]
+    fn a_list_band_touches_the_rows_it_crosses_without_walking_the_view() {
+        // Rows: 0 at 8..56, 1 at 56..104, 2 at 104..152.
+        assert_eq!(list_rows_in_band(60.0, 110.0, 10), [1, 2]);
+        assert_eq!(list_rows_in_band(0.0, 7.0, 10), Vec::<usize>::new());
+        assert_eq!(list_rows_in_band(0.0, 8.0, 10), [0]);
+        assert_eq!(list_rows_in_band(56.0, 56.0, 10), [0, 1]);
+        assert_eq!(list_rows_in_band(0.0, 10_000.0, 3), [0, 1, 2]);
+        assert_eq!(list_rows_in_band(0.0, 100.0, 0), Vec::<usize>::new());
+        let far = list_rows_in_band(8.0 + 48.0 * 20_000.0 + 1.0, 8.0 + 48.0 * 20_001.0, 30_000);
+        assert_eq!(far, [20_000, 20_001]);
+    }
 
     #[test]
     fn offsets_map_to_rows_and_their_first_item() {

@@ -3,11 +3,12 @@
 use gpui_kit::component::button::{Button, ButtonVariants as _};
 use gpui_kit::component::input::{Input, InputState};
 use gpui_kit::component::label::Label;
+use gpui_kit::component::menu::PopupMenuItem;
 use gpui_kit::component::{WindowExt as _, h_flex, v_flex};
 use gpui_kit::prelude::FluentBuilder as _;
 use gpui_kit::{
-    AppContext as _, Context, IntoElement, ParentElement, PathPromptOptions, SharedString, Styled,
-    Window, px,
+    AppContext as _, Context, Entity, IntoElement, ParentElement, PathPromptOptions, SharedString,
+    Styled, Window, px,
 };
 use library_core::{Folder, FolderChange, PivPolicy, PivPrompt, SortKey, TagGroupChange, TagMode};
 use library_native::ImportFilter;
@@ -15,8 +16,278 @@ use std::collections::HashSet;
 use std::path::PathBuf;
 
 use crate::app::RootApp;
+use crate::browse::filter_menus::MenuBuilder;
 use crate::i18n::{t, t_n};
 use crate::library::Place;
+
+/// A picked colour as the library stores it: the name when it is exactly one of Eagle's
+/// eight, else `#rrggbb` (D-159).
+pub(crate) fn stored_color(color: gpui_kit::Hsla) -> String {
+    let rgba = color.to_rgb();
+    let channel = |value: f32| (value.clamp(0., 1.) * 255.).round() as u32;
+    let rgb = channel(rgba.r) << 16 | channel(rgba.g) << 8 | channel(rgba.b);
+    library_core::FOLDER_COLORS
+        .iter()
+        .find(|name| library_core::color_rgb(name) == Some(rgb))
+        .map_or_else(|| library_core::hex_color(rgb), |name| (*name).to_owned())
+}
+
+/// An entry that runs `f` on the app with the window, to open a dialog.
+fn menu_action(
+    label: impl Into<SharedString>,
+    entity: &Entity<RootApp>,
+    f: impl Fn(&mut RootApp, &mut Window, &mut Context<RootApp>) + 'static,
+) -> PopupMenuItem {
+    let entity = entity.clone();
+    PopupMenuItem::new(label)
+        .on_click(move |_, window, cx| entity.update(cx, |this, cx| f(this, window, cx)))
+}
+
+/// The Tags header's ⋯ menu, opened under its button (D-160). The groups themselves are rows
+/// of the section with their own menus (D-162).
+pub(crate) fn tags_menu(entity: Entity<RootApp>) -> MenuBuilder {
+    Box::new(move |menu, _, cx| {
+        let locale = entity.read(cx).locale;
+        menu.item(menu_action(
+            t(locale, "tags.newGroup"),
+            &entity,
+            |this, window, cx| this.create_tag_group_dialog(window, cx, Vec::new()),
+        ))
+        .item(menu_action(
+            t(locale, "tags.rename"),
+            &entity,
+            |this, window, cx| this.rename_tag_dialog(window, cx),
+        ))
+        .item(menu_action(
+            t(locale, "tags.merge"),
+            &entity,
+            |this, window, cx| this.merge_tag_dialog(window, cx),
+        ))
+        .item(menu_action(
+            t(locale, "tags.delete"),
+            &entity,
+            |this, window, cx| this.delete_tag_dialog(window, cx),
+        ))
+    })
+}
+
+/// The Trash row's context menu (D-164): how many items and how much disk the trash holds,
+/// read when the menu opens, then Restore All and Empty Trash… (which confirms first).
+pub(crate) fn trash_menu(entity: Entity<RootApp>) -> MenuBuilder {
+    Box::new(move |menu, _, cx| {
+        let app = entity.read(cx);
+        let locale = app.locale;
+        let read_only = app.library.as_ref().is_some_and(|lib| lib.info.read_only);
+        let info = match app.session.trash_info() {
+            Ok(info) => info,
+            Err(error) => {
+                return menu.item(PopupMenuItem::new(error.to_string()).disabled(true));
+            }
+        };
+        let empty = info.items == 0;
+        menu.item(PopupMenuItem::new(trash_summary(locale, info)).disabled(true))
+            .separator()
+            .item(
+                menu_action(t(locale, "trash.restoreAll"), &entity, |this, _, cx| {
+                    this.restore_all_trash(cx)
+                })
+                .disabled(empty || read_only),
+            )
+            .item(
+                menu_action(t(locale, "trash.emptyMenu"), &entity, |this, _, cx| {
+                    this.ask_empty_trash_here(cx)
+                })
+                .disabled(empty || read_only),
+            )
+    })
+}
+
+/// "12 items · 340 MB": what the trash holds, for its menu and the Empty Trash warning.
+pub(crate) fn trash_summary(locale: app_store::Locale, info: library_core::TrashInfo) -> String {
+    format!(
+        "{} · {}",
+        t_n(locale, "trash.items", info.items),
+        crate::browse::format::format_bytes(Some(info.bytes))
+    )
+}
+
+/// A tag group row's menu (D-162): filter by its tags, rename, colour, delete.
+pub(crate) fn tag_group_menu(entity: Entity<RootApp>, group_id: String) -> MenuBuilder {
+    Box::new(move |menu, window, cx| {
+        let app = entity.read(cx);
+        let locale = app.locale;
+        let Some(group) = app.tag_groups.iter().find(|g| g.id == group_id).cloned() else {
+            return menu;
+        };
+        let tags = group.tags.clone();
+        let colour_entity = entity.clone();
+        let colour_id = group_id.clone();
+        let current = group.color.clone();
+        let id = group_id.clone();
+        let delete_id = group_id.clone();
+        menu.item(menu_action(
+            t(locale, "tags.filterByGroup"),
+            &entity,
+            move |this, _, cx| this.apply_tag_group(tags.clone(), cx),
+        ))
+        .item(menu_action(
+            t(locale, "tags.renameGroup"),
+            &entity,
+            move |this, window, cx| this.rename_tag_group_dialog(window, cx, id.clone()),
+        ))
+        .submenu(
+            t(locale, "tags.groupColour"),
+            window,
+            cx,
+            move |menu, _, _| {
+                std::iter::once(None)
+                    .chain(library_core::FOLDER_COLORS.iter().map(|c| Some(*c)))
+                    .fold(menu, |menu, colour| {
+                        let entity = colour_entity.clone();
+                        let id = colour_id.clone();
+                        let label = match colour {
+                            Some(name) => t(locale, &format!("colour.{name}")),
+                            None => t(locale, "tags.noColour"),
+                        };
+                        menu.item(
+                            PopupMenuItem::new(label)
+                                .checked(current.as_deref() == colour)
+                                .on_click(move |_, _, cx| {
+                                    entity.update(cx, |this, cx| {
+                                        this.update_tag_group(
+                                            &id,
+                                            |g| g.color = colour.map(str::to_owned),
+                                            cx,
+                                        );
+                                    });
+                                }),
+                        )
+                    })
+            },
+        )
+        .separator()
+        .item(menu_action(
+            t(locale, "tags.deleteGroup"),
+            &entity,
+            move |this, _, cx| this.delete_tag_group(&delete_id, cx),
+        ))
+    })
+}
+
+/// A tag row's menu (D-162): add it to another group, take it out of the group it is shown
+/// in, or start a new group with it.
+pub(crate) fn tag_row_menu(
+    entity: Entity<RootApp>,
+    tag: String,
+    in_group: Option<String>,
+) -> MenuBuilder {
+    Box::new(move |menu, window, cx| {
+        let app = entity.read(cx);
+        let locale = app.locale;
+        let targets: Vec<(String, String)> = app
+            .tag_groups
+            .iter()
+            .filter(|g| !g.tags.contains(&tag))
+            .map(|g| (g.id.clone(), g.name.clone()))
+            .collect();
+        let mut menu = menu;
+        if !targets.is_empty() {
+            let entity = entity.clone();
+            let tag = tag.clone();
+            menu = menu.submenu(
+                t(locale, "tags.addToGroup"),
+                window,
+                cx,
+                move |menu, _, _| {
+                    targets.iter().fold(menu, |menu, (id, name)| {
+                        let id = id.clone();
+                        let tag = tag.clone();
+                        menu.item(menu_action(name.clone(), &entity, move |this, _, cx| {
+                            let tag = tag.clone();
+                            this.update_tag_group(
+                                &id,
+                                move |g| {
+                                    if !g.tags.contains(&tag) {
+                                        g.tags.push(tag);
+                                    }
+                                },
+                                cx,
+                            );
+                        }))
+                    })
+                },
+            );
+        }
+        if let Some(group_id) = in_group.clone() {
+            let tag = tag.clone();
+            menu = menu.item(menu_action(
+                t(locale, "tags.removeFromGroup"),
+                &entity,
+                move |this, _, cx| {
+                    let tag = tag.clone();
+                    this.update_tag_group(&group_id, move |g| g.tags.retain(|t| *t != tag), cx);
+                },
+            ));
+        }
+        let tag = tag.clone();
+        menu.item(menu_action(
+            t(locale, "tags.newGroupWithTag"),
+            &entity,
+            move |this, window, cx| this.create_tag_group_dialog(window, cx, vec![tag.clone()]),
+        ))
+    })
+}
+
+/// A locked folder's ⋯ menu, opened under its button (D-160). The YubiKey entries follow what
+/// is plugged in and bound when the menu opens.
+pub(crate) fn lock_manage_menu(entity: Entity<RootApp>, folder_id: String) -> MenuBuilder {
+    Box::new(move |menu, _, cx| {
+        let app = entity.read(cx);
+        let locale = app.locale;
+        let wraps = app.session.piv_wraps(&folder_id).unwrap_or_default();
+        let yubi = desktop_session::yubikey::present();
+        let id = folder_id.clone();
+        let action_entity = entity.clone();
+        let action =
+            move |key: &str, f: fn(&mut RootApp, &mut Window, &mut Context<RootApp>, String)| {
+                let id = id.clone();
+                menu_action(t(locale, key), &action_entity, move |this, window, cx| {
+                    f(this, window, cx, id.clone());
+                })
+            };
+        let mut menu = menu
+            .item(action(
+                "locks.changePassword",
+                RootApp::change_password_dialog,
+            ))
+            .item(action("locks.recover", RootApp::recover_folder_dialog))
+            .item(action(
+                "locks.renewRecovery",
+                RootApp::renew_recovery_dialog,
+            ))
+            .item(action("locks.setLabel", RootApp::set_lock_label_dialog))
+            .item(action("locks.remove", RootApp::remove_lock_dialog));
+        if yubi || !wraps.is_empty() {
+            menu = menu.separator();
+        }
+        if yubi {
+            menu = menu
+                .item(action("locks.unlockYubi", RootApp::unlock_yubi_dialog))
+                .item(action("locks.bindYubi", RootApp::bind_yubi_dialog));
+        }
+        wraps.into_iter().fold(menu, |menu, wrap| {
+            let id = folder_id.clone();
+            let serial = wrap.serial;
+            menu.item(menu_action(
+                format!("{} {serial}", t(locale, "locks.unbindYubi")),
+                &entity,
+                move |this, window, cx| {
+                    this.unbind_yubi_dialog(window, cx, id.clone(), serial.clone());
+                },
+            ))
+        })
+    })
+}
 
 /// The Rating filter button's label: "Rating" when off, "Not rated" for 0, stars for 1–5.
 pub(crate) fn rating_filter_label(rating: Option<u8>, locale: app_store::Locale) -> String {
@@ -31,6 +302,22 @@ impl RootApp {
     pub(crate) fn set_ext_filter(&mut self, ext: Option<String>, cx: &mut Context<Self>) {
         if let Some(lib) = self.library.as_mut() {
             lib.filters.ext = ext;
+            lib.selection.clear();
+        }
+        self.refresh_view(cx);
+    }
+
+    /// The Colour filter: a picked colour, Documents, or none (D-176).
+    pub(crate) fn set_color_filter(
+        &mut self,
+        color: Option<library_core::ColorFilter>,
+        cx: &mut Context<Self>,
+    ) {
+        if let Some(lib) = self.library.as_mut() {
+            if lib.filters.color == color {
+                return;
+            }
+            lib.filters.color = color;
             lib.selection.clear();
         }
         self.refresh_view(cx);
@@ -72,142 +359,119 @@ impl RootApp {
         self.refresh_view(cx);
     }
 
-    pub(crate) fn open_tag_groups_dialog(&mut self, window: &mut Window, cx: &mut Context<Self>) {
+    /// Filters by a tag group's tags.
+    fn apply_tag_group(&mut self, tags: Vec<String>, cx: &mut Context<Self>) {
+        if let Some(lib) = self.library.as_mut() {
+            lib.filters.tags = tags;
+            lib.selection.clear();
+        }
+        self.refresh_view(cx);
+    }
+
+    /// Folds or unfolds a tag group (or Ungrouped) in the left bar (D-162).
+    pub(crate) fn toggle_tag_group(&mut self, id: &str, cx: &mut Context<Self>) {
+        if !self.expanded_tag_groups.remove(id) {
+            self.expanded_tag_groups.insert(id.to_owned());
+        }
+        cx.notify();
+    }
+
+    /// Writes a group with `edit` applied to its current state (the update replaces every
+    /// property, so it starts from the group as it is now).
+    fn update_tag_group(
+        &mut self,
+        id: &str,
+        edit: impl FnOnce(&mut library_core::TagGroup),
+        cx: &mut Context<Self>,
+    ) {
+        let Some(mut group) = self.tag_groups.iter().find(|g| g.id == id).cloned() else {
+            return;
+        };
+        edit(&mut group);
+        let change = TagGroupChange::Update {
+            id: group.id,
+            name: group.name,
+            color: group.color,
+            tags: group.tags,
+        };
+        match self.session.save_tag_group(change) {
+            Ok(groups) => self.tag_groups = groups,
+            Err(error) => self.status = SharedString::from(format!("{error}")),
+        }
+        cx.notify();
+    }
+
+    fn rename_tag_group_dialog(&mut self, window: &mut Window, cx: &mut Context<Self>, id: String) {
+        let Some(current) = self.tag_groups.iter().find(|g| g.id == id) else {
+            return;
+        };
         let locale = self.locale;
         let entity = cx.entity();
-        let groups = self.tag_groups.clone();
+        let input = cx.new(|cx| InputState::new(window, cx).default_value(current.name.clone()));
         window.open_dialog(cx, move |dialog, _, _| {
-            dialog.title(t(locale, "tags.groups")).child(
+            let entity = entity.clone();
+            let input_ok = input.clone();
+            let id = id.clone();
+            dialog.title(t(locale, "tags.renameGroup")).child(
                 v_flex()
-                    .gap_2()
+                    .gap_3()
                     .p_2()
-                    .w(px(420.))
-                    .max_h(px(480.))
-                    .child(if groups.is_empty() {
-                        Label::new(t(locale, "tags.noGroups")).into_any_element()
-                    } else {
-                        v_flex()
+                    .w(px(320.))
+                    .child(Input::new(&input))
+                    .child(
+                        h_flex()
                             .gap_2()
-                            .children(groups.clone().into_iter().map(|group| {
-                                let entity_del = entity.clone();
-                                let entity_apply = entity.clone();
-                                let id = group.id.clone();
-                                let tags = group.tags.clone();
-                                h_flex()
-                                    .w_full()
-                                    .items_center()
-                                    .gap_2()
-                                    .child(
-                                        Label::new(format!(
-                                            "{} ({})",
-                                            group.name,
-                                            group.tags.len()
-                                        ))
-                                        .text_sm()
-                                        .flex_1(),
-                                    )
-                                    .child(
-                                        Button::new(SharedString::from(format!("tg-apply-{id}")))
-                                            .ghost()
-                                            .label(t(locale, "tags.applyGroup"))
-                                            .on_click(move |_, window, cx| {
-                                                window.close_dialog(cx);
-                                                entity_apply.update(cx, |this, cx| {
-                                                    if let Some(lib) = this.library.as_mut() {
-                                                        lib.filters.tags = tags.clone();
-                                                        lib.selection.clear();
-                                                    }
-                                                    this.refresh_view(cx);
-                                                });
-                                            }),
-                                    )
-                                    .child(
-                                        Button::new(SharedString::from(format!("tg-del-{id}")))
-                                            .ghost()
-                                            .label(t(locale, "common.delete"))
-                                            .on_click(move |_, window, cx| {
-                                                window.close_dialog(cx);
-                                                entity_del.update(cx, |this, cx| {
-                                                    match this.session.delete_tag_group(&id) {
-                                                        Ok(groups) => {
-                                                            this.tag_groups = groups;
-                                                            this.status = SharedString::from(t(
-                                                                this.locale,
-                                                                "tags.groupDeleted",
-                                                            ));
-                                                            cx.notify();
-                                                        }
-                                                        Err(error) => {
-                                                            this.status = SharedString::from(
-                                                                format!("{error}"),
-                                                            );
-                                                            cx.notify();
-                                                        }
-                                                    }
-                                                });
-                                            }),
-                                    )
-                                    .into_any_element()
-                            }))
-                            .into_any_element()
-                    })
-                    .child({
-                        let entity = entity.clone();
-                        Button::new("tg-new")
-                            .primary()
-                            .label(t(locale, "tags.newGroup"))
-                            .on_click(move |_, window, cx| {
-                                window.close_dialog(cx);
-                                entity.update(cx, |this, cx| {
-                                    this.create_tag_group_dialog(window, cx);
-                                });
-                            })
-                    })
-                    .child({
-                        let entity = entity.clone();
-                        Button::new("tg-rename-tag")
-                            .ghost()
-                            .label(t(locale, "tags.rename"))
-                            .on_click(move |_, window, cx| {
-                                window.close_dialog(cx);
-                                entity.update(cx, |this, cx| {
-                                    this.rename_tag_dialog(window, cx);
-                                });
-                            })
-                    })
-                    .child({
-                        let entity = entity.clone();
-                        Button::new("tg-merge-tag")
-                            .ghost()
-                            .label(t(locale, "tags.merge"))
-                            .on_click(move |_, window, cx| {
-                                window.close_dialog(cx);
-                                entity.update(cx, |this, cx| {
-                                    this.merge_tag_dialog(window, cx);
-                                });
-                            })
-                    })
-                    .child({
-                        let entity = entity.clone();
-                        Button::new("tg-delete-tag")
-                            .ghost()
-                            .label(t(locale, "tags.delete"))
-                            .on_click(move |_, window, cx| {
-                                window.close_dialog(cx);
-                                entity.update(cx, |this, cx| {
-                                    this.delete_tag_dialog(window, cx);
-                                });
-                            })
-                    }),
+                            .justify_end()
+                            .child(
+                                Button::new("tg-rename-cancel")
+                                    .label(t(locale, "common.cancel"))
+                                    .on_click(|_, window, cx| window.close_dialog(cx)),
+                            )
+                            .child(
+                                Button::new("tg-rename-ok")
+                                    .primary()
+                                    .label(t(locale, "common.save"))
+                                    .on_click(move |_, window, cx| {
+                                        let name = input_ok.read(cx).value().trim().to_string();
+                                        window.close_dialog(cx);
+                                        if name.is_empty() {
+                                            return;
+                                        }
+                                        entity.update(cx, |this, cx| {
+                                            this.update_tag_group(&id, |g| g.name = name, cx);
+                                        });
+                                    }),
+                            ),
+                    ),
             )
         });
     }
 
-    fn create_tag_group_dialog(&mut self, window: &mut Window, cx: &mut Context<Self>) {
+    fn delete_tag_group(&mut self, id: &str, cx: &mut Context<Self>) {
+        match self.session.delete_tag_group(id) {
+            Ok(groups) => {
+                self.tag_groups = groups;
+                self.status = SharedString::from(t(self.locale, "tags.groupDeleted"));
+            }
+            Err(error) => self.status = SharedString::from(format!("{error}")),
+        }
+        cx.notify();
+    }
+
+    fn create_tag_group_dialog(
+        &mut self,
+        window: &mut Window,
+        cx: &mut Context<Self>,
+        initial_tags: Vec<String>,
+    ) {
         let locale = self.locale;
         let entity = cx.entity();
         let name = cx.new(|cx| InputState::new(window, cx).default_value("New group"));
-        let tags = cx.new(|cx| InputState::new(window, cx).placeholder("tag1, tag2"));
+        let tags = cx.new(|cx| {
+            InputState::new(window, cx)
+                .placeholder("tag1, tag2")
+                .default_value(initial_tags.join(", "))
+        });
         window.open_dialog(cx, move |dialog, _, _| {
             dialog.title(t(locale, "tags.newGroup")).child(
                 v_flex()
@@ -464,6 +728,65 @@ impl RootApp {
         );
     }
 
+    /// The open folder's id and colour, when a folder is open.
+    fn open_folder_color(&self) -> Option<(String, Option<String>)> {
+        let lib = self.library.as_ref()?;
+        let Place::Folder { id } = &lib.place else {
+            return None;
+        };
+        let folder = find_folder_ref(&lib.folders, id)?;
+        Some((id.clone(), folder.icon_color.clone()))
+    }
+
+    /// The folder colour picker (D-159): a palette pick or a typed hex closes it and is
+    /// written at once; a slider drag is kept while it is open and written when it closes,
+    /// so one choice is one write and one undo step. Opening starts from the folder's colour.
+    pub(crate) fn subscribe_folder_color_picker(
+        &mut self,
+        window: &mut Window,
+        cx: &mut Context<Self>,
+    ) -> Vec<gpui_kit::Subscription> {
+        use gpui_kit::component::color_picker::ColorPickerEvent;
+        let picker = self.folder_color_picker.clone();
+        vec![
+            cx.subscribe(&picker, |this, picker, event: &ColorPickerEvent, cx| {
+                let ColorPickerEvent::Change(Some(color)) = event else {
+                    return;
+                };
+                let Some((folder_id, _)) = this.open_folder_color() else {
+                    return;
+                };
+                let color = stored_color(*color);
+                if picker.read(cx).is_open() {
+                    this.pending_folder_color = Some((folder_id, color));
+                } else {
+                    this.pending_folder_color = None;
+                    this.set_folder_color(folder_id, Some(color), cx);
+                }
+            }),
+            cx.observe_in(&picker, window, |this, picker, window, cx| {
+                let open = picker.read(cx).is_open();
+                if open && !this.folder_color_picker_open {
+                    let current = this
+                        .open_folder_color()
+                        .and_then(|(_, color)| color)
+                        .and_then(|color| library_core::color_rgb(&color));
+                    picker.update(cx, |picker, cx| match current {
+                        Some(rgb) => picker.set_value(gpui_kit::rgb(rgb), window, cx),
+                        None => picker.clear_value(window, cx),
+                    });
+                }
+                if !open
+                    && this.folder_color_picker_open
+                    && let Some((folder_id, color)) = this.pending_folder_color.take()
+                {
+                    this.set_folder_color(folder_id, Some(color), cx);
+                }
+                this.folder_color_picker_open = open;
+            }),
+        ]
+    }
+
     pub(crate) fn edit_folder_description(
         &mut self,
         window: &mut Window,
@@ -508,133 +831,6 @@ impl RootApp {
                                 cx,
                             );
                         }
-                    })),
-            )
-        });
-    }
-
-    pub(crate) fn open_lock_manage_dialog(
-        &mut self,
-        window: &mut Window,
-        cx: &mut Context<Self>,
-        folder_id: String,
-    ) {
-        let locale = self.locale;
-        let entity = cx.entity();
-        let yubi = desktop_session::yubikey::present();
-        let wraps = self.session.piv_wraps(&folder_id).unwrap_or_default();
-        window.open_dialog(cx, move |dialog, _, _| {
-            dialog.title(t(locale, "locks.manageTitle")).child(
-                v_flex()
-                    .gap_2()
-                    .p_2()
-                    .w(px(400.))
-                    .child({
-                        let entity = entity.clone();
-                        let id = folder_id.clone();
-                        Button::new("lock-change-pw")
-                            .ghost()
-                            .label(t(locale, "locks.changePassword"))
-                            .on_click(move |_, window, cx| {
-                                window.close_dialog(cx);
-                                entity.update(cx, |this, cx| {
-                                    this.change_password_dialog(window, cx, id.clone());
-                                });
-                            })
-                    })
-                    .child({
-                        let entity = entity.clone();
-                        let id = folder_id.clone();
-                        Button::new("lock-recover")
-                            .ghost()
-                            .label(t(locale, "locks.recover"))
-                            .on_click(move |_, window, cx| {
-                                window.close_dialog(cx);
-                                entity.update(cx, |this, cx| {
-                                    this.recover_folder_dialog(window, cx, id.clone());
-                                });
-                            })
-                    })
-                    .child({
-                        let entity = entity.clone();
-                        let id = folder_id.clone();
-                        Button::new("lock-renew")
-                            .ghost()
-                            .label(t(locale, "locks.renewRecovery"))
-                            .on_click(move |_, window, cx| {
-                                window.close_dialog(cx);
-                                entity.update(cx, |this, cx| {
-                                    this.renew_recovery_dialog(window, cx, id.clone());
-                                });
-                            })
-                    })
-                    .child({
-                        let entity = entity.clone();
-                        let id = folder_id.clone();
-                        Button::new("lock-remove")
-                            .ghost()
-                            .label(t(locale, "locks.remove"))
-                            .on_click(move |_, window, cx| {
-                                window.close_dialog(cx);
-                                entity.update(cx, |this, cx| {
-                                    this.remove_lock_dialog(window, cx, id.clone());
-                                });
-                            })
-                    })
-                    .child({
-                        let entity = entity.clone();
-                        let id = folder_id.clone();
-                        Button::new("lock-label")
-                            .ghost()
-                            .label(t(locale, "locks.setLabel"))
-                            .on_click(move |_, window, cx| {
-                                window.close_dialog(cx);
-                                entity.update(cx, |this, cx| {
-                                    this.set_lock_label_dialog(window, cx, id.clone());
-                                });
-                            })
-                    })
-                    .when(yubi, |el| {
-                        let unlock_entity = entity.clone();
-                        let unlock_id = folder_id.clone();
-                        let bind_entity = entity.clone();
-                        let bind_id = folder_id.clone();
-                        el.child(
-                            Button::new("lock-yubi-unlock")
-                                .ghost()
-                                .label(t(locale, "locks.unlockYubi"))
-                                .on_click(move |_, window, cx| {
-                                    window.close_dialog(cx);
-                                    unlock_entity.update(cx, |this, cx| {
-                                        this.unlock_yubi_dialog(window, cx, unlock_id.clone());
-                                    });
-                                }),
-                        )
-                        .child(
-                            Button::new("lock-yubi-bind")
-                                .ghost()
-                                .label(t(locale, "locks.bindYubi"))
-                                .on_click(move |_, window, cx| {
-                                    window.close_dialog(cx);
-                                    bind_entity.update(cx, |this, cx| {
-                                        this.bind_yubi_dialog(window, cx, bind_id.clone());
-                                    });
-                                }),
-                        )
-                    })
-                    .children(wraps.clone().into_iter().map(|wrap| {
-                        let entity = entity.clone();
-                        let id = folder_id.clone();
-                        let serial = wrap.serial.clone();
-                        Button::new(SharedString::from(format!("lock-yubi-unbind-{serial}")))
-                            .ghost()
-                            .label(format!("{} {serial}", t(locale, "locks.unbindYubi")))
-                            .on_click(move |_, window, cx| {
-                                window.close_dialog(cx);
-                                entity.update(cx, |this, cx| {
-                                    this.unbind_yubi_dialog(window, cx, id.clone(), serial.clone());
-                                });
-                            })
                     })),
             )
         });

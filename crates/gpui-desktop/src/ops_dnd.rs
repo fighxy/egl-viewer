@@ -1,6 +1,5 @@
 //! Drop intents for Phase 3.F + folder tree helpers.
 
-use desktop_session::ItemsTarget;
 use gpui_kit::{Context, SharedString};
 use library_core::{Folder, FolderChange, ItemEdit, ItemId, SortKey};
 
@@ -22,12 +21,8 @@ impl RootApp {
             return;
         }
         match (payload, target) {
-            (DragPayload::Items { ids, view_id, .. }, DropIntent::Folder { id }) => {
-                let target = ItemsTarget {
-                    view_id: Some(*view_id),
-                    all: false,
-                    ids: ids.clone(),
-                };
+            (DragPayload::Items { target, .. }, DropIntent::Folder { id }) => {
+                let target = target.clone();
                 match self
                     .session
                     .apply_batch_edit(target, ItemEdit::AddToFolders(vec![id]))
@@ -42,12 +37,8 @@ impl RootApp {
                     }
                 }
             }
-            (DragPayload::Items { ids, view_id, .. }, DropIntent::Tag { name }) => {
-                let target = ItemsTarget {
-                    view_id: Some(*view_id),
-                    all: false,
-                    ids: ids.clone(),
-                };
+            (DragPayload::Items { target, .. }, DropIntent::Tag { name }) => {
+                let target = target.clone();
                 match self
                     .session
                     .apply_batch_edit(target, ItemEdit::AddTags(vec![name]))
@@ -62,12 +53,8 @@ impl RootApp {
                     }
                 }
             }
-            (DragPayload::Items { ids, view_id, .. }, DropIntent::Trash) => {
-                let target = ItemsTarget {
-                    view_id: Some(*view_id),
-                    all: false,
-                    ids: ids.clone(),
-                };
+            (DragPayload::Items { target, .. }, DropIntent::Trash) => {
+                let target = target.clone();
                 match self.session.apply_batch_edit(target, ItemEdit::Trash) {
                     Ok(n) => {
                         self.status = SharedString::from(t_n(self.locale, "edit.changed", n));
@@ -83,14 +70,14 @@ impl RootApp {
                 }
             }
             (
-                DragPayload::Items { ids, .. },
+                DragPayload::Items { target: items, .. },
                 DropIntent::Cell {
                     folder_id,
                     before_id,
                 },
             ) => match self
                 .session
-                .reorder_items(&folder_id, ids.clone(), before_id)
+                .reorder_items(&folder_id, items.ids.clone(), before_id)
             {
                 Ok(()) => {
                     self.status = SharedString::from(t(self.locale, "dnd.reordered"));
@@ -179,13 +166,15 @@ impl RootApp {
             }
             (DragPayload::Items { .. }, DropIntent::Tag { .. } | DropIntent::Trash) => true,
             (DragPayload::Folder { .. }, DropIntent::Tag { .. } | DropIntent::Trash) => false,
-            (DragPayload::Items { ids, .. }, DropIntent::Cell { before_id, .. }) => {
+            (DragPayload::Items { target, .. }, DropIntent::Cell { before_id, .. }) => {
                 self.library.as_ref().is_some_and(|lib| {
-                    lib.sort == SortKey::Manual
+                    // A Select All is not reordered: its ids are not listed in the UI (D-167).
+                    !target.all
+                        && lib.sort == SortKey::Manual
                         && matches!(lib.place, Place::Folder { .. })
                         && before_id
                             .as_ref()
-                            .is_none_or(|b| !ids.iter().any(|id| id == b))
+                            .is_none_or(|b| !target.ids.iter().any(|id| id == b))
                 })
             }
             (DragPayload::Folder { .. }, DropIntent::Root) => true,
@@ -212,29 +201,33 @@ impl RootApp {
         if lib.info.read_only || matches!(lib.place, Place::Trash) {
             return None;
         }
-        let ids: Vec<ItemId> = lib.selection.ids.iter().cloned().map(ItemId).collect();
-        if ids.is_empty() {
-            return None;
-        }
-        let label = if ids.len() == 1 {
-            lib.cells
-                .iter()
-                .find(|c| c.id == ids[0])
-                .map(|c| format!("{}.{}", c.name, c.ext))
-                .unwrap_or_else(|| "1 item".into())
-        } else {
-            format!("{} items", ids.len())
-        };
-        // The drag image shows the focused item, or the first selected one (D-152).
+        let target = lib.selection.target(lib.view_id)?;
+        let count = lib.selection.count();
+        // The drag image shows the focused item if it is selected, else a loaded selected one
+        // (D-152); a Select All does not list its items (D-167).
         let shown = lib
             .selection
             .focus
-            .filter(|i| lib.cells.get(*i).is_some_and(|c| ids.contains(&c.id)))
-            .or_else(|| lib.cells.iter().position(|c| c.id == ids[0]));
+            .filter(|i| {
+                lib.cells
+                    .get(*i)
+                    .is_some_and(|c| lib.selection.contains(&c.id))
+            })
+            .or_else(|| {
+                lib.cells
+                    .loaded()
+                    .find(|(_, c)| lib.selection.contains(&c.id))
+                    .map(|(i, _)| i)
+            });
+        let label = match (count, shown.and_then(|i| lib.cells.get(i))) {
+            (1, Some(cell)) => format!("{}.{}", cell.name, cell.ext),
+            (1, None) => "1 item".into(),
+            _ => format!("{count} items"),
+        };
         let thumb = shown
             .and_then(|i| self.items.get(i))
             .and_then(|item| item.thumb.clone());
-        Some(DragPayload::items(lib.view_id, ids, label).with_thumb(thumb))
+        Some(DragPayload::selection(target, count, label).with_thumb(thumb))
     }
 
     pub(crate) fn drag_payload_for_index(&self, index: usize) -> Option<DragPayload> {
@@ -242,16 +235,10 @@ impl RootApp {
         if lib.info.read_only || matches!(lib.place, Place::Trash) {
             return None;
         }
-        if lib.selection.contains(
-            &lib.cells
-                .get(index)
-                .map(|c| c.id.clone())
-                .unwrap_or_default(),
-        ) && lib.selection.count() > 1
-        {
+        let cell = lib.cells.get(index)?;
+        if lib.selection.contains(&cell.id) && lib.selection.count() > 1 {
             return self.drag_payload_for_selection();
         }
-        let cell = lib.cells.get(index)?;
         let thumb = self.items.get(index).and_then(|item| item.thumb.clone());
         Some(
             DragPayload::items(

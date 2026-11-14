@@ -44,6 +44,9 @@ actions!(
         PreviewGifToggle,
         PreviewGifPrevFrame,
         PreviewGifNextFrame,
+        MediaSkipBack,
+        MediaSkipForward,
+        MediaToggleMute,
         SpacePreviewDown,
         OpenOriginal,
         RevealOriginals,
@@ -237,6 +240,21 @@ pub const SHORTCUTS: &[ShortcutEntry] = &[
         keys: ", / .",
     },
     ShortcutEntry {
+        id: "preview.mediaPlay",
+        label_key: "commands.preview.mediaPlay",
+        keys: "K",
+    },
+    ShortcutEntry {
+        id: "preview.mediaSkip",
+        label_key: "commands.preview.mediaSkip",
+        keys: "J / L",
+    },
+    ShortcutEntry {
+        id: "preview.mediaMute",
+        label_key: "commands.preview.mediaMute",
+        keys: "M",
+    },
+    ShortcutEntry {
         id: "item.openOriginal",
         label_key: "details.openDefault",
         keys: "Ctrl+Enter",
@@ -307,25 +325,37 @@ pub fn bind_keymap(cx: &mut App) {
     cx.bind_keys(key_bindings());
 }
 
-/// Every global shortcut. A focused text field takes plain keys (digits, Space, `R`) first.
+/// The key context of the app's root element; every binding below lives under it.
+pub const ROOT_CONTEXT: &str = "RootApp";
+
+/// For keys a text field edits with (Backspace, Delete, arrows, Home / End, Enter, Escape,
+/// Ctrl+A / C / V / Z): off while a text field has focus (D-179). GPUI ranks a binding without
+/// a context as deep as the focused field's own and lets the one registered later win, and
+/// ours come after gpui-kit's `Input` bindings, so Backspace in the search field moved the
+/// selection to the Trash instead of deleting a character.
+const NOT_IN_TEXT: Option<&str> = Some("!Input");
+
+/// Every global shortcut. A focused text field takes plain keys (digits, Space, `R`) first:
+/// GPUI prefers character input over bindings for keys that type a character; the keys a text
+/// field edits with are scoped with [`NOT_IN_TEXT`].
 fn key_bindings() -> Vec<KeyBinding> {
     vec![
         KeyBinding::new("ctrl-o", OpenLibrary, None),
         KeyBinding::new("ctrl-w", CloseLibrary, None),
         KeyBinding::new("ctrl-,", Settings, None),
-        KeyBinding::new("ctrl-a", SelectAll, None),
+        KeyBinding::new("ctrl-a", SelectAll, NOT_IN_TEXT),
         KeyBinding::new("ctrl-f", Find, None),
-        KeyBinding::new("ctrl-z", Undo, None),
+        KeyBinding::new("ctrl-z", Undo, NOT_IN_TEXT),
         // Menus show the binding registered last: Delete, as the shortcut list says.
-        KeyBinding::new("backspace", TrashSelection, None),
-        KeyBinding::new("delete", TrashSelection, None),
-        KeyBinding::new("ctrl-shift-a", AddFiles, None),
-        KeyBinding::new("ctrl-v", PasteFiles, None),
+        KeyBinding::new("backspace", TrashSelection, NOT_IN_TEXT),
+        KeyBinding::new("delete", TrashSelection, NOT_IN_TEXT),
+        KeyBinding::new("ctrl-shift-a", AddFiles, NOT_IN_TEXT),
+        KeyBinding::new("ctrl-v", PasteFiles, NOT_IN_TEXT),
         KeyBinding::new("ctrl-shift-n", NewFolder, None),
         KeyBinding::new("f2", RenameSelection, None),
         KeyBinding::new("ctrl-shift-j", AddToFolders, None),
         KeyBinding::new("ctrl-j", GoToFolder, None),
-        KeyBinding::new("shift-delete", RemoveFromFolder, None),
+        KeyBinding::new("shift-delete", RemoveFromFolder, NOT_IN_TEXT),
         KeyBinding::new("ctrl-t", AddTags, None),
         KeyBinding::new("ctrl-shift-c", CopyTags, None),
         KeyBinding::new("ctrl-shift-v", PasteTags, None),
@@ -347,25 +377,30 @@ fn key_bindings() -> Vec<KeyBinding> {
         KeyBinding::new("ctrl--", SmallerThumbs, None),
         KeyBinding::new("ctrl-shift-s", OpenSortMenu, None),
         KeyBinding::new("f1", Shortcuts, None),
-        KeyBinding::new("enter", FocusDetails, None),
+        KeyBinding::new("enter", FocusDetails, NOT_IN_TEXT),
         KeyBinding::new("space", SpacePreviewDown, None),
-        KeyBinding::new("escape", ClosePreview, None),
+        KeyBinding::new("escape", ClosePreview, NOT_IN_TEXT),
         KeyBinding::new("r", PreviewRotate, None),
         // The GIF player in the preview (D-154).
         KeyBinding::new("p", PreviewGifToggle, None),
         KeyBinding::new(",", PreviewGifPrevFrame, None),
         KeyBinding::new(".", PreviewGifNextFrame, None),
+        // The video and audio player (D-170); P , . also drive it.
+        KeyBinding::new("k", PreviewGifToggle, None),
+        KeyBinding::new("j", MediaSkipBack, None),
+        KeyBinding::new("l", MediaSkipForward, None),
+        KeyBinding::new("m", MediaToggleMute, None),
         KeyBinding::new("ctrl-enter", OpenOriginal, None),
         KeyBinding::new("ctrl-shift-r", RevealOriginals, None),
-        KeyBinding::new("ctrl-c", CopyOriginals, None),
-        KeyBinding::new("left", MoveFocusLeft, None),
-        KeyBinding::new("right", MoveFocusRight, None),
-        KeyBinding::new("up", MoveFocusUp, None),
-        KeyBinding::new("down", MoveFocusDown, None),
-        KeyBinding::new("home", MoveFocusHome, None),
-        KeyBinding::new("end", MoveFocusEnd, None),
-        KeyBinding::new("pageup", MoveFocusPageUp, None),
-        KeyBinding::new("pagedown", MoveFocusPageDown, None),
+        KeyBinding::new("ctrl-c", CopyOriginals, NOT_IN_TEXT),
+        KeyBinding::new("left", MoveFocusLeft, NOT_IN_TEXT),
+        KeyBinding::new("right", MoveFocusRight, NOT_IN_TEXT),
+        KeyBinding::new("up", MoveFocusUp, NOT_IN_TEXT),
+        KeyBinding::new("down", MoveFocusDown, NOT_IN_TEXT),
+        KeyBinding::new("home", MoveFocusHome, NOT_IN_TEXT),
+        KeyBinding::new("end", MoveFocusEnd, NOT_IN_TEXT),
+        KeyBinding::new("pageup", MoveFocusPageUp, NOT_IN_TEXT),
+        KeyBinding::new("pagedown", MoveFocusPageDown, NOT_IN_TEXT),
     ]
 }
 
@@ -385,6 +420,53 @@ mod tests {
         keys.dedup();
         assert_eq!(keys.len(), total, "one keystroke bound to two actions");
         assert!(total > 50);
+    }
+
+    /// The editing keys of a text field stay with the field (D-179): our binding is off in an
+    /// `Input` context and on everywhere else under the app's root.
+    #[test]
+    fn editing_keys_stay_in_text_fields() {
+        use gpui_kit::KeyContext;
+        let root = KeyContext::parse(super::ROOT_CONTEXT).unwrap();
+        let input = KeyContext::parse("Input").unwrap();
+        let bindings = key_bindings();
+        for key in [
+            "backspace",
+            "delete",
+            "shift-delete",
+            "left",
+            "right",
+            "up",
+            "down",
+            "home",
+            "end",
+            "pageup",
+            "pagedown",
+            "enter",
+            "escape",
+            "ctrl-a",
+            "ctrl-c",
+            "ctrl-v",
+            "ctrl-z",
+            "ctrl-shift-a",
+        ] {
+            let typed = [gpui_kit::Keystroke::parse(key).unwrap()];
+            let binding = bindings
+                .iter()
+                .find(|binding| binding.match_keystrokes(&typed) == Some(false))
+                .unwrap_or_else(|| panic!("{key} is bound"));
+            let predicate = binding
+                .predicate()
+                .unwrap_or_else(|| panic!("{key} has a context"));
+            assert!(
+                predicate.eval(std::slice::from_ref(&root)),
+                "{key} works in the library"
+            );
+            assert!(
+                !predicate.eval(&[root.clone(), input.clone()]),
+                "{key} is left to a focused text field"
+            );
+        }
     }
 
     #[test]

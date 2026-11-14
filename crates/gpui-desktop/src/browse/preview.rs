@@ -18,10 +18,12 @@ use gpui_kit::{
 
 use crate::app::RootApp;
 use crate::browse::gif_player::{self, GifPlayer};
+use crate::browse::media_bar;
 use crate::browse::preview_cache::PreviewKey;
 use crate::browse::preview_image::Shown;
 use crate::browse::space_preview::{self, SpaceDown};
 use crate::i18n::t;
+use crate::ops_media::MediaPreview;
 use crate::platform;
 
 /// Zoom limits, relative to the fit (1.0 = 100 %).
@@ -237,6 +239,7 @@ fn natural_size(state: &PreviewState) -> Option<(f32, f32)> {
 
 pub fn render_preview(
     state: &PreviewState,
+    media: Option<&MediaPreview>,
     locale: Locale,
     window_size: (f32, f32),
     entity: Entity<RootApp>,
@@ -251,7 +254,11 @@ pub fn render_preview(
     let rotation = state.rotation;
     let dragging = state.drag_origin.is_some();
     let stage = (window_size.0, (window_size.1 - CHROME_HEIGHT).max(1.0));
-    let (box_w, box_h) = fit_box(natural_size(state), stage, zoom);
+    // A playing video sizes its box by its frames (D-170).
+    let natural = media
+        .and_then(MediaPreview::natural)
+        .or_else(|| natural_size(state));
+    let (box_w, box_h) = fit_box(natural, stage, zoom);
 
     let close_entity = entity.clone();
     let prev_entity = entity.clone();
@@ -393,7 +400,11 @@ pub fn render_preview(
                         .on_mouse_up(MouseButton::Left, {
                             let pan = pan_entity.clone();
                             move |_, _, cx| {
-                                pan.update(cx, |this, cx| this.preview_pan_end(cx));
+                                pan.update(cx, |this, cx| {
+                                    this.preview_pan_end(cx);
+                                    // A seek drag released off the track still ends.
+                                    this.media_scrub_end(cx);
+                                });
                             }
                         })
                         .on_mouse_move({
@@ -412,8 +423,48 @@ pub fn render_preview(
                                 });
                             }
                         })
-                        .child(match &state.image {
-                            Some(shown) => {
+                        .child(match (media, &state.image) {
+                            // Audio: a card with the name and the length (D-170).
+                            (Some(media), _) if media.audio_only => {
+                                media_bar::audio_card(&state.name, media, locale)
+                            }
+                            // Video: its frames once they come, the poster until then.
+                            (Some(media), shown) if media.frame.is_some() || shown.is_none() => {
+                                let pan = pan_entity.clone();
+                                let grab = move |event: &gpui_kit::MouseDownEvent,
+                                                 _: &mut gpui_kit::Window,
+                                                 cx: &mut gpui_kit::App| {
+                                    cx.stop_propagation();
+                                    let pos = event.position;
+                                    pan.update(cx, |this, cx| {
+                                        this.preview_pan_start(
+                                            pos.x.as_f32() - ox,
+                                            pos.y.as_f32() - oy,
+                                            cx,
+                                        );
+                                    });
+                                };
+                                div()
+                                    .id("preview-video")
+                                    .flex_none()
+                                    .relative()
+                                    .left(px(ox))
+                                    .top(px(oy))
+                                    .w(px(box_w))
+                                    .h(px(box_h))
+                                    .cursor(drag_cursor(dragging))
+                                    .on_mouse_down(MouseButton::Left, grab)
+                                    .when_some(media.frame.clone(), |el, frame| {
+                                        el.child(animation_frame(frame, 0, ObjectFit::Contain, 0.0))
+                                    })
+                                    .when(media.failed, |el| {
+                                        el.flex().items_center().justify_center().child(
+                                            Label::new(t(locale, "preview.media.failed")).text_lg(),
+                                        )
+                                    })
+                                    .into_any_element()
+                            }
+                            (_, Some(shown)) => {
                                 let pan = pan_entity.clone();
                                 // Grab and drag at any zoom. A click on the image never
                                 // reaches the letterbox, so it does not close the preview.
@@ -462,7 +513,7 @@ pub fn render_preview(
                                         .into_any_element(),
                                 }
                             }
-                            None => Label::new(t(locale, "preview.unavailable"))
+                            (_, None) => Label::new(t(locale, "preview.unavailable"))
                                 .text_lg()
                                 .into_any_element(),
                         }),
@@ -493,6 +544,9 @@ pub fn render_preview(
                 )
                 .when_some(state.player.as_ref(), |el, player| {
                     el.child(gif_controls(player, locale, entity.clone()))
+                })
+                .when_some(media, |el, media| {
+                    el.child(media_bar::media_controls(media, locale, entity.clone()))
                 }),
         )
 }

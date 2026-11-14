@@ -20,6 +20,33 @@ use crate::i18n::{t, t_n};
 use crate::library::Place;
 use crate::platform;
 
+/// How long the search field waits after the last key before it searches (D-179).
+const SEARCH_PAUSE: std::time::Duration = std::time::Duration::from_millis(250);
+
+/// Which ⊕ of the left bar a name popover belongs to (D-161, D-163).
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub(crate) enum NamePromptKind {
+    NewFolder,
+    SmartFolder,
+}
+
+/// The open name popover and what it will create.
+#[derive(Debug, Clone)]
+pub(crate) enum NamePrompt {
+    NewFolder,
+    /// The rules of the view when the popover opened.
+    SmartFolder(desktop_session::SmartDraft),
+}
+
+impl NamePrompt {
+    pub(crate) fn kind(&self) -> NamePromptKind {
+        match self {
+            Self::NewFolder => NamePromptKind::NewFolder,
+            Self::SmartFolder(_) => NamePromptKind::SmartFolder,
+        }
+    }
+}
+
 impl RootApp {
     pub(crate) fn apply_edit_to_selection(&mut self, edit: ItemEdit, cx: &mut Context<Self>) {
         if self.library.as_ref().is_some_and(|lib| lib.info.read_only) {
@@ -211,20 +238,70 @@ impl RootApp {
         }
     }
 
-    pub(crate) fn empty_trash(&mut self, window: &mut Window, cx: &mut Context<Self>) {
+    /// Restore All from the Trash's context menu (D-164). `Ctrl+Z` takes it back.
+    pub(crate) fn restore_all_trash(&mut self, cx: &mut Context<Self>) {
+        match self.session.restore_trash() {
+            Ok(n) => {
+                self.status = SharedString::from(t_n(self.locale, "trash.restoredAll", n));
+                self.reload_after_write(cx);
+            }
+            Err(error) => self.status = SharedString::from(format!("{error}")),
+        }
+        cx.notify();
+    }
+
+    /// What Empty Trash would delete, or `None` (with the reason in the status bar) when there
+    /// is nothing to delete.
+    fn trash_to_empty(&mut self, cx: &mut Context<Self>) -> Option<library_core::TrashInfo> {
         let info = match self.session.trash_info() {
             Ok(info) => info,
             Err(error) => {
                 self.status = SharedString::from(format!("{error}"));
                 cx.notify();
-                return;
+                return None;
             }
         };
         if info.items == 0 {
             self.status = SharedString::from(t(self.locale, "trash.alreadyEmpty"));
             cx.notify();
-            return;
+            return None;
         }
+        Some(info)
+    }
+
+    /// Empty Trash… of the Trash row's menu: the confirmation opens as a popover at the row
+    /// (D-165).
+    pub(crate) fn ask_empty_trash_here(&mut self, cx: &mut Context<Self>) {
+        self.trash_confirm = self.trash_to_empty(cx);
+        cx.notify();
+    }
+
+    /// The popover's answer: empty the trash, or just close.
+    pub(crate) fn answer_empty_trash(&mut self, confirmed: bool, cx: &mut Context<Self>) {
+        let info = self.trash_confirm.take();
+        if confirmed && let Some(info) = info {
+            self.run_empty_trash(info, cx);
+        }
+        cx.notify();
+    }
+
+    /// Close of the Empty Trash window, once it finished (D-172).
+    pub(crate) fn close_empty_trash_dialog(&mut self, cx: &mut Context<Self>) {
+        if self
+            .empty_trash_dialog
+            .as_ref()
+            .is_some_and(|dialog| !dialog.running())
+        {
+            self.empty_trash_dialog = None;
+            cx.notify();
+        }
+    }
+
+    /// File → Empty Trash: the same confirmation in a dialog, since the left bar may be hidden.
+    pub(crate) fn empty_trash(&mut self, window: &mut Window, cx: &mut Context<Self>) {
+        let Some(info) = self.trash_to_empty(cx) else {
+            return;
+        };
         let locale = self.locale;
         let entity = cx.entity();
         window.open_dialog(cx, move |dialog, _, _| {
@@ -233,7 +310,12 @@ impl RootApp {
                     .gap_3()
                     .p_2()
                     .w(px(360.))
-                    .child(Label::new(t_n(locale, "trash.emptyMessage", info.items)))
+                    // What goes and how much disk it frees; the files leave the disk for good
+                    // (D-164).
+                    .child(Label::new(t(locale, "trash.emptyMessage").replace(
+                        "{what}",
+                        &crate::ops_organize::trash_summary(locale, info),
+                    )))
                     .child(
                         h_flex()
                             .gap_2()
@@ -251,7 +333,7 @@ impl RootApp {
                                     .on_click(move |_, window, cx| {
                                         window.close_dialog(cx);
                                         entity.update(cx, |this, cx| {
-                                            this.run_empty_trash(cx);
+                                            this.run_empty_trash(info, cx);
                                         });
                                     })
                             }),
@@ -260,10 +342,14 @@ impl RootApp {
         });
     }
 
-    fn run_empty_trash(&mut self, cx: &mut Context<Self>) {
+    /// Deletes the trash on a thread; a window shows the progress and then the result (D-172).
+    fn run_empty_trash(&mut self, info: library_core::TrashInfo, cx: &mut Context<Self>) {
         if self.emptying_trash {
             return;
         }
+        self.empty_trash_dialog = Some(crate::browse::empty_trash_dialog::EmptyTrashDialog::new(
+            info,
+        ));
         let session = Arc::clone(&self.session);
         let progress = Arc::new(Mutex::new((0u32, 0u32)));
         let progress_ui = Arc::clone(&progress);
@@ -300,6 +386,9 @@ impl RootApp {
                     .update(cx, |this, cx| {
                         if let Ok(g) = progress_ui.lock() {
                             this.empty_trash_progress = *g;
+                            if let Some(dialog) = this.empty_trash_dialog.as_mut() {
+                                dialog.progress = *g;
+                            }
                         }
                         if !this.emptying_trash {
                             return false;
@@ -319,6 +408,9 @@ impl RootApp {
 
     pub(crate) fn cancel_empty_trash(&mut self, cx: &mut Context<Self>) {
         self.session.cancel_empty_trash();
+        if let Some(dialog) = self.empty_trash_dialog.as_mut() {
+            dialog.cancelled = true;
+        }
         self.status = SharedString::from(t(self.locale, "trash.emptyCancelled"));
         cx.notify();
     }
@@ -424,6 +516,35 @@ impl RootApp {
         });
     }
 
+    /// Searches for `text` unless the view already shows it (typing, then Enter, is one search).
+    pub(crate) fn apply_search_if_changed(&mut self, text: String, cx: &mut Context<Self>) {
+        self.search_generation = self.search_generation.wrapping_add(1);
+        if self
+            .library
+            .as_ref()
+            .is_some_and(|lib| lib.filters.search_text != text)
+        {
+            self.apply_search(text, cx);
+        }
+    }
+
+    /// Searches as the user types: the newest text, [`SEARCH_PAUSE`] after the last key, so a
+    /// word typed quickly is one search and not one per letter (D-179).
+    pub(crate) fn schedule_search(&mut self, text: String, cx: &mut Context<Self>) {
+        self.search_generation = self.search_generation.wrapping_add(1);
+        let generation = self.search_generation;
+        cx.spawn(async move |this, cx| {
+            cx.background_executor().timer(SEARCH_PAUSE).await;
+            this.update(cx, |this, cx| {
+                if this.search_generation == generation {
+                    this.apply_search_if_changed(text, cx);
+                }
+            })
+            .ok();
+        })
+        .detach();
+    }
+
     pub(crate) fn apply_search(&mut self, text: String, cx: &mut Context<Self>) {
         if let Some(lib) = self.library.as_mut() {
             lib.filters.search_text = text;
@@ -468,6 +589,112 @@ impl RootApp {
             lib.selection.clear();
         }
         self.refresh_view(cx);
+    }
+
+    /// Opens or closes the name popover under a header's ⊕ (D-161, D-163). Opening fills in
+    /// the default name, selected, so typing replaces it. A smart folder takes its rules from
+    /// the view now; a view the rules cannot express is refused here, before the popover opens.
+    pub(crate) fn set_name_prompt(
+        &mut self,
+        kind: Option<NamePromptKind>,
+        window: &mut Window,
+        cx: &mut Context<Self>,
+    ) {
+        self.name_prompt = match kind {
+            None => None,
+            Some(NamePromptKind::NewFolder) => Some(NamePrompt::NewFolder),
+            Some(NamePromptKind::SmartFolder) => match self.smart_draft() {
+                Ok(draft) => Some(NamePrompt::SmartFolder(draft)),
+                Err(error) => {
+                    self.status = SharedString::from(format!("{error}"));
+                    None
+                }
+            },
+        };
+        let default = match &self.name_prompt {
+            Some(NamePrompt::NewFolder) => Some(t(self.locale, "folder.newTitle")),
+            Some(NamePrompt::SmartFolder(_)) => Some(t(self.locale, "smart.defaultName")),
+            None => None,
+        };
+        if let Some(name) = default {
+            self.name_input.update(cx, |input, cx| {
+                input.set_value(name, window, cx);
+                input.focus(window, cx);
+                input.select_all(window, cx);
+            });
+        }
+        cx.notify();
+    }
+
+    /// Creates what the open name popover is for, with the typed name.
+    pub(crate) fn confirm_name_prompt(&mut self, window: &mut Window, cx: &mut Context<Self>) {
+        let name = self.name_input.read(cx).value().trim().to_string();
+        let prompt = self.name_prompt.take();
+        self.set_name_prompt(None, window, cx);
+        if name.is_empty() {
+            return;
+        }
+        match prompt {
+            Some(NamePrompt::NewFolder) => self.create_folder_named(name, cx),
+            Some(NamePrompt::SmartFolder(draft)) => self.save_smart_folder(name, draft, cx),
+            None => {}
+        }
+    }
+
+    /// The rules of the view now, for a new smart folder.
+    fn smart_draft(&self) -> Result<desktop_session::SmartDraft, library_core::SourceError> {
+        let Some(lib) = self.library.as_ref() else {
+            return Err(library_core::SourceError::Invalid(
+                "Open a library first.".into(),
+            ));
+        };
+        let query = crate::library::query_for(
+            &lib.place,
+            &lib.browse,
+            lib.sort,
+            lib.ascending,
+            &lib.filters,
+        );
+        self.session.smart_rules(&query)
+    }
+
+    fn save_smart_folder(
+        &mut self,
+        name: String,
+        draft: desktop_session::SmartDraft,
+        cx: &mut Context<Self>,
+    ) {
+        match self.session.save_smart_folder(SmartFolderChange::Create {
+            name,
+            parent: draft.parent,
+            conditions: draft.conditions,
+        }) {
+            Ok(folders) => {
+                if let Some(lib) = self.library.as_mut() {
+                    lib.smart_folders = folders;
+                }
+                self.status = SharedString::from(t(self.locale, "smart.saved"));
+            }
+            Err(error) => self.status = SharedString::from(format!("{error}")),
+        }
+        cx.notify();
+    }
+
+    /// A folder inside the open folder, or at the root.
+    fn create_folder_named(&mut self, name: String, cx: &mut Context<Self>) {
+        let parent = self
+            .library
+            .as_ref()
+            .and_then(|lib| lib.place.open_folder_id().map(str::to_owned));
+        self.run_save_folder(
+            FolderChange::Create {
+                name,
+                parent,
+                description: String::new(),
+                icon_color: None,
+            },
+            cx,
+        );
     }
 
     pub(crate) fn create_folder(&mut self, window: &mut Window, cx: &mut Context<Self>) {
@@ -1142,18 +1369,10 @@ impl RootApp {
         });
     }
 
+    /// File → Save as Smart Folder: the same as the Smart folders ⊕, in a dialog, since the
+    /// left bar may be hidden (D-163).
     pub(crate) fn save_as_smart_folder(&mut self, window: &mut Window, cx: &mut Context<Self>) {
-        let Some(lib) = self.library.as_ref() else {
-            return;
-        };
-        let query = crate::library::query_for(
-            &lib.place,
-            &lib.browse,
-            lib.sort,
-            lib.ascending,
-            &lib.filters,
-        );
-        let draft = match self.session.smart_rules(&query) {
+        let draft = match self.smart_draft() {
             Ok(draft) => draft,
             Err(error) => {
                 self.status = SharedString::from(format!("{error}"));
@@ -1163,8 +1382,12 @@ impl RootApp {
         };
         let locale = self.locale;
         let entity = cx.entity();
-        let input = cx.new(|cx| InputState::new(window, cx).default_value("Smart folder"));
+        let input =
+            cx.new(|cx| InputState::new(window, cx).default_value(t(locale, "smart.defaultName")));
         window.open_dialog(cx, move |dialog, _, _| {
+            let entity = entity.clone();
+            let input_ok = input.clone();
+            let draft = draft.clone();
             dialog.title(t(locale, "smart.saveTitle")).child(
                 v_flex()
                     .gap_3()
@@ -1180,46 +1403,22 @@ impl RootApp {
                                     .label(t(locale, "common.cancel"))
                                     .on_click(|_, window, cx| window.close_dialog(cx)),
                             )
-                            .child({
-                                let entity = entity.clone();
-                                let input = input.clone();
+                            .child(
                                 Button::new("smart-ok")
                                     .primary()
                                     .label(t(locale, "common.save"))
-                                    .on_click({
-                                        let parent = draft.parent.clone();
-                                        let conditions = draft.conditions.clone();
-                                        move |_, window, cx| {
-                                            let name = input.read(cx).value().to_string();
-                                            window.close_dialog(cx);
-                                            entity.update(cx, |this, cx| {
-                                                match this.session.save_smart_folder(
-                                                    SmartFolderChange::Create {
-                                                        name: name.trim().to_string(),
-                                                        parent: parent.clone(),
-                                                        conditions: conditions.clone(),
-                                                    },
-                                                ) {
-                                                    Ok(folders) => {
-                                                        if let Some(lib) = this.library.as_mut() {
-                                                            lib.smart_folders = folders;
-                                                        }
-                                                        this.status = SharedString::from(t(
-                                                            this.locale,
-                                                            "smart.saved",
-                                                        ));
-                                                        cx.notify();
-                                                    }
-                                                    Err(error) => {
-                                                        this.status =
-                                                            SharedString::from(format!("{error}"));
-                                                        cx.notify();
-                                                    }
-                                                }
-                                            });
+                                    .on_click(move |_, window, cx| {
+                                        let name = input_ok.read(cx).value().trim().to_string();
+                                        window.close_dialog(cx);
+                                        if name.is_empty() {
+                                            return;
                                         }
-                                    })
-                            }),
+                                        let draft = draft.clone();
+                                        entity.update(cx, |this, cx| {
+                                            this.save_smart_folder(name, draft, cx);
+                                        });
+                                    }),
+                            ),
                     ),
             )
         });

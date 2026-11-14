@@ -48,10 +48,9 @@ impl RootApp {
         };
         let index = lib.selection.focus.or_else(|| {
             lib.selection
-                .ids
+                .listed_ids()?
                 .iter()
-                .next()
-                .and_then(|id| lib.cells.iter().position(|c| c.id.0 == *id))
+                .find_map(|id| lib.cells.position(id))
         });
         let Some(index) = index else {
             return;
@@ -60,6 +59,9 @@ impl RootApp {
     }
 
     pub(crate) fn open_preview_at(&mut self, index: usize, cx: &mut Context<Self>) {
+        // The item and its neighbours, which the preview preloads, may be on pages not here
+        // yet: stepping through the preview walks the whole view (D-167).
+        self.fill_cells(index.saturating_sub(1)..index + 2);
         let Some(lib) = self.library.as_mut() else {
             return;
         };
@@ -100,6 +102,8 @@ impl RootApp {
         self.preview = Some(state);
         self.load_preview_window(index, cx);
         self.ensure_gif_ticker(cx);
+        // Video and audio play from the original, read by path in Rust (D-170).
+        self.open_media(&cell, cx);
         cx.notify();
     }
 
@@ -193,8 +197,10 @@ impl RootApp {
     pub(crate) fn release_preview(&mut self, cx: &mut App) {
         self.preview = None;
         self.drop_rotated(cx);
+        self.close_media(cx);
         // Libraries open and close through here too: the hover GIF goes with them.
         self.stop_hover_gif(cx);
+        self.stop_hover_scrub(cx);
         for image in self.preview_cache.clear() {
             cx.drop_image(image, None);
         }
@@ -378,6 +384,10 @@ impl RootApp {
 
     /// `P` or the play button.
     pub(crate) fn preview_gif_toggle(&mut self, cx: &mut Context<Self>) {
+        if self.media.is_some() {
+            self.media_toggle(cx);
+            return;
+        }
         if let Some(player) = self.gif_player_mut() {
             player.toggle(Instant::now());
             self.ensure_gif_ticker(cx);
@@ -387,6 +397,10 @@ impl RootApp {
 
     /// `,` / `.` or the frame buttons: one frame back or forward, paused.
     pub(crate) fn preview_gif_step(&mut self, delta: isize, cx: &mut Context<Self>) {
+        if self.media.is_some() {
+            self.media_step(if delta < 0 { -1 } else { 1 }, cx);
+            return;
+        }
         if let Some(player) = self.gif_player_mut() {
             player.step(delta);
             cx.notify();

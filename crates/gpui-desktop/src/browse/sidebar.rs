@@ -3,16 +3,21 @@
 
 use app_store::Locale;
 use gpui_kit::assets::IconName;
+use std::collections::{HashMap, HashSet};
+
 use gpui_kit::component::button::{Button, ButtonVariants as _};
-use gpui_kit::component::menu::ContextMenuExt as _;
+use gpui_kit::component::input::{Input, InputState};
+use gpui_kit::component::label::Label;
+use gpui_kit::component::menu::{ContextMenuExt as _, DropdownMenu as _};
+use gpui_kit::component::popover::Popover;
 use gpui_kit::component::scroll::ScrollableElement as _;
-use gpui_kit::component::{Icon, Sizable as _, v_flex};
+use gpui_kit::component::{Icon, Selectable as _, Sizable as _, StyledExt as _, h_flex, v_flex};
 use gpui_kit::prelude::FluentBuilder as _;
 use gpui_kit::{
-    AnyElement, App, DragMoveEvent, Entity, InteractiveElement, IntoElement, ParentElement,
-    SharedString, StatefulInteractiveElement, Styled, Window, div, px,
+    AnyElement, App, DragMoveEvent, Entity, Hsla, InteractiveElement, IntoElement, ParentElement,
+    SharedString, StatefulInteractiveElement, Styled, Window, div, px, rgb,
 };
-use library_core::Folder;
+use library_core::{Folder, TagGroup};
 
 use crate::app::RootApp;
 use crate::browse::style::{self, Kit};
@@ -20,15 +25,56 @@ use crate::dnd::{self, DragPayload, FolderZone};
 use crate::i18n::t;
 use crate::library::{self, OpenLibraryState, Place};
 use crate::ops_dnd::DropIntent;
-use crate::ops_items;
+use crate::ops_mutations::NamePromptKind;
+use crate::{ops_items, ops_organize};
+
+/// The key of the ungrouped tags in [`RootApp::expanded_tag_groups`] (D-162). Not a ULID, so
+/// it never meets a group id.
+pub const UNGROUPED: &str = "ungrouped";
+
+/// What the left bar shows besides the open library's own state.
+pub struct SidebarExtras<'a> {
+    pub tags: &'a [library_core::Tag],
+    pub tag_groups: &'a [TagGroup],
+    pub expanded_tag_groups: &'a HashSet<String>,
+    pub name_input: Entity<InputState>,
+    /// Which ⊕ has its name popover open.
+    pub name_prompt: Option<NamePromptKind>,
+    /// The Empty Trash confirmation open at the Trash row (D-165).
+    pub trash_confirm: Option<library_core::TrashInfo>,
+}
+
+/// A left-bar row as the trigger of a popover the app opens itself (D-165): it is never drawn
+/// as selected or open, and the popover listens to the middle button only, so a left click
+/// still does what the row does.
+struct RowTrigger(AnyElement);
+
+impl gpui_kit::component::Selectable for RowTrigger {
+    fn selected(self, _: bool) -> Self {
+        self
+    }
+
+    fn is_selected(&self) -> bool {
+        false
+    }
+}
+
+impl IntoElement for RowTrigger {
+    type Element = AnyElement;
+
+    fn into_element(self) -> Self::Element {
+        self.0
+    }
+}
 
 pub fn render_sidebar(
     state: &OpenLibraryState,
     locale: Locale,
     theme: &Kit,
     entity: Entity<RootApp>,
-    tags: &[library_core::Tag],
+    extras: SidebarExtras<'_>,
 ) -> impl IntoElement {
+    let tags = extras.tags;
     let unlocked = library::unlocked_tree(&state.folders);
     let locked = library::locked_folders(&state.folders);
     let read_only = state.info.read_only;
@@ -70,37 +116,54 @@ pub fn render_sidebar(
             Place::Untagged,
             None,
         ))
-        .child(scope_row(
-            "trash",
-            IconName::Trash,
-            t(locale, "shell.trash"),
-            state.counts.trash,
-            matches!(state.place, Place::Trash),
+        .child(trash_confirm_popover(
+            scope_row(
+                "trash",
+                IconName::Trash,
+                t(locale, "shell.trash"),
+                state.counts.trash,
+                matches!(state.place, Place::Trash),
+                theme,
+                entity.clone(),
+                Place::Trash,
+                if read_only {
+                    None
+                } else {
+                    Some(DropIntent::Trash)
+                },
+            )
+            // Size, Restore All and Empty Trash… (D-164); the confirmation opens here (D-165).
+            .context_menu(ops_organize::trash_menu(entity.clone())),
+            extras.trash_confirm,
+            locale,
             theme,
             entity.clone(),
-            Place::Trash,
-            if read_only {
-                None
-            } else {
-                Some(DropIntent::Trash)
-            },
         ));
 
     let folders_header = {
         let mut header = style::section_header("folders-header", t(locale, "shell.folders"), theme);
+        // Include Subfolders sits by the new-folder button (D-158). It only changes the
+        // view, so a read-only library keeps it.
+        let toggle = entity.clone();
+        header = header.child(
+            Button::new("sb-include-subfolders")
+                .ghost()
+                .xsmall()
+                .icon(IconName::FolderTree)
+                .tooltip(t(locale, "commands.view.includeSubfolders"))
+                .selected(state.browse.include_subfolders)
+                .on_click(move |_, _, cx| {
+                    toggle.update(cx, |this, cx| this.toggle_include_subfolders(cx));
+                }),
+        );
         if !read_only {
             header = attach_drop(header, entity.clone(), DropIntent::Root);
-            let new_folder = entity.clone();
-            header = header.child(
-                Button::new("sb-new-folder")
-                    .ghost()
-                    .xsmall()
-                    .icon(IconName::Plus)
-                    .tooltip(t(locale, "commands.folder.new"))
-                    .on_click(move |_, window, cx| {
-                        new_folder.update(cx, |this, cx| this.create_folder(window, cx));
-                    }),
-            );
+            header = header.child(name_popover(
+                NamePromptKind::NewFolder,
+                locale,
+                entity.clone(),
+                &extras,
+            ));
         }
         header
     };
@@ -132,17 +195,12 @@ pub fn render_sidebar(
         let mut header =
             style::section_header("smart-header", t(locale, "shell.smartFolders"), theme);
         if !read_only {
-            let save = entity.clone();
-            header = header.child(
-                Button::new("sb-save-smart")
-                    .ghost()
-                    .xsmall()
-                    .icon(IconName::Plus)
-                    .tooltip(t(locale, "smart.save"))
-                    .on_click(move |_, window, cx| {
-                        save.update(cx, |this, cx| this.save_as_smart_folder(window, cx));
-                    }),
-            );
+            header = header.child(name_popover(
+                NamePromptKind::SmartFolder,
+                locale,
+                entity.clone(),
+                &extras,
+            ));
         }
         header
     };
@@ -150,23 +208,25 @@ pub fn render_sidebar(
     let tags_header = {
         let mut header = style::section_header("tags-header", t(locale, "shell.tags"), theme);
         if !read_only {
-            let groups = entity.clone();
+            // Opens under the button, its left edge on the button's (D-160).
             header = header.child(
                 Button::new("sb-tag-groups")
                     .ghost()
                     .xsmall()
                     .icon(IconName::Ellipsis)
                     .tooltip(t(locale, "tags.groups"))
-                    .on_click(move |_, window, cx| {
-                        groups.update(cx, |this, cx| this.open_tag_groups_dialog(window, cx));
-                    }),
+                    .dropdown_menu_with_anchor(
+                        gpui_kit::Anchor::TopLeft,
+                        ops_organize::tags_menu(entity.clone()),
+                    ),
             );
         }
         header
     };
+    let tag_rows = render_tag_groups(state, locale, theme, entity.clone(), &extras);
 
     let show_smart = !state.smart_folders.is_empty() || !read_only;
-    let show_tags = !tags.is_empty();
+    let show_tags = !tags.is_empty() || !extras.tag_groups.is_empty();
 
     v_flex()
         .id("sidebar")
@@ -222,20 +282,287 @@ pub fn render_sidebar(
                             .into_any_element()
                         }))
                 })
-                .when(show_tags, |el| {
-                    el.child(tags_header)
-                        .children(tags.iter().take(200).map(|tag| {
-                            tag_row(
-                                tag.name.clone(),
-                                tag.image_count.unwrap_or(0),
-                                state.filters.tags.contains(&tag.name),
-                                read_only,
-                                theme,
-                                entity.clone(),
-                            )
-                        }))
-                }),
+                .when(show_tags, |el| el.child(tags_header).children(tag_rows)),
         )
+}
+
+/// The Trash row with the Empty Trash confirmation that its menu opens under it (D-165): what
+/// goes, its size, that the files leave the disk for good; Cancel and Empty Trash.
+fn trash_confirm_popover(
+    row: impl IntoElement,
+    confirm: Option<library_core::TrashInfo>,
+    locale: Locale,
+    theme: &Kit,
+    entity: Entity<RootApp>,
+) -> impl IntoElement {
+    let close = entity.clone();
+    let warning = theme.danger;
+    Popover::new("trash-confirm-popover")
+        .anchor(gpui_kit::Anchor::TopLeft)
+        .mouse_button(gpui_kit::MouseButton::Middle)
+        .trigger_style(gpui_kit::StyleRefinement::default().w_full())
+        .open(confirm.is_some())
+        .on_open_change(move |open, _, cx| {
+            // Only the app opens it; a dismissal (Escape, a click outside) cancels.
+            if !*open {
+                close.update(cx, |this, cx| this.answer_empty_trash(false, cx));
+            }
+        })
+        .trigger(RowTrigger(row.into_any_element()))
+        .content(move |_, _, _| {
+            let message = confirm
+                .map(|info| {
+                    t(locale, "trash.emptyMessage")
+                        .replace("{what}", &ops_organize::trash_summary(locale, info))
+                })
+                .unwrap_or_default();
+            let cancel = entity.clone();
+            let empty = entity.clone();
+            v_flex()
+                .gap_2()
+                .w(px(300.))
+                .child(
+                    h_flex()
+                        .gap_2()
+                        .items_center()
+                        .child(
+                            Icon::new(IconName::TriangleAlert)
+                                .small()
+                                .flex_none()
+                                .text_color(warning),
+                        )
+                        .child(Label::new(t(locale, "trash.emptyTitle")).font_semibold()),
+                )
+                .child(Label::new(message).text_sm())
+                .child(
+                    h_flex()
+                        .gap_2()
+                        .justify_end()
+                        .child(
+                            Button::new("trash-confirm-cancel")
+                                .small()
+                                .label(t(locale, "common.cancel"))
+                                .on_click(move |_, _, cx| {
+                                    cancel
+                                        .update(cx, |this, cx| this.answer_empty_trash(false, cx));
+                                }),
+                        )
+                        .child(
+                            Button::new("trash-confirm-ok")
+                                .small()
+                                .danger()
+                                .label(t(locale, "trash.empty"))
+                                .on_click(move |_, _, cx| {
+                                    empty.update(cx, |this, cx| this.answer_empty_trash(true, cx));
+                                }),
+                        ),
+                )
+        })
+}
+
+/// A ⊕ of the left bar with its name popover under it: the name, Cancel and Save (D-161,
+/// D-163). Enter saves; Escape or a click outside closes it. One popover is open at a time.
+fn name_popover(
+    kind: NamePromptKind,
+    locale: Locale,
+    entity: Entity<RootApp>,
+    extras: &SidebarExtras<'_>,
+) -> impl IntoElement {
+    let (id, title, tooltip) = match kind {
+        NamePromptKind::NewFolder => ("sb-new-folder", "folder.newTitle", "commands.folder.new"),
+        NamePromptKind::SmartFolder => ("sb-save-smart", "smart.saveTitle", "smart.save"),
+    };
+    let input = extras.name_input.clone();
+    let open_change = entity.clone();
+    Popover::new(SharedString::from(format!("{id}-popover")))
+        .anchor(gpui_kit::Anchor::TopLeft)
+        .open(extras.name_prompt == Some(kind))
+        .on_open_change(move |open, window, cx| {
+            let open = *open;
+            open_change.update(cx, |this, cx| {
+                this.set_name_prompt(open.then_some(kind), window, cx);
+            });
+        })
+        .trigger(
+            Button::new(id)
+                .ghost()
+                .xsmall()
+                .icon(IconName::Plus)
+                .tooltip(t(locale, tooltip)),
+        )
+        .content(move |_, _, _| {
+            let cancel = entity.clone();
+            let save = entity.clone();
+            v_flex()
+                .gap_2()
+                .w(px(260.))
+                .child(Label::new(t(locale, title)).text_sm())
+                .child(Input::new(&input).small())
+                .child(
+                    h_flex()
+                        .gap_2()
+                        .justify_end()
+                        .child(
+                            Button::new(SharedString::from(format!("{id}-cancel")))
+                                .small()
+                                .label(t(locale, "common.cancel"))
+                                .on_click(move |_, window, cx| {
+                                    cancel.update(cx, |this, cx| {
+                                        this.set_name_prompt(None, window, cx);
+                                    });
+                                }),
+                        )
+                        .child(
+                            Button::new(SharedString::from(format!("{id}-ok")))
+                                .small()
+                                .primary()
+                                .label(t(locale, "common.save"))
+                                .on_click(move |_, window, cx| {
+                                    save.update(cx, |this, cx| {
+                                        this.confirm_name_prompt(window, cx)
+                                    });
+                                }),
+                        ),
+                )
+        })
+}
+
+/// The Tags section as Eagle draws it (D-162): each tag group as a row that unfolds into its
+/// tags, tinted with the group's colour, then the tags in no group under "Ungrouped". Without
+/// groups the tags are listed as before.
+fn render_tag_groups(
+    state: &OpenLibraryState,
+    locale: Locale,
+    theme: &Kit,
+    entity: Entity<RootApp>,
+    extras: &SidebarExtras<'_>,
+) -> Vec<AnyElement> {
+    let read_only = state.info.read_only;
+    let counts: HashMap<&str, u32> = extras
+        .tags
+        .iter()
+        .map(|tag| (tag.name.as_str(), tag.image_count.unwrap_or(0)))
+        .collect();
+    let tag = |name: &str, group: Option<(&TagGroup, Option<Hsla>)>| {
+        tag_row(
+            name.to_owned(),
+            counts.get(name).copied().unwrap_or(0),
+            state.filters.tags.iter().any(|t| t == name),
+            read_only,
+            theme,
+            entity.clone(),
+            group.map(|(group, tint)| (group.id.clone(), tint)),
+        )
+    };
+    if extras.tag_groups.is_empty() {
+        return extras
+            .tags
+            .iter()
+            .take(200)
+            .map(|t| tag(&t.name, None))
+            .collect();
+    }
+    let mut rows = Vec::new();
+    for group in extras.tag_groups {
+        let expanded = extras.expanded_tag_groups.contains(&group.id);
+        let tint = group
+            .color
+            .as_deref()
+            .and_then(style::folder_color)
+            .map(|hex| rgb(hex).into());
+        rows.push(tag_group_row(
+            &group.id,
+            group.name.clone(),
+            group.tags.len(),
+            tint,
+            expanded,
+            read_only,
+            theme,
+            entity.clone(),
+        ));
+        if expanded {
+            rows.extend(group.tags.iter().map(|name| tag(name, Some((group, tint)))));
+        }
+    }
+    let ungrouped = ungrouped_tags(extras.tags, extras.tag_groups);
+    if !ungrouped.is_empty() {
+        let expanded = extras.expanded_tag_groups.contains(UNGROUPED);
+        rows.push(tag_group_row(
+            UNGROUPED,
+            t(locale, "tags.ungrouped"),
+            ungrouped.len(),
+            None,
+            expanded,
+            true,
+            theme,
+            entity.clone(),
+        ));
+        if expanded {
+            rows.extend(ungrouped.iter().take(200).map(|t| tag(&t.name, None)));
+        }
+    }
+    rows
+}
+
+/// The tags no group holds, in vocabulary order. Names match exactly: `"Poster"` in a group
+/// leaves `"poster"` ungrouped (D-057).
+fn ungrouped_tags<'a>(
+    tags: &'a [library_core::Tag],
+    groups: &[TagGroup],
+) -> Vec<&'a library_core::Tag> {
+    let grouped: HashSet<&str> = groups
+        .iter()
+        .flat_map(|group| group.tags.iter().map(String::as_str))
+        .collect();
+    tags.iter()
+        .filter(|tag| !grouped.contains(tag.name.as_str()))
+        .collect()
+}
+
+/// A tag group's row: a click folds or unfolds it; its menu filters, renames, colours or
+/// deletes the group. `fixed` rows (Ungrouped, a read-only library) have no menu.
+#[allow(clippy::too_many_arguments)]
+fn tag_group_row(
+    id: &str,
+    name: String,
+    count: usize,
+    tint: Option<Hsla>,
+    expanded: bool,
+    fixed: bool,
+    theme: &Kit,
+    entity: Entity<RootApp>,
+) -> AnyElement {
+    let toggle = entity.clone();
+    let toggle_id = id.to_owned();
+    let row = style::nav_row(SharedString::from(format!("tag-group-{id}")), false, theme)
+        .on_click(move |_, _, cx| {
+            toggle.update(cx, |this, cx| this.toggle_tag_group(&toggle_id, cx));
+        })
+        .child(
+            div().w(px(14.)).flex_none().child(
+                Icon::new(if expanded {
+                    IconName::ChevronDown
+                } else {
+                    IconName::ChevronRight
+                })
+                .xsmall()
+                .text_color(theme.muted_foreground),
+            ),
+        )
+        .child(
+            Icon::new(IconName::Tags)
+                .small()
+                .flex_none()
+                .text_color(tint.unwrap_or(theme.muted_foreground)),
+        )
+        .child(style::row_label(name))
+        .child(style::row_count(count as u32, theme));
+    if fixed {
+        row.into_any_element()
+    } else {
+        row.context_menu(ops_organize::tag_group_menu(entity, id.to_owned()))
+            .into_any_element()
+    }
 }
 
 fn locked_row(folder: Folder, locale: Locale, theme: &Kit, entity: Entity<RootApp>) -> AnyElement {
@@ -270,29 +597,38 @@ fn locked_row(folder: Folder, locale: Locale, theme: &Kit, entity: Entity<RootAp
         ))
         .child(style::row_label(name))
         .child(
-            Button::new(SharedString::from(format!("locked-manage-{manage_id}")))
-                .ghost()
-                .xsmall()
-                .icon(IconName::Ellipsis)
-                .tooltip(t(
-                    locale,
-                    if unlocked {
-                        "shell.unlocked"
-                    } else {
-                        "shell.locked"
-                    },
-                ))
-                .on_click(move |_, window, cx| {
-                    cx.stop_propagation();
-                    entity.update(cx, |this, cx| {
-                        this.open_lock_manage_dialog(window, cx, manage_id.clone());
-                    });
-                }),
+            // Opens under the button (D-160). The wrapper keeps the click from also opening or
+            // unlocking the folder through the row.
+            div()
+                .id(SharedString::from(format!(
+                    "locked-manage-wrap-{manage_id}"
+                )))
+                .on_click(|_, _, cx| cx.stop_propagation())
+                .child(
+                    Button::new(SharedString::from(format!("locked-manage-{manage_id}")))
+                        .ghost()
+                        .xsmall()
+                        .icon(IconName::Ellipsis)
+                        .tooltip(t(
+                            locale,
+                            if unlocked {
+                                "shell.unlocked"
+                            } else {
+                                "shell.locked"
+                            },
+                        ))
+                        .dropdown_menu_with_anchor(
+                            gpui_kit::Anchor::TopLeft,
+                            ops_organize::lock_manage_menu(entity, manage_id),
+                        ),
+                ),
         )
         .into_any_element()
 }
 
 /// A tag: a click filters by it, items dropped on it get it.
+/// Inside a group (`group`: its id and colour) the row is indented and tinted; its menu adds
+/// the tag to a group or takes it out of this one (D-162).
 fn tag_row(
     name: String,
     count: u32,
@@ -300,23 +636,44 @@ fn tag_row(
     read_only: bool,
     theme: &Kit,
     entity: Entity<RootApp>,
+    group: Option<(String, Option<Hsla>)>,
 ) -> AnyElement {
     let filter_tag = name.clone();
     let intent = DropIntent::Tag { name: name.clone() };
     let click = entity.clone();
-    let mut row = style::nav_row(SharedString::from(format!("tag-{name}")), active, theme)
+    let tint = group
+        .as_ref()
+        .and_then(|(_, tint)| *tint)
+        .unwrap_or(theme.muted_foreground);
+    let key = match &group {
+        Some((group_id, _)) => format!("tag-{group_id}-{name}"),
+        None => format!("tag-{name}"),
+    };
+    let mut row = style::nav_row(SharedString::from(key), active, theme)
+        .when(group.is_some(), |row| row.pl(px(26.)))
         .on_click(move |_, _, cx| {
             click.update(cx, |this, cx| {
                 this.toggle_tag_filter(filter_tag.clone(), cx);
             });
         })
-        .child(style::row_icon(IconName::Tag, theme))
-        .child(style::row_label(name))
+        .child(
+            Icon::new(IconName::Tag)
+                .small()
+                .flex_none()
+                .text_color(tint),
+        )
+        .child(style::row_label(name.clone()))
         .child(style::row_count(count, theme));
-    if !read_only {
-        row = attach_drop(row, entity, intent);
+    if read_only {
+        return row.into_any_element();
     }
-    row.into_any_element()
+    row = attach_drop(row, entity.clone(), intent);
+    row.context_menu(ops_organize::tag_row_menu(
+        entity,
+        name,
+        group.map(|(id, _)| id),
+    ))
+    .into_any_element()
 }
 
 #[allow(clippy::too_many_arguments)]
@@ -330,7 +687,7 @@ fn scope_row(
     entity: Entity<RootApp>,
     place: Place,
     drop: Option<DropIntent>,
-) -> impl IntoElement {
+) -> gpui_kit::Stateful<gpui_kit::Div> {
     let click = entity.clone();
     let mut row = style::nav_row(SharedString::from(id), selected, theme)
         .on_click(
@@ -587,4 +944,39 @@ where
             this.handle_drop(payload, intent, cx);
         });
     })
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn ungrouped_tags_are_the_ones_no_group_holds_exactly() {
+        let tag = |name: &str| library_core::Tag {
+            name: name.into(),
+            image_count: Some(1),
+        };
+        let tags = [tag("Poster"), tag("poster"), tag("Logo"), tag("Кот")];
+        let groups = [
+            TagGroup {
+                id: "G1".into(),
+                name: "Design".into(),
+                color: Some("red".into()),
+                tags: vec!["Poster".into(), "Logo".into()],
+            },
+            TagGroup {
+                id: "G2".into(),
+                name: "Empty".into(),
+                color: None,
+                tags: vec![],
+            },
+        ];
+        let names: Vec<&str> = ungrouped_tags(&tags, &groups)
+            .into_iter()
+            .map(|t| t.name.as_str())
+            .collect();
+        assert_eq!(names, ["poster", "Кот"]);
+        assert_eq!(ungrouped_tags(&tags, &[]).len(), 4);
+        assert_ne!(UNGROUPED.len(), 26, "never the length of a ULID group id");
+    }
 }
