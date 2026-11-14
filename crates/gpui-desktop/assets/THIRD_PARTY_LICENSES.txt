@@ -2,14 +2,14 @@ Third-party notices for egl-viewer GPUI desktop (D-133)
 =======================================================
 
 This file lists the main third-party components shipped with or linked by the
-GPUI Windows host. A fuller machine-generated inventory can replace this summary
-in a later release build. The Tauri/WebView desktop path keeps its own About
-story until that host is retired.
+egl-viewer desktop app. A fuller machine-generated inventory can replace this
+summary in a later release build.
 
 gpui-kit (Longbridge) and its GPUI / gpui-component / gpui-base stack
 --------------------------------------------------------------------
 License: see the gpui-kit / Longbridge GPUI Kit project licenses on crates.io
-and https://gpui-kit.com. Pinned at =0.9.0 (D-126).
+and https://gpui-kit.com. Pinned at =0.9.1 (D-126, D-155). The Windows
+backend is vendored with a small patch in vendor/gpui-pre-windows (D-148).
 
 libheif / libde265 (HEIC/HEIF decode)
 ------------------------------------
@@ -17,14 +17,34 @@ LGPL. Runtime DLLs `heif.dll` and `libde265.dll` are staged beside the exe
 (D-070). Full copyright texts from vcpkg are copied next to the portable layout
 as NOTICE-libheif.txt and NOTICE-libde265.txt when packaging.
 
+FFmpeg (video and audio decode, D-168)
+-------------------------------------
+LGPL version 2.1 or later, built without the gpl and nonfree features. Runtime
+DLLs avcodec, avformat, avfilter, avutil, swresample and swscale are staged
+beside the exe and linked dynamically, so they can be replaced. Source code:
+https://ffmpeg.org/download.html (the build is vcpkg's ffmpeg port, features
+core, avcodec, avformat, avfilter, swresample, swscale, dav1d, zlib). Full
+copyright text in NOTICE-ffmpeg.txt next to the portable layout.
+
+dav1d (AV1 decode) and zlib
+---------------------------
+dav1d: BSD-2-Clause (VideoLAN), dav1d.dll. zlib: zlib License, z.dll. Notices
+in NOTICE-dav1d.txt and NOTICE-zlib.txt.
+
+ffmpeg-next, cpal, rtrb (Rust)
+------------------------------
+ffmpeg-next / ffmpeg-sys-next: WTFPL. cpal (audio output): Apache-2.0.
+rtrb (lock-free ring buffer): MIT OR Apache-2.0. The audio path (ring buffer,
+playhead, device output) follows the Scrobb player engine by the same author.
+
 Rust crates in this workspace
 -----------------------------
-The GPUI host links the same shared crates as the rest of egl-viewer
-(library-core, library-native, media, app-service, desktop-session, app-store,
-eagle-api, eagle-folder, and their transitive crates). Each crate carries its
-own SPDX / license metadata in Cargo.toml and on crates.io.
+The desktop app links the shared crates of egl-viewer (library-core,
+library-native, media, app-service, desktop-session, app-store, eagle-api,
+eagle-folder, and their transitive crates). Each crate carries its own SPDX /
+license metadata in Cargo.toml and on crates.io.
 
 Windows system components
 -------------------------
-The host uses OS facilities (Win32 windowing via GPUI, Credential Manager,
+The app uses OS facilities (Win32 windowing via GPUI, Credential Manager,
 WebAuthn, Explorer) that are part of Windows and are not redistributed here.

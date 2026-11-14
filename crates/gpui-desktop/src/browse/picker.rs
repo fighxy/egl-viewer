@@ -293,6 +293,8 @@ pub struct PickerHandles {
     /// Folded right-bar sections.
     pub info_collapsed: bool,
     pub exif_collapsed: bool,
+    /// Any colour for the open folder (D-159).
+    pub folder_color: Entity<gpui_kit::component::color_picker::ColorPickerState>,
 }
 
 impl RootApp {
@@ -305,6 +307,7 @@ impl RootApp {
             editors: self.detail_editors.clone(),
             info_collapsed: self.info_collapsed,
             exif_collapsed: self.exif_collapsed,
+            folder_color: self.folder_color_picker.clone(),
         }
     }
 

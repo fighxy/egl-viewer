@@ -72,6 +72,8 @@ jobs:
           if (-not (Test-Path -LiteralPath (Join-Path $bin "libde265.dll"))) { throw "libde265.dll missing under $bin" }
           Write-Host "Decode-only libheif OK (no x265) under $root"
 
+      - uses: ./.github/actions/ffmpeg-windows
+
       # libheif-sys finds the vcpkg tree only through VCPKG_ROOT; the runner image
       # exports VCPKG_INSTALLATION_ROOT instead. VCPKGRS_DYNAMIC=1 selects the
       # x64-windows (DLL) triplet, matching `vcpkg install` above; without it
@@ -90,7 +92,7 @@ jobs:
       # default-feature libheif install (LNK1181 libx265.lib).
       - uses: Swatinem/rust-cache@v2
         with:
-          prefix-key: heif-core-libde265-v1
+          prefix-key: heif-core-libde265-ffmpeg-v2
 
       - name: Rust format
         run: cargo fmt --all --check
@@ -143,6 +145,8 @@ jobs:
           if (-not (Test-Path -LiteralPath (Join-Path $bin "heif.dll"))) { throw "heif.dll missing under $bin" }
           if (-not (Test-Path -LiteralPath (Join-Path $bin "libde265.dll"))) { throw "libde265.dll missing under $bin" }
 
+      - uses: ./.github/actions/ffmpeg-windows
+
       - name: vcpkg env for libheif-sys
         shell: bash
         run: |
@@ -155,7 +159,7 @@ jobs:
 
       - uses: Swatinem/rust-cache@v2
         with:
-          prefix-key: heif-core-libde265-v1-gpui
+          prefix-key: heif-core-libde265-ffmpeg-v2-gpui
 
       - name: Test gpui-desktop
         run: cargo test --locked -p gpui-desktop
@@ -209,6 +213,13 @@ jobs:
             libclang-dev \
             libheif-dev \
             libheif-plugin-libde265 \
+            libavcodec-dev \
+            libavformat-dev \
+            libavfilter-dev \
+            libavutil-dev \
+            libswscale-dev \
+            libswresample-dev \
+            libasound2-dev \
             libpcsclite-dev \
             libwayland-dev \
             libxkbcommon-dev \
@@ -235,6 +246,7 @@ jobs:
           pkg-config --exists wayland-client
           pkg-config --exists xkbcommon
           pkg-config --exists libpcsclite
+          pkg-config --exists libavcodec libavformat libavfilter libswscale libswresample alsa
 
       - name: Rust toolchain (from rust-toolchain.toml)
         run: |
@@ -275,7 +287,7 @@ jobs:
           HOMEBREW_NO_INSTALL_UPGRADE: 1
         run: |
           set -euo pipefail
-          brew install pkg-config libheif
+          brew install pkg-config libheif ffmpeg
           prefix="$(brew --prefix libheif)"
           echo "PKG_CONFIG_PATH=$prefix/lib/pkgconfig${PKG_CONFIG_PATH:+:$PKG_CONFIG_PATH}" >> "$GITHUB_ENV"
           PKG_CONFIG_PATH="$prefix/lib/pkgconfig${PKG_CONFIG_PATH:+:$PKG_CONFIG_PATH}" pkg-config --exists libheif

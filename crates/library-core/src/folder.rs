@@ -11,6 +11,66 @@ pub const FOLDER_COLORS: [&str; 8] = [
     "red", "orange", "yellow", "green", "aqua", "blue", "purple", "pink",
 ];
 
+/// The RGB the apps draw for each of [`FOLDER_COLORS`], in the same order.
+const FOLDER_COLOR_RGB: [u32; 8] = [
+    0xef4444, 0xf97316, 0xeab308, 0x22c55e, 0x06b6d4, 0x3b82f6, 0xa855f7, 0xec4899,
+];
+
+/// A colour a folder or a tag group may carry: one of [`FOLDER_COLORS`], or any colour as
+/// `#rrggbb` in lowercase hex (D-159).
+pub fn is_valid_color(color: &str) -> bool {
+    FOLDER_COLORS.contains(&color) || parse_hex(color).is_some()
+}
+
+/// The colour as `0xrrggbb`: a named colour's value, or the hex itself.
+pub fn color_rgb(color: &str) -> Option<u32> {
+    match FOLDER_COLORS.iter().position(|name| *name == color) {
+        Some(index) => Some(FOLDER_COLOR_RGB[index]),
+        None => parse_hex(color),
+    }
+}
+
+/// `0xrrggbb` as the stored form `#rrggbb`.
+pub fn hex_color(rgb: u32) -> String {
+    format!("#{:06x}", rgb & 0xff_ffff)
+}
+
+/// What Eagle gets for a colour, which knows only [`FOLDER_COLORS`]: a named colour as it
+/// is, a hex the nearest named colour (D-159).
+pub fn eagle_color(color: &str) -> Option<&'static str> {
+    if let Some(name) = FOLDER_COLORS.iter().find(|name| **name == color) {
+        return Some(name);
+    }
+    let rgb = parse_hex(color)?;
+    FOLDER_COLORS
+        .iter()
+        .zip(FOLDER_COLOR_RGB)
+        .min_by_key(|(_, named)| color_distance(rgb, *named))
+        .map(|(name, _)| *name)
+}
+
+fn parse_hex(color: &str) -> Option<u32> {
+    let digits = color.strip_prefix('#')?;
+    if digits.len() != 6
+        || !digits
+            .bytes()
+            .all(|b| b.is_ascii_digit() || (b'a'..=b'f').contains(&b))
+    {
+        return None;
+    }
+    u32::from_str_radix(digits, 16).ok()
+}
+
+/// The "redmean" weighted RGB distance (squared): closer to what the eye sees than plain RGB.
+pub(crate) fn color_distance(a: u32, b: u32) -> i64 {
+    let channel = |rgb: u32, shift: u32| i64::from((rgb >> shift) & 0xff);
+    let (r1, g1, b1) = (channel(a, 16), channel(a, 8), channel(a, 0));
+    let (r2, g2, b2) = (channel(b, 16), channel(b, 8), channel(b, 0));
+    let mean = (r1 + r2) / 2;
+    let (dr, dg, db) = (r1 - r2, g1 - g2, b1 - b2);
+    (((512 + mean) * dr * dr) >> 8) + 4 * dg * dg + (((767 - mean) * db * db) >> 8)
+}
+
 /// A folder edit. `Update` carries the folder's full desired properties: Eagle moves a nested
 /// folder to the root and clears its colour when fields are missing (corrections 3, 31).
 #[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
@@ -106,7 +166,7 @@ fn check_text(text: &str) -> Result<(), SourceError> {
 
 fn check_color(color: Option<&str>) -> Result<(), SourceError> {
     match color {
-        Some(color) if !FOLDER_COLORS.contains(&color) => invalid("unknown folder colour"),
+        Some(color) if !is_valid_color(color) => invalid("unknown folder colour"),
         _ => Ok(()),
     }
 }
@@ -220,6 +280,10 @@ mod tests {
         assert_eq!(create("Posters", Some("aqua")).validate(), Ok(()));
         assert!(create("  ", None).validate().is_err());
         assert!(create("Posters", Some("teal")).validate().is_err());
+        assert_eq!(create("Posters", Some("#1a2b3c")).validate(), Ok(()));
+        for bad in ["#1A2B3C", "#1a2b3", "#1a2b3c4d", "1a2b3c", "#gggggg"] {
+            assert!(create("Posters", Some(bad)).validate().is_err(), "{bad}");
+        }
         assert!(create(&"x".repeat(10_001), None).validate().is_err());
         let into_itself = FolderChange::Move {
             id: "F1".into(),
@@ -227,6 +291,28 @@ mod tests {
             index: 0,
         };
         assert!(into_itself.validate().is_err());
+    }
+
+    #[test]
+    fn colours_are_named_or_hex_and_eagle_gets_the_nearest_name() {
+        assert_eq!(color_rgb("aqua"), Some(0x06b6d4));
+        assert_eq!(color_rgb("#00ff80"), Some(0x00ff80));
+        assert_eq!(color_rgb("teal"), None);
+        assert_eq!(hex_color(0x00ff80), "#00ff80");
+        assert_eq!(color_rgb(&hex_color(0x0a0b0c)), Some(0x0a0b0c));
+        // Every named colour is its own nearest, as a name and as its hex.
+        for name in FOLDER_COLORS {
+            assert_eq!(eagle_color(name), Some(name));
+            assert_eq!(
+                eagle_color(&hex_color(color_rgb(name).unwrap())),
+                Some(name)
+            );
+        }
+        assert_eq!(eagle_color("#b91c1c"), Some("red"));
+        assert_eq!(eagle_color("#1e3a8a"), Some("blue"));
+        assert_eq!(eagle_color("#16a34a"), Some("green"));
+        assert_eq!(eagle_color("#7c3aed"), Some("purple"));
+        assert_eq!(eagle_color("teal"), None);
     }
 
     #[test]

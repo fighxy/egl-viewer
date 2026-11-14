@@ -1024,8 +1024,9 @@ fn folder_create_body(change: &FolderChange) -> Result<serde_json::Map<String, V
     if !description.is_empty() {
         body.insert("description".into(), Value::from(description.clone()));
     }
-    if let Some(color) = icon_color {
-        body.insert("iconColor".into(), Value::from(color.clone()));
+    // Eagle knows only its eight names: a custom colour goes as the nearest (D-159).
+    if let Some(color) = icon_color.as_deref().and_then(library_core::eagle_color) {
+        body.insert("iconColor".into(), Value::from(color));
     }
     Ok(body)
 }
@@ -1065,8 +1066,9 @@ fn folder_update_body(
         ("tags".to_owned(), Value::from(tags.clone())),
     ]);
     // "No colour" and "at the root" are expressed by omitting the field (corrections 3, 31).
-    if let Some(color) = icon_color {
-        body.insert("iconColor".into(), Value::from(color.clone()));
+    // A custom colour goes as the nearest of Eagle's eight names (D-159).
+    if let Some(color) = icon_color.as_deref().and_then(library_core::eagle_color) {
+        body.insert("iconColor".into(), Value::from(color));
     }
     if let Some(parent) = parent {
         body.insert("parent".into(), Value::from(parent.to_owned()));
@@ -1246,6 +1248,28 @@ mod tests {
         assert_eq!(body["iconColor"], Value::from("red"));
         assert_eq!(body["orderBy"], Value::from("name"));
         assert_eq!(body["sortIncrease"], Value::from(true));
+        // A custom colour reaches Eagle as the nearest of its eight names (D-159).
+        let change = FolderChange::Update {
+            id: "F1".into(),
+            name: "Renamed".into(),
+            description: String::new(),
+            tags: vec![],
+            icon_color: Some("#1e3a8a".into()),
+            order_by: None,
+            sort_ascending: None,
+        };
+        let body = folder_update_body(&change, &fresh, Some("P1")).unwrap();
+        assert_eq!(body["iconColor"], Value::from("blue"));
+        let create = FolderChange::Create {
+            name: "New".into(),
+            parent: None,
+            description: String::new(),
+            icon_color: Some("#b91c1c".into()),
+        };
+        assert_eq!(
+            folder_create_body(&create).unwrap()["iconColor"],
+            Value::from("red")
+        );
     }
 
     #[test]

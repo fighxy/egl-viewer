@@ -5,6 +5,7 @@ use std::sync::Arc;
 use gpui_kit::component::label::Label;
 use gpui_kit::component::{ActiveTheme as _, v_flex};
 
+use desktop_session::ItemsTarget;
 use gpui_kit::{
     App, AppContext as _, Context, Entity, Image, IntoElement, ParentElement, Pixels, Point,
     Render, SharedString, Styled, StyledImage as _, Window, div, img, px,
@@ -15,8 +16,9 @@ use library_core::ItemId;
 #[derive(Clone, Debug)]
 pub enum DragPayload {
     Items {
-        view_id: u64,
-        ids: Vec<ItemId>,
+        /// The dragged items; a Select All drags as a flag, resolved in Rust (D-167).
+        target: ItemsTarget,
+        count: usize,
         label: SharedString,
         /// The thumbnail of the item under the pointer, for the drag image (D-152).
         thumb: Option<Arc<Image>>,
@@ -29,9 +31,23 @@ pub enum DragPayload {
 
 impl DragPayload {
     pub fn items(view_id: u64, ids: Vec<ItemId>, label: impl Into<SharedString>) -> Self {
+        let count = ids.len();
+        Self::selection(
+            ItemsTarget {
+                view_id: Some(view_id),
+                all: false,
+                ids,
+            },
+            count,
+            label,
+        )
+    }
+
+    /// The items of a selection target, `count` of them.
+    pub fn selection(target: ItemsTarget, count: usize, label: impl Into<SharedString>) -> Self {
         Self::Items {
-            view_id,
-            ids,
+            target,
+            count,
             label: label.into(),
             thumb: None,
         }
@@ -48,7 +64,7 @@ impl DragPayload {
     /// How many items are dragged; 0 for a folder.
     pub fn count(&self) -> usize {
         match self {
-            Self::Items { ids, .. } => ids.len(),
+            Self::Items { count, .. } => *count,
             Self::Folder { .. } => 0,
         }
     }

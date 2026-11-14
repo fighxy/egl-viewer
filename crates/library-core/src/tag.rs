@@ -4,7 +4,7 @@ use serde::{Deserialize, Serialize};
 
 use crate::edit::MAX_TEXT_UTF16;
 use crate::error::SourceError;
-use crate::folder::FOLDER_COLORS;
+use crate::folder::is_valid_color;
 use crate::model::Tag;
 use crate::query::view::ItemCell;
 
@@ -46,7 +46,7 @@ impl TagGroupChange {
             return Err(SourceError::Invalid("The name is too long.".into()));
         }
         if let Some(color) = color
-            && !FOLDER_COLORS.contains(&color.as_str())
+            && !is_valid_color(color)
         {
             return Err(SourceError::Invalid(format!("Unknown colour: {color}.")));
         }
@@ -111,6 +111,12 @@ mod tests {
             tags: vec!["Serif".into()],
         };
         assert!(ok.validate().is_ok());
+        let hex = TagGroupChange::Create {
+            name: "Type".into(),
+            color: Some("#336699".into()),
+            tags: vec![],
+        };
+        assert!(hex.validate().is_ok());
         for bad in [
             TagGroupChange::Create {
                 name: "  ".into(),

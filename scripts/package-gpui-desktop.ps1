@@ -1,5 +1,5 @@
 # Stages a portable Windows layout for the GPUI desktop host (D-133 / D-153).
-# Ships gpui-desktop.exe + heif.dll / libde265.dll (+ LGPL notices) in one folder,
+# Ships gpui-desktop.exe + heif.dll / libde265.dll + the FFmpeg DLLs (+ LGPL notices) in one folder,
 # then optionally zips it. The per-user NSIS setup is built separately by
 # scripts/package-gpui-nsis.ps1 from the same stage. Authenticode and .eglib
 # file association stay deferred.
@@ -150,6 +150,21 @@ if ($bundled) {
     Set-Content -LiteralPath (Join-Path $stage "NOTICE-libde265.txt") -Value "libde265 - LGPL. See https://github.com/strukturag/libde265" -Encoding utf8
 }
 
+# Stage the FFmpeg runtime (video and audio, D-168): LGPL DLLs beside the exe. The bundle
+# script refuses a GPL or non-free FFmpeg; unlike heif there is no fallback.
+$ffmpegStage = Join-Path $stage "_ffmpeg-stage"
+$ffmpegScript = Join-Path $repo "scripts\bundle-ffmpeg-dlls.ps1"
+if ($pwshCmd) {
+    & $pwshCmd.Source -NoProfile -File $ffmpegScript -Dest $ffmpegStage -VcpkgRoot $VcpkgRoot
+    if ($LASTEXITCODE -ne 0) { throw "bundle-ffmpeg-dlls.ps1 failed" }
+} else {
+    & $ffmpegScript -Dest $ffmpegStage -VcpkgRoot $VcpkgRoot
+}
+Get-ChildItem -LiteralPath $ffmpegStage -File | ForEach-Object {
+    Copy-Item -LiteralPath $_.FullName -Destination (Join-Path $stage $_.Name) -Force
+}
+Remove-Item -LiteralPath $ffmpegStage -Recurse -Force -ErrorAction SilentlyContinue
+
 $icon = Join-Path $repo "crates\gpui-desktop\assets\icon.ico"
 if (Test-Path -LiteralPath $icon) {
     Copy-Item -LiteralPath $icon -Destination (Join-Path $stage "icon.ico") -Force
@@ -163,7 +178,8 @@ if (Test-Path -LiteralPath $licenses) {
 $readme = @"
 egl-viewer GPUI desktop (portable)
 
-Run gpui-desktop.exe. Keep heif runtime DLLs beside the exe (D-070 / D-133 / D-134).
+Run gpui-desktop.exe. Keep the heif and FFmpeg runtime DLLs beside the exe (D-070 / D-133 /
+D-134 / D-168).
 For cargo run / debug, put VCPKG installed\x64-windows\bin on PATH (includes libx265.dll
 when the local heif was not built decode-only).
 

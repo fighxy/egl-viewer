@@ -156,6 +156,47 @@ pub fn preview_payload(session: &Session, cell: &ItemCell) -> Option<PreviewPayl
     None
 }
 
+/// How GPUI reads an original it shows as it is, by extension.
+fn format_from_ext(ext: &str) -> Option<ImageFormat> {
+    Some(match ext.to_ascii_lowercase().as_str() {
+        "jpg" | "jpeg" => ImageFormat::Jpeg,
+        "png" => ImageFormat::Png,
+        "gif" => ImageFormat::Gif,
+        "webp" => ImageFormat::Webp,
+        "bmp" => ImageFormat::Bmp,
+        "svg" => ImageFormat::Svg,
+        _ => return None,
+    })
+}
+
+/// Full-size preview source for a loose file outside any library (D-180): the same choice as
+/// [`preview_payload`], read by path. A file with nothing better (SVGZ) shows the picture
+/// `media` renders for a thumbnail; video plays instead and has none. Reads the file: call it
+/// off the UI thread.
+pub fn file_payload(path: &std::path::Path, ext: &str) -> Option<PreviewPayload> {
+    let ext = ext.to_ascii_lowercase();
+    if shows_original(&ext)
+        && let Some(format) = format_from_ext(&ext)
+    {
+        return Some(PreviewPayload::encoded(std::fs::read(path).ok()?, format));
+    }
+    if decodes_through_media(&ext) {
+        return Some(PreviewPayload {
+            bytes: Arc::new(std::fs::read(path).ok()?),
+            format: ImageFormat::Png,
+            media_ext: Some(ext),
+        });
+    }
+    if media::kind(&ext) == media::Kind::Svg {
+        let rendered = media::render(path, &ext).ok()?;
+        return Some(PreviewPayload::encoded(
+            rendered.thumbnail.webp,
+            ImageFormat::Webp,
+        ));
+    }
+    None
+}
+
 fn raster_format(format: ImageFormat) -> Option<image::ImageFormat> {
     Some(match format {
         ImageFormat::Png => image::ImageFormat::Png,
@@ -302,6 +343,26 @@ mod tests {
         let image = shown.pixels().expect("decoded pixels");
         let size = image.size(0);
         (size.width.0, size.height.0)
+    }
+
+    #[test]
+    fn loose_files_are_read_by_path() {
+        let dir = tempfile::tempdir().unwrap();
+        let photo = dir.path().join("p.PNG");
+        std::fs::write(&photo, png(3, 2).bytes.as_slice()).unwrap();
+        let payload = file_payload(&photo, "PNG").expect("a PNG shows as it is");
+        assert!(payload.format == ImageFormat::Png && payload.media_ext.is_none());
+        assert_eq!(size(&decode_payload(&payload, 0).unwrap()), (3, 2));
+
+        // TIFF, PSD and HEIC go through `media` at full size.
+        let tiff = dir.path().join("t.tif");
+        std::fs::write(&tiff, b"not read yet").unwrap();
+        let payload = file_payload(&tiff, "tif").unwrap();
+        assert_eq!(payload.media_ext.as_deref(), Some("tif"));
+
+        // Video plays instead; a missing file gives nothing.
+        assert!(file_payload(&dir.path().join("v.mp4"), "mp4").is_none());
+        assert!(file_payload(&dir.path().join("gone.jpg"), "jpg").is_none());
     }
 
     #[test]

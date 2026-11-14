@@ -141,8 +141,13 @@ fn run(
                 ),
                 ("tags".to_owned(), Value::from(Vec::<String>::new())),
             ]);
-            if let Some(color) = &folder.icon_color {
-                body.insert("iconColor".into(), Value::from(color.clone()));
+            // Eagle knows only its eight names: a custom colour goes as the nearest (D-159).
+            if let Some(color) = folder
+                .icon_color
+                .as_deref()
+                .and_then(library_core::eagle_color)
+            {
+                body.insert("iconColor".into(), Value::from(color));
             }
             if let Some(parent) = parent {
                 body.insert("parent".into(), Value::from(parent.clone()));
@@ -160,8 +165,12 @@ fn run(
                 Value::from(folder.description.clone()),
             );
         }
-        if let Some(color) = &folder.icon_color {
-            body.insert("iconColor".into(), Value::from(color.clone()));
+        if let Some(color) = folder
+            .icon_color
+            .as_deref()
+            .and_then(library_core::eagle_color)
+        {
+            body.insert("iconColor".into(), Value::from(color));
         }
         if let Some(parent) = parent {
             body.insert("parent".into(), Value::from(parent.clone()));

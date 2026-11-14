@@ -3,7 +3,7 @@
 //! Browse preferences (sort, thumbnail size, grid/list) stay in `preferences.json` (D-041).
 //! This file remembers where the user was inside one library so a restart reopens there.
 
-use library_core::{SortKey, SourceError, TagMode};
+use library_core::{ColorFilter, SortKey, SourceError, TagMode};
 use serde::{Deserialize, Serialize};
 
 use crate::AppStore;
@@ -46,6 +46,8 @@ pub struct SavedFilters {
     pub ext: Option<String>,
     pub rating: Option<u8>,
     pub shape: Option<String>,
+    /// The colour filter (D-176); absent in files from before it.
+    pub color: Option<ColorFilter>,
 }
 
 impl Default for SavedFilters {
@@ -58,6 +60,7 @@ impl Default for SavedFilters {
             ext: None,
             rating: None,
             shape: None,
+            color: None,
         }
     }
 }

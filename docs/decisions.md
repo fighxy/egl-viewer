@@ -3432,3 +3432,404 @@ stayed in GPUI's asset cache for the life of the window. The grid only had the s
   `TOOLBAR_HEIGHT` and `FILTER_BAR_HEIGHT`; a compile-time assertion keeps each above its controls
   and the three within 96 px. The borders
   under the menu bar and the filter bar stay; menus still open under their button.
+
+## D-158 GPUI: Include Subfolders by the folders header (2026-11-14)
+
+- **Problem.** The Include Subfolders switch sat in the toolbar among the view buttons, far
+  from the tree whose counts it changes; the spec (§ left bar) puts it next to the tree.
+- **Change.** The switch is an extra-small button with the folder-tree icon in the Folders header
+  of the left bar, left of ⊕ New Folder, and is gone from the toolbar. It only changes the
+  view, so a read-only library shows it too (⊕ stays hidden there). The View menu entry and
+  the `RootApp::toggle_include_subfolders` behind both are unchanged.
+
+## D-159 Any colour for folders and tag groups (2026-11-14)
+
+- **Problem.** Folders and tag groups could only take Eagle's eight colours.
+- **Change.** A native library also stores any colour as `#rrggbb` (lowercase hex) in
+  `folder.icon_color` and `tag_group.color`; the eight names stay valid and stay names.
+  `library_core::is_valid_color` checks both forms, `color_rgb` gives the RGB, `hex_color`
+  writes the stored form. No schema change or migration: the columns are `TEXT` and the list
+  was already checked in Rust (docs/library-format.md §4). Lock label colours stay on the eight.
+- **Eagle.** Eagle knows only its eight names, so every `iconColor` sent to Eagle (live
+  `folder/create` and `folder/update`, the Eagle export) goes through `eagle_color`: a name as
+  it is, a hex the nearest name by the "redmean" weighted RGB distance. The GPUI folder
+  properties show the picker only for a native library.
+- **GPUI.** The folder properties keep the eight dots; a custom colour gets its own ringed dot
+  after them, and a palette button opens gpui-component's `ColorPicker`, starting from the
+  folder's colour. A palette pick or a typed hex closes the picker and is written at once; a
+  slider drag is kept while the picker is open and written once when it closes, so one choice is
+  one write and one undo step. A pick that is exactly one of the eight is stored as its name.
+  The GPUI shell has no tag-group colour editor yet.
+- **Older clients.** An app version from before this change, and the iOS / Android apps until
+  they parse hex, draw a `#rrggbb` folder without a colour; nothing fails.
+
+## D-160 GPUI: left-bar ⋯ menus open under their button (2026-11-14)
+
+- **Problem.** The ⋯ of the Tags header (tag groups and tag tools) and the ⋯ of a locked folder
+  (Manage lock) opened centred dialogs of buttons, far from where the user clicked, unlike the
+  Filter and Sort menus (D-146).
+- **Change.** Both are dropdown menus anchored at their button's top-left corner. Tags: each
+  tag group as a submenu with Apply and Delete ("No tag groups" when there are none), then New
+  Tag Group, Rename Tag…, Merge Tags…, Delete Tag…. Locked folder: Change Password…, Recover
+  with Key…, Renew Recovery Key…, Lock Label…, Remove Lock…, then the YubiKey entries for a
+  plugged-in key and one Remove YubiKey per bound card. The builders read the library when the
+  menu opens. A wrapper stops the click on a locked folder's ⋯ from also opening or unlocking
+  the folder. The dialogs these entries open are unchanged.
+
+## D-161 GPUI: New Folder from ⊕ is a popover under the button (2026-11-14)
+
+- **Problem.** ⊕ in the Folders header opened a dialog at the top of the window, away from
+  the button.
+- **Change.** ⊕ opens a small popover anchored under it: the name field (filled with "New
+  folder", selected, so typing replaces it), Cancel and Save. Enter saves; Escape or a click
+  outside closes it. The folder goes inside the open folder, or at the root, as before. File →
+  New Folder keeps the dialog, since the left bar may be hidden.
+
+## D-162 GPUI: tag groups in the left bar, as Eagle shows them (2026-11-14)
+
+- **Problem.** Tag groups were only reachable from the Tags header's ⋯ menu; the left bar
+  listed every tag flat.
+- **Change.** With at least one group, the Tags section lists each group as a row (chevron,
+  tags icon in the group's colour, name, number of tags). A click folds or unfolds it; its tags
+  follow, indented and tinted with the group's colour, each with its item count. The tags no
+  group holds follow under **Ungrouped** (open by default). Without groups the tags are listed
+  as before. A group's context menu: Filter by Group, Rename Group…, Colour ▸ (no colour or one
+  of the eight), Delete Group. A tag's context menu: Add to Group ▸, Remove from Group (in a
+  group), New Group with This Tag…. A tag may sit in several groups. The ⋯ menu keeps New Tag
+  Group and the tag tools. Folded state lasts for the session. Every group edit is a full
+  `TagGroupChange::Update` built from the group as it is now.
+- **Not yet.** Dragging tags into groups and reordering groups; a custom colour for groups (the
+  core accepts it, D-159).
+
+## D-163 GPUI: Save Smart Folder from ⊕ is a popover too (2026-11-14)
+
+- **Problem.** ⊕ in the Smart folders header opened a dialog at the top of the window.
+- **Change.** It opens the same name popover as New Folder (D-161), anchored under it, with
+  "Smart folder" selected. Both ⊕ share one popover state (`NamePrompt`) and one name field, so
+  only one is open at a time. The rules are taken from the view when the popover opens; a view
+  the rules cannot express is refused then, with the reason in the status bar, and the popover
+  stays closed. File → Save as Smart Folder keeps the dialog, since the left bar may be hidden;
+  both paths save through the same code.
+
+## D-164 GPUI: the Trash row's context menu (2026-11-14)
+
+- **Problem.** The spec (§3 Trash) gives the Trash row a right-click menu with its size, Restore
+  All and Empty Trash; the GPUI shell had none.
+- **Change.** Right-clicking Trash shows "N items · size" (read from `trash_info` when the menu
+  opens), then Restore All (`Ctrl+Z` takes it back) and Empty Trash…. Both are disabled for an
+  empty trash or a read-only library; an Eagle library shows why there is no trash info. Empty
+  Trash's confirmation now names the item count and the size and says the files leave the disk
+  for good, with no undo. The trash strings are in Russian too.
+
+## D-165 GPUI: Empty Trash from the Trash menu confirms in a popover at the row (2026-11-14)
+
+- **Problem.** Empty Trash… of the Trash row's menu (D-164) confirmed in a dialog at the top of
+  the window, away from the row.
+- **Change.** The confirmation opens as a popover under the Trash row: a warning icon, the title,
+  what goes and its size, that the files leave the disk for good; Cancel and a red Empty Trash.
+  Escape or a click outside cancels. The row is the popover's trigger through `RowTrigger`, a
+  wrapper that is never drawn selected; the popover listens to the middle button only and
+  ignores open requests, so a left click still opens the Trash and only the menu opens the
+  confirmation. File → Empty Trash keeps the dialog, since the left bar may be hidden.
+
+## D-166 GPUI: About names the real gpui-kit version; licenses wrap and scroll (2026-11-14)
+
+- **Problem.** Help → About said "gpui-kit 0.9.0" while the app is built with 0.9.1 (D-155), and
+  the Third-party licenses dialog drew the notices as one label: lines ran past the right edge
+  and the text did not scroll. The notices still spoke of the retired Tauri host.
+- **Change.** `about::gpui_kit_version` reads the exact pin (`gpui-kit = "=x.y.z"`) from the
+  workspace `Cargo.toml` at build time, so About follows the dependency. The licenses dialog is
+  600 px wide; the notices are parsed into headings (lines underlined with `---`) and paragraphs
+  (hard-wrapped lines joined), which wrap to the dialog in a 420 px scrolling column. The notices
+  name gpui-kit =0.9.1 and the vendored Windows backend (D-148), and no longer mention Tauri.
+  Packaging copies the same file next to the exe, so it keeps the version literally; a test
+  fails when it differs from the pin.
+
+## D-167 GPUI: views of any size, fetched a page at a time (2026-11-14)
+
+- **Problem.** The grid loaded the first 500 cells of a view and stopped (D-129, D-141): a
+  folder of 2227 items showed 500, All of 13 228 showed 500. Select All picked those 500 only.
+- **Change.** The grid is laid out for the view's whole `total` (the view's dimensions already
+  covered every position). `view_window::Paged` holds the cells (and, separately, the thumbnails)
+  in pages of 200. Each frame the grid or list reports the positions it draws; the missing pages
+  around them are fetched in the background (`view_range` plus the thumbnail files), and a page
+  that lands after the view changed is dropped (`view_generation`). Until then the position is
+  an empty tile of its final size. Pages far from the screen are let go: 12 pages of thumbnails,
+  48 of cells. Opening, refreshing and live updates load the first page and the pages on screen
+  at once, so nothing flashes. What needs ids beyond the screen fetches the cells of exactly that
+  range, without thumbnails: a shift-click run, a rubber band (the list computes its rows from
+  the band, not by walking the view), the keyboard (End, Page Down), the preview and its
+  neighbours, Copy Names.
+- **Select All** is a flag: `Selection` keeps `all` plus the items taken out again, its count
+  follows the view's total, and commands and drags send `ItemsTarget { all: true, .. }`, which
+  Rust resolves (docs/architecture.md §8). It is saved and restored as such. Dragging a Select
+  All onto folders, tags or the trash works; it cannot be dropped to reorder.
+
+## D-168 Audio and video engine: FFmpeg (LGPL) plus the Scrobb audio path (2026-11-14)
+
+- **Choice.** The user chose FFmpeg's libraries for decoding and the audio path of their own
+  player (`fighxy/scrobb`, `player/core/crates/player-engine`) for output. Compared: ffmpeg.exe
+  as a separate process (`ffmpeg-sidecar`: every seek restarts a process, 100–300 ms; sync across
+  two processes), libmpv (GPL by default, a large DLL, only a software render into GPUI, and the
+  grid would still need FFmpeg for frames), Media Foundation (Windows only, weak WebM / MKV /
+  VP9 / AV1, needs `unsafe`, other engines for macOS and Linux), GStreamer (a heavy runtime).
+  Scrobb alone plays audio only (Symphonia, rubato, cpal); its engine depends on its own ports
+  and Scrobb client, so the pieces are carried over rather than linked.
+- **Crate `av`** (desktop only; `media` uses it outside iOS and Android, like libheif):
+  `probe` (duration, displayed size with the display matrix and sample aspect, audio format;
+  cover art in an audio file is not video), `poster`, `FrameReader` (key seek, the frame at a
+  time, frames in order, RGBA or BGRA, scaled to a long edge, turned upright) and `Player`. The
+  player has a video thread (a `FrameReader` and a queue of 6 frames), an audio thread with its
+  own demuxer (two readers of one local file instead of sharing packets), FFmpeg's filter graph
+  (`atempo` for the speed, then the device's rate, layout and packed `f32`) and Scrobb's
+  lock-free ring buffer (`rt.rs`: chunk headers with a generation and a segment, a 5 ms ramp for
+  pause and seeks, the playhead in one atomic) feeding `cpal` in the device's own format
+  (`output.rs`). The clock runs on wall time and follows the audio playhead (it jumps past
+  150 ms, else closes 5 % of the gap per reading); without sound it is the wall clock. Seeks
+  raise a generation; stale frames and sound are dropped, never awaited. Exact seeks decode from
+  the key frame before the time; key seeks are for dragging and silence the sound until the
+  next exact seek or play.
+- **Fixed on the way.** In Scrobb's `rt.rs` a volume of zero acts like a pause (the buffer stops
+  draining, the playhead freezes): here only a pause holds the buffer, and mute plays on silently
+  (test `mute_plays_on_silently`). Worth porting back to Scrobb.
+- **Dependencies** (D-003 age rule): `ffmpeg-next` =9.0.0 with `ffmpeg-sys-next` 9.0.1 (9.1.x was
+  three days old), `cpal` =0.18.2, `rtrb` =0.4.1. `ffmpeg-sys-next` runs bindgen, so a build needs
+  libclang through `LIBCLANG_PATH` (LLVM from `winget install LLVM.LLVM` on this PC; the Windows
+  runners have it; `libclang-dev` on Linux, Xcode on macOS). `scripts/run-gpui-desktop.ps1` sets
+  it when LLVM is in its default folder.
+- **Windows build and packaging.** `vcpkg install
+  "ffmpeg[core,avcodec,avformat,avfilter,swresample,swscale,dav1d,zlib]:x64-windows"` (FFmpeg
+  9.0.2): native decoders for H.264, HEVC, VP8/9, ProRes, MPEG-4 and AV1 through dav1d; AAC, MP3,
+  FLAC, Opus, Vorbis, ALAC, PCM; MP4/MOV, MKV/WebM, AVI, MPEG-TS, FLV, Ogg, WAV. No `gpl` or
+  `nonfree` (no x264, x265, fdk-aac). `scripts/bundle-ffmpeg-dlls.ps1` stages the 8 DLLs (about
+  24 MB) with their notices, refuses a GPL or non-free install and checks the imports with
+  dumpbin; `package-gpui-desktop.ps1` calls it and `package-gpui-nsis.ps1` requires the DLLs. A
+  test (`the_windows_build_links_an_lgpl_ffmpeg`) fails if the linked FFmpeg is not LGPL.
+- **CI.** `.github/actions/ffmpeg-windows` installs that FFmpeg with three tries, keeps vcpkg's
+  binary cache between runs (only the first run builds it, about 8 minutes locally) and sets
+  `LIBCLANG_PATH`. Linux installs `libav*-dev` and `libasound2-dev`; macOS `brew install ffmpeg`.
+  Those system builds are GPL: fine to compile and test against, not to ship. **Open:** the
+  Linux tarball links the system FFmpeg (not bundled), and the macOS package script would bundle
+  Homebrew's GPL FFmpeg; both need an LGPL build before a release plays video there.
+- **By ear.** `cargo run -p av --example play -- <file> [seconds]` plays on the default device
+  and prints position, frames shown and a seek; checked on this PC (H.264 720p at 30 fps, MP3).
+- **Verify.** `cargo test -p av` (30 tests on the fixtures in `crates/av/fixtures`, made with
+  FFmpeg's `lavfi` sources: H.264 + AAC, VP9 + Opus, a rotated clip, a silent clip, MP3, FLAC,
+  WAV, Ogg Vorbis); `powershell -File scripts/bundle-ffmpeg-dlls.ps1`.
+
+## D-169 Video posters and durations in the native library (2026-11-14)
+
+- **Posters.** `media::Kind::Video` (the `av::VIDEO` extensions; none on iOS and Android) renders
+  the frame a tenth into the video, at most 10 s in, so a fade from black does not become the
+  thumbnail; the first frame when that seek finds nothing. Width and height are the displayed
+  size (rotation applied), the palette comes from the poster, there is no EXIF.
+- **Duration.** `Rendered::duration` (seconds) is stored in `item.duration` with the preview
+  (`COALESCE`, so a duration from an Eagle import stays). `ItemCell::duration_ms` carries it to
+  the grid, which shows it in a badge at the bottom right of the cell.
+- **Audio lengths.** Audio has no thumbnail, but its length is read from the headers
+  (`media::duration`, `av::probe`) when it is added, and by the background pass on opening for
+  audio added before (`Library::pending_durations`, the same pass as the pending previews; it
+  starts when either list has work). An unreadable file stores 0: no badge, not asked again.
+  Encrypted originals are skipped. An Eagle import keeps its durations.
+- **Existing libraries.** Video extensions are previewable now, so items added before get their
+  posters from the pending-preview pass when the library opens; Rebuild Thumbnails includes them.
+- **Failures.** Every failure is a decode error, so the item is marked and the pass moves on (an
+  `Unsupported` item would stay pending and stop the pass). Videos in locked folders get no
+  poster: FFmpeg reads by path and a locked original stays encrypted on disk (it is never
+  decrypted to a temporary file). Audio keeps its placeholder; cover art comes later.
+- **Verify.** `cargo test -p media videos_get_a_poster`, `cargo test -p library-native
+  videos_get_a_poster_and_their_duration`.
+
+## D-170 GPUI: video and audio in the preview, frames under the pointer in the grid (2026-11-14)
+
+- **Preview.** Opening a video or audio item (`av::is_video` / `is_audio`) starts an
+  `av::Player` on the original's path (`Session::original_paths`, read in Rust) in the
+  background; it plays at once. The poster stays until the first frame arrives. A video is drawn
+  like a GIF frame (`canvas` + `paint_image`), zoomable and pannable; the rotate button does not
+  turn video frames. Audio shows a card with a note, the name and the length. Stepping to another
+  item or closing stops the player (its threads end on their own) and frees the frame.
+- **The bar** (`browse/media_bar.rs`, the look of the GIF bar of D-154): previous frame, play /
+  pause, next frame (video only), a seek track of 240 segments (a click seeks exactly; dragging
+  seeks to key frames and to the exact frame when the button comes up, also off the track), the
+  time `m:ss / m:ss` (`h:mm:ss` from an hour), mute, a volume of ten steps, the speed (0.25×,
+  0.5×, 1×, 1.5×, 2×; `atempo` keeps the pitch). At the end it pauses; play starts over. Volume
+  and mute carry over from item to item for the session.
+- **Keys.** `P` and `K` play / pause, `,` / `.` step a frame back / forward (pausing), `J` / `L`
+  jump 5 s, `M` mutes. Listed in Help → Keyboard Shortcuts.
+- **One ticker** (`ops_media.rs`): takes the due frame from the player, uploads it as a
+  `RenderImage` and frees the previous one with `App::drop_image`, refreshes the bar when the
+  shown time or the track changes, sleeps until the next frame (200 ms for audio), keeps looking
+  for 1.5 s after a command while paused, and ends once nothing plays or is awaited.
+- **Grid.** A video cell with a poster is split into 24 invisible strips; the strip under the
+  pointer asks a reader on its own thread (FFmpeg's scaler cannot change threads) for the key
+  frame there, the newest request first, at twice the cell size. The frame covers the cell with a
+  thin progress line at the bottom; leaving the cell frees it. Strips need no cell bounds and
+  leave clicks, drags and the context menu to the cell.
+- **Not done here.** Cover art for audio, waveforms, subtitles, hardware decoding, choosing an
+  audio track, looping, remembering the position per item, hover in the list view. Audio gets a
+  workspace of its own later (D-171).
+- **Verified by hand** on Windows (2026-11-14) with a demo library made by `EGL_DEMO_SOURCE`
+  (720p H.264, VP9 WebM, a vertical and a rotated clip, MP3, FLAC): posters and length badges,
+  scrubbing under the pointer, playback with sound, the bar and its keys, the audio card, the
+  toolbar modes.
+
+## D-171 GPUI: media modes in the toolbar (2026-11-14)
+
+- **Where.** The user chose the toolbar (rather than the top of the left bar or extra places in
+  it): All · Photo · Video · Audio as one segmented control in the middle of the row, a muted
+  track with the current mode raised on it. Plain ghost buttons next to the size slider looked
+  cramped, so the slider moved to the right group, before the view buttons; the place title
+  and the right group share the rest of the width equally, which keeps the modes centred
+  (the slider was centred by D-142).
+- **What.** A mode is the Type filter set to a bucket (`image`, `video`, `audio`; none for All),
+  so it narrows any place (a folder, a tag, a smart folder, the trash), is saved with the
+  filters, and the Type menu shows the same value. An extension picked in the Type menu selects
+  no mode.
+- **Later.** Audio is to get its own layout with panels; until then every mode shows the grid.
+
+## D-172 GPUI: Empty Trash shows its progress and result in a window (2026-11-14)
+
+- **Problem.** Once Empty Trash was confirmed (D-165), the only sign of it was a thin strip at
+  the bottom of the window ("Emptying Trash… — 12/122") and a line in the status bar at the end:
+  easy to miss, and nothing said how much disk was freed.
+- **Change.** A modal window over the library (`browse/empty_trash_dialog.rs`): an icon and a
+  title, a progress bar with the share done (the steps are the rows, then the files), what goes
+  and its size, and Cancel. When it ends the same window says the result: "Trash emptied" with
+  the items deleted for good and the space freed; "Empty Trash cancelled" with how many went
+  before it stopped; or the error. Close dismisses it (only once it finished). Both ways in use
+  it: the popover at the Trash row and File → Empty Trash. The bottom strip is gone; the status
+  bar line stays.
+
+## D-173 GPUI: Add Files is a labelled button; × in Recent libraries removes the row (2026-11-14)
+
+- **Add Files.** With the size slider moved to the right group (D-171), its + stood next to the
+  + of Add Files and the two read as one control. Add Files is now an outline button with the
+  file-plus icon and a label ("Add" / "Добавить"), and a thin rule separates the slider from the
+  actions.
+- **Recent libraries.** The × of a row on the start screen removed the entry, but the same click
+  reached the row, which opened the library and so put it straight back at the top of the list.
+  The × stops the press and the click from reaching the row; a failed removal is logged instead
+  of ignored.
+
+## D-174 GPUI: dates in the computer's time zone (2026-11-14)
+
+- **Problem.** `format_date` turned stored epoch milliseconds into `YYYY-MM-DD HH:MM` by hand,
+  in UTC: a library opened at 10:09 in Krasnoyarsk showed 03:09 on the start screen, and the
+  dates in the right bar (added, created, modified, deleted) were off by the zone too.
+- **Change.** `format_date` uses `chrono::Local` (the zone's rules for that date, daylight saving
+  included); the format stays `YYYY-MM-DD HH:MM`. Times are still stored in UTC; only the display
+  changed. `chrono` =0.4.45 with `clock` and `std` was already in the lock through other crates,
+  so nothing new is downloaded. Tests format one instant in fixed zones (UTC, UTC+7, UTC−5) and
+  check that the app's own call matches the machine's local time.
+
+## D-175 GPUI: the Imports button shows only when it has something (2026-11-14)
+
+- **Problem.** The Imports button sat in the toolbar all the time, though the panel opens by
+  itself when an import starts, and the panel spoke in debug text (`#3 Previews 12/40`, a close
+  button labelled Cancel).
+- **Button.** It shows only while something is imported, with the steps done and in all
+  (`12/40`: files while copying, thumbnails after, summed over the runs), or while a finished run
+  has a report nobody opened (skipped duplicates, failures, an Eagle report), with a dot. Opening
+  or closing the panel counts as reading those reports. Otherwise there is no button.
+- **View → Imports** (with a check while open) opens the panel at any time; the action existed
+  but had no menu item or key.
+- **Panel.** Newest run first; each names its kind (Adding files, Thumbnails, Import from Eagle)
+  and stage (Looking for files, Copying, Waiting for your choice, Making thumbnails, Done,
+  Cancelled), the counts that are not zero (added, duplicates skipped, failed — in red), a bar
+  while it runs and Cancel only then. The panel closes with Close. The status bar uses the same
+  words instead of `Import 12/40 (+3 dup=0 fail=0)`.
+
+## D-176 Colour filter, with a Documents preset (2026-11-14)
+
+- **Problem.** Photographed and scanned papers (forms, receipts, notes) are ordinary JPGs: no
+  type, name or shape tells them apart, so there was no way to find "all documents". The spec
+  planned a colour filter (§ filter bar) and Eagle's `color similar` smart rule was read but not
+  evaluated.
+- **Change.** `LibraryQuery.color: Option<ColorFilter>`; `ItemLite` now carries the whole
+  palette (up to 8 colours with their share of the image, already stored per item), read with
+  the snapshot (native: the `palette` column; encrypted items: from their opened fields; Eagle:
+  `palettes`). The filter adds up the shares of the palette colours that qualify:
+  - **Similar** `{ rgb, min_share }`: colours within a redmean distance of 45 (in plain RGB
+    units) of the picked one cover at least `min_share` percent (default 15; 5, 15, 30, 50 to
+    choose).
+  - **Paper** `{ min_share: 55 }`: light (lightness ≥ 120 of 255), nearly colourless (chroma ≤ 52)
+    colours cover at least 55 percent: white or tinted paper with grey shadows and dark text.
+    Light phone screenshots match too; Shape (portrait 3:4 vs a phone's 9:19.5) tells them apart.
+  An item without a palette (not made yet, or none) never matches a colour filter.
+- **Smart folders.** `color similar` with `#rrggbb` / `#rgb` is evaluated with the default share;
+  Save as Smart Folder writes a picked colour as that rule and refuses Documents (Eagle has no
+  such rule), like search text.
+- **UI.** A Colour button in the filter bar opens a popover: Any colour, Documents, 16 swatches
+  and, once a colour is picked, how much of the image it must cover. The filter is saved with the
+  other filters per library (`SavedFilters.color`, absent in older files).
+
+## D-177 GPUI: the first toolbar row fits narrow windows (2026-11-14)
+
+- **Problem.** With the modes in the middle (D-171) and the size slider in the right group, the
+  row needs about 1150 px; the window may be 960 px wide (D-138). The right group could shrink
+  below its controls, which then slid over the Audio segment.
+- **Change.** The right group never shrinks below its controls (the place title truncates
+  instead). `modes::toolbar_fit(window width)`: from 1240 px everything shows; narrower, the modes
+  show their icons only; below 1100 px the size slider hides too (`Ctrl+=` / `Ctrl+-` and View →
+  Larger / Smaller Thumbnails stay) and the search field narrows from 220 to 170 px.
+
+## D-178 Colour filter: any colour of your own (2026-11-14)
+
+- **Problem.** The Colour filter (D-176) offered 16 swatches only.
+- **Change.** Under the swatches the popover has "Any colour of your own": a preview, a hex
+  field and hue, saturation and lightness sliders over tracks that show what each does. They
+  live in the popover itself, not in a second popup, so picking never closes the filter. A drag
+  previews its colour and updates the hex field as it goes and filters once, on release; the hex
+  field filters on Enter (`#rrggbb` or `#rgb`); a swatch moves the sliders to it. The share
+  chosen for the colour is kept. Opening the popover puts the controls on the colour filtered by.
+
+## D-179 GPUI: text fields keep their editing keys; search as you type (2026-11-14)
+
+- **Problem.** Backspace in the search field did not delete text: it moved the selection to the
+  Trash. GPUI ranks a key binding without a context as deep as the focused field's own `Input`
+  bindings and lets the one registered later win, and the app's shortcuts are registered after
+  gpui-kit's. The same held for Delete, Shift+Delete, the arrows, Home / End, Page Up / Down,
+  Enter, Escape and Ctrl+A / C / V / Z (Ctrl+C copied files, Ctrl+Z undid an edit) — in every
+  text field, the right bar's name and note too. Keys that type a character were never affected:
+  GPUI prefers character input for them.
+- **Change.** Those shortcuts are bound under the predicate `!Input` (`commands::NOT_IN_TEXT`):
+  off while a text field has focus, on everywhere else. The app's root element now has the key
+  context `RootApp`, so a predicate always has a context to match. A test evaluates each of them
+  in the library and in a text field.
+- **Search as you type.** The field searched only on Enter or when it lost focus, so a typed
+  term seemed to do nothing. It now searches 250 ms after the last key (a generation counter
+  drops older pending searches; Enter or leaving the field searches at once, and the same text
+  is not searched twice), and an × in the field empties it.
+- **The search itself** was right and stays: every term is a case-insensitive part of a name,
+  note, link, tag or folder name (Cyrillic folds too), terms of three or more characters use the
+  trigram index and shorter ones read the folded rows (D-047).
+
+## D-180 GPUI: viewing a photo or video on its own, the app as a default viewer (2026-11-14)
+
+- **Problem.** Photos and videos outside a library could not be opened from Explorer: the app
+  took only a library folder on its command line, and the installer registered no file types.
+- **Change.** `gpui-desktop.exe "<file>"` with a viewable extension opens a viewer window: the
+  full-size preview over the whole window, on that file, stepping through the photos and videos
+  of its folder in Explorer's name order (case-insensitive, digit runs as numbers). The folder is
+  listed in the background, so the file shows at once. `file_viewer` holds the pure part
+  (arguments, listing, order); in this mode the preview's cells are made up from paths, a cell's
+  id being its path, and `ops_preview` / `ops_media` read loose files by path, in Rust
+  (`preview_image::file_payload`, `av::Player::open`). The viewer window has a root of its own
+  that binds only the preview's keys, so no library shortcut can act from it; `Space` plays and
+  pauses; `Esc`, × or closing the window quits without the quit question.
+- **No library, no login.** Viewing a file opens no library, takes no `library.lock`, reopens
+  no library, leaves the recent list alone and skips the update check. The app
+  login (D-056) guards libraries, and none is reachable from the viewer, so it does not stand
+  before a file the user already opened in Explorer.
+- **Extensions.** Those with a preview (`media::preview_extensions`) but `.ts`, which is far more
+  often TypeScript than MPEG-TS and would put source files among a folder's videos.
+- **Registration.** The NSIS setup writes per-user keys only: the ProgID `egl-viewer-gpui.media`
+  with `open` = `"<exe>" "%1"`, each extension's `OpenWithProgids`, `Applications\gpui-desktop.exe`
+  with `SupportedTypes`, and `Capabilities` under `Software\egl-viewer-gpui` listed in
+  `RegisteredApplications`, then `SHChangeNotify(SHCNE_ASSOCCHANGED)`. Uninstall removes them.
+  Windows 10 and 11 refuse programmatic defaults (the `UserChoice` hash), so the app is offered
+  in "Open with" and Settings → Default apps and the user picks it. Thumbnails in Explorer stay:
+  they come from the system's handlers for the perceived types. A test keeps the installer's list
+  equal to `file_viewer::extensions`.
+- **Left for later.** One window per file opened (no single-instance hand-over); the portable zip
+  registers nothing; macOS and Linux file types are not declared.

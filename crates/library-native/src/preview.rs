@@ -113,6 +113,73 @@ impl Library {
         self.read_sealed(id, &path)?.ok_or(SourceError::NotFound)
     }
 
+    /// Audio items whose length was never read, oldest first (D-169). Encrypted originals are
+    /// left out: FFmpeg reads by path and they stay encrypted on disk.
+    pub fn pending_durations(&self, limit: usize) -> Result<Vec<PendingPreview>> {
+        let exts: Vec<String> = media::duration_extensions()
+            .map(|ext| format!("'{ext}'"))
+            .collect();
+        if exts.is_empty() {
+            return Ok(Vec::new());
+        }
+        let sql = format!(
+            "SELECT id, file_path, ext FROM item
+             WHERE duration IS NULL AND encrypted = 0 AND lower(ext) IN ({}) AND {VISIBLE}
+             ORDER BY seq LIMIT :limit",
+            exts.join(", ")
+        );
+        let conn = self.conn();
+        let visibility = self.visibility(&conn)?;
+        let mut stmt = conn.prepare(&sql).context("find items without a length")?;
+        let rows = stmt
+            .query_map(
+                named_params! {
+                    ":limit": i64::try_from(limit).unwrap_or(i64::MAX),
+                    ":hidden": visibility.hidden,
+                    ":unlocked": visibility.unlocked,
+                },
+                |row| {
+                    Ok((
+                        row.get::<_, String>(0)?,
+                        row.get::<_, String>(1)?,
+                        row.get(2)?,
+                    ))
+                },
+            )
+            .context("find items without a length")?;
+        let mut pending = Vec::new();
+        for row in rows {
+            let (id, stored, ext) = row.context("find items without a length")?;
+            if let Some(file) = library_file(self.root(), &stored) {
+                pending.push(PendingPreview { id, file, ext });
+            }
+        }
+        Ok(pending)
+    }
+
+    /// Stores the length read from an audio file; `None` (unreadable) stores 0, so the item
+    /// is not asked again and shows no badge.
+    pub fn store_duration(&self, id: &str, seconds: Option<f64>) -> Result<()> {
+        self.check_writable()?;
+        let now = now_ms();
+        let mut conn = self.conn();
+        let tx = conn.transaction().context("store the length")?;
+        let updated = tx
+            .execute(
+                "UPDATE item SET duration = ?2, updated_at = ?3 WHERE id = ?1 AND duration IS NULL",
+                params![id, seconds.unwrap_or(0.0), now],
+            )
+            .context("store the length")?;
+        if updated > 0 {
+            tx.execute(
+                "INSERT INTO change_log (entity, entity_id, op, at) VALUES ('item', ?1, 'update', ?2)",
+                params![id, now],
+            )
+            .context("log the change")?;
+        }
+        tx.commit().context("store the length")
+    }
+
     /// Writes the thumbnail to `thumbs/<shard>/<id>.webp`, then the dimensions, palette and
     /// EXIF. The file is in place before the row says it exists. An encrypted item gets an
     /// encrypted preview, and its palette and EXIF go into its sealed fields.
@@ -150,11 +217,19 @@ impl Library {
             .execute(
                 &format!(
                     "UPDATE item SET width = ?2, height = ?3, palette = ?4,
-                     exif = COALESCE(?5, exif), thumb_version = {NEXT_VERSION},
-                     updated_at = ?6
+                     exif = COALESCE(?5, exif), duration = COALESCE(?7, duration),
+                     thumb_version = {NEXT_VERSION}, updated_at = ?6
                  WHERE id = ?1"
                 ),
-                params![id, rendered.width, rendered.height, palette, exif, now],
+                params![
+                    id,
+                    rendered.width,
+                    rendered.height,
+                    palette,
+                    exif,
+                    now,
+                    rendered.duration
+                ],
             )
             .context("store the preview")?;
         if updated == 0 {

@@ -32,7 +32,9 @@ pub enum Kind {
     Svg,
     Psd,
     Heic,
-    /// Stored with a placeholder: no decoder in this version (AVIF, video, documents, …).
+    /// A poster frame through FFmpeg (D-169); desktop builds only.
+    Video,
+    /// Stored with a placeholder: no decoder in this version (AVIF, audio, documents, …).
     Other,
 }
 
@@ -42,10 +44,21 @@ const RASTER: &[&str] = &[
 const SVG: &[&str] = &["svg", "svgz"];
 const PSD: &[&str] = &["psd"];
 const HEIC: &[&str] = &["heic", "heif", "hif"];
+/// Video files with a poster frame: desktop builds have FFmpeg, iOS and Android do not.
+#[cfg(not(any(target_os = "ios", target_os = "android")))]
+const VIDEO: &[&str] = av::VIDEO;
+#[cfg(any(target_os = "ios", target_os = "android"))]
+const VIDEO: &[&str] = &[];
 
 /// Every lowercase extension that gets a preview.
 pub fn preview_extensions() -> impl Iterator<Item = &'static str> {
-    RASTER.iter().chain(SVG).chain(PSD).chain(HEIC).copied()
+    RASTER
+        .iter()
+        .chain(SVG)
+        .chain(PSD)
+        .chain(HEIC)
+        .chain(VIDEO)
+        .copied()
 }
 
 /// The kind for a lowercase or mixed-case extension without the dot.
@@ -59,9 +72,42 @@ pub fn kind(ext: &str) -> Kind {
         Kind::Psd
     } else if HEIC.contains(&ext.as_str()) {
         Kind::Heic
+    } else if VIDEO.contains(&ext.as_str()) {
+        Kind::Video
     } else {
         Kind::Other
     }
+}
+
+/// Audio files whose length is read when they are added (D-169); none on iOS and Android.
+#[cfg(not(any(target_os = "ios", target_os = "android")))]
+const AUDIO: &[&str] = av::AUDIO;
+#[cfg(any(target_os = "ios", target_os = "android"))]
+const AUDIO: &[&str] = &[];
+
+/// Every lowercase extension whose length is read without a thumbnail (audio).
+pub fn duration_extensions() -> impl Iterator<Item = &'static str> {
+    AUDIO.iter().copied()
+}
+
+/// Whether a file of this extension gets its length read without a thumbnail.
+pub fn has_duration_only(ext: &str) -> bool {
+    let ext = ext.to_ascii_lowercase();
+    AUDIO.contains(&ext.as_str())
+}
+
+/// The length in seconds of an audio file, from its headers; `None` when it cannot be read.
+#[cfg(not(any(target_os = "ios", target_os = "android")))]
+pub fn duration(path: &Path) -> Option<f64> {
+    av::probe(path)
+        .ok()?
+        .duration
+        .filter(|seconds| seconds.is_finite() && *seconds > 0.0)
+}
+
+#[cfg(any(target_os = "ios", target_os = "android"))]
+pub fn duration(_: &Path) -> Option<f64> {
+    None
 }
 
 /// Files with this extension get a thumbnail.
@@ -88,6 +134,8 @@ pub struct Rendered {
     /// Eagle `rawMetas` keys: `camera`, `isoSpeed`, `aperture`, `focalLength`, `shutter`,
     /// `timestamp` (correction 38). `None` without EXIF.
     pub exif: Option<serde_json::Value>,
+    /// Seconds, for video (D-169).
+    pub duration: Option<f64>,
 }
 
 #[derive(Debug, Error)]
@@ -131,11 +179,14 @@ pub fn render(path: &Path, ext: &str) -> Result<Rendered, MediaError> {
         // One read serves both the decode and the EXIF item.
         return render_heic(&std::fs::read(path)?);
     }
+    if kind(ext) == Kind::Video {
+        return render_video(path);
+    }
     let decoded = match kind(ext) {
         Kind::Raster => decode::raster(path)?,
         Kind::Svg => decode::svg(path, THUMBNAIL_SIZE)?,
         Kind::Psd => decode::psd(path)?,
-        Kind::Heic | Kind::Other => return Err(MediaError::Unsupported),
+        Kind::Heic | Kind::Video | Kind::Other => return Err(MediaError::Unsupported),
     };
     let thumbnail = thumbnail::make(&decoded.pixels, THUMBNAIL_SIZE)?;
     let palette = palette(&decoded.pixels);
@@ -149,6 +200,7 @@ pub fn render(path: &Path, ext: &str) -> Result<Rendered, MediaError> {
         thumbnail,
         palette,
         exif,
+        duration: None,
     })
 }
 
@@ -158,11 +210,18 @@ pub fn render_bytes(bytes: &[u8], ext: &str) -> Result<Rendered, MediaError> {
     if kind(ext) == Kind::Heic {
         return render_heic(bytes);
     }
+    if kind(ext) == Kind::Video {
+        // FFmpeg reads files by path; a locked original stays encrypted on disk, so its video
+        // keeps the placeholder (D-169).
+        return Err(MediaError::Decode(
+            "videos in locked folders get no preview".into(),
+        ));
+    }
     let decoded = match kind(ext) {
         Kind::Raster => decode::raster_bytes(bytes)?,
         Kind::Svg => decode::svg_data(bytes, THUMBNAIL_SIZE)?,
         Kind::Psd => decode::psd_bytes(bytes)?,
-        Kind::Heic | Kind::Other => return Err(MediaError::Unsupported),
+        Kind::Heic | Kind::Video | Kind::Other => return Err(MediaError::Unsupported),
     };
     let thumbnail = thumbnail::make(&decoded.pixels, THUMBNAIL_SIZE)?;
     let palette = palette(&decoded.pixels);
@@ -176,6 +235,7 @@ pub fn render_bytes(bytes: &[u8], ext: &str) -> Result<Rendered, MediaError> {
         thumbnail,
         palette,
         exif,
+        duration: None,
     })
 }
 
@@ -187,7 +247,7 @@ pub fn decode_full(bytes: &[u8], ext: &str) -> Result<RgbaImage, MediaError> {
         Kind::Raster => decode::raster_bytes(bytes)?,
         Kind::Psd => decode::psd_bytes(bytes)?,
         Kind::Heic => decode::heic_bytes(bytes)?,
-        Kind::Svg | Kind::Other => return Err(MediaError::Unsupported),
+        Kind::Svg | Kind::Video | Kind::Other => return Err(MediaError::Unsupported),
     };
     Ok(decoded.pixels)
 }
@@ -204,7 +264,35 @@ fn render_heic(bytes: &[u8]) -> Result<Rendered, MediaError> {
         thumbnail,
         palette,
         exif,
+        duration: None,
     })
+}
+
+/// A video: the poster frame (a tenth in, at most 10 s) as the thumbnail and palette source, the
+/// displayed size (rotation applied) and the duration.
+#[cfg(not(any(target_os = "ios", target_os = "android")))]
+fn render_video(path: &Path) -> Result<Rendered, MediaError> {
+    // Every failure is a decode error, an audio-only MP4 too: the item is marked and the
+    // pending pass moves on (an `Unsupported` item would stay pending).
+    let (info, pixels) =
+        av::poster(path, THUMBNAIL_SIZE).map_err(|error| MediaError::Decode(error.to_string()))?;
+    let (width, height) = info
+        .video
+        .as_ref()
+        .map_or(pixels.dimensions(), |video| (video.width, video.height));
+    Ok(Rendered {
+        width,
+        height,
+        thumbnail: thumbnail::make(&pixels, THUMBNAIL_SIZE)?,
+        palette: palette(&pixels),
+        exif: None,
+        duration: info.duration,
+    })
+}
+
+#[cfg(any(target_os = "ios", target_os = "android"))]
+fn render_video(_: &Path) -> Result<Rendered, MediaError> {
+    Err(MediaError::Unsupported)
 }
 
 /// A decoded image: its displayed size, and pixels that may be smaller (SVG is rendered at

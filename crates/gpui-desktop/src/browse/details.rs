@@ -5,6 +5,7 @@ use std::sync::Arc;
 use app_store::Locale;
 use gpui_kit::assets::IconName;
 use gpui_kit::component::button::{Button, ButtonVariants as _};
+use gpui_kit::component::color_picker::ColorPicker;
 use gpui_kit::component::input::{Input, Textarea};
 use gpui_kit::component::label::Label;
 use gpui_kit::component::popover::Popover;
@@ -66,6 +67,9 @@ pub fn render_details(
                         entity,
                         read_only,
                         state.browse.include_subfolders,
+                        // Eagle knows only its eight colours: no picker there (D-159).
+                        (state.info.kind == library_core::LibraryKind::Native)
+                            .then(|| pickers.folder_color.clone()),
                     )
                     .into_any_element()
                 } else {
@@ -749,9 +753,15 @@ fn folder_properties(
     entity: Entity<RootApp>,
     read_only: bool,
     include_subfolders: bool,
+    color_picker: Option<Entity<gpui_kit::component::color_picker::ColorPickerState>>,
 ) -> impl IntoElement {
     let id = folder.id.clone();
     let color = folder.icon_color.clone();
+    // A custom colour gets its own ringed dot after the eight (D-159).
+    let custom = color
+        .as_deref()
+        .filter(|c| !library_core::FOLDER_COLORS.contains(c))
+        .and_then(style::folder_color);
     let order = folder.order_by;
     v_flex()
         .id("folder-properties")
@@ -790,40 +800,68 @@ fn folder_properties(
         .child(Label::new(t(locale, "folder.colour")).text_xs())
         .child(
             // Colour dots, the chosen one ringed. The first, hollow dot is "no colour".
-            h_flex().gap_2().flex_wrap().items_center().children(
-                std::iter::once(None)
-                    .chain(library_core::FOLDER_COLORS.iter().copied().map(Some))
-                    .map(|c| {
-                        let entity = entity.clone();
-                        let fid = id.clone();
-                        let selected = color.as_deref() == c;
-                        let label = c.unwrap_or("none");
-                        let fill = c.and_then(style::folder_color);
+            h_flex()
+                .gap_2()
+                .flex_wrap()
+                .items_center()
+                .children(
+                    std::iter::once(None)
+                        .chain(library_core::FOLDER_COLORS.iter().copied().map(Some))
+                        .map(|c| {
+                            let entity = entity.clone();
+                            let fid = id.clone();
+                            let selected = color.as_deref() == c;
+                            let label = c.unwrap_or("none");
+                            let fill = c.and_then(style::folder_color);
+                            div()
+                                .id(SharedString::from(format!("fp-color-{label}")))
+                                .size(px(18.))
+                                .rounded_full()
+                                .border_2()
+                                .border_color(if selected {
+                                    theme.foreground
+                                } else if fill.is_some() {
+                                    gpui_kit::transparent_black()
+                                } else {
+                                    theme.muted_foreground
+                                })
+                                .when_some(fill, |el, hex| el.bg(gpui_kit::rgb(hex)))
+                                .when(!read_only, |el| el.cursor_pointer())
+                                .aria_label(label)
+                                .on_click(move |_, _, cx| {
+                                    if read_only {
+                                        return;
+                                    }
+                                    entity.update(cx, |this, cx| {
+                                        this.set_folder_color(
+                                            fid.clone(),
+                                            c.map(str::to_owned),
+                                            cx,
+                                        );
+                                    });
+                                })
+                        }),
+                )
+                .when_some(custom, |el, hex| {
+                    el.child(
                         div()
-                            .id(SharedString::from(format!("fp-color-{label}")))
+                            .id("fp-color-custom")
                             .size(px(18.))
                             .rounded_full()
                             .border_2()
-                            .border_color(if selected {
-                                theme.foreground
-                            } else if fill.is_some() {
-                                gpui_kit::transparent_black()
-                            } else {
-                                theme.muted_foreground
-                            })
-                            .when_some(fill, |el, hex| el.bg(gpui_kit::rgb(hex)))
-                            .when(!read_only, |el| el.cursor_pointer())
-                            .aria_label(label)
-                            .on_click(move |_, _, cx| {
-                                if read_only {
-                                    return;
-                                }
-                                entity.update(cx, |this, cx| {
-                                    this.set_folder_color(fid.clone(), c.map(str::to_owned), cx);
-                                });
-                            })
-                    }),
-            ),
+                            .border_color(theme.foreground)
+                            .bg(gpui_kit::rgb(hex))
+                            .aria_label(color.clone().unwrap_or_default()),
+                    )
+                })
+                .when_some(color_picker.filter(|_| !read_only), |el, picker| {
+                    el.child(
+                        ColorPicker::new(&picker)
+                            .xsmall()
+                            .icon(IconName::Palette)
+                            .accessibility_label(t(locale, "folder.customColour")),
+                    )
+                }),
         )
         .when(!folder.tags.is_empty(), |el| {
             el.child(
