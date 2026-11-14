@@ -29,6 +29,11 @@ foreach ($name in @("heif.dll", "libde265.dll")) {
         throw "$name missing under $stage (DLLs must sit beside the exe)."
     }
 }
+foreach ($pattern in @("avcodec-*.dll", "avformat-*.dll", "avfilter-*.dll", "avutil-*.dll", "swresample-*.dll", "swscale-*.dll", "dav1d.dll")) {
+    if (@(Get-ChildItem -LiteralPath $stage -Filter $pattern).Count -ne 1) {
+        throw "FFmpeg $pattern missing under $stage (D-168)."
+    }
+}
 foreach ($name in @("libx265.dll", "x265.dll")) {
     if (Test-Path -LiteralPath (Join-Path $stage $name)) {
         throw "GPL x265 DLL must not ship in the NSIS payload: $name"

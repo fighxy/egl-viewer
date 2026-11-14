@@ -21,8 +21,10 @@ webp.workspace = true
 
 # No system libheif on iOS or Android; HEIC keeps the placeholder until a platform
 # decoder is installed (D-086 iOS ImageIO; Android gallery HEIC lands in A4).
+# Video posters through FFmpeg (D-168): desktop only, like libheif.
 [target.'cfg(not(any(target_os = "ios", target_os = "android")))'.dependencies]
 libheif-rs.workspace = true
+av.workspace = true
 
 [dev-dependencies]
 tempfile.workspace = true

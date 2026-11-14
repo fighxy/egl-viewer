@@ -22,6 +22,14 @@ if (-not (Test-Path -LiteralPath (Join-Path $bin "heif.dll"))) {
     throw "heif.dll not found under $bin. Set VCPKG_ROOT or install libheif[core,libde265]:x64-windows."
 }
 
+if (-not (Get-ChildItem -LiteralPath $bin -Filter "avcodec-*.dll" -ErrorAction SilentlyContinue)) {
+    throw "FFmpeg DLLs not found under $bin. Install: vcpkg install `"ffmpeg[core,avcodec,avformat,avfilter,swresample,swscale,dav1d,zlib]:x64-windows`" (D-168)."
+}
+# ffmpeg-sys-next generates its bindings with bindgen, which needs libclang (LLVM).
+if (-not $env:LIBCLANG_PATH -and (Test-Path -LiteralPath "C:\Program Files\LLVM\bin\libclang.dll")) {
+    $env:LIBCLANG_PATH = "C:\Program Files\LLVM\bin"
+}
+
 $env:VCPKG_ROOT = $VcpkgRoot
 $env:VCPKGRS_DYNAMIC = "1"
 $env:PATH = "$bin;$env:PATH"
