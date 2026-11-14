@@ -3848,3 +3848,38 @@ stayed in GPUI's asset cache for the life of the window. The grid only had the s
   builds need only libheif, as before D-168.
 - **Kept.** Which files get a poster is still decided in one place (`media::kind`); the gate is
   the feature, not the target, so a host build of the mobile core and a phone build agree.
+
+## D-182 GPUI: the accent colour, Windows' own or any other (2026-11-14)
+
+- **Problem.** The selection and the primary controls were painted with the kit's fixed blue
+  (`theme.blue`) and the neutral palette's near-black primary; nothing followed the accent the
+  user picked in Windows, and there was no way to choose another.
+- **Change.** A new `accent` preference (`app_store::Accent`): `windows` (the default), eight
+  presets on the folder palette's colours (D-159), or `custom` with any `#rrggbb`. Settings →
+  General shows a dot per choice plus the kit colour picker for a custom one; the draft takes
+  every pick at once and Apply / Save paints it. The theme is applied from the stored
+  preferences before the first paint (`main.rs` reads the `AppStore` itself) and again on
+  every change, without a restart.
+- **Windows' accent.** Read from `HKCU\Software\Microsoft\Windows\DWM\AccentColor` through
+  `winreg`; the DWORD is ABGR (`dword_to_rgb`). Other platforms, and a missing value, fall
+  back to the default Windows blue `#0078d4`. The read happens when the theme is applied, so
+  a Windows accent change is picked up on the next theme change or start.
+- **What the accent paints.** `theme::apply_accent` sets, over the loaded palette: the primary
+  family (`primary`, hover, active, foreground — and the `button_primary` family, which the
+  kit's buttons read as their own tokens), `ring`, the input `selection`, the selected row of
+  the left bar and the list (`list_active` as a quiet tint, `list_active_border`),
+  `sidebar_primary`, the drag tint (`drag_border`, `drop_target`), `slider_bar` and
+  `progress_bar`. The grid's selection ring and caption go through `style::selection_color`,
+  which now returns `ring`; the caption's text takes `style::selection_foreground`
+  (`primary_foreground`) instead of a fixed white.
+- **Readable text on the accent.** `contrast_foreground` picks white when it reaches WCAG AA
+  (4.5:1) against the accent, black otherwise; when white fails, black always passes (the two
+  contrast curves cross above 4.5, near relative luminance 0.18). White is preferred because
+  Windows paints white on its own accent. A test sweeps every grey and a 16³ colour cube and
+  asserts the chosen foreground reaches 4.5:1, including hover and active. Those states move
+  away from the foreground rather than towards the theme's extreme to preserve contrast.
+- **Old files.** `Preferences` gains the field under its existing `#[serde(default)]`, so a
+  `preferences.json` written before the accent opens with `windows`; a test reads a full
+  pre-accent file. A custom value that is not hex normalises to `windows` on save.
+- **Left for later.** The user themes folder (`watch_dir`), interface density, Windows 11
+  Mica / transparency, a per-library accent, the mobile apps (with D-183…D-185).

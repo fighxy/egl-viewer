@@ -23,7 +23,8 @@ pub use login::{
     WebAuthnCredential,
 };
 pub use preferences::{
-    BrowsePreferences, Locale, Preferences, Theme, UiLayout, ViewMode, WindowState,
+    ACCENT_PRESETS, Accent, BrowsePreferences, Locale, Preferences, Theme, UiLayout, ViewMode,
+    WindowState,
 };
 pub use query::{LibrarySession, SavedFilters, SavedPlace, SavedSelection};
 pub use recent::RecentLibrary;

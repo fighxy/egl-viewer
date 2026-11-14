@@ -529,6 +529,17 @@ fn en() -> Catalog {
         ("settings.title", "Settings"),
         ("settings.general", "General"),
         ("settings.theme", "Theme"),
+        ("settings.accent", "Accent colour"),
+        ("accent.windows", "Like Windows"),
+        ("accent.custom", "Custom…"),
+        ("accent.blue", "Blue"),
+        ("accent.teal", "Teal"),
+        ("accent.green", "Green"),
+        ("accent.yellow", "Yellow"),
+        ("accent.orange", "Orange"),
+        ("accent.red", "Red"),
+        ("accent.purple", "Purple"),
+        ("accent.pink", "Pink"),
         ("settings.language", "Language"),
         ("settings.reopen", "Reopen the last library on start"),
         (
@@ -887,6 +898,17 @@ fn ru() -> Catalog {
         ("settings.title", "Параметры"),
         ("settings.general", "Общие"),
         ("settings.theme", "Тема"),
+        ("settings.accent", "Акцентный цвет"),
+        ("accent.windows", "Как в Windows"),
+        ("accent.custom", "Свой…"),
+        ("accent.blue", "Синий"),
+        ("accent.teal", "Бирюзовый"),
+        ("accent.green", "Зелёный"),
+        ("accent.yellow", "Жёлтый"),
+        ("accent.orange", "Оранжевый"),
+        ("accent.red", "Красный"),
+        ("accent.purple", "Фиолетовый"),
+        ("accent.pink", "Розовый"),
         ("settings.language", "Язык"),
         (
             "settings.reopen",
@@ -1176,6 +1198,17 @@ fn zh_cn() -> Catalog {
         ("settings.title", "设置"),
         ("settings.general", "常规"),
         ("settings.theme", "主题"),
+        ("settings.accent", "强调色"),
+        ("accent.windows", "跟随 Windows"),
+        ("accent.custom", "自定义…"),
+        ("accent.blue", "蓝色"),
+        ("accent.teal", "青色"),
+        ("accent.green", "绿色"),
+        ("accent.yellow", "黄色"),
+        ("accent.orange", "橙色"),
+        ("accent.red", "红色"),
+        ("accent.purple", "紫色"),
+        ("accent.pink", "粉色"),
         ("settings.language", "语言"),
         ("settings.reopen", "启动时重新打开上次图库"),
         ("settings.confirmTrash", "移入回收站前询问"),
@@ -1295,6 +1328,27 @@ mod tests {
             let key = format!("colour.{name}");
             assert_ne!(t(Locale::En, &key), key);
             assert_ne!(t(Locale::Ru, &key), key);
+        }
+    }
+
+    #[test]
+    fn the_accent_settings_are_translated_in_every_language() {
+        for key in [
+            "settings.accent",
+            "accent.windows",
+            "accent.custom",
+            "accent.blue",
+            "accent.teal",
+            "accent.green",
+            "accent.yellow",
+            "accent.orange",
+            "accent.red",
+            "accent.purple",
+            "accent.pink",
+        ] {
+            for locale in [Locale::En, Locale::Ru, Locale::ZhCn] {
+                assert_ne!(t(locale, key), key, "{locale:?} {key}");
+            }
         }
     }
 

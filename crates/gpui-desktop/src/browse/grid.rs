@@ -556,7 +556,9 @@ fn render_justified_virtual(
                                                 .overflow_hidden()
                                                 .text_ellipsis()
                                                 .when(selected, |el| {
-                                                    el.bg(ring).text_color(gpui_kit::white())
+                                                    el.bg(ring).text_color(
+                                                        style::selection_foreground(&theme),
+                                                    )
                                                 })
                                                 .child(title),
                                         ),

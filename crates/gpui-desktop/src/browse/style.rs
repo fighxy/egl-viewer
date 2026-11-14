@@ -37,10 +37,17 @@ const _: () = assert!(
         && MENU_BAR_HEIGHT + TOOLBAR_HEIGHT + FILTER_BAR_HEIGHT <= 96.0
 );
 
-/// The colour of a selected thumbnail's ring and caption. The kit's `accent` is a quiet grey
-/// meant for hover, so a selection drawn with it cannot be seen on a dark grid.
+/// The colour of a selected thumbnail's ring and caption: the accent (D-182), which the
+/// theme keeps in `ring`. The kit's `accent` is a quiet grey meant for hover, so a selection
+/// drawn with it cannot be seen on a dark grid.
 pub fn selection_color(theme: &Kit) -> Hsla {
-    theme.blue
+    theme.ring
+}
+
+/// Text on the selection colour: the accent's contrast foreground (D-182), never a fixed
+/// white, which a pale accent would swallow.
+pub fn selection_foreground(theme: &Kit) -> Hsla {
+    theme.primary_foreground
 }
 
 /// One row of the left bar: full width, a hover tint, a filled background when selected.

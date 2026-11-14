@@ -4,7 +4,7 @@ use std::path::PathBuf;
 use std::sync::{Arc, Mutex};
 use std::time::Duration;
 
-use app_store::{BrowsePreferences, Locale, Preferences, Theme, ViewMode};
+use app_store::{Accent, BrowsePreferences, Locale, Preferences, Theme, ViewMode};
 use desktop_session::{Event, ItemsTarget, Session};
 use gpui_kit::assets::IconName;
 use gpui_kit::component::button::{Button, ButtonVariants as _};
@@ -209,6 +209,9 @@ pub struct RootApp {
     pub(crate) pending_folder_color: Option<(String, String)>,
     pub(crate) folder_color_picker_open: bool,
     _folder_color_subs: Vec<Subscription>,
+    /// The custom accent colour in Settings → General (D-182).
+    pub(crate) accent_picker: Entity<gpui_kit::component::color_picker::ColorPickerState>,
+    _accent_picker_sub: Option<Subscription>,
     /// The name popover under a left-bar ⊕: New Folder or Save Smart Folder (D-161, D-163).
     pub(crate) name_prompt: Option<crate::ops_mutations::NamePrompt>,
     pub(crate) name_input: Entity<InputState>,
@@ -233,7 +236,7 @@ impl RootApp {
         let events = library::new_event_mailbox();
         let session = Arc::new(library::session_with_mailbox(events.clone()));
         let prefs = session.preferences();
-        theme::apply_theme(prefs.theme, cx);
+        theme::apply_theme(&prefs, cx);
 
         let create_name = cx.new(|cx| InputState::new(window, cx).default_value("My Library"));
         let search_input = cx.new(|cx| {
@@ -396,6 +399,9 @@ impl RootApp {
             pending_folder_color: None,
             folder_color_picker_open: false,
             _folder_color_subs: Vec::new(),
+            accent_picker: cx
+                .new(|cx| gpui_kit::component::color_picker::ColorPickerState::new(window, cx)),
+            _accent_picker_sub: None,
             name_prompt: None,
             name_input: cx.new(|cx| InputState::new(window, cx)),
             _name_input_sub: None,
@@ -404,6 +410,19 @@ impl RootApp {
                 .collect(),
         };
         app._folder_color_subs = app.subscribe_folder_color_picker(window, cx);
+        app._accent_picker_sub = Some(cx.subscribe(
+            &app.accent_picker.clone(),
+            |this, _, event: &gpui_kit::component::color_picker::ColorPickerEvent, cx| {
+                // The draft takes every pick at once; Apply / Save writes and paints it.
+                if let gpui_kit::component::color_picker::ColorPickerEvent::Change(Some(color)) =
+                    event
+                {
+                    let hex = library_core::query::color::hex(crate::ops_colour::rgb_of(*color));
+                    this.settings_draft.accent = Accent::Custom(hex);
+                    cx.notify();
+                }
+            },
+        ));
         app._name_input_sub = Some(cx.subscribe_in(
             &app.name_input.clone(),
             window,
@@ -1026,8 +1045,8 @@ impl RootApp {
         }
         let mut prefs = self.session.preferences();
         prefs.theme = theme_pref;
-        let _ = self.session.save_preferences(prefs);
-        theme::apply_theme(theme_pref, cx);
+        let _ = self.session.save_preferences(prefs.clone());
+        theme::apply_theme(&prefs, cx);
         cx.notify();
     }
 
