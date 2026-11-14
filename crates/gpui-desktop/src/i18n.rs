@@ -530,6 +530,15 @@ fn en() -> Catalog {
         ("settings.general", "General"),
         ("settings.theme", "Theme"),
         ("settings.accent", "Accent colour"),
+        ("settings.previewBackground", "Preview background"),
+        (
+            "settings.previewBackgroundGrid",
+            "Also use this background in the grid",
+        ),
+        ("previewBg.theme", "Like theme"),
+        ("previewBg.black", "Black"),
+        ("previewBg.gray", "Neutral grey 18%"),
+        ("previewBg.white", "White"),
         ("accent.windows", "Like Windows"),
         ("accent.custom", "Custom…"),
         ("accent.blue", "Blue"),
@@ -899,6 +908,15 @@ fn ru() -> Catalog {
         ("settings.general", "Общие"),
         ("settings.theme", "Тема"),
         ("settings.accent", "Акцентный цвет"),
+        ("settings.previewBackground", "Фон просмотра"),
+        (
+            "settings.previewBackgroundGrid",
+            "Использовать этот фон и в сетке",
+        ),
+        ("previewBg.theme", "Как в теме"),
+        ("previewBg.black", "Чёрный"),
+        ("previewBg.gray", "Нейтральный серый 18%"),
+        ("previewBg.white", "Белый"),
         ("accent.windows", "Как в Windows"),
         ("accent.custom", "Свой…"),
         ("accent.blue", "Синий"),
@@ -1199,6 +1217,12 @@ fn zh_cn() -> Catalog {
         ("settings.general", "常规"),
         ("settings.theme", "主题"),
         ("settings.accent", "强调色"),
+        ("settings.previewBackground", "预览背景"),
+        ("settings.previewBackgroundGrid", "在网格中也使用此背景"),
+        ("previewBg.theme", "跟随主题"),
+        ("previewBg.black", "黑色"),
+        ("previewBg.gray", "18% 中性灰"),
+        ("previewBg.white", "白色"),
         ("accent.windows", "跟随 Windows"),
         ("accent.custom", "自定义…"),
         ("accent.blue", "蓝色"),
@@ -1348,6 +1372,22 @@ mod tests {
         ] {
             for locale in [Locale::En, Locale::Ru, Locale::ZhCn] {
                 assert_ne!(t(locale, key), key, "{locale:?} {key}");
+            }
+        }
+    }
+
+    #[test]
+    fn preview_background_settings_are_translated() {
+        for catalog in [en(), ru(), zh_cn()] {
+            for key in [
+                "settings.previewBackground",
+                "settings.previewBackgroundGrid",
+                "previewBg.theme",
+                "previewBg.black",
+                "previewBg.gray",
+                "previewBg.white",
+            ] {
+                assert!(catalog.contains_key(key), "{key}");
             }
         }
     }

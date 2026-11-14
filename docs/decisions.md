@@ -3883,3 +3883,18 @@ stayed in GPUI's asset cache for the life of the window. The grid only had the s
   pre-accent file. A custom value that is not hex normalises to `windows` on save.
 - **Left for later.** The user themes folder (`watch_dir`), interface density, Windows 11
   Mica / transparency, a per-library accent, the mobile apps (with D-183…D-185).
+
+## D-183 GPUI: an independent preview background (2026-11-15)
+
+- **Problem.** The preview always used a translucent black veil; judging images on white or
+  neutral grey required changing the whole interface, and Explorer's viewer differed.
+- **Change.** `previewBackground` chooses theme (default), black, neutral 18% grey or white.
+  The grey is sRGB `#767676`, approximately 0.18 relative linear luminance, not 18% encoded
+  channel intensity. The preview finishes its entrance on an opaque background; its text and
+  custom navigation buttons use a contrasting foreground. The library preview and Explorer
+  viewer use the same colours. Media/GIF transport bars keep their self-contained dark surfaces.
+- **Grid.** A separate `previewBackgroundOnGrid` checkbox applies the same choice only to the
+  centre pane; captions take its foreground, while the left/right bars keep the interface theme.
+  Apply / Save updates both live. Missing preference fields mean theme and checkbox off.
+- **Tests.** Preference round trips for every background and a pre-background file; both light
+  and dark theme colours, foreground contrast and the grey's linear luminance; all translations.

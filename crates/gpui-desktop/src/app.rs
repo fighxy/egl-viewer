@@ -4,7 +4,9 @@ use std::path::PathBuf;
 use std::sync::{Arc, Mutex};
 use std::time::Duration;
 
-use app_store::{Accent, BrowsePreferences, Locale, Preferences, Theme, ViewMode};
+use app_store::{
+    Accent, BrowsePreferences, Locale, Preferences, PreviewBackground, Theme, ViewMode,
+};
 use desktop_session::{Event, ItemsTarget, Session};
 use gpui_kit::assets::IconName;
 use gpui_kit::component::button::{Button, ButtonVariants as _};
@@ -73,6 +75,8 @@ pub struct RootApp {
     pub(crate) focus: FocusHandle,
     pub(crate) locale: Locale,
     pub(crate) theme_pref: Theme,
+    pub(crate) preview_background: PreviewBackground,
+    pub(crate) preview_background_on_grid: bool,
     pub(crate) status: SharedString,
     pub(crate) library: Option<OpenLibraryState>,
     /// The thumbnails of the view's pages on screen (D-167).
@@ -289,6 +293,8 @@ impl RootApp {
             focus: cx.focus_handle(),
             locale: prefs.locale,
             theme_pref: prefs.theme,
+            preview_background: prefs.preview_background,
+            preview_background_on_grid: prefs.preview_background_on_grid,
             status: SharedString::from(""),
             library: None,
             items: Default::default(),
@@ -2167,6 +2173,8 @@ impl Render for RootApp {
                     locale,
                     size,
                     cx.entity(),
+                    theme::preview_colors(self.preview_background, &theme),
+                    cx,
                 ))
             })
             .when(self.export_ui.is_some(), |el| {
@@ -2749,6 +2757,13 @@ impl RootApp {
         entity: Entity<Self>,
         _cx: &mut Context<Self>,
     ) -> gpui_kit::AnyElement {
+        let mut grid_theme = theme.clone();
+        if self.preview_background_on_grid {
+            let (background, foreground) = theme::preview_colors(self.preview_background, theme);
+            grid_theme.colors.background = background;
+            grid_theme.colors.foreground = foreground;
+            grid_theme.colors.muted_foreground = foreground.opacity(0.75);
+        }
         h_resizable("shell-body")
             .child(
                 resizable_panel()
@@ -2813,12 +2828,14 @@ impl RootApp {
                         })
                         .id("center-pane")
                         .size_full()
+                        .bg(grid_theme.background)
+                        .text_color(grid_theme.foreground)
                         .overflow_hidden()
                         .child(grid::render_items(
                             lib,
                             &self.items,
                             locale,
-                            theme,
+                            &grid_theme,
                             entity.clone(),
                             self.justified.as_ref(),
                             self.rubber.as_ref(),

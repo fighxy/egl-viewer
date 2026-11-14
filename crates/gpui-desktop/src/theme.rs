@@ -2,7 +2,7 @@
 //! accent over the loaded palette. The accent reaches every copy of the theme through
 //! [`KitTheme::update`], so buttons, rings and the selection stay in step.
 
-use app_store::{Accent, Preferences, Theme};
+use app_store::{Accent, Preferences, PreviewBackground, Theme};
 use gpui_kit::App;
 use gpui_kit::component::Colorize as _;
 use gpui_kit::component::theme::{Theme as KitTheme, ThemeColor, ThemeMode};
@@ -129,6 +129,22 @@ pub fn hsla_of(channels: [u8; 3]) -> Hsla {
     rgb(u32::from(channels[0]) << 16 | u32::from(channels[1]) << 8 | u32::from(channels[2])).into()
 }
 
+pub fn preview_colors(background: PreviewBackground, theme: &KitTheme) -> (Hsla, Hsla) {
+    match background.rgb() {
+        Some(rgb) => (hsla_of(rgb), hsla_of(contrast_foreground(rgb))),
+        None => (theme.background, theme.foreground),
+    }
+}
+
+pub fn preview_background_key(background: PreviewBackground) -> &'static str {
+    match background {
+        PreviewBackground::Theme => "previewBg.theme",
+        PreviewBackground::Black => "previewBg.black",
+        PreviewBackground::Gray18 => "previewBg.gray",
+        PreviewBackground::White => "previewBg.white",
+    }
+}
+
 pub fn theme_label_key(theme: Theme) -> &'static str {
     match theme {
         Theme::System => "themes.system",
@@ -202,6 +218,32 @@ mod tests {
                 );
             }
         }
+    }
+
+    #[test]
+    fn preview_backgrounds_are_independent_and_readable() {
+        let mut theme = KitTheme::default();
+        for (background, foreground) in [(0xffffff, 0x202020), (0x202020, 0xffffff)] {
+            theme.colors.background = rgb(background).into();
+            theme.colors.foreground = rgb(foreground).into();
+            assert_eq!(
+                preview_colors(PreviewBackground::Theme, &theme),
+                (theme.background, theme.foreground)
+            );
+            for preset in [
+                PreviewBackground::Black,
+                PreviewBackground::Gray18,
+                PreviewBackground::White,
+            ] {
+                let (bg, fg) = preview_colors(preset, &theme);
+                assert_eq!(bg, hsla_of(preset.rgb().unwrap()));
+                assert!(
+                    contrast_ratio(crate::ops_colour::rgb_of(bg), crate::ops_colour::rgb_of(fg))
+                        >= 4.5
+                );
+            }
+        }
+        assert!((luminance(PreviewBackground::Gray18.rgb().unwrap()) - 0.18).abs() < 0.005);
     }
 
     #[test]

@@ -4,7 +4,8 @@
 //! which is the grid zoom the app stores.
 
 use app_store::{
-    ACCENT_PRESETS, Accent, BrowsePreferences, Locale, LoginMethod, Preferences, Theme,
+    ACCENT_PRESETS, Accent, BrowsePreferences, Locale, LoginMethod, Preferences, PreviewBackground,
+    Theme,
 };
 use gpui_kit::component::button::{Button, ButtonVariants as _};
 use gpui_kit::component::color_picker::ColorPicker;
@@ -60,6 +61,8 @@ fn section_haystack(locale: Locale, section: SettingsSection) -> String {
             "settings.theme",
             "settings.accent",
             "accent.windows",
+            "settings.previewBackground",
+            "settings.previewBackgroundGrid",
             "settings.language",
             "settings.thumbnailSize",
             "settings.thumbnailHint",
@@ -143,6 +146,8 @@ impl RootApp {
             Ok(saved) => {
                 self.settings_draft = saved.clone();
                 self.theme_pref = saved.theme;
+                self.preview_background = saved.preview_background;
+                self.preview_background_on_grid = saved.preview_background_on_grid;
                 self.locale = saved.locale;
                 theme::apply_theme(&saved, cx);
                 self.recompute_justified();
@@ -412,6 +417,34 @@ impl RootApp {
                 .text_xs()
                 .text_color(theme.muted_foreground),
             )
+            .child(Label::new(t(locale, "settings.previewBackground")).text_sm())
+            .child(
+                h_flex()
+                    .gap_2()
+                    .children(PreviewBackground::ALL.into_iter().map(|background| {
+                        let key = theme::preview_background_key(background);
+                        Button::new(SharedString::from(key))
+                            .when(draft.preview_background == background, |button| {
+                                button.primary()
+                            })
+                            .when(draft.preview_background != background, |button| {
+                                button.outline()
+                            })
+                            .label(t(locale, key))
+                            .on_click(cx.listener(move |this, _, _, cx| {
+                                this.settings_draft.preview_background = background;
+                                cx.notify();
+                            }))
+                    })),
+            )
+            .child(check_row(
+                "settings-preview-grid",
+                t(locale, "settings.previewBackgroundGrid"),
+                draft.preview_background_on_grid,
+                theme,
+                cx,
+                |draft| draft.preview_background_on_grid = !draft.preview_background_on_grid,
+            ))
             .child(Label::new(t(locale, "settings.language")).text_sm())
             .child(
                 h_flex()

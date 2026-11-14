@@ -78,6 +78,29 @@ impl Accent {
     }
 }
 
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Default, Serialize, Deserialize)]
+#[serde(rename_all = "camelCase")]
+pub enum PreviewBackground {
+    #[default]
+    Theme,
+    Black,
+    Gray18,
+    White,
+}
+
+impl PreviewBackground {
+    pub const ALL: [Self; 4] = [Self::Theme, Self::Black, Self::Gray18, Self::White];
+
+    pub fn rgb(self) -> Option<[u8; 3]> {
+        match self {
+            Self::Theme => None,
+            Self::Black => Some([0; 3]),
+            Self::Gray18 => Some([118; 3]),
+            Self::White => Some([255; 3]),
+        }
+    }
+}
+
 /// UI language (D-069). Stored as BCP 47 tags; English is the source locale.
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Default, Serialize, Deserialize)]
 pub enum Locale {
@@ -180,6 +203,8 @@ pub struct Preferences {
     pub theme: Theme,
     /// The accent colour of primary controls and the selection (D-182).
     pub accent: Accent,
+    pub preview_background: PreviewBackground,
+    pub preview_background_on_grid: bool,
     /// UI language; English is the default (D-069).
     pub locale: Locale,
     pub reopen_last_library: bool,
@@ -199,6 +224,8 @@ impl Default for Preferences {
         Self {
             theme: Theme::System,
             accent: Accent::Windows,
+            preview_background: PreviewBackground::Theme,
+            preview_background_on_grid: false,
             locale: Locale::En,
             reopen_last_library: true,
             default_library_parent: None,
@@ -276,6 +303,8 @@ mod tests {
         let preferences = Preferences {
             theme: Theme::Dark,
             accent: Accent::Custom("#7c3aed".into()),
+            preview_background: PreviewBackground::Gray18,
+            preview_background_on_grid: true,
             locale: Locale::Ru,
             reopen_last_library: false,
             default_library_parent: Some("D:\\Libraries".into()),
@@ -380,6 +409,24 @@ mod tests {
             Accent::Custom("#abc".into()).normalized(),
             Accent::Custom("#abc".into())
         );
+    }
+
+    #[test]
+    fn preview_backgrounds_round_trip_and_old_files_keep_the_theme() {
+        let old: Preferences = serde_json::from_str(r#"{"theme":"dark","accent":"blue"}"#).unwrap();
+        assert_eq!(old.preview_background, PreviewBackground::Theme);
+        assert!(!old.preview_background_on_grid);
+        let dir = tempfile::tempdir().unwrap();
+        let store = AppStore::new(dir.path());
+        for background in PreviewBackground::ALL {
+            let prefs = Preferences {
+                preview_background: background,
+                preview_background_on_grid: true,
+                ..old.clone()
+            };
+            store.save_preferences(&prefs).unwrap();
+            assert_eq!(store.preferences(), prefs);
+        }
     }
 
     #[test]
