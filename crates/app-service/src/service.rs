@@ -962,10 +962,11 @@ impl LibraryService {
     }
 
     fn start_previews_if_waiting(&self, library: Arc<Library>) {
-        if library
-            .pending_previews(1)
-            .is_ok_and(|next| !next.is_empty())
-        {
+        // Thumbnails to make, or audio lengths to read (D-169): the same background pass.
+        let waiting = |pending: Result<Vec<library_native::PendingPreview>, SourceError>| {
+            pending.is_ok_and(|next| !next.is_empty())
+        };
+        if waiting(library.pending_previews(1)) || waiting(library.pending_durations(1)) {
             self.start_previews(library);
         }
     }

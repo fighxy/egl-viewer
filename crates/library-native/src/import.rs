@@ -169,6 +169,9 @@ pub fn import_files(
                         scope.spawn(move |_| {
                             make_preview(library, &id, &stored, &ext, tracker, cancel, &store_full);
                         });
+                    } else if media::has_duration_only(&ext) {
+                        // Audio: no thumbnail, but its length for the grid (D-169).
+                        scope.spawn(move |_| store_length(library, &id, &stored));
                     }
                 }
                 Outcome::Skipped(notice) => tracker.update(false, |progress| {
@@ -235,6 +238,7 @@ pub(crate) fn preview_pass(
     else {
         return;
     };
+    length_pass(library, &pool, cancel);
     loop {
         if cancel.load(Ordering::Relaxed) {
             break;
@@ -270,6 +274,41 @@ pub(crate) fn preview_pass(
         // is still pending, the database refuses writes: stop instead of looping.
         if library
             .pending_previews(1)
+            .is_ok_and(|next| next.first().is_some_and(|next| next.id == first))
+        {
+            break;
+        }
+    }
+}
+
+/// Reads an audio file's length from its headers and stores it; an unreadable file stores 0.
+fn store_length(library: &Library, id: &str, stored: &Path) {
+    if let Err(error) = library.store_duration(id, media::duration(stored)) {
+        tracing::warn!("cannot store the length of {id}: {error}");
+    }
+}
+
+/// Reads the length of every audio item that has none yet (added before lengths were read,
+/// or by an older version), in batches, until none is left or the import is cancelled.
+fn length_pass(library: &Library, pool: &rayon::ThreadPool, cancel: &AtomicBool) {
+    loop {
+        if cancel.load(Ordering::Relaxed) {
+            break;
+        }
+        let batch = match library.pending_durations(64) {
+            Ok(batch) if !batch.is_empty() => batch,
+            _ => break,
+        };
+        let first = batch[0].id.clone();
+        pool.in_place_scope(|scope| {
+            for pending in &batch {
+                scope.spawn(move |_| store_length(library, &pending.id, &pending.file));
+            }
+        });
+        // Stored or not, every item leaves the list; if the first is still there, the database
+        // refuses writes: stop instead of looping.
+        if library
+            .pending_durations(1)
             .is_ok_and(|next| next.first().is_some_and(|next| next.id == first))
         {
             break;

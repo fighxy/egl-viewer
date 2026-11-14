@@ -48,6 +48,9 @@ pub struct ItemCell {
     /// item yet (docs/spec.md §8.3 "Adding files").
     #[serde(default)]
     pub pending: bool,
+    /// Length of a video or audio item in milliseconds, for the grid badge (D-169).
+    #[serde(default)]
+    pub duration_ms: Option<u64>,
 }
 
 impl From<&ItemLite> for ItemCell {
@@ -67,6 +70,10 @@ impl From<&ItemLite> for ItemCell {
             deleted_at: item.deleted_at,
             tags: item.tags.iter().map(|tag| tag.to_string()).collect(),
             pending: false,
+            duration_ms: item
+                .duration
+                .filter(|seconds| seconds.is_finite() && *seconds > 0.0)
+                .map(|seconds| (seconds * 1000.0).round() as u64),
         }
     }
 }

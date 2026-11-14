@@ -3484,3 +3484,26 @@ stayed in GPUI's asset cache for the life of the window. The grid only had the s
 - **Verify.** `cargo test -p av` (30 tests on the fixtures in `crates/av/fixtures`, made with
   FFmpeg's `lavfi` sources: H.264 + AAC, VP9 + Opus, a rotated clip, a silent clip, MP3, FLAC,
   WAV, Ogg Vorbis); `powershell -File scripts/bundle-ffmpeg-dlls.ps1`.
+
+## D-169 Video posters and durations in the native library (2026-11-14)
+
+- **Posters.** `media::Kind::Video` (the `av::VIDEO` extensions; none on iOS and Android) renders
+  the frame a tenth into the video, at most 10 s in, so a fade from black does not become the
+  thumbnail; the first frame when that seek finds nothing. Width and height are the displayed
+  size (rotation applied), the palette comes from the poster, there is no EXIF.
+- **Duration.** `Rendered::duration` (seconds) is stored in `item.duration` with the preview
+  (`COALESCE`, so a duration from an Eagle import stays). `ItemCell::duration_ms` carries it to
+  the grid, which shows it in a badge at the bottom right of the cell.
+- **Audio lengths.** Audio has no thumbnail, but its length is read from the headers
+  (`media::duration`, `av::probe`) when it is added, and by the background pass on opening for
+  audio added before (`Library::pending_durations`, the same pass as the pending previews; it
+  starts when either list has work). An unreadable file stores 0: no badge, not asked again.
+  Encrypted originals are skipped. An Eagle import keeps its durations.
+- **Existing libraries.** Video extensions are previewable now, so items added before get their
+  posters from the pending-preview pass when the library opens; Rebuild Thumbnails includes them.
+- **Failures.** Every failure is a decode error, so the item is marked and the pass moves on (an
+  `Unsupported` item would stay pending and stop the pass). Videos in locked folders get no
+  poster: FFmpeg reads by path and a locked original stays encrypted on disk (it is never
+  decrypted to a temporary file). Audio keeps its placeholder; cover art comes later.
+- **Verify.** `cargo test -p media videos_get_a_poster`, `cargo test -p library-native
+  videos_get_a_poster_and_their_duration`.
