@@ -170,6 +170,8 @@ impl ActiveFilters {
             ext: self.ext.clone(),
             rating: self.rating,
             shape: self.shape.clone(),
+            // The colour filter arrives in the toolbar with D-176.
+            color: None,
         }
     }
 
@@ -203,6 +205,7 @@ pub fn query_for(
         ext: filters.ext.clone(),
         rating: filters.rating,
         shape: filters.shape.clone(),
+        color: None,
         text: {
             let trimmed = filters.search_text.trim();
             if trimmed.is_empty() {

@@ -171,6 +171,8 @@ pub struct ItemLite {
     /// `None` and an empty list are different cases in Eagle (correction 15).
     pub folders: Option<Vec<String>>,
     pub palette0: Option<[u8; 3]>,
+    /// The whole palette, for the colour filter (D-176); empty when the item has none.
+    pub palette: Vec<Palette>,
     /// Date added, ms (Eagle `modificationTime`).
     pub added_at: Option<i64>,
     /// Eagle `btime`, ms.

@@ -37,6 +37,7 @@ pub use model::{
     PivPolicy, PivPrompt, PivWrap, PreviewEntry, ReadOnlyReason, RecoveryKey, SmartFolder, Tag,
     TagGroup, Thumbnail, TrashInfo,
 };
+pub use query::color::ColorFilter;
 pub use query::filter::{FolderIndex, matches_tags, shape_of, type_matches};
 pub use query::search::{SearchExpr, SearchMatch, fold, parse_search};
 pub use query::sort::{compare_names, compare_tags};
