@@ -3848,3 +3848,94 @@ stayed in GPUI's asset cache for the life of the window. The grid only had the s
   builds need only libheif, as before D-168.
 - **Kept.** Which files get a poster is still decided in one place (`media::kind`); the gate is
   the feature, not the target, so a host build of the mobile core and a phone build agree.
+
+## D-182 GPUI: the accent colour, Windows' own or any other (2026-11-14)
+
+- **Problem.** The selection and the primary controls were painted with the kit's fixed blue
+  (`theme.blue`) and the neutral palette's near-black primary; nothing followed the accent the
+  user picked in Windows, and there was no way to choose another.
+- **Change.** A new `accent` preference (`app_store::Accent`): `windows` (the default), eight
+  presets on the folder palette's colours (D-159), or `custom` with any `#rrggbb`. Settings →
+  General shows a dot per choice plus the kit colour picker for a custom one; the draft takes
+  every pick at once and Apply / Save paints it. The theme is applied from the stored
+  preferences before the first paint (`main.rs` reads the `AppStore` itself) and again on
+  every change, without a restart.
+- **Windows' accent.** Read from `HKCU\Software\Microsoft\Windows\DWM\AccentColor` through
+  `winreg`; the DWORD is ABGR (`dword_to_rgb`). Other platforms, and a missing value, fall
+  back to the default Windows blue `#0078d4`. The read happens when the theme is applied, so
+  a Windows accent change is picked up on the next theme change or start.
+- **What the accent paints.** `theme::apply_accent` sets, over the loaded palette: the primary
+  family (`primary`, hover, active, foreground — and the `button_primary` family, which the
+  kit's buttons read as their own tokens), `ring`, the input `selection`, the selected row of
+  the left bar and the list (`list_active` as a quiet tint, `list_active_border`),
+  `sidebar_primary`, the drag tint (`drag_border`, `drop_target`), `slider_bar` and
+  `progress_bar`. The grid's selection ring and caption go through `style::selection_color`,
+  which now returns `ring`; the caption's text takes `style::selection_foreground`
+  (`primary_foreground`) instead of a fixed white.
+- **Readable text on the accent.** `contrast_foreground` picks white when it reaches WCAG AA
+  (4.5:1) against the accent, black otherwise; when white fails, black always passes (the two
+  contrast curves cross above 4.5, near relative luminance 0.18). White is preferred because
+  Windows paints white on its own accent. A test sweeps every grey and a 16³ colour cube and
+  asserts the chosen foreground reaches 4.5:1, including hover and active. Those states move
+  away from the foreground rather than towards the theme's extreme to preserve contrast.
+- **Old files.** `Preferences` gains the field under its existing `#[serde(default)]`, so a
+  `preferences.json` written before the accent opens with `windows`; a test reads a full
+  pre-accent file. A custom value that is not hex normalises to `windows` on save.
+- **Left for later.** The user themes folder (`watch_dir`), interface density, Windows 11
+  Mica / transparency, a per-library accent, the mobile apps (with D-183…D-185).
+
+## D-183 GPUI: an independent preview background (2026-11-15)
+
+- **Problem.** The preview always used a translucent black veil; judging images on white or
+  neutral grey required changing the whole interface, and Explorer's viewer differed.
+- **Change.** `previewBackground` chooses theme (default), black, neutral 18% grey or white.
+  The grey is sRGB `#767676`, approximately 0.18 relative linear luminance, not 18% encoded
+  channel intensity. The preview finishes its entrance on an opaque background; its text and
+  custom navigation buttons use a contrasting foreground. The library preview and Explorer
+  viewer use the same colours. Media/GIF transport bars keep their self-contained dark surfaces.
+- **Grid.** A separate `previewBackgroundOnGrid` checkbox applies the same choice only to the
+  centre pane; captions take its foreground, while the left/right bars keep the interface theme.
+  Apply / Save updates both live. Missing preference fields mean theme and checkbox off.
+- **Tests.** Preference round trips for every background and a pre-background file; both light
+  and dark theme colours, foreground contrast and the grey's linear luminance; all translations.
+
+## D-184 GPUI: embedded light/dark palette pairs (2026-11-15)
+
+- **Change.** Settings → General gains a `palette` preference, separate from System/Light/Dark:
+  Default (kit), Graphite (Eagle-like grey), OLED Black (true black dark canvas and sidebar),
+  Warm (warm light and a matching dark variant). The three JSON resources live under
+  `crates/gpui-desktop/assets/themes` and are embedded with `include_str!`.
+- **Loading.** `ThemeRegistry::load_themes_from_str` loads them into an embedded registry before
+  the first paint. It is kept separate from the kit's observed global registry: its reload
+  observer would otherwise repaint over our accent. Choosing a pair replaces both mode
+  configs, loads the current mode, then applies the accent through `Theme::update`.
+- **Tokens.** Each pair explicitly defines every colour the app reads, plus coherent control,
+  input, popover and chrome colours. Other kit components use their documented fallbacks.
+  Theme swatches now read the selected pair's background tokens, removing their fixed RGBs.
+- **Compatibility and tests.** Missing `palette` means Default. Tests cover every palette/mode
+  combination, loading every JSON via the registry, recognising and parsing every declared
+  colour, all app-read tokens, opaque OLED black, readable canvas text and translations.
+
+## D-185 GPUI: automatic Windows High Contrast and semantic colours (2026-11-15)
+
+- **Detection.** The safe WinRT `AccessibilitySettings::HighContrast` API reads Windows' active
+  state; no new `unsafe` is needed. An unavailable API and non-Windows hosts mean off.
+  It is checked before first paint and every two seconds while a root entity exists. The same
+  poll also reapplies System appearance and Windows accent changes; it never changes OS settings.
+- **Priority.** While High Contrast is on, an embedded black/white contrast pair overrides the
+  user's palette, accent and preview/grid background, with visible borders, readable selection
+  and no shadows. The chosen appearance mode selects its light/dark variant. Saved preferences
+  are untouched, so switching it off restores them, including changes saved while it was on.
+  The pair guarantees contrast rather than copying a user's custom Windows contrast scheme.
+  General explains why the chosen colours are temporarily not displayed.
+- **Semantic tokens.** Rating stars read `base.yellow` (dark gold, darker light gold, black or
+  yellow in contrast mode), no fixed `rgb(0xf5b301)`. Theme swatches already moved to palette
+  background tokens in D-184. Palette/accent/folder colour swatches represent actual chosen
+  colours, not interface chrome. Black/white on self-contained media transport bars, video
+  letterboxing and duration badges remains intentional: its contrast does not depend on theme.
+- **Tests.** Every embedded contrast JSON is included in the schema/token checks; both variants
+  meet 7:1 for text on canvas, sidebar, popover and selected/hover rows, primary text and rating
+  stars. Tests exercise override/release for every palette, keep preferences unchanged and
+  ignore preview overrides during contrast mode; Windows API availability is checked separately.
+- **Left for later.** User theme folders (`watch_dir`), interface density, Windows 11 Mica /
+  transparency, per-library accent and mobile apps remain outside this change (D-182).

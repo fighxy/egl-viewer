@@ -3,8 +3,12 @@
 //! are absent. Interface zoom percent is not a preference; General shows thumbnail size,
 //! which is the grid zoom the app stores.
 
-use app_store::{BrowsePreferences, Locale, LoginMethod, Preferences, Theme};
+use app_store::{
+    ACCENT_PRESETS, Accent, BrowsePreferences, Locale, LoginMethod, Palette, Preferences,
+    PreviewBackground, Theme,
+};
 use gpui_kit::component::button::{Button, ButtonVariants as _};
+use gpui_kit::component::color_picker::ColorPicker;
 use gpui_kit::component::input::Input;
 use gpui_kit::component::label::Label;
 use gpui_kit::component::scroll::ScrollableElement as _;
@@ -12,7 +16,7 @@ use gpui_kit::component::{StyledExt as _, h_flex, v_flex};
 use gpui_kit::prelude::FluentBuilder as _;
 use gpui_kit::{
     Context, InteractiveElement, IntoElement, ParentElement, PathPromptOptions, SharedString,
-    StatefulInteractiveElement, Styled, Window, div, px, rgb,
+    StatefulInteractiveElement, Styled, Window, div, px,
 };
 
 use crate::app::RootApp;
@@ -55,6 +59,14 @@ fn section_haystack(locale: Locale, section: SettingsSection) -> String {
         SettingsSection::General => &[
             "settings.general",
             "settings.theme",
+            "settings.palette",
+            "palette.graphite",
+            "palette.oledBlack",
+            "palette.warm",
+            "settings.accent",
+            "accent.windows",
+            "settings.previewBackground",
+            "settings.previewBackgroundGrid",
             "settings.language",
             "settings.thumbnailSize",
             "settings.thumbnailHint",
@@ -103,6 +115,14 @@ impl RootApp {
             .update(cx, |input, cx| input.set_value("", window, cx));
         self.settings_pin
             .update(cx, |input, cx| input.set_value("", window, cx));
+        let custom = match &self.settings_draft.accent {
+            Accent::Custom(hex) => library_core::query::color::parse_hex(hex),
+            _ => None,
+        };
+        self.accent_picker.update(cx, |picker, cx| match custom {
+            Some(rgb) => picker.set_value(crate::ops_colour::hsla_of(rgb), window, cx),
+            None => picker.clear_value(window, cx),
+        });
         self.show_settings = true;
         cx.notify();
     }
@@ -130,8 +150,10 @@ impl RootApp {
             Ok(saved) => {
                 self.settings_draft = saved.clone();
                 self.theme_pref = saved.theme;
+                self.preview_background = saved.preview_background;
+                self.preview_background_on_grid = saved.preview_background_on_grid;
                 self.locale = saved.locale;
-                theme::apply_theme(saved.theme, cx);
+                theme::apply_theme(&saved, cx);
                 self.recompute_justified();
                 self.status = t(self.locale, "settings.saved").into();
                 if close {
@@ -328,8 +350,29 @@ impl RootApp {
         cx: &mut Context<Self>,
     ) -> gpui_kit::AnyElement {
         let draft = &self.settings_draft;
+        let light = theme::palette_background(draft.palette, false, cx);
+        let dark = theme::palette_background(draft.palette, true, cx);
         v_flex()
             .gap_3()
+            .when(theme::is_high_contrast(theme), |el| {
+                el.child(Label::new(t(locale, "settings.highContrast")).text_sm())
+            })
+            .child(Label::new(t(locale, "settings.palette")).text_sm())
+            .child(
+                h_flex()
+                    .gap_2()
+                    .children(Palette::ALL.into_iter().map(|palette| {
+                        let key = theme::palette_label_key(palette);
+                        Button::new(SharedString::from(key))
+                            .when(draft.palette == palette, |button| button.primary())
+                            .when(draft.palette != palette, |button| button.outline())
+                            .label(t(locale, key))
+                            .on_click(cx.listener(move |this, _, _, cx| {
+                                this.settings_draft.palette = palette;
+                                cx.notify();
+                            }))
+                    })),
+            )
             .child(Label::new(t(locale, "settings.theme")).text_sm())
             .child(
                 h_flex()
@@ -339,7 +382,7 @@ impl RootApp {
                         t(locale, theme::theme_label_key(Theme::System)),
                         draft.theme == Theme::System,
                         theme,
-                        swatch_fill_system(),
+                        swatch_fill_system(light, dark),
                         cx,
                         |draft| draft.theme = Theme::System,
                     ))
@@ -348,7 +391,7 @@ impl RootApp {
                         t(locale, theme::theme_label_key(Theme::Light)),
                         draft.theme == Theme::Light,
                         theme,
-                        swatch_fill_solid(rgb(0xf4f4f5)),
+                        swatch_fill_solid(light),
                         cx,
                         |draft| draft.theme = Theme::Light,
                     ))
@@ -357,11 +400,76 @@ impl RootApp {
                         t(locale, theme::theme_label_key(Theme::Dark)),
                         draft.theme == Theme::Dark,
                         theme,
-                        swatch_fill_solid(rgb(0x27272a)),
+                        swatch_fill_solid(dark),
                         cx,
                         |draft| draft.theme = Theme::Dark,
                     )),
             )
+            .child(Label::new(t(locale, "settings.accent")).text_sm())
+            .child(
+                h_flex()
+                    .gap_2()
+                    .items_center()
+                    .child(accent_dot(
+                        "accent-windows",
+                        t(locale, "accent.windows"),
+                        theme::hsla_of(theme::accent_rgb(Accent::Windows)),
+                        draft.accent == Accent::Windows,
+                        theme,
+                        cx,
+                        |draft| draft.accent = Accent::Windows,
+                    ))
+                    .children(ACCENT_PRESETS.into_iter().map(|preset| {
+                        let name = accent_preset_key(&preset);
+                        accent_dot(
+                            accent_dot_id(&preset),
+                            t(locale, name),
+                            theme::hsla_of(preset.rgb().unwrap_or(theme::FALLBACK_ACCENT)),
+                            draft.accent == preset,
+                            theme,
+                            cx,
+                            move |draft| draft.accent = preset.clone(),
+                        )
+                    }))
+                    .child(ColorPicker::new(&self.accent_picker).label(t(locale, "accent.custom"))),
+            )
+            .child(
+                Label::new(match &draft.accent {
+                    Accent::Windows => t(locale, "accent.windows"),
+                    Accent::Custom(hex) => hex.clone(),
+                    preset => t(locale, accent_preset_key(preset)),
+                })
+                .text_xs()
+                .text_color(theme.muted_foreground),
+            )
+            .child(Label::new(t(locale, "settings.previewBackground")).text_sm())
+            .child(
+                h_flex()
+                    .gap_2()
+                    .children(PreviewBackground::ALL.into_iter().map(|background| {
+                        let key = theme::preview_background_key(background);
+                        Button::new(SharedString::from(key))
+                            .when(draft.preview_background == background, |button| {
+                                button.primary()
+                            })
+                            .when(draft.preview_background != background, |button| {
+                                button.outline()
+                            })
+                            .label(t(locale, key))
+                            .on_click(cx.listener(move |this, _, _, cx| {
+                                this.settings_draft.preview_background = background;
+                                cx.notify();
+                            }))
+                    })),
+            )
+            .child(check_row(
+                "settings-preview-grid",
+                t(locale, "settings.previewBackgroundGrid"),
+                draft.preview_background_on_grid,
+                theme,
+                cx,
+                |draft| draft.preview_background_on_grid = !draft.preview_background_on_grid,
+            ))
             .child(Label::new(t(locale, "settings.language")).text_sm())
             .child(
                 h_flex()
@@ -620,15 +728,74 @@ fn theme_swatch(
         .child(Label::new(label).text_xs())
 }
 
-fn swatch_fill_system() -> impl IntoElement {
+fn swatch_fill_system(light: gpui_kit::Hsla, dark: gpui_kit::Hsla) -> impl IntoElement {
     h_flex()
         .size_full()
-        .child(div().flex_1().h_full().bg(rgb(0xf4f4f5)))
-        .child(div().flex_1().h_full().bg(rgb(0x18181b)))
+        .child(div().flex_1().h_full().bg(light))
+        .child(div().flex_1().h_full().bg(dark))
 }
 
 fn swatch_fill_solid(color: impl Into<gpui_kit::Hsla>) -> impl IntoElement {
     div().size_full().bg(color.into())
+}
+
+/// One accent dot, the chosen one ringed, like the folder colour dots (D-159, D-182).
+/// A concrete return type: the dots are built inside a `map`, where an `impl IntoElement`
+/// would capture the context's lifetime (edition 2024) and could not escape the closure.
+fn accent_dot(
+    id: &'static str,
+    label: String,
+    fill: gpui_kit::Hsla,
+    selected: bool,
+    theme: &gpui_kit::component::theme::Theme,
+    cx: &mut Context<RootApp>,
+    pick: impl Fn(&mut Preferences) + 'static,
+) -> gpui_kit::Stateful<gpui_kit::Div> {
+    div()
+        .id(id)
+        .size(px(18.))
+        .rounded_full()
+        .border_2()
+        .border_color(if selected {
+            theme.foreground
+        } else {
+            gpui_kit::transparent_black()
+        })
+        .bg(fill)
+        .cursor_pointer()
+        .aria_label(label)
+        .on_click(cx.listener(move |this, _, _, cx| {
+            pick(&mut this.settings_draft);
+            cx.notify();
+        }))
+}
+
+fn accent_preset_key(preset: &Accent) -> &'static str {
+    match preset {
+        Accent::Blue => "accent.blue",
+        Accent::Teal => "accent.teal",
+        Accent::Green => "accent.green",
+        Accent::Yellow => "accent.yellow",
+        Accent::Orange => "accent.orange",
+        Accent::Red => "accent.red",
+        Accent::Purple => "accent.purple",
+        Accent::Pink => "accent.pink",
+        _ => "accent.windows",
+    }
+}
+
+fn accent_dot_id(preset: &Accent) -> &'static str {
+    match preset {
+        Accent::Blue => "accent-blue",
+        Accent::Teal => "accent-teal",
+        Accent::Green => "accent-green",
+        Accent::Yellow => "accent-yellow",
+        Accent::Orange => "accent-orange",
+        Accent::Red => "accent-red",
+        Accent::Purple => "accent-purple",
+        Accent::Pink => "accent-pink",
+        _ => "accent-windows",
+    }
 }
 
 fn locale_choice(
@@ -714,6 +881,22 @@ mod tests {
         );
         assert_eq!(
             visible_sections(Locale::ZhCn, "缩略图"),
+            vec![SettingsSection::General]
+        );
+    }
+
+    #[test]
+    fn search_finds_the_accent_setting() {
+        assert_eq!(
+            visible_sections(Locale::En, "accent"),
+            vec![SettingsSection::General]
+        );
+        assert_eq!(
+            visible_sections(Locale::Ru, "акцент"),
+            vec![SettingsSection::General]
+        );
+        assert_eq!(
+            visible_sections(Locale::ZhCn, "强调色"),
             vec![SettingsSection::General]
         );
     }

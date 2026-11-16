@@ -145,7 +145,7 @@ fn multi_select(
             el.child(rating_editor(
                 locale,
                 None,
-                theme.muted_foreground,
+                (theme.muted_foreground, theme.yellow),
                 entity.clone(),
             ))
         })
@@ -259,7 +259,7 @@ fn single_item(
             rating_editor(
                 locale,
                 Some(item.star),
-                theme.muted_foreground,
+                (theme.muted_foreground, theme.yellow),
                 entity.clone(),
             )
             .into_any_element()
@@ -468,9 +468,10 @@ fn read_only_value(
 fn rating_editor(
     locale: Locale,
     current: Option<u8>,
-    muted: gpui_kit::Hsla,
+    colors: (gpui_kit::Hsla, gpui_kit::Hsla),
     entity: Entity<RootApp>,
 ) -> impl IntoElement {
+    let (muted, rating) = colors;
     h_flex()
         .id("rating-editor")
         .gap_1()
@@ -486,11 +487,7 @@ fn rating_editor(
                 .ghost()
                 .small()
                 .compact()
-                .text_color(if filled {
-                    gpui_kit::rgb(0xf5b301).into()
-                } else {
-                    muted
-                })
+                .text_color(if filled { rating } else { muted })
                 .label(if filled { "★" } else { "☆" })
                 .on_click(move |_, _, cx| {
                     let next = if is_current { 0 } else { star };

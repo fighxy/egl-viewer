@@ -4,7 +4,9 @@ use std::path::PathBuf;
 use std::sync::{Arc, Mutex};
 use std::time::Duration;
 
-use app_store::{BrowsePreferences, Locale, Preferences, Theme, ViewMode};
+use app_store::{
+    Accent, BrowsePreferences, Locale, Preferences, PreviewBackground, Theme, ViewMode,
+};
 use desktop_session::{Event, ItemsTarget, Session};
 use gpui_kit::assets::IconName;
 use gpui_kit::component::button::{Button, ButtonVariants as _};
@@ -73,6 +75,8 @@ pub struct RootApp {
     pub(crate) focus: FocusHandle,
     pub(crate) locale: Locale,
     pub(crate) theme_pref: Theme,
+    pub(crate) preview_background: PreviewBackground,
+    pub(crate) preview_background_on_grid: bool,
     pub(crate) status: SharedString,
     pub(crate) library: Option<OpenLibraryState>,
     /// The thumbnails of the view's pages on screen (D-167).
@@ -209,6 +213,9 @@ pub struct RootApp {
     pub(crate) pending_folder_color: Option<(String, String)>,
     pub(crate) folder_color_picker_open: bool,
     _folder_color_subs: Vec<Subscription>,
+    /// The custom accent colour in Settings → General (D-182).
+    pub(crate) accent_picker: Entity<gpui_kit::component::color_picker::ColorPickerState>,
+    _accent_picker_sub: Option<Subscription>,
     /// The name popover under a left-bar ⊕: New Folder or Save Smart Folder (D-161, D-163).
     pub(crate) name_prompt: Option<crate::ops_mutations::NamePrompt>,
     pub(crate) name_input: Entity<InputState>,
@@ -233,7 +240,7 @@ impl RootApp {
         let events = library::new_event_mailbox();
         let session = Arc::new(library::session_with_mailbox(events.clone()));
         let prefs = session.preferences();
-        theme::apply_theme(prefs.theme, cx);
+        theme::apply_theme(&prefs, cx);
 
         let create_name = cx.new(|cx| InputState::new(window, cx).default_value("My Library"));
         let search_input = cx.new(|cx| {
@@ -286,6 +293,8 @@ impl RootApp {
             focus: cx.focus_handle(),
             locale: prefs.locale,
             theme_pref: prefs.theme,
+            preview_background: prefs.preview_background,
+            preview_background_on_grid: prefs.preview_background_on_grid,
             status: SharedString::from(""),
             library: None,
             items: Default::default(),
@@ -396,6 +405,9 @@ impl RootApp {
             pending_folder_color: None,
             folder_color_picker_open: false,
             _folder_color_subs: Vec::new(),
+            accent_picker: cx
+                .new(|cx| gpui_kit::component::color_picker::ColorPickerState::new(window, cx)),
+            _accent_picker_sub: None,
             name_prompt: None,
             name_input: cx.new(|cx| InputState::new(window, cx)),
             _name_input_sub: None,
@@ -404,6 +416,19 @@ impl RootApp {
                 .collect(),
         };
         app._folder_color_subs = app.subscribe_folder_color_picker(window, cx);
+        app._accent_picker_sub = Some(cx.subscribe(
+            &app.accent_picker.clone(),
+            |this, _, event: &gpui_kit::component::color_picker::ColorPickerEvent, cx| {
+                // The draft takes every pick at once; Apply / Save writes and paints it.
+                if let gpui_kit::component::color_picker::ColorPickerEvent::Change(Some(color)) =
+                    event
+                {
+                    let hex = library_core::query::color::hex(crate::ops_colour::rgb_of(*color));
+                    this.settings_draft.accent = Accent::Custom(hex);
+                    cx.notify();
+                }
+            },
+        ));
         app._name_input_sub = Some(cx.subscribe_in(
             &app.name_input.clone(),
             window,
@@ -482,6 +507,7 @@ impl RootApp {
             entity.update(cx, |this, cx| this.request_quit(window, cx))
         });
         app.start_poll_loop(cx);
+        app.start_theme_poll_loop(cx);
         if app.loose.is_none() {
             window.set_window_title(&window_title(None));
         }
@@ -532,6 +558,29 @@ impl RootApp {
                         this.poll_decrypt(cx);
                         this.poll_update_check(cx);
                         this.poll_apply_update(cx);
+                    })
+                    .is_err()
+                {
+                    break;
+                }
+            }
+        })
+        .detach();
+    }
+
+    fn start_theme_poll_loop(&mut self, cx: &mut Context<Self>) {
+        let mut state = theme::system_state(cx);
+        cx.spawn(async move |this, cx| {
+            loop {
+                cx.background_executor().timer(Duration::from_secs(2)).await;
+                if this
+                    .update(cx, |this, cx| {
+                        let current = theme::system_state(cx);
+                        if current != state {
+                            state = current;
+                            theme::apply_theme(&this.session.preferences(), cx);
+                            cx.notify();
+                        }
                     })
                     .is_err()
                 {
@@ -1026,8 +1075,8 @@ impl RootApp {
         }
         let mut prefs = self.session.preferences();
         prefs.theme = theme_pref;
-        let _ = self.session.save_preferences(prefs);
-        theme::apply_theme(theme_pref, cx);
+        let _ = self.session.save_preferences(prefs.clone());
+        theme::apply_theme(&prefs, cx);
         cx.notify();
     }
 
@@ -2148,6 +2197,8 @@ impl Render for RootApp {
                     locale,
                     size,
                     cx.entity(),
+                    theme::preview_colors(self.preview_background, &theme),
+                    cx,
                 ))
             })
             .when(self.export_ui.is_some(), |el| {
@@ -2730,6 +2781,13 @@ impl RootApp {
         entity: Entity<Self>,
         _cx: &mut Context<Self>,
     ) -> gpui_kit::AnyElement {
+        let mut grid_theme = theme.clone();
+        if self.preview_background_on_grid && !theme::is_high_contrast(theme) {
+            let (background, foreground) = theme::preview_colors(self.preview_background, theme);
+            grid_theme.colors.background = background;
+            grid_theme.colors.foreground = foreground;
+            grid_theme.colors.muted_foreground = foreground.opacity(0.75);
+        }
         h_resizable("shell-body")
             .child(
                 resizable_panel()
@@ -2794,12 +2852,14 @@ impl RootApp {
                         })
                         .id("center-pane")
                         .size_full()
+                        .bg(grid_theme.background)
+                        .text_color(grid_theme.foreground)
                         .overflow_hidden()
                         .child(grid::render_items(
                             lib,
                             &self.items,
                             locale,
-                            theme,
+                            &grid_theme,
                             entity.clone(),
                             self.justified.as_ref(),
                             self.rubber.as_ref(),

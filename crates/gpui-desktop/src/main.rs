@@ -74,9 +74,11 @@ fn main() {
     app.run(move |cx| {
         gpui_kit::init(cx);
         bind_keymap(cx);
+        theme::init_themes(cx);
 
         // Theme before first paint (prefs applied again inside RootApp::new).
-        apply_theme(app_store::Theme::System, cx);
+        let prefs = app_store::AppStore::new(platform::app_data_dir().join("data")).preferences();
+        apply_theme(&prefs, cx);
 
         let open_size = clamp_window_size(DEFAULT_WINDOW_WIDTH, DEFAULT_WINDOW_HEIGHT);
         let window_options = WindowOptions {

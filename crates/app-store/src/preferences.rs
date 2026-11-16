@@ -19,6 +19,102 @@ pub enum Theme {
     Dark,
 }
 
+/// The accent colour (D-182): Windows' own, one of the presets, or any `#rrggbb`.
+#[derive(Debug, Clone, PartialEq, Eq, Default, Serialize, Deserialize)]
+#[serde(rename_all = "camelCase")]
+pub enum Accent {
+    /// Read the accent Windows itself uses; a fallback colour elsewhere.
+    #[default]
+    Windows,
+    Blue,
+    Teal,
+    Green,
+    Yellow,
+    Orange,
+    Red,
+    Purple,
+    Pink,
+    Custom(String),
+}
+
+/// The preset accents, in the order Settings shows them; the folder palette's colours (D-159).
+pub const ACCENT_PRESETS: [Accent; 8] = [
+    Accent::Blue,
+    Accent::Teal,
+    Accent::Green,
+    Accent::Yellow,
+    Accent::Orange,
+    Accent::Red,
+    Accent::Purple,
+    Accent::Pink,
+];
+
+impl Accent {
+    /// The colour as `[r, g, b]`; `None` for Windows and for a custom value that is not hex.
+    pub fn rgb(&self) -> Option<[u8; 3]> {
+        let value = match self {
+            Self::Windows => return None,
+            Self::Blue => 0x3b82f6,
+            Self::Teal => 0x06b6d4,
+            Self::Green => 0x22c55e,
+            Self::Yellow => 0xeab308,
+            Self::Orange => 0xf97316,
+            Self::Red => 0xef4444,
+            Self::Purple => 0xa855f7,
+            Self::Pink => 0xec4899,
+            Self::Custom(hex) => return library_core::query::color::parse_hex(hex),
+        };
+        Some([(value >> 16) as u8, (value >> 8) as u8, value as u8])
+    }
+
+    /// A custom value that is not hex becomes Windows, so a broken file never paints garbage.
+    pub fn normalized(self) -> Self {
+        match &self {
+            Self::Custom(hex) if library_core::query::color::parse_hex(hex).is_none() => {
+                Self::Windows
+            }
+            _ => self,
+        }
+    }
+}
+
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Default, Serialize, Deserialize)]
+#[serde(rename_all = "camelCase")]
+pub enum Palette {
+    #[default]
+    Default,
+    Graphite,
+    OledBlack,
+    Warm,
+}
+
+impl Palette {
+    pub const ALL: [Self; 4] = [Self::Default, Self::Graphite, Self::OledBlack, Self::Warm];
+}
+
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Default, Serialize, Deserialize)]
+#[serde(rename_all = "camelCase")]
+pub enum PreviewBackground {
+    #[default]
+    Theme,
+    Black,
+    Gray18,
+    White,
+}
+
+impl PreviewBackground {
+    pub const ALL: [Self; 4] = [Self::Theme, Self::Black, Self::Gray18, Self::White];
+
+    pub fn rgb(self) -> Option<[u8; 3]> {
+        match self {
+            Self::Theme => None,
+            Self::Black => Some([0; 3]),
+            Self::Gray18 => Some([118; 3]),
+            Self::White => Some([255; 3]),
+        }
+    }
+}
+
 /// UI language (D-069). Stored as BCP 47 tags; English is the source locale.
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Default, Serialize, Deserialize)]
 pub enum Locale {
@@ -119,6 +215,11 @@ impl Default for BrowsePreferences {
 #[serde(rename_all = "camelCase", default)]
 pub struct Preferences {
     pub theme: Theme,
+    pub palette: Palette,
+    /// The accent colour of primary controls and the selection (D-182).
+    pub accent: Accent,
+    pub preview_background: PreviewBackground,
+    pub preview_background_on_grid: bool,
     /// UI language; English is the default (D-069).
     pub locale: Locale,
     pub reopen_last_library: bool,
@@ -137,6 +238,10 @@ impl Default for Preferences {
     fn default() -> Self {
         Self {
             theme: Theme::System,
+            palette: Palette::Default,
+            accent: Accent::Windows,
+            preview_background: PreviewBackground::Theme,
+            preview_background_on_grid: false,
             locale: Locale::En,
             reopen_last_library: true,
             default_library_parent: None,
@@ -167,6 +272,7 @@ impl AppStore {
     /// Stores `preferences` as given; the caller validates the default folder first.
     pub fn save_preferences(&self, preferences: &Preferences) -> Result<(), SourceError> {
         let mut preferences = preferences.clone();
+        preferences.accent = preferences.accent.normalized();
         preferences.layout = preferences.layout.clamped();
         preferences.browse = preferences.browse.clamped();
         JsonFile::new(self.dir(), PREFERENCES).update(|stored: &mut Preferences| {
@@ -212,6 +318,10 @@ mod tests {
         let store = AppStore::new(dir.path());
         let preferences = Preferences {
             theme: Theme::Dark,
+            palette: Palette::Warm,
+            accent: Accent::Custom("#7c3aed".into()),
+            preview_background: PreviewBackground::Gray18,
+            preview_background_on_grid: true,
             locale: Locale::Ru,
             reopen_last_library: false,
             default_library_parent: Some("D:\\Libraries".into()),
@@ -235,6 +345,7 @@ mod tests {
         store.save_preferences(&preferences).unwrap();
         let stored = store.preferences();
         assert_eq!(stored.theme, Theme::Dark);
+        assert_eq!(stored.accent, Accent::Custom("#7c3aed".into()));
         assert_eq!(stored.locale, Locale::Ru);
         assert_eq!(
             stored.default_library_parent.as_deref(),
@@ -258,9 +369,101 @@ mod tests {
     fn missing_fields_keep_their_defaults() {
         let preferences: Preferences = serde_json::from_str(r#"{ "theme": "light" }"#).unwrap();
         assert_eq!(preferences.theme, Theme::Light);
+        assert_eq!(preferences.accent, Accent::Windows);
         assert_eq!(preferences.locale, Locale::En);
         assert!(preferences.reopen_last_library);
         assert!(preferences.confirm_before_trash);
+    }
+
+    /// A preferences.json written before the accent existed (D-182) still opens.
+    #[test]
+    fn a_pre_accent_preferences_file_opens_with_the_windows_accent() {
+        let old = r#"{
+            "theme": "dark",
+            "locale": "ru",
+            "reopenLastLibrary": false,
+            "defaultLibraryParent": "D:\\Libraries",
+            "confirmBeforeTrash": false,
+            "exportDestination": "D:\\Backups",
+            "layout": { "leftWidth": 260, "rightWidth": 340, "leftOpen": true, "rightOpen": false },
+            "browse": {
+                "viewMode": "list", "thumbnailSize": 200, "showNames": false,
+                "sort": "name", "ascending": true, "includeSubfolders": true
+            }
+        }"#;
+        let preferences: Preferences = serde_json::from_str(old).unwrap();
+        assert_eq!(preferences.theme, Theme::Dark);
+        assert_eq!(preferences.accent, Accent::Windows);
+        assert_eq!(preferences.locale, Locale::Ru);
+        assert!(!preferences.reopen_last_library);
+        assert_eq!(preferences.browse.thumbnail_size, 200);
+    }
+
+    #[test]
+    fn accent_round_trips_and_presets_have_colours() {
+        for accent in ACCENT_PRESETS {
+            assert!(accent.rgb().is_some(), "{accent:?}");
+            let json = serde_json::to_string(&accent).unwrap();
+            assert_eq!(serde_json::from_str::<Accent>(&json).unwrap(), accent);
+        }
+        assert_eq!(Accent::Windows.rgb(), None);
+        let custom = Accent::Custom("#0f766e".into());
+        assert_eq!(custom.rgb(), Some([0x0f, 0x76, 0x6e]));
+        let json = serde_json::to_string(&custom).unwrap();
+        assert_eq!(json, r##"{"custom":"#0f766e"}"##);
+        assert_eq!(serde_json::from_str::<Accent>(&json).unwrap(), custom);
+    }
+
+    #[test]
+    fn a_broken_custom_accent_falls_back_to_windows_on_save() {
+        let dir = tempfile::tempdir().unwrap();
+        let store = AppStore::new(dir.path());
+        let mut preferences = store.preferences();
+        preferences.accent = Accent::Custom("not a colour".into());
+        store.save_preferences(&preferences).unwrap();
+        assert_eq!(store.preferences().accent, Accent::Windows);
+        assert_eq!(
+            Accent::Custom("#abc".into()).normalized(),
+            Accent::Custom("#abc".into())
+        );
+    }
+
+    #[test]
+    fn preview_backgrounds_round_trip_and_old_files_keep_the_theme() {
+        let old: Preferences = serde_json::from_str(r#"{"theme":"dark","accent":"blue"}"#).unwrap();
+        assert_eq!(old.preview_background, PreviewBackground::Theme);
+        assert!(!old.preview_background_on_grid);
+        let dir = tempfile::tempdir().unwrap();
+        let store = AppStore::new(dir.path());
+        for background in PreviewBackground::ALL {
+            let prefs = Preferences {
+                preview_background: background,
+                preview_background_on_grid: true,
+                ..old.clone()
+            };
+            store.save_preferences(&prefs).unwrap();
+            assert_eq!(store.preferences(), prefs);
+        }
+    }
+
+    #[test]
+    fn palettes_round_trip_independently_of_the_mode() {
+        let old: Preferences = serde_json::from_str(r#"{"theme":"dark"}"#).unwrap();
+        assert_eq!(old.palette, Palette::Default);
+        for palette in Palette::ALL {
+            for theme in [Theme::System, Theme::Light, Theme::Dark] {
+                let preferences = Preferences {
+                    palette,
+                    theme,
+                    ..old.clone()
+                };
+                let json = serde_json::to_string(&preferences).unwrap();
+                assert_eq!(
+                    serde_json::from_str::<Preferences>(&json).unwrap(),
+                    preferences
+                );
+            }
+        }
     }
 
     #[test]

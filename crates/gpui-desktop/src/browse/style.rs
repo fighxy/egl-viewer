@@ -37,10 +37,17 @@ const _: () = assert!(
         && MENU_BAR_HEIGHT + TOOLBAR_HEIGHT + FILTER_BAR_HEIGHT <= 96.0
 );
 
-/// The colour of a selected thumbnail's ring and caption. The kit's `accent` is a quiet grey
-/// meant for hover, so a selection drawn with it cannot be seen on a dark grid.
+/// The colour of a selected thumbnail's ring and caption: the accent (D-182), which the
+/// theme keeps in `ring`. The kit's `accent` is a quiet grey meant for hover, so a selection
+/// drawn with it cannot be seen on a dark grid.
 pub fn selection_color(theme: &Kit) -> Hsla {
-    theme.blue
+    theme.ring
+}
+
+/// Text on the selection colour: the accent's contrast foreground (D-182), never a fixed
+/// white, which a pale accent would swallow.
+pub fn selection_foreground(theme: &Kit) -> Hsla {
+    theme.primary_foreground
 }
 
 /// One row of the left bar: full width, a hover tint, a filled background when selected.
@@ -243,6 +250,17 @@ mod tests {
         );
         assert_eq!(dimensions_caption(0, 3024), None);
         assert_eq!(dimensions_caption(10, 0), None);
+    }
+
+    #[test]
+    fn selection_uses_the_ring_and_its_readable_foreground_not_the_hover_tint() {
+        let mut theme = Kit::default();
+        theme.colors.ring = rgb(0xffff00).into();
+        theme.colors.accent = rgb(0x222222).into();
+        theme.colors.primary_foreground = gpui_kit::black();
+        assert_eq!(selection_color(&theme), theme.ring);
+        assert_ne!(selection_color(&theme), theme.accent);
+        assert_eq!(selection_foreground(&theme), gpui_kit::black());
     }
 
     #[test]

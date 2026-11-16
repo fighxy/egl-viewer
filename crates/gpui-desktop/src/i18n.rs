@@ -529,6 +529,35 @@ fn en() -> Catalog {
         ("settings.title", "Settings"),
         ("settings.general", "General"),
         ("settings.theme", "Theme"),
+        ("settings.palette", "Palette"),
+        (
+            "settings.highContrast",
+            "Windows High Contrast is active; your choices resume when it is off.",
+        ),
+        ("palette.default", "Default"),
+        ("palette.graphite", "Graphite"),
+        ("palette.oledBlack", "OLED Black"),
+        ("palette.warm", "Warm"),
+        ("settings.accent", "Accent colour"),
+        ("settings.previewBackground", "Preview background"),
+        (
+            "settings.previewBackgroundGrid",
+            "Also use this background in the grid",
+        ),
+        ("previewBg.theme", "Like theme"),
+        ("previewBg.black", "Black"),
+        ("previewBg.gray", "Neutral grey 18%"),
+        ("previewBg.white", "White"),
+        ("accent.windows", "Like Windows"),
+        ("accent.custom", "Custom…"),
+        ("accent.blue", "Blue"),
+        ("accent.teal", "Teal"),
+        ("accent.green", "Green"),
+        ("accent.yellow", "Yellow"),
+        ("accent.orange", "Orange"),
+        ("accent.red", "Red"),
+        ("accent.purple", "Purple"),
+        ("accent.pink", "Pink"),
         ("settings.language", "Language"),
         ("settings.reopen", "Reopen the last library on start"),
         (
@@ -887,6 +916,35 @@ fn ru() -> Catalog {
         ("settings.title", "Параметры"),
         ("settings.general", "Общие"),
         ("settings.theme", "Тема"),
+        ("settings.palette", "Палитра"),
+        (
+            "settings.highContrast",
+            "В Windows включена высокая контрастность; ваши цвета вернутся после её отключения.",
+        ),
+        ("palette.default", "Стандартная"),
+        ("palette.graphite", "Graphite"),
+        ("palette.oledBlack", "OLED Black"),
+        ("palette.warm", "Warm"),
+        ("settings.accent", "Акцентный цвет"),
+        ("settings.previewBackground", "Фон просмотра"),
+        (
+            "settings.previewBackgroundGrid",
+            "Использовать этот фон и в сетке",
+        ),
+        ("previewBg.theme", "Как в теме"),
+        ("previewBg.black", "Чёрный"),
+        ("previewBg.gray", "Нейтральный серый 18%"),
+        ("previewBg.white", "Белый"),
+        ("accent.windows", "Как в Windows"),
+        ("accent.custom", "Свой…"),
+        ("accent.blue", "Синий"),
+        ("accent.teal", "Бирюзовый"),
+        ("accent.green", "Зелёный"),
+        ("accent.yellow", "Жёлтый"),
+        ("accent.orange", "Оранжевый"),
+        ("accent.red", "Красный"),
+        ("accent.purple", "Фиолетовый"),
+        ("accent.pink", "Розовый"),
         ("settings.language", "Язык"),
         (
             "settings.reopen",
@@ -1176,6 +1234,32 @@ fn zh_cn() -> Catalog {
         ("settings.title", "设置"),
         ("settings.general", "常规"),
         ("settings.theme", "主题"),
+        ("settings.palette", "配色"),
+        (
+            "settings.highContrast",
+            "Windows 高对比度已开启；关闭后将恢复您的配色。",
+        ),
+        ("palette.default", "默认"),
+        ("palette.graphite", "Graphite"),
+        ("palette.oledBlack", "OLED Black"),
+        ("palette.warm", "Warm"),
+        ("settings.accent", "强调色"),
+        ("settings.previewBackground", "预览背景"),
+        ("settings.previewBackgroundGrid", "在网格中也使用此背景"),
+        ("previewBg.theme", "跟随主题"),
+        ("previewBg.black", "黑色"),
+        ("previewBg.gray", "18% 中性灰"),
+        ("previewBg.white", "白色"),
+        ("accent.windows", "跟随 Windows"),
+        ("accent.custom", "自定义…"),
+        ("accent.blue", "蓝色"),
+        ("accent.teal", "青色"),
+        ("accent.green", "绿色"),
+        ("accent.yellow", "黄色"),
+        ("accent.orange", "橙色"),
+        ("accent.red", "红色"),
+        ("accent.purple", "紫色"),
+        ("accent.pink", "粉色"),
         ("settings.language", "语言"),
         ("settings.reopen", "启动时重新打开上次图库"),
         ("settings.confirmTrash", "移入回收站前询问"),
@@ -1295,6 +1379,49 @@ mod tests {
             let key = format!("colour.{name}");
             assert_ne!(t(Locale::En, &key), key);
             assert_ne!(t(Locale::Ru, &key), key);
+        }
+    }
+
+    #[test]
+    fn the_accent_settings_are_translated_in_every_language() {
+        for key in [
+            "settings.accent",
+            "accent.windows",
+            "accent.custom",
+            "accent.blue",
+            "accent.teal",
+            "accent.green",
+            "accent.yellow",
+            "accent.orange",
+            "accent.red",
+            "accent.purple",
+            "accent.pink",
+        ] {
+            for locale in [Locale::En, Locale::Ru, Locale::ZhCn] {
+                assert_ne!(t(locale, key), key, "{locale:?} {key}");
+            }
+        }
+    }
+
+    #[test]
+    fn theme_settings_are_translated() {
+        for catalog in [en(), ru(), zh_cn()] {
+            for key in [
+                "settings.highContrast",
+                "settings.palette",
+                "palette.default",
+                "palette.graphite",
+                "palette.oledBlack",
+                "palette.warm",
+                "settings.previewBackground",
+                "settings.previewBackgroundGrid",
+                "previewBg.theme",
+                "previewBg.black",
+                "previewBg.gray",
+                "previewBg.white",
+            ] {
+                assert!(catalog.contains_key(key), "{key}");
+            }
         }
     }
 

@@ -85,14 +85,15 @@ impl RootApp {
     ) -> impl IntoElement {
         self.sync_viewer_title(window);
         let theme = cx.theme().clone();
+        let colors = crate::theme::preview_colors(self.preview_background, &theme);
         let size = window.viewport_size();
         let size = (size.width.as_f32(), size.height.as_f32());
         v_flex()
             .id("viewer-root")
             .key_context(crate::commands::ROOT_CONTEXT)
             .size_full()
-            .bg(theme.background)
-            .text_color(theme.foreground)
+            .bg(colors.0)
+            .text_color(colors.1)
             .track_focus(&self.focus)
             .on_action(cx.listener(|this, _: &ClosePreview, _, cx| {
                 this.close_preview(cx);
@@ -163,6 +164,8 @@ impl RootApp {
                     self.locale,
                     size,
                     cx.entity(),
+                    colors,
+                    cx,
                 ))
             })
     }

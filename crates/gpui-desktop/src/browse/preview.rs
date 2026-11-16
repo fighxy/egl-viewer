@@ -243,9 +243,15 @@ pub fn render_preview(
     locale: Locale,
     window_size: (f32, f32),
     entity: Entity<RootApp>,
-) -> impl IntoElement {
+    colors: (gpui_kit::Hsla, gpui_kit::Hsla),
+    cx: &gpui_kit::App,
+) -> gpui_kit::Stateful<gpui_kit::Div> {
     let appear = state.appear.clamp(0.0, 1.0);
-    let overlay_alpha = 0.88 * appear;
+    let (background, foreground) = colors;
+    let button = gpui_kit::component::button::ButtonCustomVariant::new(cx)
+        .foreground(foreground)
+        .hover(foreground.opacity(0.08))
+        .active(foreground.opacity(0.14));
     let can_prev = state.index > 0;
     let can_next = (state.index as u32 + 1) < state.total;
     let zoom_pct = (state.zoom * 100.0).round() as i32;
@@ -281,8 +287,8 @@ pub fn render_preview(
         .on_scroll(|_, _, cx| cx.stop_propagation())
         .flex()
         .flex_col()
-        .bg(black().opacity(overlay_alpha))
-        .text_color(white())
+        .bg(background.opacity(appear))
+        .text_color(foreground)
         .child(
             h_flex()
                 .id("preview-chrome")
@@ -294,26 +300,26 @@ pub fn render_preview(
                 .child(
                     Label::new(format!("{} / {}", state.index + 1, state.total))
                         .text_sm()
-                        .text_color(white().opacity(0.65)),
+                        .text_color(foreground.opacity(0.75)),
                 )
                 .when(rotation != 0, |el| {
                     el.child(
                         Label::new(format!("{rotation}°"))
                             .text_xs()
-                            .text_color(white().opacity(0.55)),
+                            .text_color(foreground.opacity(0.75)),
                     )
                 })
                 .when(state.loading, |el| {
                     el.child(
                         Label::new(t(locale, "preview.loading"))
                             .text_xs()
-                            .text_color(white().opacity(0.55)),
+                            .text_color(foreground.opacity(0.75)),
                     )
                 })
                 .child(div().flex_1())
                 .child(
                     Button::new("preview-zoom-out")
-                        .ghost()
+                        .custom(button)
                         .label("−")
                         .disabled(state.zoom <= MIN_ZOOM)
                         .on_click(move |_, _, cx| {
@@ -322,7 +328,7 @@ pub fn render_preview(
                 )
                 .child(
                     Button::new("preview-zoom-label")
-                        .ghost()
+                        .custom(button)
                         .label(format!("{zoom_pct}%"))
                         .on_click(move |_, _, cx| {
                             zoom_reset.update(cx, |this, cx| this.preview_zoom_reset(cx));
@@ -330,7 +336,7 @@ pub fn render_preview(
                 )
                 .child(
                     Button::new("preview-zoom-in")
-                        .ghost()
+                        .custom(button)
                         .label("+")
                         .disabled(state.zoom >= MAX_ZOOM)
                         .on_click(move |_, _, cx| {
@@ -339,17 +345,20 @@ pub fn render_preview(
                 )
                 .child(
                     Button::new("preview-rotate")
-                        .ghost()
+                        .custom(button)
                         .label(t(locale, "preview.rotate"))
                         .on_click(move |_, _, cx| {
                             rotate.update(cx, |this, cx| this.preview_rotate(cx));
                         }),
                 )
-                .child(Button::new("preview-close").ghost().label("×").on_click(
-                    move |_, _, cx| {
-                        close_entity.update(cx, |this, cx| this.close_preview(cx));
-                    },
-                )),
+                .child(
+                    Button::new("preview-close")
+                        .custom(button)
+                        .label("×")
+                        .on_click(move |_, _, cx| {
+                            close_entity.update(cx, |this, cx| this.close_preview(cx));
+                        }),
+                ),
         )
         .child(
             div()
@@ -523,7 +532,7 @@ pub fn render_preview(
                         .absolute()
                         .left_3()
                         .top(px(stage.1 / 2.0 - 16.0))
-                        .ghost()
+                        .custom(button)
                         .label("‹")
                         .disabled(!can_prev)
                         .on_click(move |_, _, cx| {
@@ -535,7 +544,7 @@ pub fn render_preview(
                         .absolute()
                         .right_3()
                         .top(px(stage.1 / 2.0 - 16.0))
-                        .ghost()
+                        .custom(button)
                         .label("›")
                         .disabled(!can_next)
                         .on_click(move |_, _, cx| {
