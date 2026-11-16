@@ -3939,3 +3939,26 @@ stayed in GPUI's asset cache for the life of the window. The grid only had the s
   ignore preview overrides during contrast mode; Windows API availability is checked separately.
 - **Left for later.** User theme folders (`watch_dir`), interface density, Windows 11 Mica /
   transparency, per-library accent and mobile apps remain outside this change (D-182).
+
+## D-191 GPUI: every UI string in all three languages, enforced by a test (2026-11-16)
+
+`gpui-desktop`'s `t()` falls back to English when a key is missing from the active catalog, so
+a string added only to `en()` showed up in English in the Russian or Chinese UI without any
+error. On 2026-11-16, 205 of the 516 English keys were missing from `ru()` and 249 from
+`zh_cn()` (left-bar headers, tag groups, locks, imports, trash, export, decrypt, Eagle connect
+and import, library settings, app login).
+
+- **Translations.** Every missing string is translated, reusing the catalogs' existing wording:
+  Russian «Запереть / Отпереть» for folder locks, «Смарт-папка», «Корзина», «Параметры»;
+  Chinese 图库 for a library, 回收站 for the trash (the two strings that said 废纸篓 now say
+  回收站 too), 智能文件夹, 锁定. Counts in Russian use the «Удалено навсегда: {n}» form, which
+  avoids plural endings. Placeholders and `…` are kept; Eagle, YubiKey, WebAuthn and file
+  suffixes are not translated.
+- **Left-bar headers.** `shell.lockedFolders`, `shell.smartFolders`, `shell.tags`,
+  `shell.locked` and `shell.unlocked` carry the same text as the parallel accent-hover change,
+  so the two merge without different wording.
+- **Removed.** `welcome.eagleLater` existed only in `ru()` and `zh_cn()` and nothing used it.
+- **Tests.** `every_catalog_has_exactly_the_english_keys` fails when `ru()` or `zh_cn()` lacks
+  a key of `en()` or holds one `en()` lacks, so a new English string without translations
+  fails CI. `translations_keep_the_placeholders` checks that each translation fills the same
+  `{n}`, `{name}`, `{what}`… slots as its English string.
