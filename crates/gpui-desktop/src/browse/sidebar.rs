@@ -42,6 +42,8 @@ pub struct SidebarExtras<'a> {
     pub name_prompt: Option<NamePromptKind>,
     /// The Empty Trash confirmation open at the Trash row (D-165).
     pub trash_confirm: Option<library_core::TrashInfo>,
+    /// The tag group whose tags picker is open under its row, and the picker (D-187).
+    pub group_tag_pick: Option<(String, Entity<crate::browse::picker::Picker>)>,
 }
 
 /// A left-bar row as the trigger of a popover the app opens itself (D-165): it is never drawn
@@ -470,7 +472,14 @@ fn render_tag_groups(
             .as_deref()
             .and_then(style::folder_color)
             .map(|hex| rgb(hex).into());
+        let picker = extras
+            .group_tag_pick
+            .as_ref()
+            .filter(|(id, _)| *id == group.id)
+            .map(|(_, picker)| picker.clone());
         rows.push(tag_group_row(
+            picker,
+            locale,
             &group.id,
             group.name.clone(),
             group.tags.len(),
@@ -488,6 +497,8 @@ fn render_tag_groups(
     if !ungrouped.is_empty() {
         let expanded = extras.expanded_tag_groups.contains(UNGROUPED);
         rows.push(tag_group_row(
+            None,
+            locale,
             UNGROUPED,
             t(locale, "tags.ungrouped"),
             ungrouped.len(),
@@ -523,6 +534,8 @@ fn ungrouped_tags<'a>(
 /// deletes the group. `fixed` rows (Ungrouped, a read-only library) have no menu.
 #[allow(clippy::too_many_arguments)]
 fn tag_group_row(
+    picker: Option<Entity<crate::browse::picker::Picker>>,
+    locale: Locale,
     id: &str,
     name: String,
     count: usize,
@@ -558,11 +571,66 @@ fn tag_group_row(
         .child(style::row_label(name))
         .child(style::row_count(count as u32, theme));
     if fixed {
-        row.into_any_element()
-    } else {
-        row.context_menu(ops_organize::tag_group_menu(entity, id.to_owned()))
-            .into_any_element()
+        return row.into_any_element();
     }
+    // + by the count adds tags to the group, like + by the Folders header (D-187). It shows on
+    // the row under the pointer, or while the group's picker is open; a press on it must not
+    // fold the group.
+    let hover_group = SharedString::from(format!("tag-group-hover-{id}"));
+    let add = {
+        let entity = entity.clone();
+        let id = id.to_owned();
+        div()
+            .id(SharedString::from(format!("tag-group-add-wrap-{id}")))
+            .flex_none()
+            .when(picker.is_none(), |el| {
+                el.invisible()
+                    .group_hover(hover_group.clone(), |style| style.visible())
+            })
+            .on_mouse_down(gpui_kit::MouseButton::Left, |_, _, cx| {
+                cx.stop_propagation()
+            })
+            .on_click(|_, _, cx| cx.stop_propagation())
+            .child(
+                Button::new(SharedString::from(format!("tag-group-add-{id}")))
+                    .ghost()
+                    .xsmall()
+                    .icon(IconName::Plus)
+                    .tooltip(t(locale, "tags.addTagsToGroup"))
+                    .on_click(move |_, window, cx| {
+                        entity.update(cx, |this, cx| {
+                            this.open_group_tag_picker(id.clone(), window, cx)
+                        });
+                    }),
+            )
+    };
+    let row = row.group(hover_group).child(add);
+    let row = row.context_menu(ops_organize::tag_group_menu(entity.clone(), id.to_owned()));
+    let Some(picker) = picker else {
+        return row.into_any_element();
+    };
+    // "Add Tags…" in the menu opens the group's tags picker under the row (D-187); a click
+    // outside or Escape closes it.
+    Popover::new(SharedString::from(format!("tag-group-{id}-picker")))
+        .anchor(gpui_kit::Anchor::TopLeft)
+        .mouse_button(gpui_kit::MouseButton::Middle)
+        .trigger_style(gpui_kit::StyleRefinement::default().w_full())
+        .open(true)
+        .on_open_change(move |open, window, cx| {
+            if !*open {
+                entity.update(cx, |this, cx| {
+                    this.set_picker_open(
+                        crate::browse::picker::PickerKind::GroupTags,
+                        false,
+                        window,
+                        cx,
+                    );
+                });
+            }
+        })
+        .trigger(RowTrigger(row.into_any_element()))
+        .content(move |_, _, _| picker.clone())
+        .into_any_element()
 }
 
 fn locked_row(folder: Folder, locale: Locale, theme: &Kit, entity: Entity<RootApp>) -> AnyElement {

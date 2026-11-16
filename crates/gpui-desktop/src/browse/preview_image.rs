@@ -304,6 +304,39 @@ pub fn hover_animation(bytes: &[u8], edge: u32) -> Option<Arc<RenderImage>> {
     (animation.frames.len() > 1).then(|| animation_image(animation, 0))
 }
 
+/// The decoded picture turned clockwise by `degrees`, every frame of an animation with its
+/// delay (D-189). A quarter turn only reorders pixels already in memory, so turning in the
+/// preview no longer decodes the original again. `None` for what has no pixels of ours
+/// (SVG, the thumbnail placeholder): those go through [`decode_payload`].
+pub fn rotate_shown(shown: &Shown, degrees: u16) -> Option<Shown> {
+    let degrees = degrees % 360;
+    let (image, animated) = match shown {
+        Shown::Pixels(image) => (image, false),
+        Shown::Animation(image) => (image, true),
+        Shown::Encoded(_) => return None,
+    };
+    let frames = (0..image.frame_count())
+        .map(|index| {
+            let size = image.size(index);
+            let (width, height) = (
+                u32::try_from(size.width.0).ok()?,
+                u32::try_from(size.height.0).ok()?,
+            );
+            // BGRA in, BGRA out: a turn moves whole pixels and never looks at the channels.
+            let pixels =
+                image::RgbaImage::from_raw(width, height, image.as_bytes(index)?.to_vec())?;
+            let turned = rotate(DynamicImage::ImageRgba8(pixels), degrees).into_rgba8();
+            Some(image::Frame::from_parts(turned, 0, 0, image.delay(index)))
+        })
+        .collect::<Option<Vec<_>>>()?;
+    let turned = Arc::new(RenderImage::new(frames));
+    Some(if animated {
+        Shown::Animation(turned)
+    } else {
+        Shown::Pixels(turned)
+    })
+}
+
 /// Decodes the payload for painting, rotated clockwise by `degrees`. Heavy: background only.
 /// A GIF keeps its animation at any rotation; SVG stays encoded (no rotation).
 pub fn decode_payload(payload: &PreviewPayload, degrees: u16) -> Option<Shown> {
@@ -343,6 +376,44 @@ mod tests {
         let image = shown.pixels().expect("decoded pixels");
         let size = image.size(0);
         (size.width.0, size.height.0)
+    }
+
+    /// D-189: turning the decoded pixels gives exactly what decoding at that angle gave.
+    #[test]
+    fn turning_decoded_pixels_matches_a_decode_at_that_angle() {
+        let payload = png(4, 2);
+        let upright = decode_payload(&payload, 0).unwrap();
+        for degrees in [0, 90, 180, 270, 450] {
+            let turned = rotate_shown(&upright, degrees).unwrap();
+            let decoded = decode_payload(&payload, degrees).unwrap();
+            assert_eq!(size(&turned), size(&decoded), "{degrees}");
+            assert_eq!(
+                turned.pixels().unwrap().as_bytes(0),
+                decoded.pixels().unwrap().as_bytes(0),
+                "{degrees}"
+            );
+        }
+        // SVG and the thumbnail placeholder have no pixels of ours: the caller decodes.
+        let encoded = Shown::Encoded(image_from_bytes(ImageFormat::Png, payload.bytes.to_vec()));
+        assert!(rotate_shown(&encoded, 90).is_none());
+    }
+
+    #[test]
+    fn turning_an_animation_keeps_every_frame_and_delay() {
+        let upright = decode_payload(&gif(6, 2, &[100, 250, 40]), 0).unwrap();
+        let Shown::Animation(frames) = &upright else {
+            panic!("an animation");
+        };
+        let turned = rotate_shown(&upright, 90).unwrap();
+        let Shown::Animation(turned) = &turned else {
+            panic!("still an animation");
+        };
+        assert_eq!(turned.frame_count(), frames.frame_count());
+        for index in 0..frames.frame_count() {
+            assert_eq!(turned.delay(index), frames.delay(index));
+            let (before, after) = (frames.size(index), turned.size(index));
+            assert_eq!((after.width, after.height), (before.height, before.width));
+        }
     }
 
     #[test]

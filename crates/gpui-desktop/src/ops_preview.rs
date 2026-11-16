@@ -331,18 +331,26 @@ impl RootApp {
         };
         let Some(Slot::Ready {
             payload: Some(payload),
-            ..
+            shown: upright,
         }) = self.preview_cache.get(&key)
         else {
             // Still loading: `preview_loaded` calls back here once it lands.
             return;
         };
         let payload = payload.clone();
+        let upright = upright.clone();
         let degrees = preview.rotation;
         cx.spawn(async move |this, cx| {
+            // Quarter turns of the pixels already decoded: no second decode of the original
+            // (D-189). SVG has none and still goes through the payload.
             let shown = cx
                 .background_executor()
-                .spawn(async move { preview_image::decode_payload(&payload, degrees) })
+                .spawn(async move {
+                    upright
+                        .as_ref()
+                        .and_then(|upright| preview_image::rotate_shown(upright, degrees))
+                        .or_else(|| preview_image::decode_payload(&payload, degrees))
+                })
                 .await;
             this.update(cx, |this, cx| {
                 let current = this

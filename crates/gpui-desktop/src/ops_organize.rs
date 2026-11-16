@@ -130,6 +130,10 @@ pub(crate) fn tag_group_menu(entity: Entity<RootApp>, group_id: String) -> MenuB
             &entity,
             move |this, _, cx| this.apply_tag_group(tags.clone(), cx),
         ))
+        .item(menu_action(t(locale, "tags.addTagsToGroup"), &entity, {
+            let id = group_id.clone();
+            move |this, window, cx| this.open_group_tag_picker(id.clone(), window, cx)
+        }))
         .item(menu_action(
             t(locale, "tags.renameGroup"),
             &entity,
@@ -376,9 +380,49 @@ impl RootApp {
         cx.notify();
     }
 
+    /// Opens the picker of a tag group's tags under its row (D-187).
+    pub(crate) fn open_group_tag_picker(
+        &mut self,
+        id: String,
+        window: &mut Window,
+        cx: &mut Context<Self>,
+    ) {
+        self.group_tag_pick_for = Some(id);
+        self.set_picker_open(
+            crate::browse::picker::PickerKind::GroupTags,
+            true,
+            window,
+            cx,
+        );
+    }
+
+    /// Puts `tag` into the group the picker is open for, or takes it out. A name no item
+    /// carries yet is allowed: the group lists it until it is used (D-187).
+    pub(crate) fn set_tag_in_picked_group(
+        &mut self,
+        tag: String,
+        add: bool,
+        cx: &mut Context<Self>,
+    ) {
+        let Some(id) = self.group_tag_pick_for.clone() else {
+            return;
+        };
+        self.update_tag_group(
+            &id,
+            move |group| {
+                if !add {
+                    group.tags.retain(|t| *t != tag);
+                } else if !group.tags.contains(&tag) {
+                    group.tags.push(tag);
+                }
+            },
+            cx,
+        );
+    }
+
     /// Writes a group with `edit` applied to its current state (the update replaces every
     /// property, so it starts from the group as it is now).
-    fn update_tag_group(
+    pub(crate) fn update_tag_group(
         &mut self,
         id: &str,
         edit: impl FnOnce(&mut library_core::TagGroup),

@@ -8,7 +8,7 @@ use app_store::Locale;
 use gpui_kit::assets::IconName;
 use gpui_kit::component::button::{Button, ButtonVariants as _};
 use gpui_kit::component::label::Label;
-use gpui_kit::component::{Disableable as _, StyledExt as _, h_flex};
+use gpui_kit::component::{Disableable as _, Icon, StyledExt as _, h_flex};
 use gpui_kit::prelude::FluentBuilder as _;
 use gpui_kit::{
     AnyElement, Bounds, Corners, CursorStyle, Entity, InteractiveElement, IntoElement, MouseButton,
@@ -237,6 +237,43 @@ fn natural_size(state: &PreviewState) -> Option<(f32, f32)> {
     }
 }
 
+/// The side of an arrow button, larger than the bar's so it is easy to hit (D-188).
+const ARROW_SIZE: f32 = 44.;
+
+/// Previous / next at the middle of the stage. It occludes and keeps the press to itself: the
+/// gpui-kit button lets the mouse-down through, and the letterbox below closes the preview
+/// on one (D-073), so a click on the arrow closed the preview instead of stepping.
+fn step_arrow(
+    id: &'static str,
+    icon: IconName,
+    enabled: bool,
+    left: bool,
+    stage_height: f32,
+    style: gpui_kit::component::button::ButtonCustomVariant,
+    step: impl Fn(&mut gpui_kit::App) + 'static,
+) -> impl IntoElement {
+    div()
+        .absolute()
+        .when(left, |el| el.left_3())
+        .when(!left, |el| el.right_3())
+        .top(px(stage_height / 2.0 - ARROW_SIZE / 2.0))
+        .occlude()
+        .on_mouse_down(MouseButton::Left, |_, _, cx| cx.stop_propagation())
+        .on_mouse_down(MouseButton::Right, |_, _, cx| cx.stop_propagation())
+        // Without a neighbour on that side the arrow fades, not just greys its icon.
+        .when(!enabled, |el| el.opacity(0.35))
+        .child(
+            Button::new(id)
+                .custom(style)
+                .icon(Icon::new(icon).size(px(26.)))
+                .w(px(ARROW_SIZE))
+                .h(px(ARROW_SIZE))
+                .rounded_full()
+                .disabled(!enabled)
+                .on_click(move |_, _, cx| step(cx)),
+        )
+}
+
 pub fn render_preview(
     state: &PreviewState,
     media: Option<&MediaPreview>,
@@ -248,10 +285,15 @@ pub fn render_preview(
 ) -> gpui_kit::Stateful<gpui_kit::Div> {
     let appear = state.appear.clamp(0.0, 1.0);
     let (background, foreground) = colors;
+    // The chrome's buttons sit on a tint of their own, so they read as buttons on any
+    // backdrop, and brighten under the pointer (D-188).
     let button = gpui_kit::component::button::ButtonCustomVariant::new(cx)
+        .color(foreground.opacity(0.10))
         .foreground(foreground)
-        .hover(foreground.opacity(0.08))
-        .active(foreground.opacity(0.14));
+        .hover(foreground.opacity(0.20))
+        .active(foreground.opacity(0.28));
+    // Close is outlined as well: the way out is the easiest thing to find.
+    let outline = foreground.opacity(0.45);
     let can_prev = state.index > 0;
     let can_next = (state.index as u32 + 1) < state.total;
     let zoom_pct = (state.zoom * 100.0).round() as i32;
@@ -317,35 +359,46 @@ pub fn render_preview(
                     )
                 })
                 .child(div().flex_1())
+                // Zoom out, the level (a click fits again) and zoom in, as one group.
                 .child(
-                    Button::new("preview-zoom-out")
-                        .custom(button)
-                        .label("−")
-                        .disabled(state.zoom <= MIN_ZOOM)
-                        .on_click(move |_, _, cx| {
-                            zoom_out.update(cx, |this, cx| this.preview_zoom(1.0 / 1.25, cx));
-                        }),
-                )
-                .child(
-                    Button::new("preview-zoom-label")
-                        .custom(button)
-                        .label(format!("{zoom_pct}%"))
-                        .on_click(move |_, _, cx| {
-                            zoom_reset.update(cx, |this, cx| this.preview_zoom_reset(cx));
-                        }),
-                )
-                .child(
-                    Button::new("preview-zoom-in")
-                        .custom(button)
-                        .label("+")
-                        .disabled(state.zoom >= MAX_ZOOM)
-                        .on_click(move |_, _, cx| {
-                            zoom_in.update(cx, |this, cx| this.preview_zoom(1.25, cx));
-                        }),
+                    h_flex()
+                        .gap_0p5()
+                        .child(
+                            Button::new("preview-zoom-out")
+                                .custom(button)
+                                .icon(IconName::ZoomOut)
+                                .tooltip(t(locale, "preview.zoomOut"))
+                                .disabled(state.zoom <= MIN_ZOOM)
+                                .on_click(move |_, _, cx| {
+                                    zoom_out
+                                        .update(cx, |this, cx| this.preview_zoom(1.0 / 1.25, cx));
+                                }),
+                        )
+                        .child(
+                            Button::new("preview-zoom-label")
+                                .custom(button)
+                                .label(format!("{zoom_pct}%"))
+                                .min_w(px(56.))
+                                .tooltip(t(locale, "preview.zoomFit"))
+                                .on_click(move |_, _, cx| {
+                                    zoom_reset.update(cx, |this, cx| this.preview_zoom_reset(cx));
+                                }),
+                        )
+                        .child(
+                            Button::new("preview-zoom-in")
+                                .custom(button)
+                                .icon(IconName::ZoomIn)
+                                .tooltip(t(locale, "preview.zoomIn"))
+                                .disabled(state.zoom >= MAX_ZOOM)
+                                .on_click(move |_, _, cx| {
+                                    zoom_in.update(cx, |this, cx| this.preview_zoom(1.25, cx));
+                                }),
+                        ),
                 )
                 .child(
                     Button::new("preview-rotate")
                         .custom(button)
+                        .icon(IconName::RotateCw)
                         .label(t(locale, "preview.rotate"))
                         .on_click(move |_, _, cx| {
                             rotate.update(cx, |this, cx| this.preview_rotate(cx));
@@ -354,7 +407,10 @@ pub fn render_preview(
                 .child(
                     Button::new("preview-close")
                         .custom(button)
-                        .label("×")
+                        .icon(IconName::X)
+                        .tooltip(t(locale, "preview.close"))
+                        .border_1()
+                        .border_color(outline)
                         .on_click(move |_, _, cx| {
                             close_entity.update(cx, |this, cx| this.close_preview(cx));
                         }),
@@ -527,30 +583,24 @@ pub fn render_preview(
                                 .into_any_element(),
                         }),
                 )
-                .child(
-                    Button::new("preview-prev")
-                        .absolute()
-                        .left_3()
-                        .top(px(stage.1 / 2.0 - 16.0))
-                        .custom(button)
-                        .label("‹")
-                        .disabled(!can_prev)
-                        .on_click(move |_, _, cx| {
-                            prev_entity.update(cx, |this, cx| this.preview_step(-1, cx));
-                        }),
-                )
-                .child(
-                    Button::new("preview-next")
-                        .absolute()
-                        .right_3()
-                        .top(px(stage.1 / 2.0 - 16.0))
-                        .custom(button)
-                        .label("›")
-                        .disabled(!can_next)
-                        .on_click(move |_, _, cx| {
-                            next_entity.update(cx, |this, cx| this.preview_step(1, cx));
-                        }),
-                )
+                .child(step_arrow(
+                    "preview-prev",
+                    IconName::ChevronLeft,
+                    can_prev,
+                    true,
+                    stage.1,
+                    button,
+                    move |cx| prev_entity.update(cx, |this, cx| this.preview_step(-1, cx)),
+                ))
+                .child(step_arrow(
+                    "preview-next",
+                    IconName::ChevronRight,
+                    can_next,
+                    false,
+                    stage.1,
+                    button,
+                    move |cx| next_entity.update(cx, |this, cx| this.preview_step(1, cx)),
+                ))
                 .when_some(state.player.as_ref(), |el, player| {
                     el.child(gif_controls(player, locale, entity.clone()))
                 })

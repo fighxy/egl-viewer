@@ -189,6 +189,10 @@ pub struct RootApp {
     pub(crate) folder_pick: Entity<Picker>,
     pub(crate) tag_pick_open: bool,
     pub(crate) folder_pick_open: bool,
+    /// The tags of a tag group, from its menu in the left bar (D-187), and the group it is
+    /// open for.
+    pub(crate) group_tag_pick: Entity<Picker>,
+    pub(crate) group_tag_pick_for: Option<String>,
     /// Picked in this session, newest first; the pickers list them under Recent.
     pub(crate) recent_tags: Vec<String>,
     pub(crate) recent_folders: Vec<String>,
@@ -274,15 +278,12 @@ impl RootApp {
         });
         let root = cx.entity().downgrade();
         let search_hint = crate::i18n::t(prefs.locale, "pick.search");
-        let tag_pick = cx.new(|cx| {
-            Picker::new(
-                PickerKind::Tags,
-                root.clone(),
-                search_hint.clone(),
-                window,
-                cx,
-            )
-        });
+        // The tag pickers create a tag from what is typed: their field says so (D-187).
+        let tag_hint = crate::i18n::t(prefs.locale, "pick.searchOrCreate");
+        let tag_pick =
+            cx.new(|cx| Picker::new(PickerKind::Tags, root.clone(), tag_hint.clone(), window, cx));
+        let group_tag_pick =
+            cx.new(|cx| Picker::new(PickerKind::GroupTags, root.clone(), tag_hint, window, cx));
         let folder_pick =
             cx.new(|cx| Picker::new(PickerKind::Folders, root, search_hint, window, cx));
         let detail_editors = crate::ops_details::DetailEditors::new(prefs.locale, window, cx);
@@ -388,6 +389,8 @@ impl RootApp {
             folder_pick,
             tag_pick_open: false,
             folder_pick_open: false,
+            group_tag_pick,
+            group_tag_pick_for: None,
             recent_tags: Vec::new(),
             recent_folders: Vec::new(),
             detail_editors,
@@ -2331,7 +2334,17 @@ impl RootApp {
                 }
             })
             .child(toolbar)
-            .child(body)
+            // The panes take what the bars leave, never more: without a bound they grew to
+            // their content and the window, not their scrollbars, cut the right bar (D-188).
+            .child(
+                div()
+                    .id("library-body")
+                    .flex_1()
+                    .min_h(px(0.))
+                    .w_full()
+                    .overflow_hidden()
+                    .child(body),
+            )
             .child(library_ui::render_status_bar(lib, locale, theme))
             .when(!self.status.is_empty(), |el| {
                 el.child(
@@ -2432,7 +2445,7 @@ impl RootApp {
             .when(fit.slider, |el| {
                 el.child(slider)
                     // A rule keeps the slider's − / + apart from the actions.
-                    .child(div().w(px(1.)).h(px(18.)).bg(theme.border))
+                    .child(div().w(px(1.)).h(px(18.)).bg(style::divider(theme)))
             })
             // Add Files has a label and its own icon, so it never reads as the slider's +.
             .child(
@@ -2591,7 +2604,7 @@ impl RootApp {
             .gap_1()
             .px_2()
             .border_b_1()
-            .border_color(theme.border)
+            .border_color(style::divider(theme))
             .child(
                 filter_button(
                     "tb-filter-tags",
@@ -2789,6 +2802,9 @@ impl RootApp {
             grid_theme.colors.muted_foreground = foreground.opacity(0.75);
         }
         h_resizable("shell-body")
+            // The resize handles draw the only line between the panes; the panes had a border
+            // of their own beside it, two pixels in all (D-188).
+            .with_handle_appearance(style::quiet_resize_handle())
             .child(
                 resizable_panel()
                     .size(px(left_w))
@@ -2798,8 +2814,6 @@ impl RootApp {
                         div()
                             .id("left-pane")
                             .size_full()
-                            .border_r_1()
-                            .border_color(theme.border)
                             .child(sidebar::render_sidebar(
                                 lib,
                                 locale,
@@ -2815,6 +2829,10 @@ impl RootApp {
                                         .as_ref()
                                         .map(crate::ops_mutations::NamePrompt::kind),
                                     trash_confirm: self.trash_confirm,
+                                    group_tag_pick: self
+                                        .group_tag_pick_for
+                                        .clone()
+                                        .map(|id| (id, self.group_tag_pick.clone())),
                                 },
                             )),
                     ),
@@ -2877,8 +2895,6 @@ impl RootApp {
                         div()
                             .id("right-pane")
                             .size_full()
-                            .border_l_1()
-                            .border_color(theme.border)
                             .child(details::render_details(
                                 lib,
                                 &self.details,
@@ -2929,7 +2945,7 @@ impl RootApp {
             .w_full()
             .max_h(px(160.))
             .border_t_1()
-            .border_color(theme.border)
+            .border_color(crate::browse::style::divider(theme))
             .p_2()
             .gap_1()
             .overflow_y_scrollbar()

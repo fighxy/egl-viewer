@@ -6,11 +6,10 @@ use std::rc::Rc;
 
 use app_store::{Accent, Palette, Preferences, PreviewBackground, Theme};
 use gpui_kit::App;
-use gpui_kit::component::Colorize as _;
 use gpui_kit::component::theme::{
     Theme as KitTheme, ThemeColor, ThemeConfig, ThemeMode, ThemeRegistry,
 };
-use gpui_kit::{Hsla, rgb, white};
+use gpui_kit::{Hsla, rgb};
 
 /// The accent when Windows has none to offer (other platforms, a missing registry value):
 /// the default Windows blue.
@@ -189,21 +188,17 @@ pub fn dword_to_rgb(value: u32) -> [u8; 3] {
 /// grid's selected row, and the drag tint. Text on the accent takes the contrast foreground.
 pub fn apply_accent(colors: &mut ThemeColor, accent: [u8; 3], dark: bool) {
     let base = hsla_of(accent);
-    let foreground = hsla_of(contrast_foreground(accent));
-    // Move away from the text so hover and active cannot reduce its contrast.
-    let towards = if foreground == white() {
-        gpui_kit::black()
-    } else {
-        white()
-    };
-    let hover = base.mix_oklab(towards, 0.12);
-    let active = base.mix_oklab(towards, 0.22);
+    let states = accent_states(accent);
+    let rest = hsla_of(states.rest);
+    let hover = hsla_of(states.hover);
+    let active = hsla_of(states.active);
+    let foreground = hsla_of(states.foreground);
 
-    colors.primary = base;
+    colors.primary = rest;
     colors.primary_hover = hover;
     colors.primary_active = active;
     colors.primary_foreground = foreground;
-    colors.button_primary = base;
+    colors.button_primary = rest;
     colors.button_primary_hover = hover;
     colors.button_primary_active = active;
     colors.button_primary_foreground = foreground;
@@ -211,12 +206,124 @@ pub fn apply_accent(colors: &mut ThemeColor, accent: [u8; 3], dark: bool) {
     colors.selection = base;
     colors.list_active = base.opacity(if dark { 0.25 } else { 0.14 });
     colors.list_active_border = base;
-    colors.sidebar_primary = base;
+    colors.sidebar_primary = rest;
     colors.sidebar_primary_foreground = foreground;
     colors.drag_border = base;
     colors.drop_target = base.opacity(0.25);
     colors.slider_bar = base;
     colors.progress_bar = base;
+}
+
+/// How far hover raises the fill's OKLab lightness, at most and at least (D-186).
+const HOVER_LIFT: [f32; 2] = [0.06, 0.035];
+/// How far a press lowers it, at most and at least.
+const PRESS_SINK: [f32; 2] = [0.06, 0.02];
+/// The step by which the resting fill is darkened when hover cannot lift it readably.
+const REST_STEP: f32 = 0.01;
+
+/// The fills of a control painted with the accent, and the text on them.
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub struct AccentStates {
+    pub rest: [u8; 3],
+    /// Lighter than `rest`: the control lights up under the pointer.
+    pub hover: [u8; 3],
+    /// Darker than `rest` (or equal, for a pale accent with no room): it sinks when pressed.
+    pub active: [u8; 3],
+    pub foreground: [u8; 3],
+}
+
+fn srgb_to_linear(channel: u8) -> f32 {
+    let c = channel as f32 / 255.0;
+    if c <= 0.04045 {
+        c / 12.92
+    } else {
+        ((c + 0.055) / 1.055).powf(2.4)
+    }
+}
+
+fn linear_to_srgb(value: f32) -> u8 {
+    let c = value.clamp(0.0, 1.0);
+    let c = if c <= 0.003_130_8 {
+        c * 12.92
+    } else {
+        1.055 * c.powf(1.0 / 2.4) - 0.055
+    };
+    (c * 255.0).round() as u8
+}
+
+/// sRGB to OKLab (Björn Ottosson's matrices).
+fn oklab(rgb: [u8; 3]) -> [f32; 3] {
+    let [r, g, b] = rgb.map(srgb_to_linear);
+    let l = (0.412_221_5 * r + 0.536_332_5 * g + 0.051_445_99 * b).cbrt();
+    let m = (0.211_903_5 * r + 0.680_699_5 * g + 0.107_396_96 * b).cbrt();
+    let s = (0.088_302_46 * r + 0.281_718_85 * g + 0.629_978_7 * b).cbrt();
+    [
+        0.210_454_26 * l + 0.793_617_8 * m - 0.004_072_047 * s,
+        1.977_998_5 * l - 2.428_592_2 * m + 0.450_593_7 * s,
+        0.025_904_037 * l + 0.782_771_77 * m - 0.808_675_77 * s,
+    ]
+}
+
+fn from_oklab([lightness, a, b]: [f32; 3]) -> [u8; 3] {
+    let l = (lightness + 0.396_337_78 * a + 0.215_803_76 * b).powi(3);
+    let m = (lightness - 0.105_561_346 * a - 0.063_854_17 * b).powi(3);
+    let s = (lightness - 0.089_484_18 * a - 1.291_485_5 * b).powi(3);
+    [
+        4.076_741_7 * l - 3.307_711_6 * m + 0.230_969_94 * s,
+        -1.268_438 * l + 2.609_757_4 * m - 0.341_319_38 * s,
+        -0.004_196_086_3 * l - 0.703_418_6 * m + 1.707_614_7 * s,
+    ]
+    .map(linear_to_srgb)
+}
+
+/// The colour with its OKLab lightness moved by `delta` and its hue and chroma kept, so a lit
+/// accent stays as saturated as the accent instead of washing out towards white.
+fn shift_lightness(rgb: [u8; 3], delta: f32) -> [u8; 3] {
+    let [lightness, a, b] = oklab(rgb);
+    from_oklab([(lightness + delta).clamp(0.0, 1.0), a, b])
+}
+
+/// The first shift, from `range[0]` down to `range[1]` by 0.005 (negated when `darker`), that
+/// changes `rest` and keeps `foreground` readable on it.
+fn readable_shift(
+    rest: [u8; 3],
+    darker: bool,
+    range: [f32; 2],
+    foreground: [u8; 3],
+) -> Option<[u8; 3]> {
+    let steps = ((range[0] - range[1]) / 0.005).round() as i32;
+    let sign = if darker { -1.0 } else { 1.0 };
+    (0..=steps)
+        .map(|step| shift_lightness(rest, sign * (range[0] - step as f32 * 0.005)))
+        .find(|shifted| *shifted != rest && contrast_ratio(*shifted, foreground) >= 4.5)
+}
+
+/// Hover lifts the accent, a press sinks it, and the text stays at WCAG AA (4.5:1) in every
+/// state (D-186). An accent with no room to lift readably (Windows' own blue is right at 4.5
+/// with white text) rests a little darker, so that hover comes back to about the accent itself.
+pub fn accent_states(accent: [u8; 3]) -> AccentStates {
+    for step in 0..=40 {
+        let rest = shift_lightness(accent, -(step as f32) * REST_STEP);
+        let foreground = contrast_foreground(rest);
+        let Some(hover) = readable_shift(rest, false, HOVER_LIFT, foreground) else {
+            continue;
+        };
+        let active = readable_shift(rest, true, PRESS_SINK, foreground).unwrap_or(rest);
+        return AccentStates {
+            rest,
+            hover,
+            active,
+            foreground,
+        };
+    }
+    // Unreachable for real colours: 0.4 darker in lightness always leaves room. Stay readable.
+    let foreground = contrast_foreground(accent);
+    AccentStates {
+        rest: accent,
+        hover: accent,
+        active: accent,
+        foreground,
+    }
 }
 
 /// The foreground on `background`: white when it reaches WCAG AA (4.5:1), black otherwise.
@@ -455,14 +562,100 @@ mod tests {
             assert!(ratio >= 4.5, "{background:?} -> {foreground:?}: {ratio}");
             let mut colors = ThemeColor::default();
             apply_accent(&mut colors, background, true);
-            for state in [colors.primary_hover, colors.primary_active] {
+            let text = crate::ops_colour::rgb_of(colors.primary_foreground);
+            for state in [colors.primary, colors.primary_hover, colors.primary_active] {
                 let state = crate::ops_colour::rgb_of(state);
                 assert!(
-                    contrast_ratio(state, foreground) >= 4.5,
+                    contrast_ratio(state, text) >= 4.5,
                     "{background:?} -> {state:?}"
                 );
             }
         }
+    }
+
+    fn test_accents() -> Vec<[u8; 3]> {
+        let mut colours: Vec<[u8; 3]> = (0..=255u8).map(|gray| [gray, gray, gray]).collect();
+        for r in (0..=255u8).step_by(17) {
+            for g in (0..=255u8).step_by(17) {
+                for b in (0..=255u8).step_by(17) {
+                    colours.push([r, g, b]);
+                }
+            }
+        }
+        colours
+    }
+
+    /// D-186: the control lights up under the pointer and sinks when pressed, for every
+    /// accent, and its text stays readable in all three states.
+    #[test]
+    fn hover_lifts_and_press_sinks_while_text_stays_readable() {
+        for accent in test_accents() {
+            let s = accent_states(accent);
+            assert!(
+                luminance(s.hover) > luminance(s.rest),
+                "{accent:?}: hover {:?} is not lighter than {:?}",
+                s.hover,
+                s.rest
+            );
+            assert!(
+                luminance(s.active) <= luminance(s.rest),
+                "{accent:?}: press {:?} is lighter than {:?}",
+                s.active,
+                s.rest
+            );
+            for state in [s.rest, s.hover, s.active] {
+                assert!(
+                    contrast_ratio(state, s.foreground) >= 4.5,
+                    "{accent:?}: {state:?} on {:?}",
+                    s.foreground
+                );
+            }
+            // A dark accent never rests darker than it has to.
+            assert!(luminance(s.rest) <= luminance(accent) + 1e-6, "{accent:?}");
+        }
+    }
+
+    /// Windows' default blue sits right at 4.5:1 with white text: it rests a little darker,
+    /// hover comes back to about the accent, and a press sinks below the resting fill.
+    #[test]
+    fn windows_blue_rests_slightly_darker_and_hover_returns_to_it() {
+        let accent = [0x00, 0x78, 0xd4];
+        let s = accent_states(accent);
+        assert_eq!(s.foreground, [255, 255, 255]);
+        assert_ne!(s.rest, accent);
+        // Perceptual distance in OKLab; 0.02 is about a just-noticeable difference.
+        let distance = |a: [u8; 3], b: [u8; 3]| {
+            let (a, b) = (oklab(a), oklab(b));
+            a.iter()
+                .zip(b)
+                .map(|(x, y)| (x - y).powi(2))
+                .sum::<f32>()
+                .sqrt()
+        };
+        assert!(distance(s.rest, accent) <= 0.06, "rest {:?}", s.rest);
+        assert!(distance(s.hover, accent) <= 0.03, "hover {:?}", s.hover);
+        assert!(luminance(s.active) < luminance(s.rest));
+    }
+
+    /// The OKLab round trip is lossless to a step, and a lightness shift keeps the hue.
+    #[test]
+    fn lightness_shifts_keep_the_colour() {
+        for rgb in [
+            [0, 120, 212],
+            [239, 68, 68],
+            [234, 179, 8],
+            [0, 0, 0],
+            [255, 255, 255],
+        ] {
+            let back = from_oklab(oklab(rgb));
+            for (x, y) in rgb.iter().zip(back) {
+                assert!((*x as i32 - y as i32).abs() <= 1, "{rgb:?} -> {back:?}");
+            }
+        }
+        let lit = shift_lightness([0, 120, 212], 0.05);
+        assert!(luminance(lit) > luminance([0, 120, 212]));
+        // Blue stays the dominant channel and red stays low: no wash towards white.
+        assert!(lit[2] > lit[1] && lit[1] > lit[0] && lit[0] < 40, "{lit:?}");
     }
 
     #[test]

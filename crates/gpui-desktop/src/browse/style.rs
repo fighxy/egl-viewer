@@ -40,6 +40,32 @@ const _: () = assert!(
 /// The colour of a selected thumbnail's ring and caption: the accent (D-182), which the
 /// theme keeps in `ring`. The kit's `accent` is a quiet grey meant for hover, so a selection
 /// drawn with it cannot be seen on a dark grid.
+/// The lines between the areas of the window (menu, bars, left and right bar, status): the
+/// palette's border, a little quieter, so the panes read as one surface (D-188).
+pub fn divider(theme: &Kit) -> Hsla {
+    theme.border.opacity(DIVIDER_OPACITY)
+}
+
+/// How much of the border colour a divider keeps.
+pub const DIVIDER_OPACITY: f32 = 0.6;
+
+/// gpui-kit's resize handle (its hairline and the pill that shows while hovered or dragged),
+/// drawn at the dividers' strength, so the lines beside the panes match the other dividers.
+pub fn quiet_resize_handle() -> gpui_kit::base::ResizeHandleRenderer {
+    let kit = gpui_kit::component::resizable::resize_handle_appearance();
+    std::rc::Rc::new(move |handle, window, cx| {
+        kit(handle, window, cx).map(|line| {
+            use gpui_kit::{IntoElement as _, ParentElement as _, Styled as _};
+            gpui_kit::div()
+                .flex()
+                .size_full()
+                .opacity(DIVIDER_OPACITY)
+                .child(line)
+                .into_any_element()
+        })
+    })
+}
+
 pub fn selection_color(theme: &Kit) -> Hsla {
     theme.ring
 }

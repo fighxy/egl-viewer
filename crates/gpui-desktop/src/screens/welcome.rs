@@ -55,33 +55,19 @@ impl RootApp {
                       icon: IconName,
                       title: &'static str,
                       hint: &'static str,
-                      primary: bool,
                       on_click: OnClick,
                       cx: &mut Context<Self>| {
-            // One quiet row style for every action; only the main one is filled. The icon
-            // sits in a small tile, so the rows line up whatever the icon (D-150).
-            let (bg, fg, sub, tile, tile_fg) = if primary {
-                (
-                    theme.primary,
-                    theme.primary_foreground,
-                    theme.primary_foreground.opacity(0.7),
-                    theme.primary_foreground.opacity(0.14),
-                    theme.primary_foreground,
-                )
-            } else {
-                (
-                    gpui_kit::transparent_black(),
-                    theme.foreground,
-                    theme.muted_foreground,
-                    theme.muted,
-                    theme.foreground,
-                )
-            };
-            let hover = if primary {
-                theme.primary_hover
-            } else {
-                theme.list_hover
-            };
+            // One quiet row style for every action, Create Library too: none is filled with the
+            // accent (D-190). The icon sits in a small tile, so the rows line up whatever the
+            // icon (D-150).
+            let (bg, fg, sub, tile, tile_fg) = (
+                gpui_kit::transparent_black(),
+                theme.foreground,
+                theme.muted_foreground,
+                theme.muted,
+                theme.foreground,
+            );
+            let hover = theme.list_hover;
             h_flex()
                 .id(id)
                 .w_full()
@@ -173,7 +159,6 @@ impl RootApp {
                         IconName::FolderPlus,
                         "welcome.create",
                         "welcome.createHint",
-                        true,
                         Box::new(|this, _, cx| this.begin_create_library(cx)),
                         cx,
                     ))
@@ -182,7 +167,6 @@ impl RootApp {
                         IconName::FolderOpen,
                         "welcome.open",
                         "welcome.openHint",
-                        false,
                         Box::new(|this, window, cx| this.pick_open_library(window, cx)),
                         cx,
                     )),
@@ -202,7 +186,6 @@ impl RootApp {
                         IconName::Import,
                         "welcome.importEagle",
                         "welcome.importEagleHint",
-                        false,
                         Box::new(|this, window, cx| this.begin_import_eagle(window, cx)),
                         cx,
                     ))
@@ -211,7 +194,6 @@ impl RootApp {
                         IconName::Plug,
                         "welcome.connectEagle",
                         "welcome.connectEagleHint",
-                        false,
                         Box::new(|this, window, cx| this.begin_connect_eagle(window, cx)),
                         cx,
                     )),

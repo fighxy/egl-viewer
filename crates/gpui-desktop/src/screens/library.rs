@@ -22,7 +22,7 @@ pub fn render_status_bar(
         .px_3()
         .py_1()
         .border_t_1()
-        .border_color(theme.border)
+        .border_color(crate::browse::style::divider(theme))
         .text_color(theme.muted_foreground)
         .child(Label::new(t_n(locale, "shell.statusItems", state.total)).text_xs())
         .when(state.selection.count() > 0, |el| {
