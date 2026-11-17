@@ -132,6 +132,8 @@ fn multi_select(
         .id("details-multi")
         .gap_3()
         .overflow_hidden()
+        // Full height inside the scrolling right bar: a shrunk column clipped its own end.
+        .flex_shrink_0()
         .child(stack_preview(model, theme))
         .child(
             Label::new({
@@ -182,7 +184,10 @@ fn single_item(
 
     v_flex()
         .id("details-single")
-        .gap_3()
+        // Full height inside the scrolling right bar: a shrunk column clipped its own end.
+        .flex_shrink_0()
+        // One rhythm for every field: 8 px between rows (D-192).
+        .gap_2()
         .overflow_hidden()
         .child(
             div()
@@ -428,6 +433,20 @@ fn section_header(
         .on_click(move |_, _, cx| on_toggle(cx))
 }
 
+/// The width of the label column of the right bar's fields.
+const LABEL_WIDTH: f32 = 72.;
+
+/// The add button of a chip row (tags, folders): a small outlined "+ Add …" while the row is
+/// empty, only "+" once chips are there, left where the chips start (D-192).
+fn add_button(id: &'static str, label: String, empty: bool) -> Button {
+    let button = Button::new(id)
+        .outline()
+        .xsmall()
+        .icon(IconName::Plus)
+        .tooltip(label.clone());
+    if empty { button.label(label) } else { button }
+}
+
 /// A labelled field whose value is edited in place (D-151).
 fn inline_field(
     locale: Locale,
@@ -443,7 +462,8 @@ fn inline_field(
             Label::new(t(locale, label_key))
                 .text_sm()
                 .text_color(theme.muted_foreground)
-                .w(px(72.))
+                .w(px(LABEL_WIDTH))
+                .flex_none()
                 .pt(px(4.)),
         )
         .child(div().flex_1().min_w_0().child(content))
@@ -474,9 +494,16 @@ fn rating_editor(
     let (muted, rating) = colors;
     h_flex()
         .id("rating-editor")
-        .gap_1()
+        .gap_2()
         .items_center()
-        .child(Label::new(t(locale, "details.rating")).text_sm().w(px(72.)))
+        // The same muted label as every other field (D-192).
+        .child(
+            Label::new(t(locale, "details.rating"))
+                .text_sm()
+                .text_color(muted)
+                .w(px(LABEL_WIDTH))
+                .flex_none(),
+        )
         .children((1..=5u8).map(|star| {
             // Five stars in a row, filled up to the rating. A click on the current rating
             // removes it, as in Eagle.
@@ -566,76 +593,53 @@ fn tags_editor(
     let add = picker_popover(
         "tag-picker-popover",
         PickerKind::Tags,
-        Button::new("add-tag")
-            .ghost()
-            .small()
-            .icon(IconName::Plus)
-            .tooltip(t(locale, "details.addTag")),
+        add_button("add-tag", t(locale, "details.addTag"), tags.is_empty()),
         pickers.tags.clone(),
         pickers.tags_open,
         entity.clone(),
     );
-    v_flex()
-        .id("tags-editor")
-        .gap_1p5()
-        .child(
-            Label::new(t(locale, "details.tags"))
-                .text_xs()
-                .text_color(theme.muted_foreground),
-        )
-        .when(tags.is_empty() && read_only, |el| {
-            el.child(
-                Label::new(t(locale, "details.none"))
-                    .text_sm()
-                    .text_color(theme.muted_foreground),
-            )
-        })
-        .when(!tags.is_empty(), |el| {
-            el.child(
-                h_flex()
-                    .gap_1()
-                    .flex_wrap()
-                    .items_center()
-                    .children(tags.iter().map(|tag| {
-                        let name = tag.name.clone();
-                        // On some of the selected items only.
-                        let dimmed = tag.image_count.is_some_and(|n| n > 0 && n < selected_items);
-                        let remove: Option<RemoveFn> = (!read_only).then(|| {
-                            let entity = entity.clone();
-                            let name = name.clone();
-                            Box::new(move |cx: &mut gpui_kit::App| {
-                                entity.update(cx, |this, cx| {
-                                    this.remove_tag_from_selection(name.clone(), cx)
-                                });
-                            }) as RemoveFn
+    // The label beside the chips, like Name and Note, instead of a line of its own (D-192).
+    inline_field(
+        locale,
+        theme,
+        "details.tags",
+        h_flex()
+            .id("tags-editor")
+            .gap_1()
+            .flex_wrap()
+            .items_center()
+            .min_h(px(26.))
+            .when(tags.is_empty() && read_only, |el| {
+                el.child(
+                    Label::new(t(locale, "details.none"))
+                        .text_sm()
+                        .text_color(theme.muted_foreground),
+                )
+            })
+            .children(tags.iter().map(|tag| {
+                let name = tag.name.clone();
+                // On some of the selected items only.
+                let dimmed = tag.image_count.is_some_and(|n| n > 0 && n < selected_items);
+                let remove: Option<RemoveFn> = (!read_only).then(|| {
+                    let entity = entity.clone();
+                    let name = name.clone();
+                    Box::new(move |cx: &mut gpui_kit::App| {
+                        entity.update(cx, |this, cx| {
+                            this.remove_tag_from_selection(name.clone(), cx)
                         });
-                        chip(
-                            SharedString::from(format!("tag-{name}")),
-                            name,
-                            dimmed,
-                            theme,
-                            remove,
-                        )
-                    }))
-                    .when(!read_only, |el| el.child(add)),
-            )
-        })
-        .when(tags.is_empty() && !read_only, |el| {
-            el.child(
-                div().w_full().child(picker_popover(
-                    "tag-picker-popover",
-                    PickerKind::Tags,
-                    Button::new("add-tag")
-                        .ghost()
-                        .w_full()
-                        .icon(IconName::Plus)
-                        .label(t(locale, "details.addTag")),
-                    pickers.tags.clone(),
-                    pickers.tags_open,
-                    entity.clone(),
-                )),
-            )
-        })
+                    }) as RemoveFn
+                });
+                chip(
+                    SharedString::from(format!("tag-{name}")),
+                    name,
+                    dimmed,
+                    theme,
+                    remove,
+                )
+            }))
+            .when(!read_only, |el| el.child(add))
+            .into_any_element(),
+    )
 }
 
 /// The item's folders as chips; "+" opens the folder picker (D-149).
@@ -648,64 +652,62 @@ fn folders_editor(
     read_only: bool,
     pickers: &PickerHandles,
 ) -> impl IntoElement {
-    v_flex()
-        .id("folders-editor")
-        .gap_1p5()
-        .child(
-            Label::new(t(locale, "details.folders"))
-                .text_xs()
-                .text_color(theme.muted_foreground),
-        )
-        .child(
-            h_flex()
-                .gap_1()
-                .flex_wrap()
-                .items_center()
-                .when(ids.is_empty() && read_only, |el| {
-                    el.child(
-                        Label::new(t(locale, "details.none"))
-                            .text_sm()
-                            .text_color(theme.muted_foreground),
-                    )
-                })
-                .children(ids.iter().map(|id| {
-                    let name = find_folder_name(folders, id)
-                        .unwrap_or_else(|| t(locale, "details.unknownFolder"));
-                    let remove: Option<RemoveFn> = (!read_only).then(|| {
-                        let entity = entity.clone();
-                        let id = id.clone();
-                        Box::new(move |cx: &mut gpui_kit::App| {
-                            entity.update(cx, |this, cx| {
-                                this.apply_edit_to_selection(
-                                    library_core::ItemEdit::RemoveFromFolders(vec![id.clone()]),
-                                    cx,
-                                )
-                            });
-                        }) as RemoveFn
-                    });
-                    chip(
-                        SharedString::from(format!("folder-{id}")),
-                        name,
-                        false,
-                        theme,
-                        remove,
-                    )
-                }))
-                .when(!read_only, |el| {
-                    el.child(picker_popover(
-                        "folder-picker-popover",
-                        PickerKind::Folders,
-                        Button::new("add-folder")
-                            .ghost()
-                            .small()
-                            .icon(IconName::Plus)
-                            .tooltip(t(locale, "details.addToFolder")),
-                        pickers.folders.clone(),
-                        pickers.folders_open,
-                        entity.clone(),
-                    ))
-                }),
-        )
+    inline_field(
+        locale,
+        theme,
+        "details.folders",
+        h_flex()
+            .id("folders-editor")
+            .gap_1()
+            .flex_wrap()
+            .items_center()
+            .min_h(px(26.))
+            .when(ids.is_empty() && read_only, |el| {
+                el.child(
+                    Label::new(t(locale, "details.none"))
+                        .text_sm()
+                        .text_color(theme.muted_foreground),
+                )
+            })
+            .children(ids.iter().map(|id| {
+                let name = find_folder_name(folders, id)
+                    .unwrap_or_else(|| t(locale, "details.unknownFolder"));
+                let remove: Option<RemoveFn> = (!read_only).then(|| {
+                    let entity = entity.clone();
+                    let id = id.clone();
+                    Box::new(move |cx: &mut gpui_kit::App| {
+                        entity.update(cx, |this, cx| {
+                            this.apply_edit_to_selection(
+                                library_core::ItemEdit::RemoveFromFolders(vec![id.clone()]),
+                                cx,
+                            )
+                        });
+                    }) as RemoveFn
+                });
+                chip(
+                    SharedString::from(format!("folder-{id}")),
+                    name,
+                    false,
+                    theme,
+                    remove,
+                )
+            }))
+            .when(!read_only, |el| {
+                el.child(picker_popover(
+                    "folder-picker-popover",
+                    PickerKind::Folders,
+                    add_button(
+                        "add-folder",
+                        t(locale, "details.addToFolder"),
+                        ids.is_empty(),
+                    ),
+                    pickers.folders.clone(),
+                    pickers.folders_open,
+                    entity.clone(),
+                ))
+            })
+            .into_any_element(),
+    )
 }
 
 fn field(
@@ -762,6 +764,8 @@ fn folder_properties(
     let order = folder.order_by;
     v_flex()
         .id("folder-properties")
+        // Full height inside the scrolling right bar: a shrunk column clipped its own end.
+        .flex_shrink_0()
         .gap_3()
         .child(Label::new(folder.name.clone()).font_bold())
         .child(

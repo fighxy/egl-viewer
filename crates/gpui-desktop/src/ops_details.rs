@@ -51,7 +51,9 @@ impl DetailEditors {
             name: cx.new(|cx| InputState::new(window, cx)),
             note: cx.new(|cx| {
                 TextareaState::new(window, cx)
-                    .auto_grow(2, 8)
+                    // One line while empty, growing with the text up to five; a longer note
+                    // scrolls inside the field instead of stretching the right bar (D-188).
+                    .auto_grow(1, 5)
                     .placeholder(t(locale, "details.notePlaceholder"))
             }),
             link: cx.new(|cx| InputState::new(window, cx).placeholder("https://")),

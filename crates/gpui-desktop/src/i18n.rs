@@ -39,6 +39,13 @@ fn en() -> Catalog {
         ("pick.recent", "Recent"),
         ("pick.other", "Other"),
         ("pick.createTag", "Create tag “{name}”"),
+        ("pick.searchOrCreate", "Search or type a new tag…"),
+        ("pick.newTagInGroup", "New tag in “{group}”"),
+        (
+            "pick.addToGroupHint",
+            "Type a tag for “{group}”, then Enter",
+        ),
+        ("pick.addToGroup", "Add “{name}” to “{group}”"),
         ("pick.nothing", "Nothing here yet"),
         ("pick.move", "Move"),
         ("pick.select", "Select"),
@@ -223,6 +230,11 @@ fn en() -> Catalog {
         ("tags.noColour", "No colour"),
         ("tags.deleteGroup", "Delete group"),
         ("tags.addToGroup", "Add to group"),
+        ("preview.zoomOut", "Zoom out"),
+        ("preview.zoomIn", "Zoom in"),
+        ("preview.zoomFit", "Fit to window"),
+        ("preview.close", "Close (Esc)"),
+        ("tags.addTagsToGroup", "Add Tags…"),
         ("tags.removeFromGroup", "Remove from group"),
         ("tags.newGroupWithTag", "New group with this tag…"),
         ("dnd.reordered", "Items reordered"),
@@ -670,6 +682,13 @@ fn ru() -> Catalog {
         ("pick.recent", "Недавние"),
         ("pick.other", "Другие"),
         ("pick.createTag", "Создать тег «{name}»"),
+        ("pick.searchOrCreate", "Найти или создать тег…"),
+        ("pick.newTagInGroup", "Новый тег в «{group}»"),
+        (
+            "pick.addToGroupHint",
+            "Введите тег для «{group}» и нажмите Enter",
+        ),
+        ("pick.addToGroup", "Добавить «{name}» в «{group}»"),
         ("pick.nothing", "Пока пусто"),
         ("pick.move", "Переместить"),
         ("pick.select", "Выбрать"),
@@ -778,6 +797,11 @@ fn ru() -> Catalog {
         ("tags.noColour", "Без цвета"),
         ("tags.deleteGroup", "Удалить группу"),
         ("tags.addToGroup", "Добавить в группу"),
+        ("preview.zoomOut", "Уменьшить"),
+        ("preview.zoomIn", "Увеличить"),
+        ("preview.zoomFit", "По размеру окна"),
+        ("preview.close", "Закрыть (Esc)"),
+        ("tags.addTagsToGroup", "Добавить теги…"),
         ("tags.removeFromGroup", "Убрать из группы"),
         ("tags.newGroupWithTag", "Новая группа с этим тегом…"),
         ("commands.help.shortcuts", "Сочетания клавиш"),
@@ -830,6 +854,11 @@ fn ru() -> Catalog {
         ("shell.untagged", "Без тегов"),
         ("shell.trash", "Корзина"),
         ("shell.folders", "Папки"),
+        ("shell.lockedFolders", "Запертые папки"),
+        ("shell.smartFolders", "Смарт-папки"),
+        ("shell.tags", "Теги"),
+        ("shell.locked", "Заперта"),
+        ("shell.unlocked", "Открыта"),
         ("shell.search", "Поиск"),
         ("shell.statusItems", "{n} объектов"),
         ("shell.statusSelected", "{n} выбрано"),
@@ -1280,6 +1309,11 @@ fn ru() -> Catalog {
 
 fn zh_cn() -> Catalog {
     HashMap::from([
+        ("preview.zoomOut", "缩小"),
+        ("preview.zoomIn", "放大"),
+        ("preview.zoomFit", "适合窗口"),
+        ("preview.close", "关闭 (Esc)"),
+        ("tags.addTagsToGroup", "添加标签…"),
         ("filters.unratedHint", "未评分"),
         ("filters.rating", "评分"),
         ("filters.anyRating", "任意评分"),
@@ -1315,6 +1349,10 @@ fn zh_cn() -> Catalog {
         ("pick.recent", "最近"),
         ("pick.other", "其他"),
         ("pick.createTag", "创建标签“{name}”"),
+        ("pick.searchOrCreate", "搜索或输入新标签…"),
+        ("pick.newTagInGroup", "在“{group}”中新建标签"),
+        ("pick.addToGroupHint", "为“{group}”输入标签，然后按 Enter"),
+        ("pick.addToGroup", "将“{name}”添加到“{group}”"),
         ("pick.nothing", "暂无内容"),
         ("pick.move", "移动"),
         ("pick.select", "选择"),
@@ -1418,6 +1456,11 @@ fn zh_cn() -> Catalog {
         ("shell.untagged", "无标签"),
         ("shell.trash", "回收站"),
         ("shell.folders", "文件夹"),
+        ("shell.lockedFolders", "锁定的文件夹"),
+        ("shell.smartFolders", "智能文件夹"),
+        ("shell.tags", "标签"),
+        ("shell.locked", "已锁定"),
+        ("shell.unlocked", "已解锁"),
         ("shell.search", "搜索"),
         ("shell.statusItems", "{n} 项"),
         ("shell.statusSelected", "已选 {n}"),
@@ -1943,6 +1986,32 @@ mod tests {
                 "previewBg.black",
                 "previewBg.gray",
                 "previewBg.white",
+            ] {
+                assert!(catalog.contains_key(key), "{key}");
+            }
+        }
+    }
+
+    /// The left bar's headers and today's new strings speak every language (D-187, D-188).
+    #[test]
+    fn left_bar_headers_and_preview_bar_are_translated() {
+        for catalog in [en(), ru(), zh_cn()] {
+            for key in [
+                "shell.folders",
+                "shell.lockedFolders",
+                "shell.smartFolders",
+                "shell.tags",
+                "shell.locked",
+                "shell.unlocked",
+                "tags.addTagsToGroup",
+                "pick.searchOrCreate",
+                "pick.newTagInGroup",
+                "pick.addToGroupHint",
+                "pick.addToGroup",
+                "preview.zoomOut",
+                "preview.zoomIn",
+                "preview.zoomFit",
+                "preview.close",
             ] {
                 assert!(catalog.contains_key(key), "{key}");
             }

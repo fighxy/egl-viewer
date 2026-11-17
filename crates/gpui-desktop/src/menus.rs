@@ -102,7 +102,7 @@ impl RootApp {
             .gap_1()
             .px_2()
             .border_b_1()
-            .border_color(theme.border)
+            .border_color(crate::browse::style::divider(theme))
             .child({
                 let snap = snap.clone();
                 menu_button("menu-file", t(locale, "menus.file"))

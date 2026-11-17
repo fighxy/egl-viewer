@@ -7,6 +7,7 @@
 use std::collections::HashSet;
 
 use gpui_kit::assets::IconName;
+use gpui_kit::component::button::{Button, ButtonVariants as _};
 use gpui_kit::component::input::{Input, InputEvent, InputState};
 use gpui_kit::component::label::Label;
 use gpui_kit::component::scroll::ScrollableElement as _;
@@ -28,13 +29,15 @@ use crate::ops_items::flatten_pickable;
 pub enum PickerKind {
     Tags,
     Folders,
+    /// The tags of one tag group, from the group's menu in the left bar (D-187).
+    GroupTags,
 }
 
 impl PickerKind {
     /// Cells a row of the list holds.
     pub fn columns(self) -> usize {
         match self {
-            Self::Tags => 2,
+            Self::Tags | Self::GroupTags => 2,
             Self::Folders => 1,
         }
     }
@@ -43,7 +46,11 @@ impl PickerKind {
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub enum SectionTitle {
     Recent,
-    Group(String),
+    /// A tag group: its + adds a typed tag to it (D-187).
+    Group {
+        id: String,
+        name: String,
+    },
     Other,
 }
 
@@ -123,12 +130,14 @@ pub fn tag_sections(
             .map(|tag| tag_row(tag, on))
             .collect();
         grouped.extend(group.tags.iter().cloned());
-        if !rows.is_empty() {
-            sections.push(PickerSection {
-                title: Some(SectionTitle::Group(group.name.clone())),
-                rows,
-            });
-        }
+        // An empty group keeps its header: its + is how it gets a first tag (D-187).
+        sections.push(PickerSection {
+            title: Some(SectionTitle::Group {
+                id: group.id.clone(),
+                name: group.name.clone(),
+            }),
+            rows,
+        });
     }
     let other: Vec<PickerRow> = vocabulary
         .iter()
@@ -194,6 +203,21 @@ pub fn folder_sections(
         });
     }
     sections
+}
+
+/// The picker of a group's tags (D-187): the vocabulary plus any name the group holds that no
+/// item carries yet, with the group's own tags checked. Also the vocabulary it searches.
+pub fn group_tag_vocabulary(vocabulary: &[Tag], group: &TagGroup) -> Vec<Tag> {
+    let mut all = vocabulary.to_vec();
+    for name in &group.tags {
+        if !all.iter().any(|tag| tag.name == *name) {
+            all.push(Tag {
+                name: name.clone(),
+                image_count: None,
+            });
+        }
+    }
+    all
 }
 
 /// A typed name that is no tag yet; Enter then creates it.
@@ -340,6 +364,12 @@ impl RootApp {
                 self.tag_pick_open = open;
                 self.tag_pick.clone()
             }
+            PickerKind::GroupTags => {
+                if !open {
+                    self.group_tag_pick_for = None;
+                }
+                self.group_tag_pick.clone()
+            }
             PickerKind::Folders => {
                 self.folder_pick_open = open;
                 self.folder_pick.clone()
@@ -358,6 +388,8 @@ pub struct Picker {
     root: WeakEntity<RootApp>,
     input: Entity<InputState>,
     highlighted: Option<usize>,
+    /// The group (id, name) whose + was pressed: Enter puts the typed name into it (D-187).
+    adding_to: Option<(String, String)>,
     _sub: Subscription,
 }
 
@@ -385,12 +417,15 @@ impl Picker {
             root,
             input,
             highlighted: None,
+            adding_to: None,
             _sub,
         }
     }
 
     /// Opening: an empty search with the caret in it.
     pub fn reset(&mut self, window: &mut Window, cx: &mut Context<Self>) {
+        self.adding_to = None;
+        self.highlighted = None;
         self.input.update(cx, |input, cx| {
             input.set_value("", window, cx);
             input.focus(window, cx);
@@ -422,6 +457,21 @@ impl Picker {
                         &query,
                     ),
                     create_candidate(&app.tag_vocabulary, &query),
+                )
+            }
+            PickerKind::GroupTags => {
+                let Some(group) = app
+                    .group_tag_pick_for
+                    .as_ref()
+                    .and_then(|id| app.tag_groups.iter().find(|g| g.id == *id))
+                else {
+                    return (Vec::new(), None);
+                };
+                let vocabulary = group_tag_vocabulary(&app.tag_vocabulary, group);
+                let on: HashSet<String> = group.tags.iter().cloned().collect();
+                (
+                    tag_sections(&vocabulary, &app.tag_groups, &app.recent_tags, &on, &query),
+                    create_candidate(&vocabulary, &query),
                 )
             }
             PickerKind::Folders => {
@@ -461,18 +511,70 @@ impl Picker {
                     remember(&mut app.recent_folders, &key);
                     app.apply_edit_to_selection(ItemEdit::AddToFolders(vec![key]), cx);
                 }
+                (PickerKind::GroupTags, on) => app.set_tag_in_picked_group(key, !on, cx),
             });
         }
         cx.notify();
     }
 
     fn create(&mut self, name: String, window: &mut Window, cx: &mut Context<Self>) {
+        let kind = self.kind;
         if let Some(root) = self.root.upgrade() {
             root.update(cx, |app, cx| {
                 remember(&mut app.recent_tags, &name);
+                if kind == PickerKind::GroupTags {
+                    app.set_tag_in_picked_group(name, true, cx);
+                    return;
+                }
                 app.add_tag_to_selection(name, cx);
                 // A new tag joins the vocabulary the picker lists.
                 app.tag_vocabulary = app.session.tag_vocabulary().unwrap_or_default();
+            });
+        }
+        self.reset(window, cx);
+    }
+
+    /// The + of a group's header: the field now takes the name of a tag for that group.
+    fn start_adding(
+        &mut self,
+        id: String,
+        name: String,
+        window: &mut Window,
+        cx: &mut Context<Self>,
+    ) {
+        self.input.update(cx, |input, cx| {
+            input.set_value("", window, cx);
+            input.focus(window, cx);
+        });
+        self.highlighted = None;
+        self.adding_to = Some((id, name));
+        cx.notify();
+    }
+
+    /// Puts `name` into the group whose + was pressed. From the right bar the selection gets
+    /// the tag as well, which also brings a new name into the vocabulary (D-187).
+    fn add_to_group(&mut self, name: String, window: &mut Window, cx: &mut Context<Self>) {
+        let Some((group, _)) = self.adding_to.clone() else {
+            return;
+        };
+        let kind = self.kind;
+        if let Some(root) = self.root.upgrade() {
+            root.update(cx, |app, cx| {
+                remember(&mut app.recent_tags, &name);
+                let tag = name.clone();
+                app.update_tag_group(
+                    &group,
+                    move |g| {
+                        if !g.tags.contains(&tag) {
+                            g.tags.push(tag);
+                        }
+                    },
+                    cx,
+                );
+                if kind == PickerKind::Tags {
+                    app.add_tag_to_selection(name, cx);
+                    app.tag_vocabulary = app.session.tag_vocabulary().unwrap_or_default();
+                }
             });
         }
         self.reset(window, cx);
@@ -485,6 +587,7 @@ impl Picker {
                 match kind {
                     PickerKind::Tags => app.tag_pick_open = false,
                     PickerKind::Folders => app.folder_pick_open = false,
+                    PickerKind::GroupTags => app.group_tag_pick_for = None,
                 }
                 cx.notify();
             });
@@ -493,6 +596,23 @@ impl Picker {
 
     fn on_key(&mut self, event: &KeyDownEvent, window: &mut Window, cx: &mut Context<Self>) {
         let key = event.keystroke.key.as_str();
+        if self.adding_to.is_some() {
+            match key {
+                "enter" => {
+                    let name = self.query(cx).trim().to_owned();
+                    if name.is_empty() {
+                        return;
+                    }
+                    self.add_to_group(name, window, cx);
+                }
+                // Escape leaves the group's +, not the picker.
+                "escape" => self.reset(window, cx),
+                _ => return,
+            }
+            cx.stop_propagation();
+            cx.notify();
+            return;
+        }
         let (sections, candidate) = self.sections(cx);
         match key {
             "up" | "down" | "left" | "right" => {
@@ -531,11 +651,45 @@ impl Render for Picker {
         let kind = self.kind;
         let mut flat = 0usize;
 
+        // After a group's +, the field names a tag for that group: one row says so (D-187).
+        let adding = self.adding_to.clone().map(|(_, group)| {
+            let typed = self.query(cx).trim().to_owned();
+            let text = if typed.is_empty() {
+                t(locale, "pick.addToGroupHint").replace("{group}", &group)
+            } else {
+                t(locale, "pick.addToGroup")
+                    .replace("{name}", &typed)
+                    .replace("{group}", &group)
+            };
+            h_flex()
+                .id("picker-add-to-group")
+                .mx_2()
+                .px_2()
+                .py_1()
+                .gap_2()
+                .rounded(theme.radius)
+                .bg(theme.list_hover)
+                .when(!typed.is_empty(), |el| el.cursor_pointer())
+                .child(Icon::new(IconName::Plus).small())
+                .child(Label::new(text).text_sm())
+                .on_click(cx.listener(move |this, _, window, cx| {
+                    if !typed.is_empty() {
+                        this.add_to_group(typed.clone(), window, cx);
+                    }
+                }))
+        });
+        let adding_now = adding.is_some();
+        let (sections, candidate) = if adding_now {
+            (Vec::new(), None)
+        } else {
+            (sections, candidate)
+        };
         let body = v_flex()
             .id("picker-body")
             .max_h(px(320.))
             .overflow_y_scrollbar()
             .py_1()
+            .when_some(adding, |el, row| el.child(row))
             .when_some(
                 candidate.clone().filter(|_| highlighted.is_none()),
                 |el, name| {
@@ -560,24 +714,36 @@ impl Render for Picker {
                     )
                 },
             )
-            .when(sections.is_empty() && candidate.is_none(), |el| {
-                el.child(
-                    div().px_3().py_2().child(
-                        Label::new(t(locale, "pick.nothing"))
-                            .text_sm()
-                            .text_color(theme.muted_foreground),
-                    ),
-                )
-            })
+            .when(
+                sections.is_empty() && candidate.is_none() && !adding_now,
+                |el| {
+                    el.child(
+                        div().px_3().py_2().child(
+                            Label::new(t(locale, "pick.nothing"))
+                                .text_sm()
+                                .text_color(theme.muted_foreground),
+                        ),
+                    )
+                },
+            )
             .children(sections.iter().enumerate().map(|(s, section)| {
                 let title = section.title.as_ref().map(|title| {
                     let name = match title {
                         SectionTitle::Recent => t(locale, "pick.recent"),
-                        SectionTitle::Group(name) => name.clone(),
+                        SectionTitle::Group { name, .. } => name.clone(),
                         SectionTitle::Other => t(locale, "pick.other"),
                     };
                     format!("{name} ({})", section.rows.len())
                 });
+                // A group's + takes the name of a new tag for it (D-187).
+                let group_add = match &section.title {
+                    Some(SectionTitle::Group { id, name })
+                        if matches!(kind, PickerKind::Tags | PickerKind::GroupTags) =>
+                    {
+                        Some((id.clone(), name.clone()))
+                    }
+                    _ => None,
+                };
                 let cells: Vec<_> = section
                     .rows
                     .iter()
@@ -606,16 +772,18 @@ impl Render for Picker {
                             .cursor_pointer()
                             .overflow_hidden();
                         cell = match kind {
-                            PickerKind::Tags => cell.flex_1().min_w_0().child(if row.on {
-                                Icon::new(IconName::Check)
-                                    .xsmall()
-                                    .text_color(theme.primary)
-                                    .into_any_element()
-                            } else {
-                                Label::new("•")
-                                    .text_color(theme.muted_foreground)
-                                    .into_any_element()
-                            }),
+                            PickerKind::Tags | PickerKind::GroupTags => {
+                                cell.flex_1().min_w_0().child(if row.on {
+                                    Icon::new(IconName::Check)
+                                        .xsmall()
+                                        .text_color(theme.primary)
+                                        .into_any_element()
+                                } else {
+                                    Label::new("•")
+                                        .text_color(theme.muted_foreground)
+                                        .into_any_element()
+                                })
+                            }
                             PickerKind::Folders => cell
                                 .w_full()
                                 .pl(px(8. + row.depth as f32 * 16.))
@@ -678,12 +846,39 @@ impl Render for Picker {
                     })
                     .when_some(title, |el, title| {
                         el.child(
-                            div().px_3().child(
-                                Label::new(title)
-                                    .text_xs()
-                                    .font_weight(gpui_kit::FontWeight::SEMIBOLD)
-                                    .text_color(theme.muted_foreground),
-                            ),
+                            h_flex()
+                                .px_3()
+                                .gap_1()
+                                .items_center()
+                                .child(
+                                    Label::new(title)
+                                        .text_xs()
+                                        .font_weight(gpui_kit::FontWeight::SEMIBOLD)
+                                        .text_color(theme.muted_foreground),
+                                )
+                                .when_some(group_add.clone(), |el, (id, name)| {
+                                    let tip =
+                                        t(locale, "pick.newTagInGroup").replace("{group}", &name);
+                                    el.child(
+                                        Button::new(SharedString::from(format!(
+                                            "picker-group-add-{id}"
+                                        )))
+                                        .ghost()
+                                        .xsmall()
+                                        .icon(IconName::Plus)
+                                        .tooltip(tip)
+                                        .on_click(
+                                            cx.listener(move |this, _, window, cx| {
+                                                this.start_adding(
+                                                    id.clone(),
+                                                    name.clone(),
+                                                    window,
+                                                    cx,
+                                                )
+                                            }),
+                                        ),
+                                    )
+                                }),
                         )
                     })
                     .child(grid)
@@ -709,10 +904,11 @@ impl Render for Picker {
         v_flex()
             .id(match kind {
                 PickerKind::Tags => "tag-picker",
+                PickerKind::GroupTags => "group-tag-picker",
                 PickerKind::Folders => "folder-picker",
             })
             .w(px(match kind {
-                PickerKind::Tags => 320.,
+                PickerKind::Tags | PickerKind::GroupTags => 320.,
                 PickerKind::Folders => 300.,
             }))
             .capture_key_down(cx.listener(Self::on_key))
@@ -760,6 +956,41 @@ mod tests {
         }
     }
 
+    /// D-187: a group's picker lists its own names even when no item carries them, checks
+    /// them, and offers to create only a name that is neither a tag nor in the group.
+    #[test]
+    fn group_picker_lists_and_checks_the_group_tags() {
+        let group = TagGroup {
+            id: "G".into(),
+            name: "People".into(),
+            color: None,
+            tags: vec!["Баба Женя".into(), "Unused".into()],
+        };
+        let all = group_tag_vocabulary(&vocabulary(), &group);
+        assert!(
+            all.iter()
+                .any(|t| t.name == "Unused" && t.image_count.is_none())
+        );
+        assert_eq!(
+            all.iter().filter(|t| t.name == "Баба Женя").count(),
+            1,
+            "a used tag is not listed twice"
+        );
+        let on: HashSet<String> = group.tags.iter().cloned().collect();
+        let sections = tag_sections(&all, std::slice::from_ref(&group), &[], &on, "");
+        let checked: Vec<&str> = sections
+            .iter()
+            .flat_map(|s| &s.rows)
+            .filter(|r| r.on)
+            .map(|r| r.key.as_str())
+            .collect();
+        assert_eq!(checked, ["Баба Женя", "Unused"]);
+        assert_eq!(create_candidate(&all, "Unused"), None);
+        assert_eq!(create_candidate(&all, " New "), Some("New".into()));
+        // Tags are case-sensitive: another case is another tag.
+        assert_eq!(create_candidate(&all, "unused"), Some("unused".into()));
+    }
+
     fn vocabulary() -> Vec<Tag> {
         vec![
             tag("Баба Женя", 23),
@@ -797,8 +1028,14 @@ mod tests {
             titles,
             vec![
                 Some(SectionTitle::Recent),
-                Some(SectionTitle::Group("Семья".into())),
-                Some(SectionTitle::Group("Друзья".into())),
+                Some(SectionTitle::Group {
+                    id: "g1".into(),
+                    name: "Семья".into()
+                }),
+                Some(SectionTitle::Group {
+                    id: "g2".into(),
+                    name: "Друзья".into()
+                }),
                 Some(SectionTitle::Other),
             ]
         );
