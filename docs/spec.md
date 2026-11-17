@@ -308,7 +308,7 @@ Changing chips or sort on the same scope does not reload the scope.
 
 ## 7. Screens
 
-One window and one library per window (D-024). The layout is desktop-first and responsive, so a phone layout can be added later without restructuring. **UI language** defaults to English; Russian and Chinese (Simplified) are selectable in Settings (D-069). Strings go through the message catalogs in the host crate. How the menu, the commands and desktop behaviour are built is in arch §8.
+One window and one library per window (D-024). The layout is desktop-first and responsive, so a phone layout can be added later without restructuring. **UI language** defaults to English; Russian and Chinese (Simplified) are selectable in Settings (D-069). Strings go through the message catalogs in the host crate; every English string has a Russian and a Chinese translation, and a test fails when one is missing (D-191). How the menu, the commands and desktop behaviour are built is in arch §8.
 
 ### 7.1 Window and menu
 

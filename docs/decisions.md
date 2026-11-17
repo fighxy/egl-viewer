@@ -3940,99 +3940,25 @@ stayed in GPUI's asset cache for the life of the window. The grid only had the s
 - **Left for later.** User theme folders (`watch_dir`), interface density, Windows 11 Mica /
   transparency, per-library accent and mobile apps remain outside this change (D-182).
 
-## D-186 GPUI: accent controls light up on hover and sink when pressed (2026-11-16)
+## D-191 GPUI: every UI string in all three languages, enforced by a test (2026-11-16)
 
-- **Problem.** A button or row painted with the accent went dull under the pointer, the
-  default action on the start screen most of all. Two causes. `apply_accent` (D-182) moved
-  hover and press away from the text colour, so with white text both got darker; and
-  gpui-kit's `mix_oklab(other, factor)` weights its *first* colour by `factor`, so
-  `accent.mix_oklab(black, 0.12)` was 12 % accent and 88 % black: hover all but went out.
-- **Change.** `theme::accent_states` gives every accent three fills: hover raises the OKLab
-  lightness by up to 0.06, a press lowers it by up to 0.06, and hue and chroma stay, so a lit
-  accent does not wash out towards white. The text (white, or black on pale accents) stays at
-  WCAG AA (4.5:1) in all three states; a shift that would break it is made smaller, down to
-  0.035 for hover and 0.02 for a press. An accent with no room for that (Windows' default
-  `#0078D4` is right at 4.5:1 with white) rests a little darker, in lightness steps of 0.01,
-  so hover comes back to about the accent itself. The primary, button and left-bar primary
-  tokens take the resting fill; the ring, the selection and the tints keep the accent.
-- **Tests.** For every grey and a 16-step RGB grid: hover lighter than rest, a press not
-  lighter, the text readable in all three states, and no accent resting lighter than itself;
-  Windows' blue rests and hovers within a just-noticeable OKLab distance of the accent; the
-  OKLab round trip and a lightness shift keep the colour. `mix_oklab` is no longer used.
+`gpui-desktop`'s `t()` falls back to English when a key is missing from the active catalog, so
+a string added only to `en()` showed up in English in the Russian or Chinese UI without any
+error. On 2026-11-16, 205 of the 516 English keys were missing from `ru()` and 249 from
+`zh_cn()` (left-bar headers, tag groups, locks, imports, trash, export, decrypt, Eagle connect
+and import, library settings, app login).
 
-## D-187 GPUI: Add Tags… in a tag group's menu (2026-11-16)
-
-- **Problem.** A tag went into a group only from the tag's own menu (Add to group, D-162), the
-  reverse of where people look for it; a group's menu could not add anything.
-- **Change.** A tag group's menu has "Add Tags…" after "Filter by group". The same opens from a
-  + by the group's count, shown on the row under the pointer (a press on it does not fold the
-  group). It opens the tag
-  picker of the right bar (D-149) under the group's row, in a mode of its own
-  (`PickerKind::GroupTags`): the vocabulary in its sections with the group's tags checked;
-  a click or Enter puts a tag in or takes it out, and the popover stays open; a typed name that
-  is neither a tag nor in the group offers "Create tag", which adds the name to the group even
-  though no item carries it yet. The group lists such a name, and the picker shows it, until
-  it is used. Names stay case-sensitive. In both tag pickers the field's hint is "Search or type a
-  new tag…", and every group's header has a +: it turns the field into the name of a tag for
-  that group ("Type a tag for “Family”, then Enter"; Escape leaves it). Enter puts the name into
-  the group, a new name as well; from the right bar the selection gets the tag too. An empty
-  group keeps its header in the picker, so its + can give it a first tag. Ungrouped and read-only libraries have no menu, so no
-  picker. "Add to group" in a tag's menu stays.
-
-## D-188 GPUI: quieter dividers, a preview bar that reads, a right bar that scrolls (2026-11-16)
-
-- **Dividers.** The lines between the window's areas (under the menu and the filter bar,
-  beside the left and right bars, above the status line and the Imports panel, the rule in the
-  toolbar) take `style::divider`: the palette's border at 60 %. Borders of dialogs, popovers
-  and fields keep the full colour. Between the panes the resize handle draws the only line, at the same
-  strength (`style::quiet_resize_handle`); the panes' own borders beside it made those seams
-  two pixels wide.
-- **Preview bar.** Its buttons sit on a tint of the preview's foreground (10 %, 20 % under the
-  pointer, 28 % pressed) instead of none, so they read as buttons on any backdrop (D-183).
-  Zoom out, the level and zoom in form one group with Lucide icons and tooltips; Rotate has an
-  icon and its label; Close is an X icon in an outline (45 % of the foreground), the easiest
-  thing on the bar to find.
-- **Preview arrows.** Previous and next are 44 px round buttons with chevrons, faded where
-  there is no neighbour. A click on one closed the preview: the gpui-kit button lets the
-  mouse-down through to the letterbox below, which closes on it (D-073). The arrows now
-  occlude and keep the press, as the player bars already did.
-- **Right bar.** A short window could not scroll it to the last EXIF rows. Two causes: the
-  body under the toolbar had no bound, so the panes grew to their content and the window cut
-  them; and the details, the bar's only child, shrank to the bar and clipped their own end.
-  The body now takes what the bars leave (`flex_1`, `min_h(0)`), and the details no longer
-  shrink.
-- **Note field.** One line while empty, growing with the text up to five lines; a longer
-  note scrolls inside the field (it started at two and grew to eight).
-
-## D-189 GPUI: turning the preview reuses the decoded pixels (2026-11-16)
-
-- **Problem.** Each turn (`R` or Rotate) decoded the original again at the new angle, on a
-  background thread: hundreds of milliseconds for a large JPEG, and the old frame stayed up
-  meanwhile.
-- **Change.** `preview_image::rotate_shown` turns the picture already decoded for the preview
-  (the upright one in the preview cache): a quarter turn only reorders pixels in memory, every
-  frame of an animation keeps its delay, and the BGRA channels are not touched. The decode at
-  an angle stays for what has no pixels of ours (SVG, the thumbnail placeholder). The `image`
-  crate is optimised in dev builds already (D-143), so `cargo run` turns quickly too.
-- **Tests.** Turning the decoded pixels equals decoding at 0°, 90°, 180°, 270° and 450°; an
-  animation keeps its frame count and delays and swaps each frame's sides.
-
-## D-190 GPUI: every start-screen action looks the same (2026-11-16)
-
-- **Problem.** Create library was the one filled row of the start screen (D-150), in the
-  accent; it drew the eye as if it were the only way in, and with Windows' accent it was a
-  large blue slab beside quiet rows.
-- **Change.** Create library is a quiet row like Open library and the Eagle actions: the icon
-  in a grey tile, the title and the hint in the text colours, a grey tint under the pointer.
-  The app's own tile at the top keeps the accent. This replaces "only Create library is
-  filled" of D-150.
-
-## D-192 GPUI: one layout for the right bar's fields (2026-11-16)
-
-- **Problem.** Name, rating, note and link had their label on the left; tags and folders had
-  theirs on a line of its own above, and empty tags showed a wide "+ Add tag" button across the
-  bar, centred. Fields sat 12 px apart, and the rating's label was not muted like the others.
-- **Change.** Every field has its label in the same 72 px column on the left (`LABEL_WIDTH`),
-  muted; tags and folders are a wrapping row of chips beside it. Their add button is a small
-  outlined "+ Add tag" / "+ Add to folder" while the row is empty, and only "+" (with the same
-  tooltip) once chips are there, where the chips start. Fields are 8 px apart.
+- **Translations.** Every missing string is translated, reusing the catalogs' existing wording:
+  Russian «Запереть / Отпереть» for folder locks, «Смарт-папка», «Корзина», «Параметры»;
+  Chinese 图库 for a library, 回收站 for the trash (the two strings that said 废纸篓 now say
+  回收站 too), 智能文件夹, 锁定. Counts in Russian use the «Удалено навсегда: {n}» form, which
+  avoids plural endings. Placeholders and `…` are kept; Eagle, YubiKey, WebAuthn and file
+  suffixes are not translated.
+- **Left-bar headers.** `shell.lockedFolders`, `shell.smartFolders`, `shell.tags`,
+  `shell.locked` and `shell.unlocked` carry the same text as the parallel accent-hover change,
+  so the two merge without different wording.
+- **Removed.** `welcome.eagleLater` existed only in `ru()` and `zh_cn()` and nothing used it.
+- **Tests.** `every_catalog_has_exactly_the_english_keys` fails when `ru()` or `zh_cn()` lacks
+  a key of `en()` or holds one `en()` lacks, so a new English string without translations
+  fails CI. `translations_keep_the_placeholders` checks that each translation fills the same
+  `{n}`, `{name}`, `{what}`… slots as its English string.
